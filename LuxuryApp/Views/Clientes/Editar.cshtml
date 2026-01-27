@@ -1,0 +1,127 @@
+﻿@model LuxuryApp.Models.DataBase.ClientesModel
+
+<div class="card border-0 shadow-lg ">
+    <div class="card-header bg-dark text-white py-3">
+        <h5 class="m-0">
+            <i class="fas fa-edit me-2"></i>Editar Cliente
+        </h5>
+    </div>
+
+    <div class="card-body">
+        <form asp-action="Editar" method="post">
+            <div class="mb-3">
+                <label class="form-label">Número de Teléfono</label>
+                <input asp-for="NumeroTelefono" class="form-control" readonly />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Nombre</label>
+                <input asp-for="Nombre" class="form-control" />
+                <span asp-validation-for="Nombre" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Correo Electrónico</label>
+                <input asp-for="CorreoElectronico" class="form-control" />
+                <span asp-validation-for="CorreoElectronico" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3">
+                <label asp-for="FechaCumpleaños" class="form-label">Fecha De Cumpleaños</label>
+                <input asp-for="FechaCumpleaños" class="form-control" type="date" />
+                <span asp-validation-for="FechaCumpleaños" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Frecuencia de Visita (días)</label>
+                <input asp-for="FrecuenciaVisita" id="frecuenciaVisita" class="form-control" type="number" />
+                <span asp-validation-for="FrecuenciaVisita" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Fecha Última Visita</label>
+                <input asp-for="FechaUltimaVisita" id="fechaUltima" class="form-control" type="date" />
+                <span asp-validation-for="FechaUltimaVisita" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Próxima Visita</label>
+                <p class="form-control" id="proximaVisita"><strong>@Model.ProximaVisita.ToShortDateString()</strong></p>
+            </div>
+
+            <div class="d-flex justify-content-between">
+                <a asp-action="Buscar"
+                   asp-route-criterio="@Model.NumeroTelefono"
+                   class="btn btn-secondary">
+                    <i class="fas fa-arrow-left me-1"></i>Volver
+                </a>
+                <button type="submit" class="btn btn-dark text-white">
+                    <i class="fas fa-save me-1"></i>Guardar Cambios
+                </button>
+            </div>
+        </form>
+        <div class="d-flex justify-content-end mt-4">
+            <form asp-action="Eliminar" method="post" onsubmit="return confirm('¿Estás seguro de eliminar este cliente?');">
+                <input type="hidden" asp-for="NumeroTelefono" />
+                <button type="submit" class="btn btn-danger">
+                    <i class="fas fa-trash-alt me-1"></i>Eliminar Cliente
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const inputFecha = document.getElementById("fechaUltima");
+            const inputFrecuencia = document.getElementById("frecuenciaVisita");
+            const salida = document.getElementById("proximaVisita");
+
+            function calcularProximaVisita() {
+                const fechaVal = inputFecha.value; // formato yyyy-MM-dd
+                const frecuenciaVal = inputFrecuencia.value;
+
+                if (!fechaVal || !frecuenciaVal) {
+                    salida.innerHTML = "<strong>--</strong>";
+                    return;
+                }
+
+                const frecuencia = parseInt(frecuenciaVal, 10);
+                if (isNaN(frecuencia) || frecuencia <= 0) {
+                    salida.innerHTML = "<strong>--</strong>";
+                    return;
+                }
+
+                // Parse seguro: evitar new Date(string) para no caer en UTC
+                const parts = fechaVal.split("-");
+                const year = parseInt(parts[0], 10);
+                const monthIndex = parseInt(parts[1], 10) - 1; // 0..11
+                const day = parseInt(parts[2], 10);
+
+                // Crear fecha en hora local (no UTC)
+                const fecha = new Date(year, monthIndex, day);
+
+                // Sumar días (mantiene hora local)
+                fecha.setDate(fecha.getDate() + frecuencia);
+
+                // Formatear dd/MM/yyyy
+                const dia = String(fecha.getDate()).padStart(2, "0");
+                const mes = String(fecha.getMonth() + 1).padStart(2, "0");
+                const anio = fecha.getFullYear();
+
+                salida.innerHTML = `<strong>${dia}/${mes}/${anio}</strong>`;
+            }
+
+            // Eventos
+            inputFecha.addEventListener("input", calcularProximaVisita);
+            inputFrecuencia.addEventListener("input", calcularProximaVisita);
+
+            // Ejecutar al cargar para mostrar el valor inicial
+            calcularProximaVisita();
+        });
+    </script>
+}
+

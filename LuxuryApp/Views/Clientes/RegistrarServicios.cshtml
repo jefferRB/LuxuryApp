@@ -1,0 +1,186 @@
+﻿@model LuxuryApp.Models.DataBase.ServicioRealizadoViewModel
+
+@{
+    ViewData["Title"] = "Registro de Servicios Realizados";
+}
+
+<div class="card border-0 shadow-lg">
+    <div class="card-header bg-dark text-white py-3">
+        <h5 class="m-0">
+            <i class="fas fa-users me-2"></i>Registro de Servicios Realizados
+        </h5>
+    </div>
+
+    <div class="card-body">
+
+        <form asp-action="RegistrarServicios" method="post" enctype="multipart/form-data">
+
+            <input type="hidden" asp-for="NumeroTelefono" />
+
+            <!-- DRAG & DROP -->
+            <div id="dropZone" class="border border-2 border-secondary rounded-3 p-4 text-center">
+                <i class="fas fa-cloud-upload-alt fa-3x mb-2 text-secondary"></i>
+                <h5 class="text-secondary">Arrastra aquí las imágenes</h5>
+                <p class="text-muted">O haz clic para seleccionar desde tu computadora</p>
+
+                <input type="file" id="fileInput" name="Imagenes" multiple accept="image/*" class="d-none" />
+            </div>
+
+            <!-- GALERÍA DE PREVISUALIZACIÓN -->
+            <div id="previewContainer" class="mt-4 d-flex flex-wrap gap-3"></div>
+
+            @if (Model.ImagenesGuardadas != null && Model.ImagenesGuardadas.Any())
+            {
+                <h5 class="mt-4">Imágenes registradas anteriormente</h5>
+
+                <div class="d-flex flex-wrap gap-3 mt-2">
+                    @foreach (var img in Model.ImagenesGuardadas)
+                    {
+                        var base64 = Convert.ToBase64String(img.Imagen);
+                        var src = $"data:image/jpeg;base64,{base64}";
+
+                        <img src="@src" class="preview-img" onclick="abrirModal('@src')" />
+                    }
+                </div>
+            }
+
+            <!-- DESCRIPCIÓN -->
+            <div class="mt-4">
+                <label class="form-label fw-bold">Descripción del servicio realizado</label>
+                <textarea asp-for="DescripcionServicios" class="form-control" rows="3"
+                          placeholder="Ejemplo: Corte + Barba, hidratación, limpieza..."></textarea>
+            </div>
+
+            <!-- FECHA -->
+            <input type="hidden" asp-for="Fecha" value="@DateTime.Now" />
+
+            <div class="mt-4 d-flex gap-3">
+                
+
+                <button type="submit" class="btn btn-dark text-white">
+                    <i class="fas fa-save me-1"></i>Guardar Registro
+                </button>
+
+                <a asp-action="Buscar" asp-route-criterio="@Model.NumeroTelefono" class="btn btn-secondary">
+                    Volver
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+
+<!-- MODAL PARA VER IMAGEN GRANDE -->
+<div id="imageModal" class="modal-overlay d-none">
+    <img id="modalImage" class="modal-img" />
+</div>
+
+<style>
+    #dropZone {
+        cursor: pointer;
+        transition: .3s;
+    }
+
+    #dropZone:hover {
+        background: #f8f9fa;
+    }
+
+    .preview-img {
+        width: 120px;
+        height: 120px;
+        object-fit: cover;
+        cursor: pointer;
+        border-radius: 8px;
+        border: 2px solid #ccc;
+        transition: .2s;
+    }
+
+    .preview-img:hover {
+        transform: scale(1.05);
+        border-color: #000;
+    }
+
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.75);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 2000;
+    }
+
+    .modal-img {
+        max-width: 85%;
+        max-height: 85%;
+        border-radius: 12px;
+        box-shadow: 3px 3px 25px rgba(0,0,0,0.5);
+    }
+</style>
+
+
+<script>
+    const dropZone = document.getElementById("dropZone");
+    const fileInput = document.getElementById("fileInput");
+    const previewContainer = document.getElementById("previewContainer");
+
+    // Abrir selector al hacer click en el dropzone
+    dropZone.addEventListener("click", () => fileInput.click());
+
+   
+
+    // Procesar archivos seleccionados
+    fileInput.addEventListener("change", function (e) {
+        mostrarPreview(e.target.files);
+    });
+
+    // Drag & Drop
+    dropZone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        dropZone.style.background = "#f0f0f0";
+    });
+
+    dropZone.addEventListener("dragleave", () => {
+        dropZone.style.background = "white";
+    });
+
+    dropZone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dropZone.style.background = "white";
+        fileInput.files = e.dataTransfer.files;
+        mostrarPreview(e.dataTransfer.files);
+    });
+
+    // Mostrar previews
+    function mostrarPreview(files) {
+        previewContainer.innerHTML = "";
+
+        Array.from(files).forEach(file => {
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                const img = document.createElement("img");
+                img.src = e.target.result;
+                img.classList.add("preview-img");
+                img.onclick = () => abrirModal(e.target.result);
+                previewContainer.appendChild(img);
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    // Modal para ampliar imagen
+    const modal = document.getElementById("imageModal");
+    const modalImage = document.getElementById("modalImage");
+
+    function abrirModal(src) {
+        modalImage.src = src;
+        modal.classList.remove("d-none");
+    }
+
+    modal.addEventListener("click", () => {
+        modal.classList.add("d-none");
+    });
+</script>

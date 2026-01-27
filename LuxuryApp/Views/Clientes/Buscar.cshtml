@@ -1,0 +1,171 @@
+﻿@model LuxuryApp.Models.DataBase.BuscarClienteViewModel
+
+<div class="card border-0 shadow-lg">
+    <div class="card-header bg-dark text-white py-3">
+        <h5 class="m-0">
+            <i class="fas fa-search me-2"></i>Buscar Cliente por Número de Teléfono
+        </h5>
+    </div>
+
+    <div class="card-body">
+        <form asp-action="Buscar" method="post">
+            <div class="mb-3">
+                <label for="criterio" class="form-label">Teléfono o Nombre</label>
+                <input type="text"
+                       name="criterio"
+                       id="criterio"
+                       class="form-control"
+                       placeholder="Ejemplo: 88889999 o Juan Pérez" />
+            </div>
+
+            <button type="submit" class="btn btn-dark text-white">
+                <i class="fas fa-search me-1"></i>Buscar
+            </button>
+            <a asp-action="Index" class="btn btn-secondary">
+                <i class="fas fa-arrow-left me-1"></i>Volver al Listado
+            </a>
+        </form>
+
+
+        <hr />
+
+        @if (Model.ClientesEncontrados != null && Model.ClientesEncontrados.Count > 1)
+        {
+            <div class="row mt-4">
+                @foreach (var cliente in Model.ClientesEncontrados)
+                {
+                    <div class="col-md-6 col-lg-4 mb-3">
+                        <div class="card shadow-sm h-100">
+                            <div class="card-body">
+                                <h5 class="card-title">
+                                    <i class="fas fa-user me-2"></i>@cliente.Nombre
+                                </h5>
+
+                                <p class="mb-1"><strong>Teléfono:</strong> @cliente.NumeroTelefono</p>
+                                <p class="mb-1"><strong>Correo:</strong> @cliente.CorreoElectronico</p>
+                                <p class="mb-1">
+                                    <strong>Última visita:</strong>
+                                    @cliente.FechaUltimaVisita.ToShortDateString()
+                                </p>
+
+                                <form asp-action="Buscar" method="post" class="mt-3">
+                                    <input type="hidden" name="criterio" value="@cliente.NumeroTelefono" />
+                                    <button class="btn btn-dark btn-sm w-100">
+                                        <i class="fas fa-eye me-1"></i>Ver detalle
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        @if (ViewBag.Mensaje != null)
+        {
+            <div class="alert alert-warning mt-3">@ViewBag.Mensaje</div>
+        }
+        @if (TempData["Mensaje"] != null)
+        {
+            <div class="alert alert-success alert-dismissible fade show mt-3" role="alert">
+                <i class="fas fa-check-circle me-2"></i>@TempData["Mensaje"]
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        }
+
+        @if (Model.ClienteSeleccionado != null)
+        {
+            <div class="card mt-4 border-5 shadow-sm">
+                <div class="card-body">
+
+                    <h5 class="card-title">
+                        <i class="fas fa-user me-2"></i>@Model.ClienteSeleccionado.Nombre
+                    </h5>
+
+                    <p class="mb-1"><strong>Teléfono:</strong> @Model.ClienteSeleccionado.NumeroTelefono</p>
+                    <p class="mb-1"><strong>Correo Electrónico:</strong> @Model.ClienteSeleccionado.CorreoElectronico</p>
+                    <p class="mb-1"><strong>Frecuencia de Visita:</strong> @Model.ClienteSeleccionado.FrecuenciaVisita días</p>
+                    <p class="mb-1"><strong>Fecha Última Visita:</strong> @Model.ClienteSeleccionado.FechaUltimaVisita.ToShortDateString()</p>
+
+                    <p class="mb-1">
+                        <strong>Fecha De Cumpleaños:</strong>
+                        @(Model.ClienteSeleccionado.FechaCumpleaños.HasValue
+                                            ? Model.ClienteSeleccionado.FechaCumpleaños.Value.ToString("dd/MM/yyyy")
+                                            : "No registrado")
+                </p>
+
+                    <p class="mb-1">
+                        <strong>Próxima Cita:</strong>
+                        @Model.ClienteSeleccionado.ProximaVisita.ToShortDateString()
+                    </p>
+
+                    <p><strong>Visitas Totales:</strong> @Model.TotalVisitas</p>
+
+                    <!-- BOTONES -->
+                    <div class="mt-3 d-flex justify-content-between align-items-center">
+
+                        <div>
+                            <a asp-action="Editar"
+                               asp-route-numeroTelefono="@Model.ClienteSeleccionado.NumeroTelefono"
+                               class="btn btn-dark text-white">
+                                <i class="fas fa-edit me-1"></i>Editar Cliente
+                            </a>
+
+                            <button class="btn btn-outline-dark"
+                                    type="button"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#listaVisitas">
+                                Ver historial de visitas
+                            </button>
+
+                            <a asp-action="RegistrarServicios"
+                               asp-route-numeroTelefono="@Model.ClienteSeleccionado.NumeroTelefono"
+                               class="btn btn-secondary text-white">
+                                <i class="fas fa-images me-1"></i>Registro de Servicios Realizados
+                            </a>
+                        </div>
+
+                        <form asp-action="AgregarVisitaRapida" method="post">
+                            <input type="hidden" name="numeroTelefono"
+                                   value="@Model.ClienteSeleccionado.NumeroTelefono" />
+                            <button type="submit" class="btn btn-success">
+                                <i class="fas fa-calendar-plus me-1"></i>Agregar visita
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- HISTORIAL (ABAJO, LIMPIO) -->
+                    <div class="collapse mt-4" id="listaVisitas">
+                        <h6 class="fw-bold mb-2">Historial de visitas</h6>
+
+                        <ul class="list-group list-group-flush">
+                        @foreach (var visita in ViewBag.HistorialVisitas)
+                            {
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+    <span class="fw-semibold">
+        @visita.FechaVisita.ToString("dddd dd/MM/yyyy")
+    </span>
+</li>
+                            }
+                        </ul>
+                    </div>
+
+                </div>
+            </div>
+        }
+    </div>
+    @section Scripts {
+        <script>
+            document.addEventListener("DOMContentLoaded", function () {
+                const alerta = document.getElementById("mensajeExito");
+                if (alerta) {
+                    setTimeout(() => {
+                        alerta.classList.remove("show"); // Cierra con animación Bootstrap
+                        alerta.classList.add("fade");
+                        setTimeout(() => alerta.remove(), 500); // Elimina del DOM
+                    }, 3500); // ⏳ 3.5 segundos antes de desaparecer
+                }
+            });
+        </script>
+    }
+</div>
