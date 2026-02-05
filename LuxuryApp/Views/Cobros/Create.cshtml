@@ -1,0 +1,92 @@
+﻿@model LuxuryApp.Models.Finanzas.CobroViewModel
+
+<div class="card border-0 shadow-lg">
+    <div class="card-header bg-dark text-white py-3">
+        <h5 class="m-0">
+            <i class="fas fa-cash-register me-2"></i>Registrar Cobro
+        </h5>
+    </div>
+
+    <div class="card-body">
+        <form asp-action="Create" method="post">
+
+            <!-- Fecha -->
+            <div class="mb-3">
+                <label asp-for="Cobro.FechaCobro" class="form-label"></label>
+                <input asp-for="Cobro.FechaCobro" class="form-control" type="datetime-local" />
+            </div>
+
+            <!-- Nombre Cliente -->
+            <div class="mb-3">
+                <label asp-for="Cobro.NombreCliente" class="form-label"></label>
+                <input asp-for="Cobro.NombreCliente" class="form-control" placeholder="Nombre del cliente" />
+                <span asp-validation-for="Cobro.NombreCliente" class="text-danger"></span>
+            </div>
+
+            <!-- Barbero -->
+            <div class="mb-3">
+                <label asp-for="Cobro.BarberoId" class="form-label"></label>
+                <select asp-for="Cobro.BarberoId" class="form-select" asp-items="Model.Barberos">
+                    <option value="">Seleccione barbero</option>
+                </select>
+            </div>
+
+            <!-- Servicio -->
+            <div class="mb-3">
+                <label asp-for="Cobro.ServicioId" class="form-label"></label>
+                <select asp-for="Cobro.ServicioId" class="form-select" asp-items="Model.Servicios" id="ServicioId">
+                    <option value="">Seleccione servicio</option>
+                </select>
+            </div>
+
+            <!-- Monto -->
+            <div class="mb-3">
+                <label asp-for="Cobro.Monto" class="form-label"></label>
+                <input asp-for="Cobro.Monto" class="form-control" id="Monto" />
+            </div>
+
+            <!-- Metodo Pago -->
+            <div class="mb-3">
+                <label asp-for="Cobro.MetodoPago" class="form-label"></label>
+                <select asp-for="Cobro.MetodoPago" class="form-select" asp-items="Model.MetodosPago">
+                    <option value="">Seleccione método de pago</option>
+                </select>
+            </div>
+
+            
+
+            <button type="submit" class="btn btn-dark">
+                <i class="fas fa-save me-1"></i>Guardar Cobro
+            </button>
+
+            <a asp-action="Index" class="btn btn-secondary">
+                <i class="fas fa-arrow-left me-1"></i>Volver
+            </a>
+
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+
+    <script>
+        document.getElementById("ServicioId").addEventListener("change", function () {
+
+            let servicioId = this.value;
+
+            if (!servicioId) return;
+
+            fetch(`/Cobros/ObtenerPrecioServicio?id=${servicioId}`)
+                .then(res => res.json())
+                .then(data => {
+
+                    if (data) {
+                        document.getElementById("Monto").value = data.precio;
+                    }
+
+                });
+
+        });
+    </script>
+}

@@ -139,13 +139,32 @@
                         <h6 class="fw-bold mb-2">Historial de visitas</h6>
 
                         <ul class="list-group list-group-flush">
-                        @foreach (var visita in ViewBag.HistorialVisitas)
+                            @foreach (var visita in ViewBag.HistorialVisitas)
                             {
                                 <li class="list-group-item d-flex justify-content-between align-items-center">
-    <span class="fw-semibold">
-        @visita.FechaVisita.ToString("dddd dd/MM/yyyy")
-    </span>
-</li>
+
+                                    <span class="fw-semibold">
+                                        @visita.FechaVisita.ToString("dddd dd/MM/yyyy")
+                                    </span>
+
+                                    <!-- ❌ Eliminar visita -->
+                                    <form asp-action="EliminarVisita"
+                                          method="post"
+                                          class="m-0"
+                                          onsubmit="return confirm('¿Eliminar esta visita?');">
+
+                                        @Html.AntiForgeryToken()
+
+                                        <input type="hidden" name="numeroTelefono" value="@visita.NumeroTelefono" />
+                                        <input type="hidden" name="fechaVisita" value="@visita.FechaVisita.ToString("yyyy-MM-dd")" />
+
+                                        <button type="submit"
+                                                class="btn btn-sm btn-outline-danger">
+                                            ✕
+                                        </button>
+                                    </form>
+
+                                </li>
                             }
                         </ul>
                     </div>

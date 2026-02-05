@@ -1,0 +1,299 @@
+﻿/* ===============================
+   CALENDARIO
+================================ */
+
+.calendar-container {
+    width: 100%;
+    padding: 16px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 2);
+    backdrop-filter: blur(6px);
+    border: 2px solid var(--primary-color);
+    box-shadow: 0 0 25px #004445;
+}
+
+/* Header */
+.calendar-header h4 {
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: #004445;
+    text-transform: capitalize;
+}
+
+.calendar-header .btn {
+    border-radius: 10px;
+}
+
+/* Grid */
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 5px;
+}
+
+.calendar-day-name {
+    text-align: center;
+    font-weight: 600;
+    color: #004445;
+    padding-bottom: 4px;
+}
+
+/* Días */
+.calendar-day {
+    border-radius: 12px;
+    border: 1px solid #e0e0e0;
+    height: 100px;
+    padding: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: #fff;
+}
+
+    .calendar-day:hover {
+        background: #038283;
+        transform: translateY(-2px);
+    }
+
+    .calendar-day.selected {
+        border: 2px solid var(--primary-color);
+        background-color: var(--primary-soft);
+    }
+
+    .calendar-day.today {
+        border: 2px solid #004445;
+    }
+
+/* ===============================
+   BLOQUES DE HORAS
+================================ */
+
+.hour-block {
+    border-radius: 18px;
+    background: #ffffff;
+    margin-bottom: 16px;
+    padding: 12px;
+    border: 1px solid #eaeaea;
+}
+
+/* Header hora */
+.hour-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 600;
+    color: #004445;
+    margin-bottom: 8px;
+}
+
+.hour-label {
+    font-size: 1rem;
+}
+
+/* Hora vacía */
+.hour-empty {
+    font-size: 0.85rem;
+    color: #999;
+    padding-left: 6px;
+    margin-bottom: 6px;
+}
+
+/* ===============================
+   CITAS – CARDS PRINCIPALES
+================================ */
+
+.cita-card {
+    position: relative;
+    background: #ffffff;
+    border-radius: 14px;
+    padding: 14px 16px;
+    overflow: hidden;
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+    /* Borde degradado */
+    .cita-card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        padding: 1.5px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #004445, #0a6b6b, #004445);
+        -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+        pointer-events: none;
+    }
+
+    .cita-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 10px 30px rgba(0, 68, 69, 0.28);
+    }
+
+/* Contenido */
+.cita-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.cita-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #004445;
+    letter-spacing: 0.3px;
+}
+
+/* ===============================
+   DETALLES DE CITA
+================================ */
+
+.toggle-btn {
+    background: rgba(0, 68, 69, 0.08);
+    border-radius: 8px;
+    padding: 4px 8px;
+    border: none;
+    color: #004445;
+    font-size: 0.9rem;
+    transition: transform 0.3s ease;
+}
+
+    .toggle-btn:hover {
+        background: rgba(0, 68, 69, 0.18);
+    }
+
+.cita-card .toggle-btn.active {
+    transform: rotate(180deg);
+}
+
+.cita-extra {
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition: max-height 0.35s ease, opacity 0.25s ease;
+}
+
+    .cita-extra.open {
+        max-height: 200px;
+        opacity: 1;
+        margin-top: 10px;
+    }
+
+    .cita-extra .detalle {
+        padding: 4px 0;
+        border-bottom: 1px dashed rgba(0, 68, 69, 0.15);
+    }
+
+        .cita-extra .detalle:last-child {
+            border-bottom: none;
+        }
+
+.detalle strong {
+    color: #004445;
+    font-weight: 600;
+}
+
+/* ===============================
+   PANEL LATERAL – CITAS
+================================ */
+
+#listaTareas {
+    padding-bottom: 4rem;
+}
+
+.side-cita-card {
+    list-style: none;
+    background: #ffffff;
+    border-radius: 18px;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+    position: relative;
+    border: 1px solid transparent;
+    background-image: linear-gradient(#ffffff, #ffffff), linear-gradient(135deg, #004445, #008080);
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+    .side-cita-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 14px 30px rgba(0, 68, 69, 0.25);
+    }
+
+    .side-cita-card strong {
+        color: #004445;
+        font-weight: 600;
+    }
+
+    .side-cita-card small {
+        color: #444;
+        line-height: 1.6;
+        display: block;
+        margin-top: 6px;
+    }
+
+/* ===============================
+   BARBEROS – MODAL
+================================ */
+
+.barberos-modal {
+    border-radius: 20px;
+    border: none;
+    overflow: hidden;
+}
+
+.barberos-header {
+    background: linear-gradient(135deg, #004445, #006666);
+    color: #fff;
+    border-bottom: none;
+}
+
+    .barberos-header h5 {
+        font-weight: 600;
+    }
+
+/* Agregar barbero */
+.barbero-add {
+    display: flex;
+    gap: 10px;
+}
+
+    .barbero-add input {
+        border-radius: 12px;
+        padding: 10px 12px;
+    }
+
+    .barbero-add button {
+        border-radius: 12px;
+        padding: 10px 16px;
+        font-weight: 500;
+    }
+
+/* Lista */
+.barberos-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+    .barberos-list .list-group-item {
+        border-radius: 14px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 14px;
+        border: 1px solid transparent;
+        background-image: linear-gradient(#ffffff, #ffffff), linear-gradient(135deg, #004445, #008080);
+        background-origin: border-box;
+        background-clip: padding-box, border-box;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+        .barberos-list .list-group-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 68, 69, 0.25);
+        }
+
+    .barberos-list span {
+        font-weight: 500;
+        color: #004445;
+    }

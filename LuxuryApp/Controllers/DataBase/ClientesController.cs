@@ -330,5 +330,25 @@ namespace LuxuryApp.Controllers.DataBase
 
             return RedirectToAction("Buscar", new { criterio = model.NumeroTelefono });
         }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult EliminarVisita(string numeroTelefono, DateTime fechaVisita)
+        {
+            var visita = _context.ClienteVisitas.FirstOrDefault(v =>
+                v.NumeroTelefono == numeroTelefono &&
+                v.FechaVisita.Date == fechaVisita.Date);
+
+            if (visita == null)
+                return NotFound();
+
+            _context.ClienteVisitas.Remove(visita);
+            _context.SaveChanges();
+
+            TempData["Mensaje"] = "Visita eliminada correctamente.";
+
+            return RedirectToAction("Buscar", new { criterio = numeroTelefono });
+        }
+
     }
 }
