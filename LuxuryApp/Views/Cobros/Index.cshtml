@@ -28,12 +28,28 @@
     <form method="get" class="row g-2 px-3 mb-3">
 
         <div class="col-md-3">
-            <select asp-for="Filtros.VistaTiempo" class="form-select">
+            <select asp-for="Filtros.VistaTiempo" class="form-select" id="vistaTiempoSelect">
+
                 <option value="dia">Hoy</option>
                 <option value="semana">Semana</option>
                 <option value="mes">Mes</option>
                 <option value="anio">Año</option>
+                <option value="fechas">Rango de Fechas</option>
+                <option value="todo">Todo</option>
+
             </select>
+
+            <div class="d-flex gap-2 mt-2" id="rangoFechasContainer" style="display:none;">
+
+                <input asp-for="Filtros.FechaInicio"
+                       type="date"
+                       class="form-control" />
+
+                <input asp-for="Filtros.FechaFin"
+                       type="date"
+                       class="form-control" />
+
+            </div>
         </div>
 
         <div class="col-md-3">
@@ -44,7 +60,7 @@
             </select>
         </div>
 
-        <div class="col-md-3">
+        <div class="col-md-3 ">
             <select asp-for="Filtros.MetodoPago"
                     asp-items="Model.MetodosPago"
                     class="form-select">
@@ -52,7 +68,7 @@
             </select>
         </div>
 
-        <div class="col-md-2">
+        <div class="col-md-1">
             <button type="submit"
                     formaction="@Url.Action("Index")"
                     class="btn btn-dark w-100">
@@ -60,7 +76,7 @@
             </button>
         </div>
 
-        <div class="col-md-2">
+        <div class="col-md-1">
             <button type="submit"
                     formaction="@Url.Action("ExportarExcel")"
                     class="btn btn-success w-100">
@@ -69,6 +85,40 @@
         </div>
 
     </form>
+
+
+    <div class="row mx-3 mb-3">
+
+        <!-- Total Cobrado -->
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">
+                        <i class="fas fa-coins me-1"></i>Total Cobrado
+                    </h6>
+                    <h3 class="fw-bold text-success">
+                        ₡ @Model.TotalCobrado.ToString("N2")
+                    </h3>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cantidad Servicios -->
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">
+                        <i class="fas fa-cut me-1"></i>Servicios Realizados
+                    </h6>
+                    <h3 class="fw-bold text-primary">
+                        @Model.CantidadServicios
+                    </h3>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
 
 
     <div class="card-body p-0">
@@ -153,3 +203,36 @@
         </div>
     </div>
 </div>
+
+@section Scripts {
+
+    <script>
+
+        function toggleRangoFechas() {
+
+            const select = document.getElementById("vistaTiempoSelect");
+            const container = document.getElementById("rangoFechasContainer");
+
+            if (select.value === "fechas") {
+                container.classList.remove("d-none");
+            }
+            else {
+                container.classList.add("d-none");
+            }
+        }
+
+        // Ejecutar cuando carga la página
+        document.addEventListener("DOMContentLoaded", function () {
+
+            const select = document.getElementById("vistaTiempoSelect");
+
+            toggleRangoFechas();
+
+            select.addEventListener("change", toggleRangoFechas);
+
+        });
+
+    </script>
+
+}
+

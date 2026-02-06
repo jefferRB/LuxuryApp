@@ -479,30 +479,29 @@ async function onDayClick(year, month, day) {
 }
 
 function onHourClick(date, hour, minute = 0) {
+
     const fullDate = new Date(date);
     fullDate.setHours(hour, minute, 0, 0);
-
 
     document.getElementById("appointmentDate").value =
         formatLocalDateTime(fullDate);
 
+    // 🔹 Cargar combos
     loadBarberosForCita();
+    loadServiciosForCita();
 
-
-
-    // 🔧 SOLO cerrar dayModal SI existe
+    // 🔧 Cerrar modal del día si existe
     const dayModalEl = document.getElementById("dayModal");
     const dayModal = bootstrap.Modal.getInstance(dayModalEl);
+    if (dayModal) dayModal.hide();
 
-    if (dayModal) {
-        dayModal.hide();
-    }
-
+    // 🔹 Abrir modal de crear cita
     const createModal = new bootstrap.Modal(
         document.getElementById("createCitaModal")
     );
     createModal.show();
 }
+
 
 function formatLocalDateTime(date) {
     const pad = n => n.toString().padStart(2, '0');
@@ -865,4 +864,22 @@ async function guardarEdicion() {
     } else {
         alert("Error al actualizar");
     }
+}
+
+async function loadServiciosForCita() {
+
+    const select = document.getElementById("servicio");
+    select.innerHTML = `<option value="">Seleccione servicio</option>`;
+
+    const res = await fetch("/Finanzas/GetServicios");
+    if (!res.ok) return;
+
+    const servicios = await res.json();
+
+    servicios.forEach(s => {
+        const opt = document.createElement("option");
+        opt.value = s.nombre;     // 🔥 se guarda como TEXTO
+        opt.textContent = s.nombre;
+        select.appendChild(opt);
+    });
 }

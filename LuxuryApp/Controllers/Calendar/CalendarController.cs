@@ -22,6 +22,7 @@ namespace LuxuryApp.Controllers.Calendar
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CitaCreateVM vm)
         {
+
             if (vm == null)
                 return BadRequest("Datos inválidos");
 
@@ -201,5 +202,17 @@ namespace LuxuryApp.Controllers.Calendar
 
             return Ok(citas);
         }
+
+        [HttpGet]
+        public async Task<IActionResult> ObtenerServicios()
+        {
+            var servicios = await _context.Servicios
+                .Where(s => s.Activo)
+                .Select(s => s.Nombre)
+                .ToListAsync();
+
+            return Json(servicios);
+        }
+
     }
 }

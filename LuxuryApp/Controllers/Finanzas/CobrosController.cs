@@ -21,11 +21,16 @@ namespace LuxuryApp.Controllers.Finanzas
         public async Task<IActionResult> Index(CobroFiltroViewModel filtros)
         {
             var cobros = await ObtenerCobrosFiltrados(filtros);
+            var totalCobrado = cobros.Sum(c => c.Monto);
+            var cantidadServicios = cobros.Count;
+
 
             var vm = new CobroIndexViewModel
             {
                 Cobros = cobros,
                 Filtros = filtros,
+                TotalCobrado = totalCobrado,
+                CantidadServicios = cantidadServicios,
 
                 Barberos = await _context.Barberos
                     .Where(b => b.Activo)
@@ -46,11 +51,19 @@ namespace LuxuryApp.Controllers.Finanzas
         // CREAR COBRO (GET)
         public async Task<IActionResult> Create()
         {
+            var now = DateTime.Now;
             var vm = new CobroViewModel
             {
                 Cobro = new Cobro
                 {
-                    FechaCobro = DateTime.Now
+                    FechaCobro = new DateTime(
+                now.Year,
+                now.Month,
+                now.Day,
+                now.Hour,
+                now.Minute,
+                0 // 🔥 elimina segundos y milisegundos
+            )
                 },
 
                 Barberos = await _context.Barberos
@@ -84,6 +97,14 @@ namespace LuxuryApp.Controllers.Finanzas
         {
             if (ModelState.IsValid)
             {
+                vm.Cobro.FechaCobro = new DateTime(
+           vm.Cobro.FechaCobro.Year,
+           vm.Cobro.FechaCobro.Month,
+           vm.Cobro.FechaCobro.Day,
+           vm.Cobro.FechaCobro.Hour,
+           vm.Cobro.FechaCobro.Minute,
+           0
+       );
                 _context.Cobros.Add(vm.Cobro);
                 await _context.SaveChangesAsync();
 
@@ -139,69 +160,7 @@ namespace LuxuryApp.Controllers.Finanzas
         }
 
 
-        private IQueryable<Cobro> AplicarFiltros(
-    IQueryable<Cobro> query,
-    CobroFiltroViewModel filtros)
-        {
-            var hoy = DateTime.Today;
-
-            // ===== Vista Tiempo
-            if (!string.IsNullOrEmpty(filtros.VistaTiempo))
-            {
-                switch (filtros.VistaTiempo)
-                {
-                    case "dia":
-                        query = query.Where(c => c.FechaCobro.Date == hoy);
-                        break;
-
-                    case "semana":
-                        var diff = (7 + (hoy.DayOfWeek - DayOfWeek.Monday)) % 7;
-                        var inicioSemana = hoy.AddDays(-diff).Date;
-                        var finSemana = inicioSemana.AddDays(7);
-
-                        query = query.Where(c =>
-                            c.FechaCobro >= inicioSemana &&
-                            c.FechaCobro < finSemana);
-                        break;
-
-                    case "mes":
-                        query = query.Where(c =>
-                            c.FechaCobro.Month == hoy.Month &&
-                            c.FechaCobro.Year == hoy.Year);
-                        break;
-
-                    case "anio":
-                        query = query.Where(c =>
-                            c.FechaCobro.Year == hoy.Year);
-                        break;
-                }
-            }
-
-            // ===== Barbero
-            if (filtros.BarberoId.HasValue)
-            {
-                query = query.Where(c => c.BarberoId == filtros.BarberoId);
-            }
-
-            // ===== Metodo Pago
-            if (!string.IsNullOrEmpty(filtros.MetodoPago))
-            {
-                query = query.Where(c => c.MetodoPago == filtros.MetodoPago);
-            }
-
-            // ===== Rango Fechas Manual
-            if (filtros.FechaInicio.HasValue)
-            {
-                query = query.Where(c => c.FechaCobro >= filtros.FechaInicio.Value);
-            }
-
-            if (filtros.FechaFin.HasValue)
-            {
-                query = query.Where(c => c.FechaCobro <= filtros.FechaFin.Value);
-            }
-
-            return query;
-        }
+    
 
 
         public async Task<IActionResult> ExportarExcel(CobroFiltroViewModel filtros)
@@ -267,12 +226,17 @@ namespace LuxuryApp.Controllers.Finanzas
 
                 switch (filtros.VistaTiempo)
                 {
+                    case "todo":
+                        // No aplicar filtro
+                        break;
+
                     case "dia":
                         query = query.Where(c => c.FechaCobro.Date == hoy);
                         break;
 
                     case "semana":
-                        var inicioSemana = hoy.AddDays(-(int)hoy.DayOfWeek);
+                        var diff = (7 + (hoy.DayOfWeek - DayOfWeek.Monday)) % 7;
+                        var inicioSemana = hoy.AddDays(-diff).Date;
                         var finSemana = inicioSemana.AddDays(7);
 
                         query = query.Where(c =>
@@ -290,8 +254,25 @@ namespace LuxuryApp.Controllers.Finanzas
                         query = query.Where(c =>
                             c.FechaCobro.Year == hoy.Year);
                         break;
+
+                    case "fechas":
+
+                        if (filtros.FechaInicio.HasValue)
+                            query = query.Where(c =>
+                                c.FechaCobro >= filtros.FechaInicio.Value);
+
+                        if (filtros.FechaFin.HasValue)
+                        {
+                            var fin = filtros.FechaFin.Value.AddDays(1);
+
+                            query = query.Where(c =>
+                                c.FechaCobro < fin);
+                        }
+
+                        break;
                 }
             }
+
 
             return await query
                 .OrderByDescending(c => c.FechaCobro)

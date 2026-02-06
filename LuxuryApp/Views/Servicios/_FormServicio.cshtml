@@ -5,14 +5,23 @@
     @Html.AntiForgeryToken()
 
     <div class="mb-2">
-        <label class="form-label">Nombre</label>
+        <label class="form-label">Nombre del servicio</label>
         <input asp-for="Nombre" class="form-control" />
         <span asp-validation-for="Nombre" class="text-danger"></span>
     </div>
 
     <div class="mb-2">
         <label class="form-label">Precio</label>
-        <input asp-for="Precio" class="form-control" type="number" />
+
+        <div class="input-group">
+            <span class="input-group-text">₡</span>
+
+            <input asp-for="Precio"
+                   class="form-control money-input"
+                   type="text"
+                   autocomplete="off" />
+        </div>
+
         <span asp-validation-for="Precio" class="text-danger"></span>
     </div>
 

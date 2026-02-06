@@ -2,7 +2,7 @@
 {
     public class CobroFiltroViewModel
     {
-        public string VistaTiempo { get; set; } = "mes";
+        public string VistaTiempo { get; set; } = "dia";
         // dia / semana / mes / año
 
         public int? BarberoId { get; set; }

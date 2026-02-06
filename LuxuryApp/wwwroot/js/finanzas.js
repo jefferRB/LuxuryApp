@@ -23,3 +23,47 @@ $("#Cobro_ServicioId").change(function () {
     });
 
 });
+
+
+
+    function formatearMoneda(valor) {
+
+        valor = valor.replace(/[^\d]/g, "");
+
+    if (!valor) return "";
+
+    return new Intl.NumberFormat("es-CR").format(valor);
+    }
+
+    function limpiarMoneda(valor) {
+        return valor.replace(/[^\d]/g, "");
+    }
+
+document.querySelectorAll(".money-input").forEach(input => {
+
+    if (input.value) {
+        input.value = formatearMoneda(input.value);
+    }
+
+});
+
+    document.querySelectorAll(".money-input").forEach(input => {
+
+        // Formatear mientras escribe
+        input.addEventListener("input", function () {
+
+            let limpio = limpiarMoneda(this.value);
+            this.value = formatearMoneda(limpio);
+
+        });
+
+
+    // Limpiar antes de enviar formulario
+    input.closest("form").addEventListener("submit", function () {
+
+        input.value = limpiarMoneda(input.value);
+
+        });
+
+    });
+

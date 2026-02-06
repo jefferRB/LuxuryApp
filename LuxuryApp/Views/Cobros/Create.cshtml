@@ -13,7 +13,7 @@
             <!-- Fecha -->
             <div class="mb-3">
                 <label asp-for="Cobro.FechaCobro" class="form-label"></label>
-                <input asp-for="Cobro.FechaCobro" class="form-control" type="datetime-local" />
+                <input asp-for="Cobro.FechaCobro" class="form-control" type="datetime-local" step="60" />
             </div>
 
             <!-- Nombre Cliente -->
@@ -42,7 +42,15 @@
             <!-- Monto -->
             <div class="mb-3">
                 <label asp-for="Cobro.Monto" class="form-label"></label>
-                <input asp-for="Cobro.Monto" class="form-control" id="Monto" />
+                <div class="input-group">
+                    <span class="input-group-text">₡</span>
+
+                    <input asp-for="Cobro.Monto"
+                           class="form-control money-input"
+                           id="Monto"
+                           type="text"
+                           autocomplete="off" />
+                </div>
             </div>
 
             <!-- Metodo Pago -->
