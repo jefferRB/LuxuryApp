@@ -1,0 +1,35 @@
+﻿using System.ComponentModel.DataAnnotations;
+
+namespace LuxuryApp.Models.Productos
+{
+    public class Producto
+    {
+        [Key]
+        public int IdProducto { get; set; }
+
+        [Required]
+        [Display(Name = "Nombre")]
+        public string NombreProducto { get; set; }
+
+        [Display(Name = "Detalle")]
+        [StringLength(300)]
+        public string? DetalleProducto { get; set; }
+
+        [Required]
+        [Display(Name = "Precio")]
+        [Range(0, 999999)]
+        public decimal PrecioProducto { get; set; }
+
+        [Required]
+        [Display(Name = "Cantidad en Stock")]
+        [Range(0, 99999)]
+        public int CantidadProducto { get; set; }
+
+        [Display(Name = "Stock mínimo")]
+        public int StockMinimo { get; set; } = 5;
+
+        public bool Activo { get; set; } = true;
+
+        public DateTime FechaRegistro { get; set; } = DateTime.Now;
+    }
+}

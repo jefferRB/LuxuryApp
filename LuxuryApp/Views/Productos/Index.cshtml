@@ -1,0 +1,132 @@
+﻿@model LuxuryApp.Models.Productos.ProductoIndexViewModel
+
+<div class="card border-0 shadow-lg">
+
+    <div class="card-header bg-dark text-white py-3">
+        <h5 class="m-0">
+            📦 Inventario de Productos
+        </h5>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mt-3 mx-3 mb-3">
+
+        <a asp-action="Create" class="btn btn-dark">
+            ➕ Nuevo Producto
+        </a>
+
+    </div>
+
+    <!-- KPIs -->
+    <div class="row mx-3 mb-3">
+
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body text-center">
+                    <h6>Total Productos</h6>
+                    <h3>@Model.TotalProductos</h3>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body text-center">
+                    <h6>Bajo Stock</h6>
+                    <h3 class="text-danger">@Model.ProductosBajoStock</h3>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body text-center">
+                    <h6>Valor Inventario</h6>
+                    <h3 class="text-success">
+                        ₡ @Model.ValorInventario.ToString("N2")
+                    </h3>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- TABLA -->
+    <div class="card-body p-0">
+
+        <div class="table-responsive">
+
+            <table class="table table-hover align-middle mb-0">
+
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-4">Producto</th>
+                        <th>Precio</th>
+                        <th>Stock</th>
+                        <th>Estado</th>
+                        <th></th>
+                    </tr>
+                </thead>
+
+                <tbody>
+
+                    @foreach (var item in Model.Productos)
+                    {
+                        <tr>
+                            <td class="ps-4 fw-semibold">
+                                @item.NombreProducto
+                            </td>
+
+                            <td>
+                                ₡ @item.PrecioProducto.ToString("N2")
+                            </td>
+
+                            <td>
+                                @if (item.CantidadProducto <= item.StockMinimo)
+                                {
+                                    <span class="badge bg-danger">
+                                        @item.CantidadProducto
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-success">
+                                        @item.CantidadProducto
+                                    </span>
+                                }
+                            </td>
+
+                            <td>
+                                @if (item.Activo)
+                                {
+                                    <span class="badge bg-success">Activo</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary">Inactivo</span>
+                                }
+                            </td>
+
+                            <td class="text-end pe-3">
+
+                                <a asp-action="Edit"
+                                   asp-route-id="@item.IdProducto"
+                                   class="btn btn-sm btn-outline-primary">
+                                    ✏
+                                </a>
+
+                                <button class="btn btn-sm btn-outline-warning"
+                                        onclick="toggleProducto(@item.IdProducto)">
+                                    🔄
+                                </button>
+
+                            </td>
+                        </tr>
+                    }
+
+                </tbody>
+
+            </table>
+
+        </div>
+    </div>
+</div>

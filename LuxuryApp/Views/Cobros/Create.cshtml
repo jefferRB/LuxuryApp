@@ -9,6 +9,7 @@
 
     <div class="card-body">
         <form asp-action="Create" method="post">
+            <div asp-validation-summary="All" class="text-danger"></div>
 
             <!-- Fecha -->
             <div class="mb-3">
@@ -31,11 +32,34 @@
                 </select>
             </div>
 
-            <!-- Servicio -->
+            <!-- Tipo Item -->
             <div class="mb-3">
+                <label class="form-label">Tipo</label>
+                <select id="TipoItem" name="TipoItem" class="form-select">
+                    <option value="servicio" selected>Servicio</option>
+                    <option value="producto">Producto</option>
+                </select>
+            </div>
+
+            <!-- Servicio -->
+            <div class="mb-3" id="ServicioContainer">
                 <label asp-for="Cobro.ServicioId" class="form-label"></label>
-                <select asp-for="Cobro.ServicioId" class="form-select" asp-items="Model.Servicios" id="ServicioId">
+                <select asp-for="Cobro.ServicioId"
+                        class="form-select"
+                        asp-items="Model.Servicios"
+                        id="ServicioId">
                     <option value="">Seleccione servicio</option>
+                </select>
+            </div>
+
+            <!-- Producto -->
+            <div class="mb-3 d-none" id="ProductoContainer">
+                <label class="form-label">Producto</label>
+                <select asp-for="Cobro.ProductoId"
+                        class="form-select"
+                        asp-items="Model.Productos"
+                        id="ProductoId">
+                    <option value="">Seleccione producto</option>
                 </select>
             </div>
 
@@ -48,7 +72,7 @@
                     <input asp-for="Cobro.Monto"
                            class="form-control money-input"
                            id="Monto"
-                           type="text"
+                           type="number"
                            autocomplete="off" />
                 </div>
             </div>
@@ -75,26 +99,3 @@
     </div>
 </div>
 
-@section Scripts {
-    <partial name="_ValidationScriptsPartial" />
-
-    <script>
-        document.getElementById("ServicioId").addEventListener("change", function () {
-
-            let servicioId = this.value;
-
-            if (!servicioId) return;
-
-            fetch(`/Cobros/ObtenerPrecioServicio?id=${servicioId}`)
-                .then(res => res.json())
-                .then(data => {
-
-                    if (data) {
-                        document.getElementById("Monto").value = data.precio;
-                    }
-
-                });
-
-        });
-    </script>
-}

@@ -1,0 +1,21 @@
+﻿@model LuxuryApp.Models.Productos.ProductoViewModel
+
+<div class="card border-0 shadow-lg">
+
+    <div class="card-header bg-dark text-white py-3">
+        <h5>Editar Producto</h5>
+    </div>
+
+    <div class="card-body">
+
+        <form asp-action="Edit">
+
+            <input type="hidden" asp-for="Producto.IdProducto" />
+
+            <partial name="Create" model="Model" />
+
+        </form>
+
+    </div>
+
+</div>

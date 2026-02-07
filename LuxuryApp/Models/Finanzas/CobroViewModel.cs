@@ -12,5 +12,9 @@ namespace LuxuryApp.Models.Finanzas
         public List<SelectListItem> Servicios { get; set; }
         [ValidateNever]
         public List<SelectListItem> MetodosPago { get; set; }
+        [ValidateNever]
+        public List<SelectListItem> Productos { get; set; }
+        [ValidateNever]
+        public List<DetalleCobroProducto> ProductosVendidos { get; set; } = new();
     }
 }

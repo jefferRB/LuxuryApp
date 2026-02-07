@@ -1,66 +1,59 @@
 ﻿@using LuxuryApp.Models.Finanzas
-@model CobroIndexViewModel
+@model EgresoIndexViewModel
 
 <div class="card border-0 shadow-lg">
     <div class="card-header bg-dark text-white py-3">
         <h5 class="m-0">
-            <i class="fas fa-coins me-2"></i>Finanzas - Cobros
+            <i class="fas fa-money-bill-wave me-2"></i>Finanzas - Egresos
         </h5>
     </div>
 
     <div class="d-flex justify-content-between align-items-center mt-3 mx-3 mb-3">
 
         <a asp-action="Create" class="btn btn-dark text-white">
-            <i class="fas fa-plus me-1"></i>Nuevo Cobro
+            <i class="fas fa-plus me-1"></i>Nuevo Egreso
         </a>
 
-        <div class="d-flex gap-2 align-items-center">
-            <button class="btn btn-outline-primary"
-                    data-bs-toggle="modal"
-                    data-bs-target="#modalServicios"
-                    onclick="cargarServicios()">
-                ⚙ Gestionar Servicios
-            </button>
-        </div>
+        <button class="btn btn-outline-primary"
+                data-bs-toggle="modal"
+                data-bs-target="#modalCategorias"
+                onclick="cargarCategorias()">
+            ⚙ Gestionar Categorías
+        </button>
 
     </div>
 
+    <!-- FILTROS -->
     <form method="get" class="row g-2 px-3 mb-3">
 
+        <!-- Vista tiempo -->
         <div class="col-md-3">
             <select asp-for="Filtros.VistaTiempo" class="form-select" id="vistaTiempoSelect">
-
                 <option value="dia">Hoy</option>
                 <option value="semana">Semana</option>
                 <option value="mes">Mes</option>
                 <option value="anio">Año</option>
                 <option value="fechas">Rango de Fechas</option>
                 <option value="todo">Todo</option>
-
             </select>
 
-            <div class="d-flex gap-2 mt-2" id="rangoFechasContainer" style="display:none;">
-
-                <input asp-for="Filtros.FechaInicio"
-                       type="date"
-                       class="form-control" />
-
-                <input asp-for="Filtros.FechaFin"
-                       type="date"
-                       class="form-control" />
-
+            <div class="d-flex gap-2 mt-2 d-none" id="rangoFechasContainer">
+                <input asp-for="Filtros.FechaInicio" type="date" class="form-control" />
+                <input asp-for="Filtros.FechaFin" type="date" class="form-control" />
             </div>
         </div>
 
+        <!-- Categoria -->
         <div class="col-md-3">
-            <select asp-for="Filtros.BarberoId"
-                    asp-items="Model.Barberos"
+            <select asp-for="Filtros.CategoriaId"
+                    asp-items="Model.Categorias"
                     class="form-select">
-                <option value="">Todos los barberos</option>
+                <option value="">Todas las categorías</option>
             </select>
         </div>
 
-        <div class="col-md-3 ">
+        <!-- Metodo Pago -->
+        <div class="col-md-3">
             <select asp-for="Filtros.MetodoPago"
                     asp-items="Model.MetodosPago"
                     class="form-select">
@@ -86,32 +79,30 @@
 
     </form>
 
-
+    <!-- KPIs -->
     <div class="row mx-3 mb-3">
 
-        <!-- Total Cobrado -->
         <div class="col-md-6">
             <div class="card border-0 shadow-sm">
                 <div class="card-body text-center">
                     <h6 class="text-muted">
-                        <i class="fas fa-coins me-1"></i>Total Cobrado
+                        Total Egresos
                     </h6>
-                    <h3 class="fw-bold text-success">
-                        ₡ @Model.TotalCobrado.ToString("N2")
+                    <h3 class="fw-bold text-danger">
+                        ₡ @Model.TotalEgresos.ToString("N2")
                     </h3>
                 </div>
             </div>
         </div>
 
-        <!-- Cantidad Servicios -->
         <div class="col-md-6">
             <div class="card border-0 shadow-sm">
                 <div class="card-body text-center">
                     <h6 class="text-muted">
-                        <i class="fas fa-cut me-1"></i>Servicios Realizados
+                        Cantidad Registros
                     </h6>
                     <h3 class="fw-bold text-primary">
-                        @Model.CantidadServicios
+                        @Model.CantidadRegistros
                     </h3>
                 </div>
             </div>
@@ -119,8 +110,7 @@
 
     </div>
 
-
-
+    <!-- TABLA -->
     <div class="card-body p-0">
         <div class="table-responsive">
 
@@ -129,9 +119,8 @@
                 <thead class="table-light">
                     <tr>
                         <th class="ps-4">Fecha</th>
-                        <th>Cliente</th>
-                        <th>Barbero</th>
-                        <th>Servicio / Producto</th>
+                        <th>Categoría</th>
+                        <th>Detalle</th>
                         <th>Monto</th>
                         <th>Método Pago</th>
                     </tr>
@@ -139,44 +128,29 @@
 
                 <tbody>
 
-                    @if (Model.Cobros.Any())
+                    @if (Model.Egresos.Any())
                     {
-                        foreach (var cobro in Model.Cobros)
+                        foreach (var egreso in Model.Egresos)
                         {
                             <tr>
                                 <td class="ps-4">
-                                    @cobro.FechaCobro.ToString("dd/MM/yyyy HH:mm")
-                                </td>
-
-                                <td class="fw-semibold">
-                                    @cobro.NombreCliente
+                                    @egreso.FechaEgreso.ToString("dd/MM/yyyy HH:mm")
                                 </td>
 
                                 <td>
-                                    @cobro.Barbero?.Nombre
+                                    @egreso.Categoria?.Nombre
                                 </td>
 
                                 <td>
-                                    @if (cobro.ServicioId != null)
-                                    {
-                                        <span  ">
-                                             @cobro.Servicio?.Nombre
-                                        </span>
-                                    }
-                                    else if (cobro.ProductoId != null)
-                                    {
-                                        <span  ">
-                                             @cobro.Producto?.NombreProducto
-                                        </span>
-                                    }
+                                    @egreso.Detalle
                                 </td>
 
                                 <td>
-                                    ₡ @cobro.Monto.ToString("N2")
+                                    ₡ @egreso.Monto.ToString("N2")
                                 </td>
 
                                 <td>
-                                    @cobro.MetodoPago
+                                    @egreso.MetodoPago
                                 </td>
                             </tr>
                         }
@@ -184,8 +158,8 @@
                     else
                     {
                         <tr>
-                            <td colspan="6" class="text-center py-4 text-muted">
-                                No hay cobros registrados
+                            <td colspan="5" class="text-center py-4 text-muted">
+                                No hay egresos registrados
                             </td>
                         </tr>
                     }
@@ -198,17 +172,18 @@
     </div>
 </div>
 
-<div class="modal fade" id="modalServicios" tabindex="-1">
+<!-- MODAL CATEGORIAS -->
+<div class="modal fade" id="modalCategorias" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
 
             <div class="modal-header bg-dark text-white">
-                <h5 class="modal-title">Gestión de Servicios</h5>
+                <h5 class="modal-title">Gestión de Categorías</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
 
-            <div class="modal-body" id="contenedorServicios">
-                Cargando servicios...
+            <div class="modal-body" id="contenedorCategorias">
+                Cargando categorías...
             </div>
 
         </div>
@@ -232,13 +207,11 @@
             }
         }
 
-        // Ejecutar cuando carga la página
         document.addEventListener("DOMContentLoaded", function () {
 
             const select = document.getElementById("vistaTiempoSelect");
 
             toggleRangoFechas();
-
             select.addEventListener("change", toggleRangoFechas);
 
         });
@@ -246,4 +219,3 @@
     </script>
 
 }
-

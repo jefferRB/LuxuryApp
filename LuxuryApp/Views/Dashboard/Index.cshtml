@@ -1,0 +1,251 @@
+﻿@model LuxuryApp.Models.Finanzas.DashboardViewModel
+
+@{
+    ViewData["Title"] = "Dashboard";
+}
+
+<link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+
+<style>
+
+    .dashboard-title {
+        font-weight: 600;
+        margin-bottom: 25px;
+        color: #2c2c2c;
+    }
+
+    .kpi-card {
+        border: none;
+        border-radius: 18px;
+        padding: 20px;
+        background: white;
+        box-shadow: 0 8px 18px rgba(0,0,0,0.05);
+        transition: 0.25s ease;
+        height: 100%;
+    }
+
+        .kpi-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 14px 25px rgba(0,0,0,0.08);
+        }
+
+    .kpi-icon {
+        font-size: 28px;
+        padding: 14px;
+        border-radius: 12px;
+        color: white;
+    }
+
+    .kpi-value {
+        font-size: 26px;
+        font-weight: 600;
+        margin-top: 10px;
+    }
+
+    .kpi-label {
+        font-size: 14px;
+        color: #6c757d;
+    }
+
+    .bg-soft-green {
+        background: #e9f9f1;
+    }
+
+    .bg-soft-red {
+        background: #fdeaea;
+    }
+
+    .bg-soft-blue {
+        background: #eaf2ff;
+    }
+
+    .bg-soft-dark {
+        background: #f3f3f3;
+    }
+
+    .bg-soft-yellow {
+        background: #fff8e5;
+    }
+
+    .icon-green {
+        background: #28a745;
+    }
+
+    .icon-red {
+        background: #dc3545;
+    }
+
+    .icon-blue {
+        background: #0d6efd;
+    }
+
+    .icon-dark {
+        background: #343a40;
+    }
+
+    .icon-yellow {
+        background: #ffc107;
+    }
+
+    .dashboard-wrapper {
+        padding: 30px;
+    }
+
+    .dashboard-container {
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(10px);
+        border-radius: 25px;
+        padding: 35px;
+        box-shadow: 0 15px 40px rgba(0,0,0,0.12);
+        
+    }
+
+
+</style>
+
+
+<div class="dashboard-wrapper">
+
+    <div class="dashboard-container">
+
+<h3 class="dashboard-title text-center" >📊 Dashboard Financiero</h3>
+
+<div class="row g-4">
+
+    <!-- INGRESOS -->
+    <div class="col-xl-3 col-md-6">
+        <div class="kpi-card bg-soft-green">
+            <div class="d-flex justify-content-between">
+                <div>
+                    <div class="kpi-label">Ingresos del Mes</div>
+                    <div class="kpi-value text-success">
+                        ₡ @Model.TotalIngresosMes.ToString("N2")
+                    </div>
+                </div>
+
+                <div class="kpi-icon icon-green">
+                    <i class="bi bi-cash-stack"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- EGRESOS -->
+    <div class="col-xl-3 col-md-6">
+        <div class="kpi-card bg-soft-red">
+            <div class="d-flex justify-content-between">
+                <div>
+                    <div class="kpi-label">Egresos del Mes</div>
+                    <div class="kpi-value text-danger">
+                        ₡ @Model.TotalEgresosMes.ToString("N2")
+                    </div>
+                </div>
+
+                <div class="kpi-icon icon-red">
+                    <i class="bi bi-graph-down-arrow"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- GANANCIA -->
+    <div class="col-xl-3 col-md-6">
+        <div class="kpi-card bg-soft-blue">
+            <div class="d-flex justify-content-between">
+                <div>
+                    <div class="kpi-label">Ganancia Neta</div>
+                    <div class="kpi-value text-primary">
+                        ₡ @Model.GananciaNeta.ToString("N2")
+                    </div>
+                </div>
+
+                <div class="kpi-icon icon-blue">
+                    <i class="bi bi-bar-chart-line"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+            <!-- Patrimonio Inventario -->
+            <div class="col-xl-3 col-md-6">
+                <div class="kpi-card bg-soft-blue">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <div class="kpi-label">Patrimonio en Productos</div>
+                            <div class="kpi-value text-primary">
+                                ₡ @Model.ValorInventarioProductos.ToString("N2")
+                            </div>
+                        </div>
+
+                        <div class="kpi-icon icon-blue">
+                            <i class="bi bi-box-seam"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+
+    <!-- CLIENTES -->
+    <div class="col-xl-3 col-md-6">
+        <div class="kpi-card bg-soft-dark">
+            <div class="d-flex justify-content-between">
+                <div>
+                    <div class="kpi-label">Clientes Registrados</div>
+                    <div class="kpi-value text-dark">
+                        @Model.CantidadClientes
+                    </div>
+                </div>
+
+                <div class="kpi-icon icon-dark">
+                    <i class="bi bi-people"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+            <!-- Producto -->
+            <div class="col-xl-3 col-md-6">
+                <div class="kpi-card bg-soft-dark">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <div class="kpi-label">Productos Registrados</div>
+                            <div class="kpi-value text-dark">
+                                @Model.TotalProductosInventario
+                            </div>
+                        </div>
+
+                        <div class="kpi-icon icon-dark">
+                            <i class="bi bi-archive"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+
+    <!-- CITAS -->
+    <div class="col-xl-3 col-md-6">
+        <div class="kpi-card bg-soft-yellow">
+            <div class="d-flex justify-content-between">
+                <div>
+                    <div class="kpi-label">Citas del Mes</div>
+                    <div class="kpi-value text-warning">
+                        @Model.CantidadCitasMes
+                    </div>
+                </div>
+
+                <div class="kpi-icon icon-yellow">
+                    <i class="bi bi-calendar-check"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+           
+
+</div>
+    </div>
+
+</div>

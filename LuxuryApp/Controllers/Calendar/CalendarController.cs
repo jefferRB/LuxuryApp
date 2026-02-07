@@ -204,11 +204,14 @@ namespace LuxuryApp.Controllers.Calendar
         }
 
         [HttpGet]
-        public async Task<IActionResult> ObtenerServicios()
+        public async Task<JsonResult> GetServicios()
         {
             var servicios = await _context.Servicios
                 .Where(s => s.Activo)
-                .Select(s => s.Nombre)
+                .Select(s => new
+                {
+                    nombre = s.Nombre
+                })
                 .ToListAsync();
 
             return Json(servicios);

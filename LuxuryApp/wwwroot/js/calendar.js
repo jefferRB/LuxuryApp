@@ -869,17 +869,28 @@ async function guardarEdicion() {
 async function loadServiciosForCita() {
 
     const select = document.getElementById("servicio");
+
     select.innerHTML = `<option value="">Seleccione servicio</option>`;
 
-    const res = await fetch("/Finanzas/GetServicios");
-    if (!res.ok) return;
+    try {
 
-    const servicios = await res.json();
+        const res = await fetch("/Calendar/GetServicios");
 
-    servicios.forEach(s => {
-        const opt = document.createElement("option");
-        opt.value = s.nombre;     // 🔥 se guarda como TEXTO
-        opt.textContent = s.nombre;
-        select.appendChild(opt);
-    });
+        if (!res.ok) return;
+
+        const servicios = await res.json();
+
+        servicios.forEach(s => {
+
+            const opt = document.createElement("option");
+
+            opt.value = s.nombre;   // 🔥 Se guarda como texto
+            opt.textContent = s.nombre;
+
+            select.appendChild(opt);
+        });
+
+    } catch (error) {
+        console.error("Error cargando servicios:", error);
+    }
 }

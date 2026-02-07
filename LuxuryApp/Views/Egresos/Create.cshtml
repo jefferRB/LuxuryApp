@@ -1,0 +1,65 @@
+﻿@model LuxuryApp.Models.Finanzas.EgresoViewModel
+
+<div class="card border-0 shadow-lg">
+    <div class="card-header bg-dark text-white py-3">
+        <h5 class="m-0">
+            <i class="fas fa-file-invoice-dollar me-2"></i>Registrar Egreso
+        </h5>
+    </div>
+
+    <div class="card-body">
+        <form asp-action="Create" method="post">
+
+            <!-- Fecha -->
+            <div class="mb-3">
+                <label asp-for="Egreso.FechaEgreso" class="form-label"></label>
+                <input asp-for="Egreso.FechaEgreso" class="form-control" type="datetime-local" step="60" />
+            </div>
+
+            <!-- Categoria -->
+            <div class="mb-3">
+                <label asp-for="Egreso.CategoriaId" class="form-label"></label>
+                <select asp-for="Egreso.CategoriaId" class="form-select" asp-items="Model.Categorias">
+                    <option value="">Seleccione categoría</option>
+                </select>
+            </div>
+
+            <!-- Detalle -->
+            <div class="mb-3">
+                <label asp-for="Egreso.Detalle" class="form-label"></label>
+                <input asp-for="Egreso.Detalle" class="form-control" placeholder="Descripción del egreso" />
+                <span asp-validation-for="Egreso.Detalle" class="text-danger"></span>
+            </div>
+
+            <!-- Monto -->
+            <div class="mb-3">
+                <label asp-for="Egreso.Monto" class="form-label"></label>
+                <div class="input-group">
+                    <span class="input-group-text">₡</span>
+                    <input asp-for="Egreso.Monto" class="form-control money-input" type="text" autocomplete="off" />
+                </div>
+            </div>
+
+            <!-- Metodo Pago -->
+            <div class="mb-3">
+                <label asp-for="Egreso.MetodoPago" class="form-label"></label>
+                <select asp-for="Egreso.MetodoPago" class="form-select" asp-items="Model.MetodosPago">
+                    <option value="">Seleccione método de pago</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn btn-dark">
+                <i class="fas fa-save me-1"></i>Guardar Egreso
+            </button>
+
+            <a asp-action="Index" class="btn btn-secondary">
+                <i class="fas fa-arrow-left me-1"></i>Volver
+            </a>
+
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

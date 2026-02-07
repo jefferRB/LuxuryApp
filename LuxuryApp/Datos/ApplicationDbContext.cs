@@ -2,6 +2,7 @@
 using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Identity;
+using LuxuryApp.Models.Productos;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
@@ -28,6 +29,14 @@ namespace ProyectoIdentity.Datos
         //Finanzas
         public DbSet<Cobro> Cobros { get; set; }
         public DbSet<Servicio> Servicios { get; set; }
+        public DbSet<Egreso> Egresos { get; set; }
+        public DbSet<Categoria> Categorias { get; set; }
+        //Productos
+        public DbSet<Producto> Productos { get; set; }
+        public DbSet<DetalleCobroProducto> DetalleCobroProductos { get; set; }
+        public DbSet<MovimientoInventario> MovimientosInventario { get; set; }
+
+
     }
 
 

@@ -1,0 +1,48 @@
+﻿@model LuxuryApp.Models.Productos.ProductoViewModel
+
+<div class="card border-0 shadow-lg">
+
+    <div class="card-header bg-dark text-white py-3">
+        <h5 class="m-0">Registrar Producto</h5>
+    </div>
+
+    <div class="card-body">
+
+        <form asp-action="Create">
+
+            <div class="mb-3">
+                <label asp-for="Producto.NombreProducto"></label>
+                <input asp-for="Producto.NombreProducto" class="form-control" />
+            </div>
+
+            <div class="mb-3">
+                <label asp-for="Producto.DetalleProducto"></label>
+                <input asp-for="Producto.DetalleProducto" class="form-control" />
+            </div>
+
+            <div class="mb-3">
+                <label asp-for="Producto.PrecioProducto"></label>
+                <input asp-for="Producto.PrecioProducto" class="form-control" />
+            </div>
+
+            <div class="mb-3">
+                <label asp-for="Producto.CantidadProducto"></label>
+                <input asp-for="Producto.CantidadProducto" class="form-control" />
+            </div>
+
+            <div class="mb-3">
+                <label asp-for="Producto.StockMinimo"></label>
+                <input asp-for="Producto.StockMinimo" class="form-control" />
+            </div>
+
+            <button class="btn btn-dark">Guardar</button>
+
+            <a asp-action="Index" class="btn btn-secondary">
+                Volver
+            </a>
+
+        </form>
+
+    </div>
+
+</div>

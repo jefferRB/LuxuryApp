@@ -1,0 +1,25 @@
+﻿@model LuxuryApp.Models.Finanzas.Categoria
+
+<form id="formCategoria">
+
+    @Html.AntiForgeryToken()
+
+    <div class="mb-2">
+        <label class="form-label">Nombre de la categoria</label>
+        <input asp-for="Nombre" class="form-control" />
+        <span asp-validation-for="Nombre" class="text-danger"></span>
+    </div>
+
+    <div class="mb-2">
+        <label class="form-label">Detalle de la categoria</label>
+        <input asp-for="Detalle" class="form-control" />
+        <span asp-validation-for="Detalle" class="text-danger"></span>
+    </div>
+
+    <button type="button"
+            class="btn btn-success"
+            onclick="guardarCategoria()">
+        Guardar
+    </button>
+
+</form>
