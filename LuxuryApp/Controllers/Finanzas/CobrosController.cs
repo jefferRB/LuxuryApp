@@ -1,6 +1,7 @@
 ﻿using ClosedXML.Excel;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Productos;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
@@ -8,6 +9,8 @@ using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Controllers.Finanzas
 {
+    [Authorize(Roles = "Administrador")]
+
     public class CobrosController : Controller
     {
         private readonly ApplicationDbContext _context;
@@ -253,16 +256,10 @@ namespace LuxuryApp.Controllers.Finanzas
             {
                 var ws = workbook.Worksheets.Add("Reporte Cobros");
 
-                // =============================
-                // 🎨 COLORES LUXURY
-                // =============================
                 var colorNegro = XLColor.FromHtml("#1C1C1C");
                 var colorDorado = XLColor.FromHtml("#C6A55C");
                 var colorGrisSuave = XLColor.FromHtml("#F5F5F5");
 
-                // =============================
-                // 💈 TITULO PRINCIPAL
-                // =============================
                 ws.Range("A1:F1").Merge();
                 ws.Cell("A1").Value = "LUXE CENTRO DE BELLEZA";
                 ws.Cell("A1").Style.Font.FontSize = 20;
@@ -281,9 +278,6 @@ namespace LuxuryApp.Controllers.Finanzas
                 ws.Cell("A3").Style.Font.Italic = true;
                 ws.Cell("A3").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-                // =============================
-                // 📊 KPIs SUPERIORES
-                // =============================
                 int kpiRow = 5;
 
                 ws.Cell(kpiRow, 1).Value = "Cantidad Cobros";
@@ -292,24 +286,18 @@ namespace LuxuryApp.Controllers.Finanzas
                 ws.Cell(kpiRow, 3).Value = "Monto Total";
                 ws.Cell(kpiRow, 4).Value = cobros.Sum(x => x.Monto);
 
-               
-
                 var kpiRange = ws.Range(kpiRow, 1, kpiRow, 6);
                 kpiRange.Style.Fill.BackgroundColor = colorGrisSuave;
                 kpiRange.Style.Font.Bold = true;
 
                 ws.Cell(kpiRow, 4).Style.NumberFormat.Format = "₡ #,##0.00";
-                ws.Cell(kpiRow, 6).Style.NumberFormat.Format = "₡ #,##0.00";
 
-                // =============================
-                // 📌 ENCABEZADOS TABLA
-                // =============================
                 int headerRow = 7;
 
                 ws.Cell(headerRow, 1).Value = "Fecha";
                 ws.Cell(headerRow, 2).Value = "Cliente";
                 ws.Cell(headerRow, 3).Value = "Barbero";
-                ws.Cell(headerRow, 4).Value = "Servicio";
+                ws.Cell(headerRow, 4).Value = "Detalle";
                 ws.Cell(headerRow, 5).Value = "Monto";
                 ws.Cell(headerRow, 6).Value = "Método Pago";
 
@@ -320,9 +308,6 @@ namespace LuxuryApp.Controllers.Finanzas
                 header.Style.Font.Bold = true;
                 header.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-                // =============================
-                // 📋 DATOS
-                // =============================
                 int fila = headerRow + 1;
 
                 foreach (var c in cobros)
@@ -332,7 +317,15 @@ namespace LuxuryApp.Controllers.Finanzas
 
                     ws.Cell(fila, 2).Value = c.NombreCliente;
                     ws.Cell(fila, 3).Value = c.Barbero?.Nombre;
-                    ws.Cell(fila, 4).Value = c.Servicio?.Nombre;
+
+                    // 🔥 NUEVA LOGICA SERVICIO / PRODUCTO
+                    string detalle = c.Servicio != null
+                        ? $"Servicio: {c.Servicio.Nombre}"
+                        : c.Producto != null
+                            ? $"Producto: {c.Producto.NombreProducto}"
+                            : "-";
+
+                    ws.Cell(fila, 4).Value = detalle;
 
                     ws.Cell(fila, 5).Value = c.Monto;
                     ws.Cell(fila, 5).Style.NumberFormat.Format = "₡ #,##0.00";
@@ -342,18 +335,12 @@ namespace LuxuryApp.Controllers.Finanzas
                     fila++;
                 }
 
-                // =============================
-                // 🦓 FILAS ALTERNADAS (ELEGANTE)
-                // =============================
                 var dataRange = ws.Range(headerRow + 1, 1, fila - 1, 6);
 
                 dataRange.AddConditionalFormat()
                     .WhenIsTrue("MOD(ROW(),2)=0")
                     .Fill.SetBackgroundColor(colorGrisSuave);
 
-                // =============================
-                // 💰 TOTAL FINAL
-                // =============================
                 ws.Cell(fila, 4).Value = "TOTAL GENERAL";
                 ws.Cell(fila, 4).Style.Font.Bold = true;
 
@@ -362,18 +349,11 @@ namespace LuxuryApp.Controllers.Finanzas
                 ws.Cell(fila, 5).Style.Font.Bold = true;
                 ws.Cell(fila, 5).Style.Font.FontColor = colorDorado;
 
-                // =============================
-                // 📏 FORMATO GENERAL
-                // =============================
                 ws.Columns().AdjustToContents();
 
                 ws.Range(headerRow, 1, fila - 1, 6).SetAutoFilter();
-
                 ws.SheetView.FreezeRows(headerRow);
 
-                // =============================
-                // 📦 EXPORTAR
-                // =============================
                 using (var stream = new MemoryStream())
                 {
                     workbook.SaveAs(stream);

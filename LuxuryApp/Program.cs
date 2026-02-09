@@ -1,5 +1,9 @@
+using LuxuryApp.Datos;
 using LuxuryApp.Emails;
+using LuxuryApp.Models.Identity;
+using LuxuryApp.Services;
 using LuxuryApp.Services.DataBase;
+using LuxuryApp.Workers;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.EntityFrameworkCore;
@@ -15,7 +19,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("ConexionSql")));
 
 //Add the service identity a la app
-builder.Services.AddIdentity<IdentityUser, IdentityRole>().AddEntityFrameworkStores<ApplicationDbContext>().AddDefaultTokenProviders();
+builder.Services.AddIdentity<AppUsuario, IdentityRole>().AddEntityFrameworkStores<ApplicationDbContext>().AddDefaultTokenProviders();
 
 //Esta linea es para la url de retorno al acceder
 builder.Services.ConfigureApplicationCookie(options =>
@@ -35,7 +39,14 @@ builder.Services.Configure<IdentityOptions>(options =>
 });
 
 // Add services to the container.
-builder.Services.AddControllersWithViews();
+builder.Services.AddControllersWithViews(options =>
+{
+    var policy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+
+    options.Filters.Add(new Microsoft.AspNetCore.Mvc.Authorization.AuthorizeFilter(policy));
+});
 
 //DataBase 
 builder.Services.AddSingleton<RecordatorioService>();
@@ -48,8 +59,12 @@ builder.Services.Configure<ResendClientOptions>(o =>
     o.ApiToken = builder.Configuration["Email:resendAPIKey"];
 });
 builder.Services.AddTransient<IResend, ResendClient>();
+//whatsapp
+builder.Services.AddScoped<WhatsAppService>();
+builder.Services.AddHostedService<ReminderWorker>();
 
 var app = builder.Build();
+
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
@@ -74,5 +89,10 @@ app.MapControllerRoute(
     pattern: "{controller=Home}/{action=Index}/{id?}")
     .WithStaticAssets();
 
+using (var scope = app.Services.CreateScope())
+{
+    var services = scope.ServiceProvider;
+    await IdentitySeeder.SeedRolesAsync(services);
+}
 
 app.Run();

@@ -1,7 +1,8 @@
 ﻿@using Microsoft.AspNetCore.Identity
+@using LuxuryApp.Models.Identity
 
-@inject SignInManager<IdentityUser> SignInManager
-@inject UserManager<IdentityUser> UserManager
+@inject SignInManager<AppUsuario> SignInManager
+@inject UserManager<AppUsuario> UserManager
 
 <ul class="navbar-nav ml-auto">
     @if (SignInManager.IsSignedIn(User))

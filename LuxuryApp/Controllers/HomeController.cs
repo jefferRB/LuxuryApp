@@ -12,9 +12,10 @@ namespace LuxuryApp.Controllers
         {
             _logger = logger;
         }
+        [Authorize]
         public IActionResult Index()
         {
-            return View();
+            return RedirectToAction("Index", "Dashboard");
         }
         [Authorize]
         public IActionResult Privacy()

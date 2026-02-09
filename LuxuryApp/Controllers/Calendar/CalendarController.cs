@@ -1,10 +1,13 @@
 ﻿using LuxuryApp.Models.Calendar;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Controllers.Calendar
 {
+    [Authorize(Roles = "Administrador")]
+
     public class CalendarController : Controller
     {
         private readonly ApplicationDbContext _context;

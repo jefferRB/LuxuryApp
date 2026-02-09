@@ -1,5 +1,6 @@
 ﻿using ClosedXML.Excel;
 using LuxuryApp.Models.Finanzas;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
@@ -7,6 +8,8 @@ using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Controllers.Finanzas
 {
+    [Authorize(Roles = "Administrador")]
+
     public class EgresosController : Controller
     {
          private readonly ApplicationDbContext _context;

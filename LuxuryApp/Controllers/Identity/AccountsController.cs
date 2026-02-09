@@ -8,16 +8,18 @@ namespace LuxuryApp.Controllers.Identity
 {
     public class AccountsController : Controller
     {
-        private readonly UserManager<IdentityUser> _userManager;
+        private readonly UserManager<AppUsuario> _userManager;
+        private readonly SignInManager<AppUsuario> _signInManager;
         private readonly RoleManager<IdentityRole> _roleManager;
-        private readonly SignInManager<IdentityUser> _signInManager;
 
-        public AccountsController(UserManager<IdentityUser> userManager, SignInManager<IdentityUser> signInManager, RoleManager<IdentityRole> roleManager)
+        public AccountsController(
+            UserManager<AppUsuario> userManager,
+            SignInManager<AppUsuario> signInManager,
+            RoleManager<IdentityRole> roleManager)
         {
             _userManager = userManager;
             _signInManager = signInManager;
             _roleManager = roleManager;
-
         }
         [HttpGet]
         [AllowAnonymous]
@@ -31,21 +33,7 @@ namespace LuxuryApp.Controllers.Identity
 
         public async Task<IActionResult> Registro(string returnurl = null)
         {
-            //Para la creacion de los roles
-            if (!await _roleManager.RoleExistsAsync("Administrador"))
-            {
-                //Creacion del rol usuario Administrador
-                await _roleManager.CreateAsync(new IdentityRole("Administrador"));
-            }
-            //Para la creacion de los roles
-            if (!await _roleManager.RoleExistsAsync("Registrado"))
-            {
-                //Creacion del rol usuario Registrado
-                await _roleManager.CreateAsync(new IdentityRole("Registrado"));
-            }
-
-
-
+      
             ViewData["ReturnUrl"] = returnurl;
             RegistroViewModel registroVM = new RegistroViewModel();
             return View(registroVM);
@@ -75,7 +63,7 @@ namespace LuxuryApp.Controllers.Identity
                 if (resultado.Succeeded)
                 {
                     //Esta linea es para asignacion del usuario que se registra al rol
-                    await _userManager.AddToRoleAsync(usuario, "Administrador");
+                    await _userManager.AddToRoleAsync(usuario, "Registrado");
 
                     await _signInManager.SignInAsync(usuario, isPersistent: false);
                     //return RedirectToAction("Index", "Home");
@@ -121,8 +109,12 @@ namespace LuxuryApp.Controllers.Identity
 
                 if (resultado.Succeeded)
                 {
-                    //return RedirectToAction("Index", "Home");
-                    return LocalRedirect(returnurl);
+                    if (!string.IsNullOrEmpty(returnurl) && Url.IsLocalUrl(returnurl))
+                    {
+                        return Redirect(returnurl);
+                    }
+
+                    return RedirectToAction("Index", "Dashboard");
                 }
                 if (resultado.IsLockedOut)
                 {
@@ -154,6 +146,12 @@ namespace LuxuryApp.Controllers.Identity
         [AllowAnonymous]
 
         public IActionResult OlvidoPassword()
+        {
+            return View();
+        }
+
+        [AllowAnonymous]
+        public IActionResult Bloqueado()
         {
             return View();
         }

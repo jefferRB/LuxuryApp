@@ -14,5 +14,8 @@
         public decimal ValorInventarioProductos { get; set; }
         public int TotalProductosInventario { get; set; }
 
+        public int MesSeleccionado { get; set; }
+        public int AnioSeleccionado { get; set; }
+
     }
 }

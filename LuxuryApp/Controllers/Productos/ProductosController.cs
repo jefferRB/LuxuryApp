@@ -1,10 +1,13 @@
 ﻿using LuxuryApp.Models.Productos;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Controllers.Productos
 {
+    [Authorize(Roles = "Administrador")]
+
     public class ProductosController : Controller
     {
         private readonly ApplicationDbContext _context;

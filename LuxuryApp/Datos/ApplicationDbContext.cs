@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ProyectoIdentity.Datos
 {
-    public class ApplicationDbContext : IdentityDbContext
+    public class ApplicationDbContext : IdentityDbContext<AppUsuario>
     {
         public ApplicationDbContext(DbContextOptions options) : base(options) 
         {

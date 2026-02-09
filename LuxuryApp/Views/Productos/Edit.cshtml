@@ -9,10 +9,16 @@
     <div class="card-body">
 
         <form asp-action="Edit">
-
             <input type="hidden" asp-for="Producto.IdProducto" />
 
-            <partial name="Create" model="Model" />
+            <partial name="_ProductoForm" model="Model" />
+
+            <button class="btn btn-dark">
+                Guardar Cambios
+            </button>
+            <a asp-action="Index" class="btn btn-secondary">
+                Volver
+            </a>
 
         </form>
 

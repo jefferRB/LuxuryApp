@@ -16,5 +16,8 @@ namespace LuxuryApp.Controllers.Identity
         {
             return View();
         }
+
+        
+
     }
 }

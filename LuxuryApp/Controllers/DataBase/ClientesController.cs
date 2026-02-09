@@ -8,7 +8,7 @@ using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Controllers.DataBase
 {
-    [Authorize]
+    [Authorize(Roles = "Administrador")]
     public class ClientesController : Controller
     {
         private readonly ApplicationDbContext _context;
@@ -61,7 +61,12 @@ namespace LuxuryApp.Controllers.DataBase
         [HttpGet]
         public IActionResult Create()
         {
-            return View();
+            var cliente = new ClientesModel
+            {
+                FechaUltimaVisita = DateTime.Today
+            };
+
+            return View(cliente);
         }
 
         // ✅ GUARDAR CLIENTE NUEVO
@@ -69,12 +74,20 @@ namespace LuxuryApp.Controllers.DataBase
         [ValidateAntiForgeryToken]
         public IActionResult Create(ClientesModel cliente)
         {
+            bool telefonoExiste = _context.Clientes
+            .Any(c => c.NumeroTelefono == cliente.NumeroTelefono);
+
+            if (telefonoExiste)
+            {
+                ModelState.AddModelError("NumeroTelefono",
+                    "Este número de teléfono ya se encuentra registrado.");
+            }
             if (ModelState.IsValid)
             {
                 _context.Clientes.Add(cliente);
                 _context.SaveChanges();
 
-                // 2️⃣ Registrar la primera visita
+                // Registrar  primera visita
                 var primeraVisita = new ClienteVisitas
                 {
                     NumeroTelefono = cliente.NumeroTelefono,
@@ -83,6 +96,8 @@ namespace LuxuryApp.Controllers.DataBase
 
                 _context.ClienteVisitas.Add(primeraVisita);
                 _context.SaveChanges();
+
+                
 
                 return RedirectToAction(nameof(Index));
             }

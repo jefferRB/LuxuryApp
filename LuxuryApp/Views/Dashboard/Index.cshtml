@@ -108,8 +108,64 @@
 <div class="dashboard-wrapper">
 
     <div class="dashboard-container">
+        <div class="d-flex justify-content-center align-items-center mb-4 gap-3">
 
-<h3 class="dashboard-title text-center" >📊 Dashboard Financiero</h3>
+            <!-- Flecha atrás -->
+            <a class="btn btn-dark rounded-circle shadow"
+               asp-action="Index"
+               asp-route-mes="@(Model.MesSeleccionado == 1 ? 12 : Model.MesSeleccionado - 1)"
+               asp-route-anio="@(Model.MesSeleccionado == 1 ? Model.AnioSeleccionado - 1 : Model.AnioSeleccionado)">
+                <i class="bi bi-chevron-left"></i>
+            </a>
+
+            <!-- Selector Mes / Año -->
+            <form asp-action="Index" method="get" class="d-flex gap-2 align-items-center">
+
+                <select name="mes" class="form-select shadow-sm" style="width:150px;">
+                    @for (int m = 1; m <= 12; m++)
+                    {
+                        <option value="@m" selected="@(m == Model.MesSeleccionado)">
+                            @System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(m)
+                        </option>
+                    }
+                </select>
+
+                <select name="anio" class="form-select shadow-sm" style="width:120px;">
+                    @for (int a = DateTime.Today.Year - 5; a <= DateTime.Today.Year + 1; a++)
+                    {
+                        <option value="@a" selected="@(a == Model.AnioSeleccionado)">
+                            @a
+                        </option>
+                    }
+                </select>
+
+                <button class="btn btn-outline-dark shadow-sm">
+                    <i class="bi bi-search"></i>
+                </button>
+
+            </form>
+
+            <!-- Flecha adelante -->
+            <a class="btn btn-dark rounded-circle shadow"
+               asp-action="Index"
+               asp-route-mes="@(Model.MesSeleccionado == 12 ? 1 : Model.MesSeleccionado + 1)"
+               asp-route-anio="@(Model.MesSeleccionado == 12 ? Model.AnioSeleccionado + 1 : Model.AnioSeleccionado)">
+                <i class="bi bi-chevron-right"></i>
+            </a>
+
+        </div>
+
+        <h3 class="dashboard-title text-center">
+
+            📊 Dashboard Financiero
+            <br />
+
+            <small class="text-muted">
+                @System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(Model.MesSeleccionado)
+                @Model.AnioSeleccionado
+            </small>
+
+        </h3>
 
 <div class="row g-4">
 

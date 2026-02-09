@@ -1,67 +1,118 @@
 ﻿@model LuxuryApp.Models.Identity.AccesoViewModel
 
-
 @{
-	ViewData["Tittle"] = "Acceso de usuario";
-	Layout = "~/Views/Shared/_Layout.cshtml";
+    ViewData["Title"] = "Acceso";
+    Layout = "~/Views/Shared/_Layout.cshtml";
 }
 
+<link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 
-<div class="card">
-	<div class="card-body">
-		<h3 class="card-title text-center">Acceso de usuario</h3>
-		<form asp-controller="Accounts" asp-action="Acceso" asp-route-returnurl="@ViewData["ReturnUrl"]" method="post">
-			<div class="text-danger" asp-validation-summary="All"></div>
+<style>
 
-			<div class="row mt-4">
-				<div class="col-sm-6">
+    body {
+        background: linear-gradient(135deg,#0f2027,#203a43,#2c5364);
+        min-height: 100vh;
+    }
 
-					<div class="mb-3">
-						<label asp-for="Email" class="col-md-2"></label>
-						<input asp-for="Email" class="form-control" placeholder="Ingresa tu email" />
-						<span asp-validation-for="Email" class="text-danger"></span>
-					</div>
+    .auth-wrapper {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 85vh;
+    }
 
-					<div class="mb-3">
-						<label asp-for="Password" class="col-md-2"></label>
-						<input asp-for="Password" class="form-control" placeholder="Ingresa la contraseña" />
-						<span asp-validation-for="Password" class="text-danger"></span>
-					</div>
+    .auth-card {
+        width: 420px;
+        border-radius: 25px;
+        padding: 35px;
+        background: rgba(255,255,255,0.08);
+        backdrop-filter: blur(15px);
+        box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+        color: white;
+    }
 
-					<div class="mb-3">
-						<div class="custom-check">
-							<label asp-for="RememberMe" class="col-md-4">
-								<input asp-for="RememberMe"  />
-								@Html.DisplayNameFor(m => m.RememberMe)
-							</label>
-						</div>
-					</div>
-				
-				</div>
+    .auth-title {
+        text-align: center;
+        margin-bottom: 25px;
+    }
 
-				<div class="col-sm-4 offset-2">
+    .input-group-text {
+        background: #1c1c1c;
+        border: none;
+        color: #ccc;
+    }
 
-					<h3>Acceso aplicaciones externas</h3>
+    .form-control {
+        background: #1c1c1c;
+        border: none;
+        color: white;
+    }
 
-				</div>
-			</div>
+    .btn-luxury {
+        border-radius: 30px;
+        padding: 12px;
+        background: linear-gradient(45deg,#d4af37,#f5e27a);
+        border: none;
+        color: black;
+        transition: 0.3s;
+    }
 
-			<div class="row">
-				<div class="col-sm-6 ">
-					<button type="submit" class="btn btn-success w-100 btn-lg bg-dark">Acceder <i class="bi bi-arrow-right-circle-fill"></i></button>
-					<p><a asp-action="Registro">Registrarse como un nuevo usuario</a></p>
-					<p><a asp-action="OlvidoPassword">Olvidaste tu contraseña?</a></p>
+        .btn-luxury:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(212,175,55,0.6);
+        }
 
-				</div>
-			</div>
+</style>
 
-		</form>
-	</div>
+<div class="auth-wrapper">
+
+    <div class="auth-card">
+
+        <h3 class="auth-title">
+            <i class="bi bi-box-arrow-in-right"></i> Iniciar Sesión
+        </h3>
+
+        <form asp-controller="Accounts" asp-action="Acceso" method="post">
+
+            <div class="text-danger" asp-validation-summary="All"></div>
+
+            <div class="mb-3 input-group">
+                <span class="input-group-text">
+                    <i class="bi bi-envelope"></i>
+                </span>
+                <input asp-for="Email" class="form-control" placeholder="Correo electrónico" />
+            </div>
+
+            <div class="mb-3 input-group">
+                <span class="input-group-text">
+                    <i class="bi bi-lock"></i>
+                </span>
+                <input asp-for="Password" type="password" class="form-control" placeholder="Contraseña" />
+            </div>
+
+            <div class="form-check mb-3">
+                <input asp-for="RememberMe" class="form-check-input" />
+                <label asp-for="RememberMe" class="form-check-label"></label>
+            </div>
+
+            <button type="submit" class="btn btn-luxury w-100">
+                Acceder
+            </button>
+
+            <div class="text-center mt-3">
+                <a asp-action="Registro">Crear cuenta</a><br />
+                <a asp-action="OlvidoPassword">¿Olvidaste tu contraseña?</a>
+            </div>
+
+        </form>
+
+    </div>
+
 </div>
 
-
 @section Scripts {
-	@{
-		await Html.RenderPartialAsync("_ValidationScriptsPartial");
-	}
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
 }
