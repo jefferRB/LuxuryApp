@@ -19,6 +19,7 @@ html {
 
 body {
   margin-bottom: 60px;
+
 }
 
 .card {
@@ -72,4 +73,39 @@ body {
 
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
   text-align: start;
+}
+/* ===== FULL SCREEN MENSAJES ===== */
+
+.fullscreen-mensajes {
+    overflow: hidden;
+    height: 100vh;
+}
+
+    .fullscreen-mensajes body {
+        overflow: hidden;
+    }
+
+body.fullscreen-mensajes {
+    overflow: hidden;
+    height: 100vh;
+    margin-bottom: 0 !important;
+}
+
+.fullscreen-mensajes .container {
+    max-width: 100% !important;
+    height: calc(100vh - 57px);
+    padding: 0;
+}
+
+.fullscreen-mensajes footer {
+    display: none;
+}
+
+.fullscreen-mensajes main {
+    height: 100%;
+    padding: 0 !important;
+    padding-top: 0 !important;
+}
+.fullscreen-mensajes .navbar {
+    margin-bottom: 0 !important;
 }
