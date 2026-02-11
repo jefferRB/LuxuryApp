@@ -18,6 +18,8 @@ namespace LuxuryApp.Models.Calendar
         [Required]
         public DateTime FechaHoraCita { get; set; }
 
+
+        public bool ConfirmacionEnviada { get; set; }
         public bool Recordatorio24hEnviado { get; set; }
         public bool Recordatorio3hEnviado { get; set; }
        

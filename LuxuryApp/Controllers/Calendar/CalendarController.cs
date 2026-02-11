@@ -1,4 +1,5 @@
 ﻿using LuxuryApp.Models.Calendar;
+using LuxuryApp.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -25,38 +26,78 @@ namespace LuxuryApp.Controllers.Calendar
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CitaCreateVM vm)
         {
-
             if (vm == null)
                 return BadRequest("Datos inválidos");
 
-            // 1️⃣ Crear cita
             var cita = new Cita
             {
                 NombreCliente = vm.NombreCliente,
                 TelefonoCliente = vm.TelefonoCliente,
                 Servicio = vm.Servicio,
-                FechaHoraCita = vm.FechaHoraCita
+                FechaHoraCita = vm.FechaHoraCita,
+                ConfirmacionEnviada = false,
+                Recordatorio24hEnviado = false,
+                Recordatorio3hEnviado = false
             };
 
             _context.Citas.Add(cita);
-            await _context.SaveChangesAsync(); // 🔥 NECESARIO para obtener cita.Id
+            await _context.SaveChangesAsync();
 
-            // 2️⃣ Relacionar barberos
+            // Relacionar barberos
             foreach (var barberoId in vm.BarberoIds)
             {
-                var cb = new CitaBarbero
+                _context.CitaBarberos.Add(new CitaBarbero
                 {
                     CitaId = cita.Id,
                     BarberoId = barberoId
-                };
-
-                _context.CitaBarberos.Add(cb);
+                });
             }
 
             await _context.SaveChangesAsync();
 
+            // ===============================
+            // 📲 ENVIAR CONFIRMACIÓN WHATSAPP
+            // ===============================
+
+            try
+            {
+                var whatsapp = HttpContext.RequestServices
+                    .GetRequiredService<WhatsAppService>();
+
+                var config = HttpContext.RequestServices
+                    .GetRequiredService<IConfiguration>();
+
+                var template = config["TwilioTemplates:Confirmacion"];
+
+                var barberos = await _context.CitaBarberos
+                    .Include(cb => cb.Barbero)
+                    .Where(cb => cb.CitaId == cita.Id)
+                    .Select(cb => cb.Barbero.Nombre)
+                    .ToListAsync();
+
+                await whatsapp.SendTemplateAsync(
+                    cita.TelefonoCliente!,
+                    template!,
+                    new Dictionary<string, object>
+                    {
+                { "1", cita.NombreCliente },
+                { "2", cita.FechaHoraCita.ToString("dd/MM/yyyy") },
+                { "3", cita.FechaHoraCita.ToString("hh:mm tt") },
+                { "4", cita.Servicio },
+                { "5", string.Join(", ", barberos) }
+                    });
+
+                cita.ConfirmacionEnviada = true;
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error enviando confirmación: " + ex.Message);
+            }
+
             return Ok();
         }
+
 
         [HttpGet]
         public IActionResult GetCitasByDay(string date)

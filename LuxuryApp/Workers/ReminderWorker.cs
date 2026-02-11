@@ -8,83 +8,120 @@ namespace LuxuryApp.Workers
     {
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<ReminderWorker> _logger;
+        private readonly IConfiguration _config;
 
-        public ReminderWorker(IServiceScopeFactory scopeFactory, ILogger<ReminderWorker> logger)
+        public ReminderWorker(
+            IServiceScopeFactory scopeFactory,
+            ILogger<ReminderWorker> logger,
+            IConfiguration config)
         {
             _scopeFactory = scopeFactory;
             _logger = logger;
+            _config = config;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             var tzCR = TimeZoneInfo.FindSystemTimeZoneById("Central America Standard Time");
 
+            _logger.LogInformation("ReminderWorker iniciado");
+
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
                 {
                     using var scope = _scopeFactory.CreateScope();
+
                     var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
                     var whatsapp = scope.ServiceProvider.GetRequiredService<WhatsAppService>();
 
                     var nowCR = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tzCR);
 
-                    // Solo citas entre ahora y 24h + 10 min (ventana de búsqueda)
-                    var limite = nowCR.AddHours(24).AddMinutes(10);
+                    // Templates desde configuración
+                    var template24 = _config["TwilioTemplates:Recordatorio24h"];
+                    var template3 = _config["TwilioTemplates:Recordatorio3h"];
 
                     var citas = await context.Citas
                         .Include(c => c.CitaBarberos)
                             .ThenInclude(cb => cb.Barbero)
-                        .Where(c => c.FechaHoraCita >= nowCR && c.FechaHoraCita <= limite)
+                        .Where(c =>
+    c.ConfirmacionEnviada &&
+    (!c.Recordatorio24hEnviado ||
+     !c.Recordatorio3hEnviado))
                         .ToListAsync(stoppingToken);
 
                     foreach (var cita in citas)
                     {
-                        var diff = cita.FechaHoraCita - nowCR;
-                        if (diff.TotalMinutes <= 0)
-                            continue;
-
-                        var barberos = string.Join(", ",
-                            cita.CitaBarberos.Select(b => b.Barbero.Nombre));
-
-                        // ---- 24 HORAS (ventana 23h–24h para evitar duplicados) ----
-                        if (!cita.Recordatorio24hEnviado &&
-                        diff.TotalHours <= 24)
+                        try
                         {
-                            await whatsapp.SendMessageAsync(
-                             cita.TelefonoCliente!,
-                     GenerarMensaje(cita, barberos, "24 horas"));
+                            if (string.IsNullOrWhiteSpace(cita.TelefonoCliente))
+                                continue;
 
-                            cita.Recordatorio24hEnviado = true;
+                            var diff = cita.FechaHoraCita - nowCR;
 
-                            _logger.LogInformation("24h enviado a CitaId {Id}", cita.Id);
+                            if (diff.TotalMinutes <= 0)
+                                continue;
+
+                            var barberos = string.Join(", ",
+                                cita.CitaBarberos.Select(b => b.Barbero.Nombre));
+
+                            // =========================
+                            // RECORDATORIO 24 HORAS
+                            // =========================
+                            if (!cita.Recordatorio24hEnviado &&
+                                diff.TotalHours <= 24 &&
+                                diff.TotalHours > 23)
+                            {
+                                await whatsapp.SendTemplateAsync(
+                                    cita.TelefonoCliente!,
+                                    template24!,
+                                    new Dictionary<string, object>
+                                    {
+                                        { "1", cita.NombreCliente },
+                                        { "2", cita.FechaHoraCita.ToString("dd/MM/yyyy") },
+                                        { "3", cita.FechaHoraCita.ToString("hh:mm tt") },
+                                        { "4", cita.Servicio },
+                                        { "5", barberos }
+                                    });
+
+                                cita.Recordatorio24hEnviado = true;
+
+                                _logger.LogInformation(
+                                    "Recordatorio 24h enviado a CitaId {Id}",
+                                    cita.Id);
+                            }
+
+                            // =========================
+                            // RECORDATORIO 3 HORAS
+                            // =========================
+                            if (!cita.Recordatorio3hEnviado &&
+                                diff.TotalHours <= 3 &&
+                                diff.TotalHours > 2)
+                            {
+                                await whatsapp.SendTemplateAsync(
+                                    cita.TelefonoCliente!,
+                                    template3!,
+                                    new Dictionary<string, object>
+                                    {
+                                        { "1", cita.NombreCliente },
+                                        { "2", cita.FechaHoraCita.ToString("dd/MM/yyyy") },
+                                        { "3", cita.FechaHoraCita.ToString("hh:mm tt") },
+                                        { "4", cita.Servicio },
+                                        { "5", barberos }
+                                    });
+
+                                cita.Recordatorio3hEnviado = true;
+
+                                _logger.LogInformation(
+                                    "Recordatorio 3h enviado a CitaId {Id}",
+                                    cita.Id);
+                            }
                         }
+                        catch (Exception exCita)
                         {
-                            await whatsapp.SendMessageAsync(
-                            cita.TelefonoCliente!,
-                            GenerarMensaje(cita, barberos, "3 horas"));
-                            cita.Recordatorio24hEnviado = true;
-
-                            _logger.LogInformation("24h enviado a CitaId {Id}", cita.Id);
-                        }
-
-                        // ---- 3 HORAS (ventana 2h–3h) ----
-                        if (!cita.Recordatorio3hEnviado &&
-                        diff.TotalHours <= 3)
-                        {
-                            var mensaje = GenerarMensaje(cita, barberos, "3 horas");
-                            await whatsapp.SendMessageAsync(cita.TelefonoCliente!, mensaje);
-
-                            cita.Recordatorio3hEnviado = true;
-
-                            _logger.LogInformation("3h enviado a CitaId {Id}", cita.Id);
-                        }
-                        {
-                            var mensaje = GenerarMensaje(cita, barberos, "3 horas");
-                            await whatsapp.SendMessageAsync(cita.TelefonoCliente!, mensaje);
-                            cita.Recordatorio3hEnviado = true;
-
-                            _logger.LogInformation("3h enviado a CitaId {Id}", cita.Id);
+                            _logger.LogError(exCita,
+                                "Error enviando recordatorio para CitaId {Id}",
+                                cita.Id);
                         }
                     }
 
@@ -92,28 +129,11 @@ namespace LuxuryApp.Workers
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error en ReminderWorker");
+                    _logger.LogError(ex, "Error general en ReminderWorker");
                 }
 
                 await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
             }
-        }
-
-        private static string GenerarMensaje(Models.Calendar.Cita cita, string barberos, string etiqueta)
-        {
-            return
-$@"💎 Luxury Barbería
-
-Hola {cita.NombreCliente} 👋
-
-Recordatorio ({etiqueta}) de tu cita:
-
-📅 {cita.FechaHoraCita:dd/MM/yyyy}
-⏰ {cita.FechaHoraCita:hh:mm tt}
-✂ Servicio: {cita.Servicio}
-💈 Barbero(s): {barberos}
-
-¡Te esperamos!";
         }
     }
 }
