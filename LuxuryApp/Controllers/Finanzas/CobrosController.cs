@@ -27,6 +27,10 @@ namespace LuxuryApp.Controllers.Finanzas
             var cobros = await ObtenerCobrosFiltrados(filtros);
             var totalCobrado = cobros.Sum(c => c.Monto);
             var cantidadServicios = cobros.Count;
+            var totalImpuestos = totalCobrado * 0.13m;
+            var totalNeto = totalCobrado - totalImpuestos;
+            var pagoColaboradores = totalNeto * 0.50m;
+            
 
 
             var vm = new CobroIndexViewModel
@@ -35,6 +39,9 @@ namespace LuxuryApp.Controllers.Finanzas
                 Filtros = filtros,
                 TotalCobrado = totalCobrado,
                 CantidadServicios = cantidadServicios,
+                TotalImpuestos = totalImpuestos,
+                PagoColaboradores = pagoColaboradores,
+                TotalNeto = totalNeto,
 
                 Barberos = await _context.Barberos
                     .Where(b => b.Activo)
@@ -436,7 +443,22 @@ namespace LuxuryApp.Controllers.Finanzas
                         break;
                 }
             }
+            // FILTRO SERVICIO / PRODUCTO
+            if (filtros.MostrarServicios && !filtros.MostrarProductos)
+            {
+                query = query.Where(c => c.ServicioId != null);
+            }
 
+            if (!filtros.MostrarServicios && filtros.MostrarProductos)
+            {
+                query = query.Where(c => c.ProductoId != null);
+            }
+
+            // Si ambos están en false → no mostrar nada
+            if (!filtros.MostrarServicios && !filtros.MostrarProductos)
+            {
+                query = query.Where(c => false);
+            }
 
             return await query
                 .OrderByDescending(c => c.FechaCobro)

@@ -13,5 +13,9 @@ namespace LuxuryApp.Models.Finanzas
         public List<SelectListItem> MetodosPago { get; set; }
         public decimal TotalCobrado { get; set; }
         public int CantidadServicios { get; set; }
+
+        public decimal TotalImpuestos { get; set; }
+        public decimal PagoColaboradores { get; set; }
+        public decimal TotalNeto { get; set; }
     }
 }

@@ -1,6 +1,7 @@
 ﻿using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.Finanzas;
+using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.Productos;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -15,6 +16,18 @@ namespace ProyectoIdentity.Datos
         {
 
         }
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
+
+            modelBuilder.Entity<Funcionario>()
+                .HasOne(f => f.Puesto)
+                .WithMany(p => p.Funcionarios)
+                .HasForeignKey(f => f.IdPuesto)
+                .OnDelete(DeleteBehavior.Restrict); // opcional pero recomendado
+        }
+
+
         //se agregan los modelos
         //Identity
         public DbSet<AppUsuario> AppUsuario { get; set; }
@@ -35,6 +48,10 @@ namespace ProyectoIdentity.Datos
         public DbSet<Producto> Productos { get; set; }
         public DbSet<DetalleCobroProducto> DetalleCobroProductos { get; set; }
         public DbSet<MovimientoInventario> MovimientosInventario { get; set; }
+        //Funcionarios
+        public DbSet<Funcionario> Funcionarios { get; set; }
+        public DbSet<Puesto> Puestos { get; set; }
+
 
 
     }

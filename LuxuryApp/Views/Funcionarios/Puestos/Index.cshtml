@@ -1,0 +1,75 @@
+﻿@model List<LuxuryApp.Models.Funcionarios.Puesto>
+
+@{
+    ViewData["Title"] = "Gestión de Puestos";
+}
+
+<div class="card shadow-lg border-0">
+
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+        <h5 class="m-0">⚙ Gestión de Puestos</h5>
+
+        <button class="btn btn-light"
+                data-bs-toggle="modal"
+                data-bs-target="#modalPuestos">
+            Administrar Puestos
+        </button>
+    </div>
+
+    <div class="card-body">
+
+        @if (TempData["Mensaje"] != null)
+        {
+            <div class="alert alert-success">
+                @TempData["Mensaje"]
+            </div>
+        }
+
+        @if (TempData["Error"] != null)
+        {
+            <div class="alert alert-danger">
+                @TempData["Error"]
+            </div>
+        }
+
+    </div>
+</div>
+
+
+<!-- MODAL -->
+<div class="modal fade"
+     id="modalPuestos"
+     tabindex="-1">
+
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title">Administrar Puestos</h5>
+                <button type="button"
+                        class="btn-close btn-close-white"
+                        data-bs-dismiss="modal"></button>
+            </div>
+
+            <div class="modal-body">
+
+                <partial name="_PuestosModal" model="Model" />
+
+            </div>
+
+        </div>
+    </div>
+</div>
+<script>
+    function mostrarFormularioPuesto() {
+
+        fetch('@Url.Action("Create", "Puestos")', {
+            method: 'GET'
+        })
+        .then(response => response.text())
+        .then(html => {
+            document.getElementById('formPuestoContainer').innerHTML = html;
+        });
+
+    }
+</script>

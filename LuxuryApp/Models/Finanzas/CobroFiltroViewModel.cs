@@ -12,5 +12,9 @@
         public DateTime? FechaInicio { get; set; }
 
         public DateTime? FechaFin { get; set; }
+
+        public bool MostrarServicios { get; set; } = true;
+        public bool MostrarProductos { get; set; } = false;
+
     }
 }
