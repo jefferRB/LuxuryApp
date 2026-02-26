@@ -29,10 +29,7 @@
         <!-- Lista de tareas (25%) -->
         <div class="col-md-3">
 
-            <button class="btn btn-dark mb-3" onclick="openBarberosModal()">
-                👨‍🔧 Administrar barberos
-            </button>
-
+            
 
             <button class="btn btn-dark mb-3" onclick="openManualCitaModal()">
                 ➕ Agregar cita manual
@@ -40,8 +37,8 @@
 
             
             <div class="mb-2">
-                <select id="barberoFiltro" class="form-select">
-                    <option value="">Todos los barberos</option>
+                <select id="funcionarioFiltro" class="form-select">
+                    <option value="">Todos los funcionarios</option>
                 </select>
             </div>
             <div class="d-flex justify-content-between text-white align-items-center mb-2">
@@ -113,9 +110,9 @@
                             </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Barbero</label>
-                            <select id="barberoId" class="form-select">
-                                <option value="">Seleccione un barbero</option>
+                            <label class="form-label">Funcionario</label>
+                            <select id="funcionarioId" class="form-select">
+                                <option value="">Seleccione un funcionario</option>
                             </select>
                         </div>
 
@@ -166,8 +163,8 @@
                 </div>
 
                 <div class="mb-2">
-                    <label>Barbero</label>
-                    <select id="editBarberoId" class="form-select"></select>
+                        <label>Funcionario</label>
+                        <select id="editFuncionarioId" class="form-select"></select>
                 </div>
             </div>
 
@@ -180,30 +177,6 @@
     </div>
 </div>
 
-<!-- MODAL De Barberos-->
-<div class="modal fade" id="barberosModal">
-    <div class="modal-dialog">
-        <div class="modal-content">
-
-            <div class="modal-header">
-                <h5 class="modal-title">Barberos</h5>
-                <button class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-
-            <div class="modal-body">
-
-                <div class="input-group mb-3">
-                    <input type="text" id="nuevoBarbero" class="form-control"
-                           placeholder="Nombre del barbero">
-                    <button class="btn btn-dark" onclick="crearBarbero()">Agregar</button>
-                </div>
-
-                <ul class="list-group" id="listaBarberos"></ul>
-
-            </div>
-        </div>
-    </div>
-</div>
 
 <!-- MODAL CITA MANUAL -->
 <div class="modal fade" id="manualCitaModal" tabindex="-1">
@@ -243,8 +216,8 @@
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label">Barbero</label>
-                    <select id="manualBarberoId" class="form-select"></select>
+                        <label class="form-label">Funcionario</label>
+                        <select id="manualFuncionarioId" class="form-select"></select>
                 </div>
 
                 <button class="btn btn-dark w-100" onclick="guardarCitaManual()">

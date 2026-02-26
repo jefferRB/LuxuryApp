@@ -42,8 +42,7 @@ namespace LuxuryApp.Workers
                     var template3 = _config["TwilioTemplates:Recordatorio3h"];
 
                     var citas = await context.Citas
-                        .Include(c => c.CitaBarberos)
-                            .ThenInclude(cb => cb.Barbero)
+                        .Include(c => c.Funcionario)
                         .Where(c =>
     c.ConfirmacionEnviada &&
     (!c.Recordatorio24hEnviado ||
@@ -62,8 +61,7 @@ namespace LuxuryApp.Workers
                             if (diff.TotalMinutes <= 0)
                                 continue;
 
-                            var barberos = string.Join(", ",
-                                cita.CitaBarberos.Select(b => b.Barbero.Nombre));
+                            var funcionario = cita.Funcionario?.Nombre ?? "—";
 
                             // =========================
                             // RECORDATORIO 24 HORAS
@@ -81,7 +79,7 @@ namespace LuxuryApp.Workers
                                         { "2", cita.FechaHoraCita.ToString("dd/MM/yyyy") },
                                         { "3", cita.FechaHoraCita.ToString("hh:mm tt") },
                                         { "4", cita.Servicio },
-                                        { "5", barberos }
+                                        { "5", funcionario }
                                     });
 
                                 cita.Recordatorio24hEnviado = true;
@@ -107,7 +105,7 @@ namespace LuxuryApp.Workers
                                         { "2", cita.FechaHoraCita.ToString("dd/MM/yyyy") },
                                         { "3", cita.FechaHoraCita.ToString("hh:mm tt") },
                                         { "4", cita.Servicio },
-                                        { "5", barberos }
+                                        { "5", funcionario }
                                     });
 
                                 cita.Recordatorio3hEnviado = true;

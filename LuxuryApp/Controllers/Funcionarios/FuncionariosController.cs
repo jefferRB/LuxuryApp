@@ -22,6 +22,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         public async Task<IActionResult> Index()
         {
             var funcionarios = await _context.Funcionarios
+                  .Include(f => f.Puesto)
                 .OrderBy(f => f.Nombre)
                 .ToListAsync();
 
@@ -35,6 +36,11 @@ namespace LuxuryApp.Controllers.Funcionarios
         [HttpGet]
         public IActionResult Create()
         {
+            ViewBag.Puestos = _context.Puestos
+                .Where(p => p.Activo)
+                .OrderBy(p => p.NombrePuesto)
+                .ToList();
+
             var funcionario = new Funcionario
             {
                 FechaIngreso = DateTime.Today,
@@ -80,6 +86,11 @@ namespace LuxuryApp.Controllers.Funcionarios
             if (funcionario == null)
                 return NotFound();
 
+            ViewBag.Puestos = await _context.Puestos
+                .Where(p => p.Activo)
+                .OrderBy(p => p.NombrePuesto)
+                .ToListAsync();
+
             return View(funcionario);
         }
 
@@ -116,19 +127,19 @@ namespace LuxuryApp.Controllers.Funcionarios
         // ============================
 
         [HttpPost]
-        public async Task<IActionResult> Eliminar(int id)
+        public async Task<IActionResult> Eliminar(int IdFuncionario)
         {
             var funcionario = await _context.Funcionarios
-                .FirstOrDefaultAsync(f => f.IdFuncionario == id);
+                .FirstOrDefaultAsync(f => f.IdFuncionario == IdFuncionario);
 
             if (funcionario == null)
                 return NotFound();
 
-            funcionario.Activo = false;
+            _context.Funcionarios.Remove(funcionario);
 
             await _context.SaveChangesAsync();
 
-            TempData["Mensaje"] = "Funcionario desactivado.";
+            TempData["Mensaje"] = "Funcionario eliminado correctamente.";
 
             return RedirectToAction(nameof(Index));
         }
@@ -153,6 +164,22 @@ namespace LuxuryApp.Controllers.Funcionarios
             TempData["Mensaje"] = "Funcionario activado.";
 
             return RedirectToAction(nameof(Index));
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> GetActivos()
+        {
+            var funcionarios = await _context.Funcionarios
+                .Where(f => f.Activo)
+                .OrderBy(f => f.Nombre)
+                .Select(f => new
+                {
+                    id = f.IdFuncionario,
+                    nombre = f.Nombre
+                })
+                .ToListAsync();
+
+            return Json(funcionarios);
         }
     }
 }

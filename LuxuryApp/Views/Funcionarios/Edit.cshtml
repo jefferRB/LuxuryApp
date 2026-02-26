@@ -24,8 +24,15 @@
             </div>
 
             <div class="mb-3">
-                <label asp-for="Puesto" class="form-label"></label>
-                <input asp-for="Puesto" class="form-control" />
+                <label asp-for="IdPuesto" class="form-label">Puesto</label>
+
+                <select asp-for="IdPuesto"
+                        class="form-select"
+                        asp-items="@(new SelectList(ViewBag.Puestos, "IdPuesto", "NombrePuesto"))">
+                    <option value="">-- Seleccione un puesto --</option>
+                </select>
+
+                <span asp-validation-for="IdPuesto" class="text-danger"></span>
             </div>
 
             <div class="mb-3">
@@ -73,14 +80,14 @@
 
             <form asp-action="Eliminar"
                   method="post"
+                  style="display:inline;"
                   onsubmit="return confirm('¿Eliminar funcionario?');">
 
                 <input type="hidden" asp-for="IdFuncionario" />
 
-                <button class="btn btn-danger">
-                    Eliminar Funcionario
+                <button type="submit" class="btn btn-sm btn-danger">
+                    Eliminar
                 </button>
-
             </form>
 
         </div>

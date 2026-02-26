@@ -1,27 +1,25 @@
 ﻿@model LuxuryApp.Models.Funcionarios.Puesto
 
-<form asp-action="Create"
-      method="post">
+<form id="formPuesto">
 
     @Html.AntiForgeryToken()
 
-    <div class="mb-3">
+    <div class="mb-2">
         <label class="form-label">Nombre del puesto</label>
-        <input asp-for="NombrePuesto"
-               class="form-control" />
-        <span asp-validation-for="NombrePuesto"
-              class="text-danger"></span>
+        <input asp-for="NombrePuesto" class="form-control" />
+        <span asp-validation-for="NombrePuesto" class="text-danger"></span>
     </div>
 
-    <div class="mb-3">
+    <div class="mb-2">
         <label class="form-label">Detalle</label>
         <textarea asp-for="Detalle"
                   class="form-control"
                   rows="2"></textarea>
     </div>
 
-    <button type="submit"
-            class="btn btn-success">
+    <button type="button"
+            class="btn btn-success"
+            onclick="guardarPuesto()">
         Guardar
     </button>
 

@@ -13,14 +13,12 @@
             <i class="fas fa-user-plus me-1"></i>Nuevo Funcionario
         </a>
 
-        <div class="d-flex gap-2 align-items-center">
-            <button class="btn btn-outline-dark"
-                    data-bs-toggle="modal"
-                    data-bs-target="#modalPuestos"
-                    onclick="cargarPuestos()">
-                🏷 Gestionar Puestos
-            </button>
-        </div>
+        <button class="btn btn-outline-dark"
+                data-bs-toggle="modal"
+                data-bs-target="#modalPuestos"
+                onclick="cargarPuestos()">
+            🏷 Gestionar Puestos
+        </button>
 
     </div>
 
@@ -55,10 +53,10 @@
                         {
                             <tr>
                                 <td class="ps-4 fw-semibold">@f.Nombre</td>
-
                                 <td>@f.Telefono</td>
 
-                                <td>@f.IdPuesto</td>
+                                <!-- IMPORTANTE: mostrar nombre del puesto -->
+                                <td>@f.Puesto?.NombrePuesto</td>
 
                                 <td>@f.PorcentajeGanancia %</td>
 
@@ -83,13 +81,11 @@
                                 </td>
 
                                 <td class="text-center">
-
                                     <a asp-action="Edit"
                                        asp-route-id="@f.IdFuncionario"
                                        class="btn btn-sm btn-dark">
                                         <i class="fas fa-edit"></i>
                                     </a>
-
                                 </td>
                             </tr>
                         }
@@ -97,7 +93,7 @@
                     else
                     {
                         <tr>
-                            <td colspan="7" class="text-center py-4 text-muted">
+                            <td colspan="8" class="text-center py-4 text-muted">
                                 No hay funcionarios registrados
                             </td>
                         </tr>
@@ -105,6 +101,28 @@
 
                 </tbody>
             </table>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL PUESTOS -->
+<div class="modal fade" id="modalPuestos" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title">Gestionar Puestos</h5>
+                <button type="button"
+                        class="btn-close btn-close-white"
+                        data-bs-dismiss="modal"></button>
+            </div>
+
+            <div class="modal-body">
+
+                <div id="contenedorPuestos"></div>
+
+            </div>
+
         </div>
     </div>
 </div>

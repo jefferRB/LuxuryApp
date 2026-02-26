@@ -17,10 +17,8 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         // ========================================
-        // LISTADO
+        // LISTAR
         // ========================================
-
-        [HttpGet]
         public async Task<IActionResult> Index()
         {
             var puestos = await _context.Puestos
@@ -31,9 +29,16 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         // ========================================
-        // CREAR
+        // CREAR (GET)
         // ========================================
+        public IActionResult Create()
+        {
+            return View();
+        }
 
+        // ========================================
+        // CREAR (POST)
+        // ========================================
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(Puesto puesto)
@@ -42,94 +47,120 @@ namespace LuxuryApp.Controllers.Funcionarios
                 .AnyAsync(p => p.NombrePuesto == puesto.NombrePuesto);
 
             if (existe)
-            {
                 ModelState.AddModelError("NombrePuesto", "Ya existe un puesto con ese nombre.");
-            }
 
-            if (!ModelState.IsValid)
+            if (ModelState.IsValid)
             {
-                var puestos = await _context.Puestos
-                    .OrderBy(p => p.NombrePuesto)
-                    .ToListAsync();
+                puesto.Activo = true;
 
-                return View("Index", puestos);
+                _context.Add(puesto);
+                await _context.SaveChangesAsync();
+
+                // 👉 Soporte AJAX
+                if (Request.Headers["X-Requested-With"] == "XMLHttpRequest")
+                    return Ok();
+
+                return RedirectToAction(nameof(Index));
             }
 
-            puesto.Activo = true;
+            // 👉 Si es AJAX devolver partial
+            if (Request.Headers["X-Requested-With"] == "XMLHttpRequest")
+                return PartialView("_FormPuesto", puesto);
 
-            _context.Puestos.Add(puesto);
-            await _context.SaveChangesAsync();
-
-            TempData["Mensaje"] = "Puesto creado correctamente.";
-
-            return RedirectToAction(nameof(Index));
+            return View(puesto);
         }
 
         // ========================================
-        // EDITAR
+        // EDITAR (GET)
         // ========================================
-
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(Puesto puesto)
+        public async Task<IActionResult> Edit(int id)
         {
-            if (!ModelState.IsValid)
-            {
-                var puestos = await _context.Puestos
-                    .OrderBy(p => p.NombrePuesto)
-                    .ToListAsync();
-
-                return View("Index", puestos);
-            }
-
-            var puestoDB = await _context.Puestos
-                .FirstOrDefaultAsync(p => p.IdPuesto == puesto.IdPuesto);
-
-            if (puestoDB == null)
-                return NotFound();
-
-            puestoDB.NombrePuesto = puesto.NombrePuesto;
-            puestoDB.Detalle = puesto.Detalle;
-            puestoDB.Activo = puesto.Activo;
-
-            await _context.SaveChangesAsync();
-
-            TempData["Mensaje"] = "Puesto actualizado correctamente.";
-
-            return RedirectToAction(nameof(Index));
-        }
-
-        // ========================================
-        // ELIMINAR (Soft Delete)
-        // ========================================
-
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Eliminar(int id)
-        {
-            var puesto = await _context.Puestos
-                .FirstOrDefaultAsync(p => p.IdPuesto == id);
+            var puesto = await _context.Puestos.FindAsync(id);
 
             if (puesto == null)
                 return NotFound();
 
-            // Validación importante:
-            bool estaEnUso = await _context.Funcionarios
-                .AnyAsync(f => f.IdPuesto == id);
+            return View(puesto);
+        }
 
-            if (estaEnUso)
+        // ========================================
+        // EDITAR (POST)
+        // ========================================
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Edit(int id, Puesto puesto)
+        {
+            if (id != puesto.IdPuesto)
+                return NotFound();
+
+            if (ModelState.IsValid)
             {
-                TempData["Error"] = "No se puede eliminar el puesto porque está asignado a uno o más funcionarios.";
+                try
+                {
+                    _context.Update(puesto);
+                    await _context.SaveChangesAsync();
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    if (!_context.Puestos.Any(p => p.IdPuesto == puesto.IdPuesto))
+                        return NotFound();
+                    else
+                        throw;
+                }
+
                 return RedirectToAction(nameof(Index));
             }
 
-            puesto.Activo = false;
+            return View(puesto);
+        }
+
+        // ========================================
+        // ACTIVAR / DESACTIVAR
+        // ========================================
+        [HttpPost]
+        public async Task<IActionResult> ToggleActivo(int id)
+        {
+            var puesto = await _context.Puestos.FindAsync(id);
+
+            if (puesto == null)
+                return NotFound();
+
+            // Validar si está en uso antes de desactivar
+            if (puesto.Activo)
+            {
+                bool estaEnUso = await _context.Funcionarios
+                    .AnyAsync(f => f.IdPuesto == id);
+
+                if (estaEnUso)
+                    return BadRequest("No se puede desactivar porque está asignado a funcionarios.");
+            }
+
+            puesto.Activo = !puesto.Activo;
 
             await _context.SaveChangesAsync();
 
-            TempData["Mensaje"] = "Puesto desactivado correctamente.";
+            return Ok();
+        }
 
-            return RedirectToAction(nameof(Index));
+        // ========================================
+        // MODAL LISTADO
+        // ========================================
+        public IActionResult ModalPuestos()
+        {
+            var puestos = _context.Puestos
+                
+                .OrderBy(p => p.NombrePuesto)
+                .ToList();
+
+            return PartialView("_PuestosModal", puestos);
+        }
+
+        // ========================================
+        // FORMULARIO PARTIAL
+        // ========================================
+        public IActionResult FormPuesto()
+        {
+            return PartialView("~/Views/Puestos/_FormPuesto.cshtml", new Puesto());
         }
     }
 }

@@ -6,7 +6,7 @@ let currentView = "month";
 document.addEventListener("DOMContentLoaded", () => {
     renderCalendar(currentDate);
     loadUpcomingAppointments();
-    loadBarberosFiltro();
+    loadFuncionariosFiltro();
 });
 document.addEventListener("DOMContentLoaded", () => {
     const oculto = localStorage.getItem("tareasOcultas") === "true";
@@ -41,7 +41,7 @@ document.getElementById("viewDayBtn").onclick = () => {
     renderDayView(currentDate);
 };
 
-document.getElementById("barberoFiltro")
+document.getElementById("funcionarioFiltro")
     .addEventListener("change", e => {
         loadUpcomingAppointments(e.target.value);
     });
@@ -282,14 +282,14 @@ async function renderDayView(date) {
         // ===== Citas
         citasHora.forEach(cita => {
 
-            const barberos = cita.barberos?.map(b => b.nombre).join(", ") || "—";
+            const funcionario = cita.funcionario?.nombre || "—";
 
             const card = document.createElement("div");
             card.className = "cita-card";
 
             card.innerHTML = `
             <div class="cita-main">
-                <span class="cita-title">✂️ ${barberos}</span>
+                <span class="cita-title">✂️ ${funcionario}</span>
                 <button class="toggle-btn">▼</button>
             </div>
 
@@ -410,11 +410,11 @@ async function onDayClick(year, month, day) {
         // ================= CITAS =================
         citaHora.forEach(cita => {
 
-            let barberoTexto = "—";
-            if (Array.isArray(cita.barberos) && cita.barberos.length > 0) {
-                barberoTexto = cita.barberos.map(b => b.nombre).join(", ");
-            } else if (cita.barberoNombre) {
-                barberoTexto = cita.barberoNombre;
+            let funcionarioTexto = "—";
+            if (Array.isArray(cita.funcionarios) && cita.funcionarios.length > 0) {
+                funcionarioTexto = cita.funcionarios.map(b => b.nombre).join(", ");
+            } else if (cita.funcionarioNombre) {
+                funcionarioTexto = cita.funcionarioNombre;
             }
 
             const card = document.createElement("div");
@@ -422,7 +422,7 @@ async function onDayClick(year, month, day) {
 
             card.innerHTML = `
             <div class="cita-main">
-                <span class="cita-title">✂️ ${barberoTexto}</span>
+                <span class="cita-title">✂️ ${funcionarioTexto}</span>
                 <button class="toggle-btn">▼</button>
             </div>
 
@@ -487,7 +487,7 @@ function onHourClick(date, hour, minute = 0) {
         formatLocalDateTime(fullDate);
 
     // 🔹 Cargar combos
-    loadBarberosForCita();
+    loadFuncionariosForCita();
     loadServiciosForCita();
 
     // 🔧 Cerrar modal del día si existe
@@ -510,10 +510,10 @@ function formatLocalDateTime(date) {
         + `T${pad(date.getHours())}:${pad(date.getMinutes())}:00`;
 }
 
-async function loadUpcomingAppointments(barberoId = "") {
+async function loadUpcomingAppointments(funcionarioId = "") {
 
-    const url = barberoId
-        ? `/Calendar/GetUpcomingAppointments?barberoId=${barberoId}`
+    const url = funcionarioId
+        ? `/Calendar/GetUpcomingAppointments?funcionarioId=${funcionarioId}`
         : `/Calendar/GetUpcomingAppointments`;
 
     const response = await fetch(url);
@@ -534,7 +534,7 @@ async function loadUpcomingAppointments(barberoId = "") {
 
         const fecha = new Date(cita.fechaHoraCita);
 
-        const barberos = cita.barberos
+        const funcionarios = cita.funcionarios
             .map(b => b.nombre)
             .join(", ");
 
@@ -549,7 +549,7 @@ async function loadUpcomingAppointments(barberoId = "") {
         <strong>Fecha:</strong>
         ${fecha.toLocaleDateString("es-CR")}
         ${fecha.toLocaleTimeString("es-CR", { hour: '2-digit', minute: '2-digit' })}<br>
-        <strong>Barbero:</strong> ${barberos || "—"}
+        <strong>Funcionario:</strong> ${funcionarios || "—"}
     </small>
 
      <div class="mt-2 d-flex gap-2">
@@ -575,10 +575,10 @@ async function loadUpcomingAppointments(barberoId = "") {
 
 async function guardarCita() {
 
-    const barberoSeleccionado = document.getElementById("barberoId").value;
+    const funcionarioSeleccionado = document.getElementById("funcionarioId").value;
 
-    if (!barberoSeleccionado) {
-        alert("Debe seleccionar un barbero");
+    if (!funcionarioSeleccionado) {
+        alert("Debe seleccionar un funcionario");
         return;
     }
 
@@ -587,7 +587,7 @@ async function guardarCita() {
         telefonoCliente: document.getElementById("telefonoCliente").value,
         servicio: document.getElementById("servicio").value,
         fechaHoraCita: document.getElementById("appointmentDate").value,
-        barberoIds: [parseInt(barberoSeleccionado)]
+        funcionarioId: parseInt(funcionarioSeleccionado)
     };
 
     const res = await fetch("/Calendar/Create", {
@@ -642,119 +642,64 @@ async function editarCita(id) {
     document.getElementById("editFechaHora").value =
         cita.fechaHoraCita.substring(0, 16);
 
-    await loadBarberosEdit(cita.barberoIds[0]);
+    await loadFuncionariosEdit(cita.funcionarioId);
 
     new bootstrap.Modal(
         document.getElementById("editCitaModal")
     ).show();
 }
 
-function openBarberosModal() {
-    loadBarberos();
-    new bootstrap.Modal(document.getElementById("barberosModal")).show();
-}
 
-async function loadBarberos() {
-    const res = await fetch("/Barberos/GetAll");
-    const barberos = await res.json();
+async function loadFuncionariosForCita() {
 
-    const ul = document.getElementById("listaBarberos");
-    ul.innerHTML = "";
+    const res = await fetch("/Funcionarios/GetActivos");
+    const funcionarios = await res.json();
 
-    barberos.forEach(b => {
-        const li = document.createElement("li");
-        li.className = "list-group-item d-flex justify-content-between align-items-center";
+    const select = document.getElementById("funcionarioId");
+    select.innerHTML = `<option value="">Seleccione funcionario</option>`;
 
-        li.innerHTML = `
-    <span>${b.nombre}</span>
-    <button class="btn btn-outline-danger btn-sm">✖</button>
-`;
-
-        li.querySelector("button").onclick = () => deleteBarbero(b.id);
-        ul.appendChild(li);
-    });
-}
-
-async function crearBarbero() {
-    const nombre = document.getElementById("nuevoBarbero").value;
-    if (!nombre) return;
-
-    await fetch("/Barberos/Create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nombre: nombre })
-    });
-
-    document.getElementById("nuevoBarbero").value = "";
-    loadBarberos();
-}
-
-async function deleteBarbero(id) {
-    await fetch(`/Barberos/Delete/${id}`, { method: "DELETE" });
-    loadBarberos();
-}
-
-async function loadBarberosForCita() {
-    const res = await fetch("/Barberos/GetAll");
-    const barberos = await res.json();
-
-    const select = document.getElementById("barberoId");
-    select.innerHTML = `<option value="">Seleccione un barbero</option>`;
-
-    barberos.forEach(b => {
+    funcionarios.forEach(f => {
         const opt = document.createElement("option");
-        opt.value = b.id;
-        opt.textContent = b.nombre;
+        opt.value = f.id;
+        opt.textContent = f.nombre;
         select.appendChild(opt);
     });
 }
 
-async function loadBarberosFiltro() {
-    const res = await fetch("/Barberos/GetAll");
-    const barberos = await res.json();
 
-    const select = document.getElementById("barberoFiltro");
-    select.innerHTML = `<option value="">Todos los barberos</option>`;
+async function loadFuncionariosEdit(selectedId) {
 
-    barberos.forEach(b => {
-        const opt = document.createElement("option");
-        opt.value = b.id;
-        opt.textContent = b.nombre;
-        select.appendChild(opt);
-    });
-}
+    const res = await fetch("/Funcionarios/GetActivos");
+    const funcionarios = await res.json();
 
-async function loadBarberosForManual() {
-    const res = await fetch("/Barberos/GetAll");
-    const barberos = await res.json();
-
-    const select = document.getElementById("manualBarberoId");
-    select.innerHTML = `<option value="">Seleccione un barbero</option>`;
-
-    barberos.forEach(b => {
-        const opt = document.createElement("option");
-        opt.value = b.id;
-        opt.textContent = b.nombre;
-        select.appendChild(opt);
-    });
-}
-
-async function loadBarberosEdit(selectedId) {
-
-    const res = await fetch("/Barberos/GetAll");
-    const barberos = await res.json();
-
-    const select = document.getElementById("editBarberoId");
+    const select = document.getElementById("editFuncionarioId");
     select.innerHTML = "";
 
-    barberos.forEach(b => {
+    funcionarios.forEach(f => {
         const opt = document.createElement("option");
-        opt.value = b.id;
-        opt.textContent = b.nombre;
-        if (b.id === selectedId) opt.selected = true;
+        opt.value = f.id;
+        opt.textContent = f.nombre;
+        if (f.id === selectedId) opt.selected = true;
         select.appendChild(opt);
     });
 }
+
+async function loadFuncionariosFiltro() {
+
+    const res = await fetch("/Funcionarios/GetActivos");
+    const funcionarios = await res.json();
+
+    const select = document.getElementById("funcionarioFiltro");
+    select.innerHTML = `<option value="">Todos</option>`;
+
+    funcionarios.forEach(f => {
+        const opt = document.createElement("option");
+        opt.value = f.id;
+        opt.textContent = f.nombre;
+        select.appendChild(opt);
+    });
+}
+
 
 function toggleTareas() {
     const container = document.getElementById("tareasContainer");
@@ -777,8 +722,8 @@ function openManualCitaModal() {
     document.getElementById("manualTelefono").value = "";
     document.getElementById("manualServicio").value = "";
 
-    // cargar barberos 🔥
-    loadBarberosForManual();
+    // cargar funcionarios
+    loadFuncionariosForManual();
 
     const modal = new bootstrap.Modal(
         document.getElementById("manualCitaModal")
@@ -790,10 +735,10 @@ async function guardarCitaManual() {
 
     const fecha = document.getElementById("manualFecha").value;
     const hora = document.getElementById("manualHora").value;
-    const barberoId = document.getElementById("manualBarberoId").value;
+    const funcionarioId = document.getElementById("manualFuncionarioId").value;
 
-    if (!fecha || !hora || !barberoId) {
-        alert("Complete fecha, hora y barbero");
+    if (!fecha || !hora || !funcionarioId) {
+        alert("Complete fecha, hora y funcionario");
         return;
     }
 
@@ -808,7 +753,7 @@ async function guardarCitaManual() {
         telefonoCliente: document.getElementById("manualTelefono").value,
         servicio: document.getElementById("manualServicio").value,
         fechaHoraCita: fechaHora.toLocaleString("sv-SE").replace(" ", "T"),
-        barberoIds: [parseInt(barberoId)]
+        funcionarioId: parseInt(funcionarioId)
     };
 
     const res = await fetch("/Calendar/Create", {
@@ -846,7 +791,7 @@ async function guardarEdicion() {
         telefonoCliente: document.getElementById("editTelefonoCliente").value,
         servicio: document.getElementById("editServicio").value,
         fechaHoraCita: document.getElementById("editFechaHora").value,
-        barberoIds: [parseInt(document.getElementById("editBarberoId").value)]
+        funcionarioId: parseInt(document.getElementById("editFuncionarioId").value)
     };
 
     const res = await fetch(`/Calendar/Edit/${id}`, {

@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using LuxuryApp.Models.Funcionarios;
 
 namespace LuxuryApp.Models.Calendar
 {
@@ -23,7 +24,10 @@ namespace LuxuryApp.Models.Calendar
         public bool Recordatorio24hEnviado { get; set; }
         public bool Recordatorio3hEnviado { get; set; }
        
+        // 🔥 FK
+        public int FuncionarioId { get; set; }
 
-        public ICollection<CitaBarbero> CitaBarberos { get; set; }
+        // 🔥 Navigation property
+        public Funcionario Funcionario { get; set; }
     }
 }

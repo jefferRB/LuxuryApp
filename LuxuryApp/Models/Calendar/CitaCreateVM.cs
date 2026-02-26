@@ -11,7 +11,7 @@ namespace LuxuryApp.Models.Calendar
 
         [Required]
         public DateTime FechaHoraCita { get; set; }
-        public List<int> BarberoIds { get; set; } = new();
+        public int FuncionarioId { get; set; }
         public List<string> Servicios { get; set; } = new();
     }
 }

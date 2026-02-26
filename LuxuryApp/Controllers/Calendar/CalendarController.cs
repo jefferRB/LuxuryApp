@@ -8,7 +8,6 @@ using ProyectoIdentity.Datos;
 namespace LuxuryApp.Controllers.Calendar
 {
     [Authorize(Roles = "Administrador")]
-
     public class CalendarController : Controller
     {
         private readonly ApplicationDbContext _context;
@@ -23,11 +22,15 @@ namespace LuxuryApp.Controllers.Calendar
             return View();
         }
 
+        // ============================
+        // CREAR CITA
+        // ============================
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CitaCreateVM vm)
         {
             if (vm == null)
                 return BadRequest("Datos inválidos");
+
 
             var cita = new Cita
             {
@@ -35,6 +38,7 @@ namespace LuxuryApp.Controllers.Calendar
                 TelefonoCliente = vm.TelefonoCliente,
                 Servicio = vm.Servicio,
                 FechaHoraCita = vm.FechaHoraCita,
+                FuncionarioId = vm.FuncionarioId, 
                 ConfirmacionEnviada = false,
                 Recordatorio24hEnviado = false,
                 Recordatorio3hEnviado = false
@@ -43,22 +47,9 @@ namespace LuxuryApp.Controllers.Calendar
             _context.Citas.Add(cita);
             await _context.SaveChangesAsync();
 
-            // Relacionar barberos
-            foreach (var barberoId in vm.BarberoIds)
-            {
-                _context.CitaBarberos.Add(new CitaBarbero
-                {
-                    CitaId = cita.Id,
-                    BarberoId = barberoId
-                });
-            }
-
-            await _context.SaveChangesAsync();
-
             // ===============================
             // 📲 ENVIAR CONFIRMACIÓN WHATSAPP
             // ===============================
-
             try
             {
                 var whatsapp = HttpContext.RequestServices
@@ -69,22 +60,21 @@ namespace LuxuryApp.Controllers.Calendar
 
                 var template = config["TwilioTemplates:Confirmacion"];
 
-                var barberos = await _context.CitaBarberos
-                    .Include(cb => cb.Barbero)
-                    .Where(cb => cb.CitaId == cita.Id)
-                    .Select(cb => cb.Barbero.Nombre)
-                    .ToListAsync();
+                var funcionario = await _context.Funcionarios
+                    .Where(f => f.IdFuncionario == cita.FuncionarioId)
+                    .Select(f => f.Nombre)
+                    .FirstOrDefaultAsync();
 
                 await whatsapp.SendTemplateAsync(
                     cita.TelefonoCliente!,
                     template!,
                     new Dictionary<string, object>
                     {
-                { "1", cita.NombreCliente },
-                { "2", cita.FechaHoraCita.ToString("dd/MM/yyyy") },
-                { "3", cita.FechaHoraCita.ToString("hh:mm tt") },
-                { "4", cita.Servicio },
-                { "5", string.Join(", ", barberos) }
+                        { "1", cita.NombreCliente },
+                        { "2", cita.FechaHoraCita.ToString("dd/MM/yyyy") },
+                        { "3", cita.FechaHoraCita.ToString("hh:mm tt") },
+                        { "4", cita.Servicio },
+                        { "5", funcionario ?? "" }
                     });
 
                 cita.ConfirmacionEnviada = true;
@@ -98,15 +88,16 @@ namespace LuxuryApp.Controllers.Calendar
             return Ok();
         }
 
-
+        // ============================
+        // CITAS POR DÍA
+        // ============================
         [HttpGet]
         public IActionResult GetCitasByDay(string date)
         {
             var fecha = DateTime.Parse(date);
 
             var citas = _context.Citas
-                .Include(c => c.CitaBarberos)
-                    .ThenInclude(cb => cb.Barbero)
+                .Include(c => c.Funcionario)
                 .Where(c => c.FechaHoraCita.Date == fecha.Date)
                 .Select(c => new
                 {
@@ -115,22 +106,25 @@ namespace LuxuryApp.Controllers.Calendar
                     c.TelefonoCliente,
                     c.Servicio,
                     c.FechaHoraCita,
-                    Barberos = c.CitaBarberos.Select(cb => new
+                    Funcionario = new
                     {
-                        cb.Barbero.Id,
-                        cb.Barbero.Nombre
-                    })
+                        c.FuncionarioId,
+                        c.Funcionario.Nombre
+                    }
                 })
                 .ToList();
 
             return Ok(citas);
         }
 
+        // ============================
+        // OBTENER POR ID
+        // ============================
         [HttpGet("Calendar/GetById/{id}")]
         public async Task<IActionResult> GetById(int id)
         {
             var cita = await _context.Citas
-                .Include(c => c.CitaBarberos)
+                .Include(c => c.Funcionario)
                 .FirstOrDefaultAsync(c => c.Id == id);
 
             if (cita == null)
@@ -143,61 +137,52 @@ namespace LuxuryApp.Controllers.Calendar
                 cita.TelefonoCliente,
                 cita.Servicio,
                 cita.FechaHoraCita,
-                BarberoIds = cita.CitaBarberos.Select(cb => cb.BarberoId)
+                cita.FuncionarioId
             });
         }
 
+        // ============================
+        // EDITAR
+        // ============================
         [HttpPut("Calendar/Edit/{id}")]
         public async Task<IActionResult> Edit(int id, [FromBody] CitaCreateVM vm)
         {
-            var cita = await _context.Citas
-                .Include(c => c.CitaBarberos)
-                .FirstOrDefaultAsync(c => c.Id == id);
+            var cita = await _context.Citas.FindAsync(id);
 
             if (cita == null)
                 return NotFound();
 
-            // actualizar datos
             cita.NombreCliente = vm.NombreCliente;
             cita.TelefonoCliente = vm.TelefonoCliente;
             cita.Servicio = vm.Servicio;
             cita.FechaHoraCita = vm.FechaHoraCita;
-
-            // actualizar barberos
-            _context.CitaBarberos.RemoveRange(cita.CitaBarberos);
-
-            foreach (var barberoId in vm.BarberoIds)
-            {
-                _context.CitaBarberos.Add(new CitaBarbero
-                {
-                    CitaId = cita.Id,
-                    BarberoId = barberoId
-                });
-            }
+            cita.FuncionarioId = vm.FuncionarioId; // 🔥
 
             await _context.SaveChangesAsync();
+
             return Ok();
         }
 
-
+        // ============================
+        // ELIMINAR
+        // ============================
         [HttpDelete("Calendar/Delete/{id}")]
         public async Task<IActionResult> Delete(int id)
         {
-            var cita = await _context.Citas
-                .Include(c => c.CitaBarberos)
-                .FirstOrDefaultAsync(c => c.Id == id);
+            var cita = await _context.Citas.FindAsync(id);
 
             if (cita == null)
                 return NotFound();
 
-            _context.CitaBarberos.RemoveRange(cita.CitaBarberos);
             _context.Citas.Remove(cita);
-
             await _context.SaveChangesAsync();
 
             return Ok();
         }
 
+        // ============================
+        // CONTADOR POR MES
+        // ============================
         [HttpGet]
         public IActionResult GetCitasCountByMonth(int year, int month)
         {
@@ -215,38 +200,45 @@ namespace LuxuryApp.Controllers.Calendar
             return Ok(data);
         }
 
+        // ============================
+        // PRÓXIMAS CITAS
+        // ============================
         [HttpGet]
-        public async Task<IActionResult> GetUpcomingAppointments(int? barberoId)
+        public async Task<IActionResult> GetUpcomingAppointments(int? funcionarioId)
         {
             var now = DateTime.Now;
 
             var citas = await _context.Citas
+                .Include(c => c.Funcionario)
                 .Where(c => c.FechaHoraCita >= now)
-                 .OrderBy(c => c.FechaHoraCita)
-                .Select(c => new
-                {
-                    c.Id,
-                    c.NombreCliente,
-                    c.TelefonoCliente,
-                    c.Servicio,
-                    c.FechaHoraCita,
-                    Barberos = c.CitaBarberos.Select(cb => new {
-                        cb.BarberoId,
-                        cb.Barbero.Nombre
-                    })
-                })
+                .OrderBy(c => c.FechaHoraCita)
                 .ToListAsync();
 
-            if (barberoId.HasValue)
+            if (funcionarioId.HasValue)
             {
                 citas = citas
-                    .Where(c => c.Barberos.Any(b => b.BarberoId == barberoId))
+                    .Where(c => c.FuncionarioId == funcionarioId.Value)
                     .ToList();
             }
 
-            return Ok(citas);
+            return Ok(citas.Select(c => new
+            {
+                c.Id,
+                c.NombreCliente,
+                c.TelefonoCliente,
+                c.Servicio,
+                c.FechaHoraCita,
+                Funcionario = new
+                {
+                    c.FuncionarioId,
+                    c.Funcionario.Nombre
+                }
+            }));
         }
 
+        // ============================
+        // SERVICIOS ACTIVOS
+        // ============================
         [HttpGet]
         public async Task<JsonResult> GetServicios()
         {
@@ -260,6 +252,5 @@ namespace LuxuryApp.Controllers.Calendar
 
             return Json(servicios);
         }
-
     }
 }

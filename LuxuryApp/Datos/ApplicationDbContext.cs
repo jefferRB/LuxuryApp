@@ -25,7 +25,14 @@ namespace ProyectoIdentity.Datos
                 .WithMany(p => p.Funcionarios)
                 .HasForeignKey(f => f.IdPuesto)
                 .OnDelete(DeleteBehavior.Restrict); // opcional pero recomendado
+
+            modelBuilder.Entity<Cita>()
+       .HasOne(c => c.Funcionario)
+       .WithMany()
+       .HasForeignKey(c => c.FuncionarioId)
+       .OnDelete(DeleteBehavior.Restrict);
         }
+
 
 
         //se agregan los modelos
@@ -38,7 +45,7 @@ namespace ProyectoIdentity.Datos
         //Calendar
         public DbSet<Barbero> Barberos { get; set; }
         public DbSet<Cita> Citas { get; set; }
-        public DbSet<CitaBarbero> CitaBarberos { get; set; }
+        
         //Finanzas
         public DbSet<Cobro> Cobros { get; set; }
         public DbSet<Servicio> Servicios { get; set; }
