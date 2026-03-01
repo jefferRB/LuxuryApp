@@ -7,7 +7,7 @@ namespace LuxuryApp.Models.Calendar
     {
         public string? NombreCliente { get; set; }
         public string? TelefonoCliente { get; set; }
-        public string? Servicio { get; set; }
+        public int ServicioId { get; set; }
 
         [Required]
         public DateTime FechaHoraCita { get; set; }

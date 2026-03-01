@@ -203,7 +203,8 @@ async function renderCalendar(date) {
 }
 
 async function renderDayView(date) {
-    date = new Date( //normalizacion de la fecha para evitar bugs
+
+    date = new Date(
         date.getFullYear(),
         date.getMonth(),
         date.getDate(),
@@ -213,14 +214,12 @@ async function renderDayView(date) {
     const calendar = document.getElementById("calendar");
     calendar.innerHTML = "";
 
-    // ===== Wrapper
-    const wrapper = document.createElement("div"); // wraper me permite hacer scroll y demas funciones utiles
-    wrapper.className = "day-view-container"; // mostramos todo lo del dia
+    const wrapper = document.createElement("div");
+    wrapper.className = "day-view-container";
 
-    // ===== Título
     const header = document.createElement("h4");
     header.className = "day-view-title";
-    header.textContent = date.toLocaleDateString("es-CR", { //mostramos el titulo del dia selected
+    header.textContent = date.toLocaleDateString("es-CR", {
         weekday: "long",
         year: "numeric",
         month: "long",
@@ -229,118 +228,119 @@ async function renderDayView(date) {
 
     wrapper.appendChild(header);
 
-    // ===== Contenedor horas
-    const hoursContainer = document.createElement("div");
-    hoursContainer.id = "hoursContainer";
-    //el formato para la fecha que espera el backend
+    const grid = document.createElement("div");
+    grid.className = "calendar-grid";
+
+    const timeColumn = document.createElement("div");
+    timeColumn.className = "time-column";
+
+    const funcionariosContainer = document.createElement("div");
+    funcionariosContainer.className = "funcionarios-container";
+
+    grid.appendChild(timeColumn);
+    grid.appendChild(funcionariosContainer);
+
+    wrapper.appendChild(grid);
+    calendar.appendChild(wrapper);
+
+    // ===== Generar horas base (6AM - 8PM)
+    const inicio = 6;
+    const fin = 20;
+    const intervalo = 30;
+
+    const totalSlots = ((fin - inicio) * 60) / intervalo;
+
+    for (let i = 0; i < totalSlots; i++) {
+
+        const hour = inicio + Math.floor((i * intervalo) / 60);
+        const minute = (i * intervalo) % 60;
+
+        const slotDiv = document.createElement("div");
+        slotDiv.className = "time-slot";
+        slotDiv.textContent = formatHourAMPM(hour, minute);
+
+        timeColumn.appendChild(slotDiv);
+    }
+
+    // ===== Obtener funcionarios
+    const resFunc = await fetch("/Funcionarios/GetActivos");
+    const funcionarios = await resFunc.json();
+
+    funcionarios.forEach(func => {
+
+        const col = document.createElement("div");
+        col.className = "funcionario-column";
+        col.dataset.id = func.id;
+        col.dataset.color = func.colorCalendario;
+
+        for (let i = 0; i < totalSlots; i++) {
+            const line = document.createElement("div");
+            line.className = "slot-line";
+            col.appendChild(line);
+        }
+
+        // Click para crear cita
+        col.addEventListener("click", function (e) {
+
+            if (e.target.classList.contains("cita-bloque"))
+                return;
+
+            const y = e.offsetY;
+
+            const minutosDesdeInicio = Math.floor(y / 40) * 30;
+
+            const hora = inicio + Math.floor(minutosDesdeInicio / 60);
+            const minuto = minutosDesdeInicio % 60;
+
+            onHourClick(date, hora, minuto);
+        });
+
+        funcionariosContainer.appendChild(col);
+    });
+
+    // ===== Obtener citas
     const dateStr =
         `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 
-    const res = await fetch(`/Calendar/GetCitasByDay?date=${dateStr}`); // llamamos al controller mostrando las citas por dia
+    const res = await fetch(`/Calendar/GetCitasByDay?date=${dateStr}`);
     const citas = await res.json();
 
-    // ===== Loop de horas 
-    const slots = generarSlots();
+    citas.forEach(cita => {
 
-    slots.forEach(slot => {
+        const inicioCita = new Date(cita.fechaHoraCita);
 
-        const citasHora = citas.filter(c => {
-            const f = new Date(c.fechaHoraCita);
-            return f.getHours() === slot.hour &&
-                f.getMinutes() === slot.minute;
-        });
+        const minutosDesdeInicio =
+            (inicioCita.getHours() * 60 + inicioCita.getMinutes()) - (inicio * 60);
 
-        // ===== Bloque hora
-        const hourBlock = document.createElement("div");
-        hourBlock.className = "hour-block";
+        const top = (minutosDesdeInicio / 30) * 40;
 
-        // Header hora
-        const hourHeader = document.createElement("div");
-        hourHeader.className = "hour-header";
-        hourHeader.innerHTML = `
-        <span class="hour-label">
-            ${formatHourAMPM(slot.hour, slot.minute)}
-        </span>
-        <button class="btn btn-sm btn-outline-dark add-hour-btn">
-            + Agregar
-        </button>
-    `;
+        const altura = (cita.servicio?.duracionMinutos || 30) / 30 * 40;
 
-        hourHeader.querySelector(".add-hour-btn").onclick = () =>
-            onHourClick(date, slot.hour, slot.minute);
+        const col = document.querySelector(
+            `.funcionario-column[data-id="${cita.funcionarioId}"]`
+        );
 
-        hourBlock.appendChild(hourHeader);
+        if (!col) return;
 
-        // ===== Sin citas
-        if (citasHora.length === 0) {
-            const empty = document.createElement("div");
-            empty.className = "hour-empty";
-            empty.textContent = "Sin citas";
-            hourBlock.appendChild(empty);
-        }
+        const bloque = document.createElement("div");
+        bloque.className = "cita-bloque";
 
-        // ===== Citas
-        citasHora.forEach(cita => {
+        bloque.style.top = top + "px";
+        bloque.style.height = altura + "px";
+        bloque.style.backgroundColor = col.dataset.color;
 
-            const funcionario = cita.funcionario?.nombre || "—";
-
-            const card = document.createElement("div");
-            card.className = "cita-card";
-
-            card.innerHTML = `
-            <div class="cita-main">
-                <span class="cita-title">✂️ ${funcionario}</span>
-                <button class="toggle-btn">▼</button>
-            </div>
-
-            <div class="cita-extra">
-                <div class="detalle"><strong>Cliente:</strong> ${cita.nombreCliente}</div>
-                <div class="detalle"><strong>Tel:</strong> ${cita.telefonoCliente}</div>
-                <div class="detalle"><strong>Servicio:</strong> ${cita.servicio}</div>
-
-                <div class="acciones-cita mt-2 text-end">
-                    <button class="btn btn-sm btn-outline-primary">✏️ Editar</button>
-                    <button class="btn btn-sm btn-outline-danger btn-cancelar">
-                        ❌ Cancelar
-                    </button>
-                </div>
-            </div>
+        bloque.innerHTML = `
+            <strong>${cita.nombreCliente}</strong><br>
+            ${cita.servicio?.nombre || ""}
         `;
 
-            const editBtn = card.querySelector(".btn-outline-primary");
-            editBtn.onclick = (e) => {
-                e.stopPropagation();
-                editarCita(cita.id);
+        bloque.onclick = (e) => {
+            e.stopPropagation();
+            editarCita(cita.id);
+        };
 
-                const modalEl = document.getElementById("dayModal");
-                const modal = bootstrap.Modal.getInstance(modalEl);
-                if (modal) modal.hide();
-            };
-
-            const toggle = card.querySelector(".toggle-btn");
-            const extra = card.querySelector(".cita-extra");
-
-            toggle.onclick = () => {
-                const open = extra.classList.toggle("open");
-                toggle.textContent = open ? "▲" : "▼";
-            };
-
-            const deleteBtn = card.querySelector(".btn-cancelar");
-            if (deleteBtn) {
-                deleteBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    cancelarCita(cita.id);
-                };
-            }
-
-            hourBlock.appendChild(card);
-        });
-
-        hoursContainer.appendChild(hourBlock);
+        col.appendChild(bloque);
     });
-
-    wrapper.appendChild(hoursContainer);
-    calendar.appendChild(wrapper);
 }
 
 async function onDayClick(year, month, day) {
@@ -365,117 +365,69 @@ async function onDayClick(year, month, day) {
     const response = await fetch(`/Calendar/GetCitasByDay?date=${dateStr}`);
     const citas = await response.json();
 
-    // ===== Loop de slots (30 minutos)
+    // ================= CREAR GRID =================
+
+    const grid = document.createElement("div");
+    grid.className = "calendar-grid";
+
+    const timeColumn = document.createElement("div");
+    timeColumn.className = "time-column";
+
+    const eventsLayer = document.createElement("div");
+    eventsLayer.className = "events-layer";
+
+    grid.appendChild(timeColumn);
+    grid.appendChild(eventsLayer);
+
+    // ====== GENERAR HORAS BASE ======
     const slots = generarSlots();
 
     slots.forEach(slot => {
 
-        const citaHora = citas.filter(c => {
-            const f = new Date(c.fechaHoraCita);
-            return f.getHours() === slot.hour &&
-                f.getMinutes() === slot.minute &&
-                f.toDateString() === selectedDate.toDateString();
-        });
+        const slotDiv = document.createElement("div");
+        slotDiv.className = "time-slot";
+        slotDiv.textContent = formatHourAMPM(slot.hour, slot.minute);
 
-        // ================= BLOQUE HORA =================
-        const hourBlock = document.createElement("div");
-        hourBlock.className = "hour-block";
-
-        const header = document.createElement("div");
-        header.className = "hour-header";
-        header.innerHTML = `
-        <span class="hour-label">
-            ${formatHourAMPM(slot.hour, slot.minute)}
-        </span>
-        <button class="btn btn-sm btn-outline-dark add-hour-btn">
-            + Agregar
-        </button>
-    `;
-
-        header.querySelector(".add-hour-btn").onclick = (e) => {
-            e.stopPropagation();
+        slotDiv.onclick = () => {
             onHourClick(selectedDate, slot.hour, slot.minute);
         };
 
-        hourBlock.appendChild(header);
-
-        // ================= SIN CITAS =================
-        if (citaHora.length === 0) {
-            const empty = document.createElement("div");
-            empty.className = "hour-empty";
-            empty.textContent = "Sin citas";
-            hourBlock.appendChild(empty);
-        }
-
-        // ================= CITAS =================
-        citaHora.forEach(cita => {
-
-            let funcionarioTexto = "—";
-            if (Array.isArray(cita.funcionarios) && cita.funcionarios.length > 0) {
-                funcionarioTexto = cita.funcionarios.map(b => b.nombre).join(", ");
-            } else if (cita.funcionarioNombre) {
-                funcionarioTexto = cita.funcionarioNombre;
-            }
-
-            const card = document.createElement("div");
-            card.className = "cita-card";
-
-            card.innerHTML = `
-            <div class="cita-main">
-                <span class="cita-title">✂️ ${funcionarioTexto}</span>
-                <button class="toggle-btn">▼</button>
-            </div>
-
-            <div class="cita-extra">
-                <div><strong>Cliente:</strong> ${cita.nombreCliente}</div>
-                <div><strong>Tel:</strong> ${cita.telefonoCliente}</div>
-                <div><strong>Servicio:</strong> ${cita.servicio}</div>
-
-                <div class="mt-2 text-end">
-                    <button class="btn btn-sm btn-outline-primary">✏️ Editar</button>
-                    <button class="btn btn-sm btn-outline-danger btn-cancelar">
-                        ❌ Cancelar
-                    </button>
-                </div>
-            </div>
-        `;
-
-            const editBtn = card.querySelector(".btn-outline-primary");
-            editBtn.onclick = (e) => {
-                e.stopPropagation();
-                editarCita(cita.id);
-
-                const modalEl = document.getElementById("dayModal");
-                const modal = bootstrap.Modal.getInstance(modalEl);
-                if (modal) modal.hide();
-            };
-
-            const toggleBtn = card.querySelector(".toggle-btn");
-            const extra = card.querySelector(".cita-extra");
-
-            toggleBtn.onclick = () => {
-                const open = extra.classList.toggle("open");
-                toggleBtn.textContent = open ? "▲" : "▼";
-            };
-
-            const cancelBtn = card.querySelector(".btn-cancelar");
-            cancelBtn.onclick = (e) => {
-                e.stopPropagation();
-                cancelarCita(cita.id);
-
-                const modalEl = document.getElementById("dayModal");
-                const modal = bootstrap.Modal.getInstance(modalEl);
-                if (modal) modal.hide();
-            };
-
-            hourBlock.appendChild(card);
-        });
-
-        hoursContainer.appendChild(hourBlock);
+        timeColumn.appendChild(slotDiv);
     });
 
-    new bootstrap.Modal(document.getElementById("dayModal")).show();
+    // ====== POSICIONAR CITAS ======
 
+    citas.forEach(cita => {
+
+        const inicio = new Date(cita.fechaHoraCita);
+
+        const minutosDesdeInicio =
+            (inicio.getHours() * 60 + inicio.getMinutes()) - (6 * 60);
+        // suponiendo que el día empieza a las 6am
+
+        const top = minutosDesdeInicio * 2; // 1 min = 2px
+
+        const altura = (cita.duracionMinutos || 30) * 2;
+
+        const funcionarioTexto = cita.funcionario?.nombre || "—";
+
+        const card = document.createElement("div");
+        card.className = "cita-vertical";
+
+        card.style.top = top + "px";
+        card.style.height = altura + "px";
+
+        card.innerHTML = `
+            <strong>✂ ${funcionarioTexto}</strong><br>
+            ${cita.nombreCliente}
+        `;
+
+        eventsLayer.appendChild(card);
+    });
+
+    hoursContainer.appendChild(grid);
+
+    new bootstrap.Modal(document.getElementById("dayModal")).show();
 }
 
 function onHourClick(date, hour, minute = 0) {

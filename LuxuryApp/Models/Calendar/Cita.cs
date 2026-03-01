@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 
 namespace LuxuryApp.Models.Calendar
@@ -13,8 +14,8 @@ namespace LuxuryApp.Models.Calendar
         [MaxLength(20)]
         public string? TelefonoCliente { get; set; }
 
-        [MaxLength(100)]
-        public string? Servicio { get; set; }
+        public int? ServicioId { get; set; }
+        public Servicio Servicio { get; set; }
 
         [Required]
         public DateTime FechaHoraCita { get; set; }

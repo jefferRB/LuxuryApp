@@ -16,5 +16,7 @@ namespace LuxuryApp.Models.Finanzas
         public decimal Precio { get; set; }
 
         public bool Activo { get; set; } = true;
+
+        public int? DuracionMinutos { get; set; }
     }
 }

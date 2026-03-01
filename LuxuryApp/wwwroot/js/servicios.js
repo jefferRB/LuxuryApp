@@ -47,3 +47,27 @@ function guardarServicio() {
     });
 }
 
+function eliminarServicio(id) {
+
+    if (!confirm("¿Seguro que deseas eliminar este servicio?"))
+        return;
+
+    fetch(`/Servicios/Eliminar/${id}`, {
+        method: "POST"
+    })
+        .then(async res => {
+
+            if (res.ok) {
+                location.reload();
+                return;
+            }
+
+            const mensaje = await res.text();
+            alert(mensaje);
+
+        })
+        .catch(() => {
+            alert("Error inesperado al eliminar.");
+        });
+}
+

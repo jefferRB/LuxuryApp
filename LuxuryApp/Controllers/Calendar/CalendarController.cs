@@ -36,7 +36,7 @@ namespace LuxuryApp.Controllers.Calendar
             {
                 NombreCliente = vm.NombreCliente,
                 TelefonoCliente = vm.TelefonoCliente,
-                Servicio = vm.Servicio,
+                ServicioId = vm.ServicioId,
                 FechaHoraCita = vm.FechaHoraCita,
                 FuncionarioId = vm.FuncionarioId, 
                 ConfirmacionEnviada = false,
@@ -98,13 +98,19 @@ namespace LuxuryApp.Controllers.Calendar
 
             var citas = _context.Citas
                 .Include(c => c.Funcionario)
+                .Include(c => c.Servicio) 
                 .Where(c => c.FechaHoraCita.Date == fecha.Date)
                 .Select(c => new
                 {
                     c.Id,
                     c.NombreCliente,
                     c.TelefonoCliente,
-                    c.Servicio,
+                    Servicio = new   
+                    {
+                        c.ServicioId,
+                        c.Servicio.Nombre,
+                        c.Servicio.DuracionMinutos
+                    },
                     c.FechaHoraCita,
                     Funcionario = new
                     {
@@ -154,7 +160,7 @@ namespace LuxuryApp.Controllers.Calendar
 
             cita.NombreCliente = vm.NombreCliente;
             cita.TelefonoCliente = vm.TelefonoCliente;
-            cita.Servicio = vm.Servicio;
+            cita.ServicioId = vm.ServicioId;
             cita.FechaHoraCita = vm.FechaHoraCita;
             cita.FuncionarioId = vm.FuncionarioId; // 🔥
 

@@ -92,7 +92,15 @@ namespace LuxuryApp.Controllers.Finanzas
             {
                 try
                 {
-                    _context.Update(servicio);
+                    var servicioDb = await _context.Servicios.FindAsync(id);
+
+                    if (servicioDb == null)
+                        return NotFound();
+
+                    servicioDb.Nombre = servicio.Nombre;
+                    servicioDb.Precio = servicio.Precio;
+                    servicioDb.DuracionMinutos = servicio.DuracionMinutos;
+
                     await _context.SaveChangesAsync();
                 }
                 catch (DbUpdateConcurrencyException)
@@ -155,6 +163,39 @@ namespace LuxuryApp.Controllers.Finanzas
             return PartialView("~/Views/Servicios/_FormServicio.cshtml", new Servicio());
         }
 
+
+        [HttpPost]
+        public async Task<IActionResult> Eliminar(int id)
+        {
+            var servicio = await _context.Servicios.FindAsync(id);
+
+            if (servicio == null)
+                return NotFound();
+
+            // 🔎 Validar si tiene cobros asociados
+            var tieneCobros = await _context.Cobros
+                .AnyAsync(c => c.ServicioId == id);
+
+            if (tieneCobros)
+            {
+                return BadRequest("No se puede eliminar este servicio porque tiene cobros asociados.");
+            }
+
+           
+            var tieneCitas = await _context.Citas
+                .AnyAsync(c => c.ServicioId == id);
+       
+
+            if (tieneCitas)
+            {
+                return BadRequest("No se puede eliminar este servicio porque tiene citas asociadas.");
+            }
+
+            _context.Servicios.Remove(servicio);
+            await _context.SaveChangesAsync();
+
+            return Ok();
+        }
 
     }
 }

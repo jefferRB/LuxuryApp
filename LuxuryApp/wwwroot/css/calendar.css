@@ -63,134 +63,92 @@
         border: 2px solid #004445;
     }
 
+
+
+
 /* ===============================
-   BLOQUES DE HORAS
+   DAY VIEW – NUEVA AGENDA
 ================================ */
 
-.hour-block {
-    border-radius: 18px;
-    background: #ffffff;
-    margin-bottom: 16px;
-    padding: 12px;
-    border: 1px solid #eaeaea;
+.day-view-container {
+    width: 100%;
+    overflow-x: auto;
 }
 
-/* Header hora */
-.hour-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-weight: 600;
+.day-view-title {
+    font-weight: 700;
     color: #004445;
-    margin-bottom: 8px;
+    margin-bottom: 15px;
 }
 
-.hour-label {
-    font-size: 1rem;
-}
-
-/* Hora vacía */
-.hour-empty {
-    font-size: 0.85rem;
-    color: #999;
-    padding-left: 6px;
-    margin-bottom: 6px;
-}
-
-/* ===============================
-   CITAS – CARDS PRINCIPALES
-================================ */
-
-.cita-card {
+/* GRID PRINCIPAL */
+.calendar-grid {
+    display: grid;
     position: relative;
-    background: #ffffff;
+    border: 1px solid #e0e0e0;
     border-radius: 14px;
-    padding: 14px 16px;
     overflow: hidden;
-    transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 
-    /* Borde degradado */
-    .cita-card::before {
-        content: "";
-        position: absolute;
-        inset: 0;
-        padding: 1.5px;
-        border-radius: 14px;
-        background: linear-gradient(135deg, #004445, #0a6b6b, #004445);
-        -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-        -webkit-mask-composite: xor;
-        mask-composite: exclude;
-        pointer-events: none;
-    }
+/* Columna horas */
+.time-column {
+    width: 80px;
+    background: #fafafa;
+    border-right: 1px solid #ddd;
+}
 
-    .cita-card:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 10px 30px rgba(0, 68, 69, 0.28);
-    }
-
-/* Contenido */
-.cita-main {
+.time-slot {
+    height: 40px; /* 30 minutos = 40px */
+    border-bottom: 1px dashed #ddd;
+    font-size: 12px;
+    padding-left: 6px;
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
 }
 
-.cita-title {
-    font-size: 1rem;
-    font-weight: 600;
-    color: #004445;
-    letter-spacing: 0.3px;
+/* Contenedor funcionarios */
+.funcionarios-container {
+    display: flex;
+    flex: 1;
+    position: relative;
 }
 
-/* ===============================
-   DETALLES DE CITA
-================================ */
-
-.toggle-btn {
-    background: rgba(0, 68, 69, 0.08);
-    border-radius: 8px;
-    padding: 4px 8px;
-    border: none;
-    color: #004445;
-    font-size: 0.9rem;
-    transition: transform 0.3s ease;
+/* Columna individual */
+.funcionario-column {
+    flex: 1;
+    border-right: 1px solid #eee;
+    position: relative;
 }
 
-    .toggle-btn:hover {
-        background: rgba(0, 68, 69, 0.18);
+    .funcionario-column:last-child {
+        border-right: none;
     }
 
-.cita-card .toggle-btn.active {
-    transform: rotate(180deg);
+/* Línea horizontal base */
+.slot-line {
+    height: 40px;
+    border-bottom: 1px dashed #f0f0f0;
 }
 
-.cita-extra {
+/* BLOQUE DE CITA */
+.cita-bloque {
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    border-radius: 10px;
+    padding: 6px;
+    font-size: 12px;
+    color: white;
+    cursor: pointer;
     overflow: hidden;
-    max-height: 0;
-    opacity: 0;
-    transition: max-height 0.35s ease, opacity 0.25s ease;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+    transition: transform 0.2s ease;
 }
 
-    .cita-extra.open {
-        max-height: 200px;
-        opacity: 1;
-        margin-top: 10px;
+    .cita-bloque:hover {
+        transform: scale(1.02);
     }
 
-    .cita-extra .detalle {
-        padding: 4px 0;
-        border-bottom: 1px dashed rgba(0, 68, 69, 0.15);
-    }
-
-        .cita-extra .detalle:last-child {
-            border-bottom: none;
-        }
-
-.detalle strong {
-    color: #004445;
-    font-weight: 600;
-}
 
 /* ===============================
    PANEL LATERAL – CITAS
