@@ -31,14 +31,55 @@ namespace LuxuryApp.Controllers.Calendar
             if (vm == null)
                 return BadRequest("Datos inválidos");
 
+            // 1️⃣ Servicio
+            var servicio = await _context.Servicios
+                .FirstOrDefaultAsync(s => s.Id == vm.ServicioId && s.Activo);
 
+            if (servicio == null)
+                return BadRequest("Servicio inválido");
+
+            var duracion = servicio.DuracionMinutos ?? 30;
+
+            var inicio = vm.FechaHoraCita;
+            var fin = inicio.AddMinutes(duracion);
+
+            // 2️⃣ Traer funcionario UNA sola vez
+            var funcionarioData = await _context.Funcionarios
+                .Where(f => f.IdFuncionario == vm.FuncionarioId && f.Activo)
+                .Select(f => new
+                {
+                    f.IdFuncionario,
+                    f.Nombre,
+                    f.ColorCalendario
+                })
+                .FirstOrDefaultAsync();
+
+            if (funcionarioData == null)
+                return BadRequest("Funcionario inválido");
+
+            // 3️⃣ Validar choque optimizado
+            var citasExistentes = await _context.Citas
+                .Include(c => c.Servicio)
+                .Where(c => c.FuncionarioId == vm.FuncionarioId)
+                .ToListAsync();
+
+            foreach (var c in citasExistentes)
+            {
+                var cInicio = c.FechaHoraCita;
+                var cFin = cInicio.AddMinutes(c.Servicio?.DuracionMinutos ?? 30);
+
+                if (inicio < cFin && fin > cInicio)
+                    return BadRequest("Ya existe una cita en ese horario");
+            }
+
+            // 4️⃣ Crear cita
             var cita = new Cita
             {
                 NombreCliente = vm.NombreCliente,
                 TelefonoCliente = vm.TelefonoCliente,
-                ServicioId = vm.ServicioId,
-                FechaHoraCita = vm.FechaHoraCita,
-                FuncionarioId = vm.FuncionarioId, 
+                ServicioId = servicio.Id,
+                FechaHoraCita = inicio,
+                FuncionarioId = funcionarioData.IdFuncionario,
                 ConfirmacionEnviada = false,
                 Recordatorio24hEnviado = false,
                 Recordatorio3hEnviado = false
@@ -47,9 +88,7 @@ namespace LuxuryApp.Controllers.Calendar
             _context.Citas.Add(cita);
             await _context.SaveChangesAsync();
 
-            // ===============================
-            // 📲 ENVIAR CONFIRMACIÓN WHATSAPP
-            // ===============================
+            // 5️⃣ WhatsApp
             try
             {
                 var whatsapp = HttpContext.RequestServices
@@ -60,21 +99,16 @@ namespace LuxuryApp.Controllers.Calendar
 
                 var template = config["TwilioTemplates:Confirmacion"];
 
-                var funcionario = await _context.Funcionarios
-                    .Where(f => f.IdFuncionario == cita.FuncionarioId)
-                    .Select(f => f.Nombre)
-                    .FirstOrDefaultAsync();
-
                 await whatsapp.SendTemplateAsync(
                     cita.TelefonoCliente!,
                     template!,
                     new Dictionary<string, object>
                     {
-                        { "1", cita.NombreCliente },
-                        { "2", cita.FechaHoraCita.ToString("dd/MM/yyyy") },
-                        { "3", cita.FechaHoraCita.ToString("hh:mm tt") },
-                        { "4", cita.Servicio },
-                        { "5", funcionario ?? "" }
+                { "1", cita.NombreCliente },
+                { "2", cita.FechaHoraCita.ToString("dd/MM/yyyy") },
+                { "3", cita.FechaHoraCita.ToString("hh:mm tt") },
+                { "4", servicio.Nombre },
+                { "5", funcionarioData.Nombre }
                     });
 
                 cita.ConfirmacionEnviada = true;
@@ -85,7 +119,20 @@ namespace LuxuryApp.Controllers.Calendar
                 Console.WriteLine("Error enviando confirmación: " + ex.Message);
             }
 
-            return Ok();
+            // 6️⃣ Respuesta limpia para el calendario
+            var citaCreada = new
+            {
+                id = cita.Id,
+                nombreCliente = cita.NombreCliente,
+                telefonoCliente = cita.TelefonoCliente,
+                fechaHoraCita = cita.FechaHoraCita,
+                duracionMinutos = duracion,
+                funcionarioId = funcionarioData.IdFuncionario,
+                servicioNombre = servicio.Nombre,
+                colorCalendario = funcionarioData.ColorCalendario
+            };
+
+            return Ok(citaCreada);
         }
 
         // ============================
@@ -105,18 +152,14 @@ namespace LuxuryApp.Controllers.Calendar
                     c.Id,
                     c.NombreCliente,
                     c.TelefonoCliente,
-                    Servicio = new   
-                    {
-                        c.ServicioId,
-                        c.Servicio.Nombre,
-                        c.Servicio.DuracionMinutos
-                    },
                     c.FechaHoraCita,
-                    Funcionario = new
-                    {
-                        c.FuncionarioId,
-                        c.Funcionario.Nombre
-                    }
+
+                    ServicioNombre = c.Servicio.Nombre,
+                    DuracionMinutos = c.Servicio.DuracionMinutos,
+
+                    FuncionarioId = c.FuncionarioId,
+                    FuncionarioNombre = c.Funcionario.Nombre,
+                    ColorCalendario = c.Funcionario.ColorCalendario
                 })
                 .ToList();
 
@@ -246,17 +289,18 @@ namespace LuxuryApp.Controllers.Calendar
         // SERVICIOS ACTIVOS
         // ============================
         [HttpGet]
-        public async Task<JsonResult> GetServicios()
+        public async Task<IActionResult> GetServiciosActivos()
         {
             var servicios = await _context.Servicios
                 .Where(s => s.Activo)
-                .Select(s => new
-                {
-                    nombre = s.Nombre
+                .Select(s => new {
+                    s.Id,
+                    s.Nombre,
+                    s.DuracionMinutos
                 })
                 .ToListAsync();
 
-            return Json(servicios);
+            return Ok(servicios);
         }
     }
 }

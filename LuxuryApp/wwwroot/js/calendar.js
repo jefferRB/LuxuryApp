@@ -202,17 +202,204 @@ async function renderCalendar(date) {
     calendar.appendChild(grid);
 }
 
+async function buildDayGrid(container, date) {
+
+    container.innerHTML = "";
+
+    const grid = document.createElement("div");
+    grid.className = "day-grid"; // 👈 respetamos tu clase original
+
+    const timeColumn = document.createElement("div");
+    timeColumn.className = "time-column";
+
+    const funcionariosContainer = document.createElement("div");
+    funcionariosContainer.className = "funcionarios-container";
+
+    grid.appendChild(timeColumn);
+    grid.appendChild(funcionariosContainer);
+    container.appendChild(grid);
+
+    const inicio = 6;
+    const fin = 20;
+    const intervalo = 15;
+    const altoSlot = 30;
+
+    const totalSlots = ((fin - inicio) * 60) / intervalo;
+
+    // ===== GENERAR HORAS =====
+
+    for (let i = 0; i < totalSlots; i++) {
+
+        const hour = inicio + Math.floor((i * intervalo) / 60);
+        const minute = (i * intervalo) % 60;
+
+        const slot = document.createElement("div");
+        slot.className = "time-slot";
+        slot.textContent = formatHourAMPM(hour, minute);
+
+        // ✅ CLICK EN HORAS RESTAURADO
+        slot.addEventListener("click", () => {
+            abrirModalConDuracion(date, hour, minute, 30);
+        });
+
+        timeColumn.appendChild(slot);
+    }
+
+    // ===== OBTENER DATOS =====
+
+    const dateStr =
+        `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+    const [citasRes, funcRes] = await Promise.all([
+        fetch(`/Calendar/GetCitasByDay?date=${dateStr}`),
+        fetch(`/Funcionarios/GetActivos`)
+    ]);
+
+    const citas = await citasRes.json();
+    const funcionarios = await funcRes.json();
+
+    // ===== FUNCIONARIOS =====
+
+    funcionarios.forEach(func => {
+
+        const col = document.createElement("div");
+        col.className = "funcionario-column";
+        col.dataset.id = func.id;
+        col.dataset.color = func.colorCalendario;
+
+        // líneas base
+        for (let i = 0; i < totalSlots; i++) {
+            const line = document.createElement("div");
+            line.className = "slot-line";
+            col.appendChild(line);
+        }
+
+        enableColumnInteraction(col, date, inicio, altoSlot, intervalo);
+
+        funcionariosContainer.appendChild(col);
+    });
+
+    // ===== POSICIONAR CITAS =====
+
+    citas.forEach(cita => {
+
+        const inicioCita = new Date(cita.fechaHoraCita);
+
+        const minutosDesdeInicio =
+            (inicioCita.getHours() * 60 + inicioCita.getMinutes()) - (inicio * 60);
+
+        if (minutosDesdeInicio < 0) return;
+
+        const duracion = cita.duracionMinutos || 30;
+
+        const top = (minutosDesdeInicio / intervalo) * altoSlot;
+        const altura = (duracion / intervalo) * altoSlot;
+
+        const col = funcionariosContainer.querySelector(
+            `.funcionario-column[data-id="${cita.funcionarioId}"]`
+        );
+
+        if (!col) return;
+
+        const bloque = document.createElement("div");
+        bloque.className = "cita-bloque";
+
+        bloque.style.top = top + "px";
+        bloque.style.height = altura + "px";
+        bloque.style.backgroundColor = cita.colorCalendario || "#004445";
+
+        bloque.innerHTML = `
+    <div style="font-weight:600">${cita.nombreCliente}</div>
+    <div style="font-size:11px; opacity:0.9">
+        ${cita.servicioNombre}
+    </div>
+`;
+
+        bloque.onclick = (e) => {
+            e.stopPropagation();
+            editarCita(cita.id);
+        };
+
+        col.appendChild(bloque);
+    });
+}
+
+async function enableColumnInteraction(col, date, inicio, altoSlot, intervalo) {
+
+    let isSelecting = false;
+    let startY = 0;
+    let previewBlock = null;
+
+    col.addEventListener("mousedown", function (e) {
+
+        if (e.target.classList.contains("cita-bloque"))
+            return;
+
+        isSelecting = true;
+
+        const rect = col.getBoundingClientRect();
+        startY = e.clientY - rect.top; // 👈 POSICIÓN REAL
+
+        previewBlock = document.createElement("div");
+        previewBlock.className = "cita-preview";
+
+        const snappedTop =
+            Math.floor(startY / altoSlot) * altoSlot;
+
+        previewBlock.style.top = snappedTop + "px";
+        previewBlock.style.height = altoSlot + "px";
+        previewBlock.style.backgroundColor = col.dataset.color;
+        previewBlock.style.opacity = "0.5";
+
+        col.appendChild(previewBlock);
+    });
+
+    col.addEventListener("mousemove", function (e) {
+
+        if (!isSelecting) return;
+
+        const rect = col.getBoundingClientRect();
+        const currentY = e.clientY - rect.top;
+
+        const diff = currentY - startY;
+        const slots = Math.max(1, Math.ceil(diff / altoSlot));
+
+        previewBlock.style.height = (slots * altoSlot) + "px";
+    });
+
+    col.addEventListener("mouseup", function (e) {
+
+        if (!isSelecting) return;
+
+        isSelecting = false;
+
+        const rect = col.getBoundingClientRect();
+        const endY = e.clientY - rect.top;
+
+        const diff = endY - startY;
+        const slots = Math.max(1, Math.ceil(diff / altoSlot));
+
+        const snappedStart =
+            Math.floor(startY / altoSlot);
+
+        const minutosDesdeInicio =
+            snappedStart * intervalo;
+
+        const hora = inicio + Math.floor(minutosDesdeInicio / 60);
+        const minuto = minutosDesdeInicio % 60;
+        const duracion = slots * intervalo;
+
+        const funcionarioId = col.dataset.id;
+
+        col.removeChild(previewBlock);
+
+        abrirModalConDuracion(date, hora, minuto, duracion, funcionarioId);
+    });
+}
+
 async function renderDayView(date) {
 
-    date = new Date(
-        date.getFullYear(),
-        date.getMonth(),
-        date.getDate(),
-        12, 0, 0
-    );
-
     const calendar = document.getElementById("calendar");
-    calendar.innerHTML = "";
 
     const wrapper = document.createElement("div");
     wrapper.className = "day-view-container";
@@ -227,128 +414,18 @@ async function renderDayView(date) {
     });
 
     wrapper.appendChild(header);
-
-    const grid = document.createElement("div");
-    grid.className = "calendar-grid";
-
-    const timeColumn = document.createElement("div");
-    timeColumn.className = "time-column";
-
-    const funcionariosContainer = document.createElement("div");
-    funcionariosContainer.className = "funcionarios-container";
-
-    grid.appendChild(timeColumn);
-    grid.appendChild(funcionariosContainer);
-
-    wrapper.appendChild(grid);
+    calendar.innerHTML = "";
     calendar.appendChild(wrapper);
 
-    // ===== Generar horas base (6AM - 8PM)
-    const inicio = 6;
-    const fin = 20;
-    const intervalo = 30;
-
-    const totalSlots = ((fin - inicio) * 60) / intervalo;
-
-    for (let i = 0; i < totalSlots; i++) {
-
-        const hour = inicio + Math.floor((i * intervalo) / 60);
-        const minute = (i * intervalo) % 60;
-
-        const slotDiv = document.createElement("div");
-        slotDiv.className = "time-slot";
-        slotDiv.textContent = formatHourAMPM(hour, minute);
-
-        timeColumn.appendChild(slotDiv);
-    }
-
-    // ===== Obtener funcionarios
-    const resFunc = await fetch("/Funcionarios/GetActivos");
-    const funcionarios = await resFunc.json();
-
-    funcionarios.forEach(func => {
-
-        const col = document.createElement("div");
-        col.className = "funcionario-column";
-        col.dataset.id = func.id;
-        col.dataset.color = func.colorCalendario;
-
-        for (let i = 0; i < totalSlots; i++) {
-            const line = document.createElement("div");
-            line.className = "slot-line";
-            col.appendChild(line);
-        }
-
-        // Click para crear cita
-        col.addEventListener("click", function (e) {
-
-            if (e.target.classList.contains("cita-bloque"))
-                return;
-
-            const y = e.offsetY;
-
-            const minutosDesdeInicio = Math.floor(y / 40) * 30;
-
-            const hora = inicio + Math.floor(minutosDesdeInicio / 60);
-            const minuto = minutosDesdeInicio % 60;
-
-            onHourClick(date, hora, minuto);
-        });
-
-        funcionariosContainer.appendChild(col);
-    });
-
-    // ===== Obtener citas
-    const dateStr =
-        `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-
-    const res = await fetch(`/Calendar/GetCitasByDay?date=${dateStr}`);
-    const citas = await res.json();
-
-    citas.forEach(cita => {
-
-        const inicioCita = new Date(cita.fechaHoraCita);
-
-        const minutosDesdeInicio =
-            (inicioCita.getHours() * 60 + inicioCita.getMinutes()) - (inicio * 60);
-
-        const top = (minutosDesdeInicio / 30) * 40;
-
-        const altura = (cita.servicio?.duracionMinutos || 30) / 30 * 40;
-
-        const col = document.querySelector(
-            `.funcionario-column[data-id="${cita.funcionarioId}"]`
-        );
-
-        if (!col) return;
-
-        const bloque = document.createElement("div");
-        bloque.className = "cita-bloque";
-
-        bloque.style.top = top + "px";
-        bloque.style.height = altura + "px";
-        bloque.style.backgroundColor = col.dataset.color;
-
-        bloque.innerHTML = `
-            <strong>${cita.nombreCliente}</strong><br>
-            ${cita.servicio?.nombre || ""}
-        `;
-
-        bloque.onclick = (e) => {
-            e.stopPropagation();
-            editarCita(cita.id);
-        };
-
-        col.appendChild(bloque);
-    });
+    await buildDayGrid(wrapper, date);
 }
 
 async function onDayClick(year, month, day) {
 
+    const selectedDate = new Date(year, month, day);
+
     const modalTitle = document.getElementById("modalTitle");
     const hoursContainer = document.getElementById("hoursContainer");
-
-    const selectedDate = new Date(year, month, day);
 
     modalTitle.textContent = selectedDate.toLocaleDateString("es-CR", {
         weekday: "long",
@@ -357,75 +434,7 @@ async function onDayClick(year, month, day) {
         day: "numeric"
     });
 
-    hoursContainer.innerHTML = "";
-
-    const dateStr =
-        `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-
-    const response = await fetch(`/Calendar/GetCitasByDay?date=${dateStr}`);
-    const citas = await response.json();
-
-    // ================= CREAR GRID =================
-
-    const grid = document.createElement("div");
-    grid.className = "calendar-grid";
-
-    const timeColumn = document.createElement("div");
-    timeColumn.className = "time-column";
-
-    const eventsLayer = document.createElement("div");
-    eventsLayer.className = "events-layer";
-
-    grid.appendChild(timeColumn);
-    grid.appendChild(eventsLayer);
-
-    // ====== GENERAR HORAS BASE ======
-    const slots = generarSlots();
-
-    slots.forEach(slot => {
-
-        const slotDiv = document.createElement("div");
-        slotDiv.className = "time-slot";
-        slotDiv.textContent = formatHourAMPM(slot.hour, slot.minute);
-
-        slotDiv.onclick = () => {
-            onHourClick(selectedDate, slot.hour, slot.minute);
-        };
-
-        timeColumn.appendChild(slotDiv);
-    });
-
-    // ====== POSICIONAR CITAS ======
-
-    citas.forEach(cita => {
-
-        const inicio = new Date(cita.fechaHoraCita);
-
-        const minutosDesdeInicio =
-            (inicio.getHours() * 60 + inicio.getMinutes()) - (6 * 60);
-        // suponiendo que el día empieza a las 6am
-
-        const top = minutosDesdeInicio * 2; // 1 min = 2px
-
-        const altura = (cita.duracionMinutos || 30) * 2;
-
-        const funcionarioTexto = cita.funcionario?.nombre || "—";
-
-        const card = document.createElement("div");
-        card.className = "cita-vertical";
-
-        card.style.top = top + "px";
-        card.style.height = altura + "px";
-
-        card.innerHTML = `
-            <strong>✂ ${funcionarioTexto}</strong><br>
-            ${cita.nombreCliente}
-        `;
-
-        eventsLayer.appendChild(card);
-    });
-
-    hoursContainer.appendChild(grid);
+    await buildDayGrid(hoursContainer, selectedDate);
 
     new bootstrap.Modal(document.getElementById("dayModal")).show();
 }
@@ -440,7 +449,7 @@ function onHourClick(date, hour, minute = 0) {
 
     // 🔹 Cargar combos
     loadFuncionariosForCita();
-    loadServiciosForCita();
+    cargarServicios()
 
     // 🔧 Cerrar modal del día si existe
     const dayModalEl = document.getElementById("dayModal");
@@ -454,6 +463,50 @@ function onHourClick(date, hour, minute = 0) {
     createModal.show();
 }
 
+function abrirModalConDuracion(date, hour, minute, duracion, funcionarioId = null) {
+
+    cargarServicios();
+
+    const fullDate = new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate(),
+        hour,
+        minute,
+        0
+    );
+
+    const formatted = formatLocalDateTime(fullDate);
+
+    const inputFecha = document.getElementById("appointmentDate");
+    if (inputFecha) {
+        inputFecha.value = formatted;
+    }
+
+    const inputDuracion = document.getElementById("duracionMinutos");
+    if (inputDuracion) {
+        inputDuracion.value = duracion;
+    }
+
+    // 🔥 Cargar funcionarios
+    loadFuncionariosForCita();
+
+    // 🔥 Esperar a que carguen y luego seleccionar el correcto
+    if (funcionarioId) {
+        setTimeout(() => {
+            const select = document.getElementById("funcionarioId");
+            if (select) {
+                select.value = funcionarioId;
+            }
+        }, 300); // pequeño delay para asegurar que ya cargó
+    }
+
+    cargarServicios();
+
+    new bootstrap.Modal(
+        document.getElementById("createCitaModal")
+    ).show();
+}
 
 function formatLocalDateTime(date) {
     const pad = n => n.toString().padStart(2, '0');
@@ -525,11 +578,34 @@ async function loadUpcomingAppointments(funcionarioId = "") {
     });
 }
 
+async function cargarServicios() {
+
+    const select = document.getElementById("servicio");
+    select.innerHTML = "<option value=''>Seleccione un servicio</option>";
+
+    const res = await fetch("/Calendar/GetServiciosActivos");
+    const servicios = await res.json();
+
+    servicios.forEach(s => {
+        const option = document.createElement("option");
+        option.value = s.id;
+        option.textContent = `${s.nombre} (${s.duracionMinutos || 30} min)`;
+        select.appendChild(option);
+    });
+}
+
 async function guardarCita() {
 
-    const funcionarioSeleccionado = document.getElementById("funcionarioId").value;
+    const funcionario = document.getElementById("funcionarioId");
+    const servicio = document.getElementById("servicio");
+    const fechaInput = document.getElementById("appointmentDate");
 
-    if (!funcionarioSeleccionado) {
+    if (!funcionario || !servicio || !fechaInput) {
+        console.error("Elementos del modal no encontrados");
+        return;
+    }
+
+    if (!funcionario.value) {
         alert("Debe seleccionar un funcionario");
         return;
     }
@@ -537,10 +613,11 @@ async function guardarCita() {
     const data = {
         nombreCliente: document.getElementById("nombreCliente").value,
         telefonoCliente: document.getElementById("telefonoCliente").value,
-        servicio: document.getElementById("servicio").value,
-        fechaHoraCita: document.getElementById("appointmentDate").value,
-        funcionarioId: parseInt(funcionarioSeleccionado)
+        servicioId: parseInt(servicio.value),
+        fechaHoraCita: fechaInput.value,
+        funcionarioId: parseInt(funcionario.value)
     };
+    
 
     const res = await fetch("/Calendar/Create", {
         method: "POST",
@@ -549,14 +626,97 @@ async function guardarCita() {
     });
 
     if (res.ok) {
-        alert("Cita guardada correctamente");
-        location.reload();
+
+        limpiarModalCita()
+
+        bootstrap.Modal
+            .getInstance(document.getElementById("createCitaModal"))
+            .hide();
+
+        loadUpcomingAppointments();
+
+        if (currentView === "day") {
+
+            const nuevaCita = await res.json();
+
+            // Vista principal
+            agregarCitaVisual(nuevaCita, document);
+
+        } else if (document.getElementById("dayModal").classList.contains("show")) {
+
+            const nuevaCita = await res.json();
+
+            // Vista dentro del modal
+            const hoursContainer = document.getElementById("hoursContainer");
+            agregarCitaVisual(nuevaCita, hoursContainer);
+
+        } else {
+            renderCalendar(currentDate);
+        }
+
     } else {
-        const txt = await res.text();
-        console.error(txt);
-        alert("Error al guardar la cita");
+
+        const error = await res.text();
+        alert(error);
     }
 }
+
+function agregarCitaVisual(cita, container = document) {
+
+    const inicio = 6;
+    const intervalo = 15;
+    const altoSlot = 30;
+
+    const inicioCita = new Date(cita.fechaHoraCita);
+
+    const minutosDesdeInicio =
+        (inicioCita.getHours() * 60 + inicioCita.getMinutes()) - (inicio * 60);
+
+    if (minutosDesdeInicio < 0) return;
+
+    const duracion = cita.duracionMinutos || 30;
+
+    const top = (minutosDesdeInicio / intervalo) * altoSlot;
+    const altura = (duracion / intervalo) * altoSlot;
+
+    const col = container.querySelector(
+        `.funcionario-column[data-id="${cita.funcionarioId}"]`
+    );
+
+    if (!col) return;
+
+    const bloque = document.createElement("div");
+    bloque.className = "cita-bloque";
+
+    bloque.style.top = top + "px";
+    bloque.style.height = altura + "px";
+    bloque.style.backgroundColor = cita.colorCalendario || "#004445";
+
+    bloque.innerHTML = `
+        <div style="font-weight:600">${cita.nombreCliente}</div>
+        <div style="font-size:11px; opacity:0.9">
+            ${cita.servicioNombre}
+        </div>
+    `;
+
+    bloque.onclick = (e) => {
+        e.stopPropagation();
+        editarCita(cita.id);
+    };
+
+    col.appendChild(bloque);
+}
+
+function limpiarModalCita() {
+
+    document.getElementById("nombreCliente").value = "";
+    document.getElementById("telefonoCliente").value = "";
+    document.getElementById("servicio").value = "";
+    document.getElementById("funcionarioId").value = "";
+    document.getElementById("appointmentDate").value = "";
+    document.getElementById("duracionMinutos").value = "30";
+}
+
 
 function formatHourAMPM(hour, minute = 0) {
     const h = hour % 12 || 12;
@@ -763,31 +923,4 @@ async function guardarEdicion() {
     }
 }
 
-async function loadServiciosForCita() {
 
-    const select = document.getElementById("servicio");
-
-    select.innerHTML = `<option value="">Seleccione servicio</option>`;
-
-    try {
-
-        const res = await fetch("/Calendar/GetServicios");
-
-        if (!res.ok) return;
-
-        const servicios = await res.json();
-
-        servicios.forEach(s => {
-
-            const opt = document.createElement("option");
-
-            opt.value = s.nombre;   // 🔥 Se guarda como texto
-            opt.textContent = s.nombre;
-
-            select.appendChild(opt);
-        });
-
-    } catch (error) {
-        console.error("Error cargando servicios:", error);
-    }
-}
