@@ -30,7 +30,7 @@ namespace LuxuryApp.Models.Calendar
         public int FuncionarioId { get; set; }
 
         // 🔥 Navigation property
-        public Funcionario Funcionario { get; set; }
+        public Funcionario? Funcionario { get; set; }
 
         
     }
