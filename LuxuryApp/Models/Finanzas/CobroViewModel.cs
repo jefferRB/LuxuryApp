@@ -7,7 +7,7 @@ namespace LuxuryApp.Models.Finanzas
     {
         public Cobro Cobro { get; set; }
         [ValidateNever]
-        public List<SelectListItem> Barberos { get; set; }
+        public List<SelectListItem> Funcionarios { get; set; }
         [ValidateNever]
         public List<SelectListItem> Servicios { get; set; }
         [ValidateNever]

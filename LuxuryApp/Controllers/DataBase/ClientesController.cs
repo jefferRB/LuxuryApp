@@ -365,5 +365,25 @@ namespace LuxuryApp.Controllers.DataBase
             return RedirectToAction("Buscar", new { criterio = numeroTelefono });
         }
 
+        [HttpGet]
+        public async Task<IActionResult> Autocompletado(string term)
+        {
+            if (string.IsNullOrWhiteSpace(term))
+                return Ok(new List<object>());
+
+            var clientes = await _context.Clientes
+                .Where(c => EF.Functions.Like(c.Nombre, $"%{term}%"))
+                .OrderBy(c => c.Nombre)
+                .Take(10)
+                .Select(c => new
+                {
+                    nombre = c.Nombre,
+                    telefono = c.NumeroTelefono
+                })
+                .ToListAsync();
+
+            return Ok(clientes);
+        }
+
     }
 }

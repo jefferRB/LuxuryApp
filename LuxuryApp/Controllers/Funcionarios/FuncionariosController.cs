@@ -1,4 +1,5 @@
-﻿using LuxuryApp.Models.Funcionarios;
+﻿using LuxuryApp.Models.Finanzas;
+using LuxuryApp.Models.Funcionarios;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -181,5 +182,51 @@ namespace LuxuryApp.Controllers.Funcionarios
 
             return Json(funcionarios);
         }
+
+
+        public async Task<IActionResult> PagosSemana(DateTime? fecha)
+        {
+            var hoy = fecha ?? DateTime.Today;
+
+            var diff = (7 + (hoy.DayOfWeek - DayOfWeek.Monday)) % 7;
+            var inicioSemana = hoy.AddDays(-diff).Date;
+            var finSemana = inicioSemana.AddDays(7);
+
+            var funcionarios = await _context.Funcionarios
+                .Where(f => f.Activo)
+                .ToListAsync();
+
+            var cobros = await _context.Cobros
+                .Where(c => c.FechaCobro >= inicioSemana && c.FechaCobro < finSemana)
+                .ToListAsync();
+
+            var pagos = funcionarios.Select(f =>
+            {
+                var total = cobros
+                    .Where(c => c.FuncionarioId == f.IdFuncionario)
+                    .Sum(c => c.Monto);
+
+                var impuestos = total * 0.13m;
+                var neto = total - impuestos;
+                var pago = neto * (f.PorcentajeGanancia / 100);
+
+                return new PagoFuncionarioVM
+                {
+                    FuncionarioId = f.IdFuncionario,
+                    Nombre = f.Nombre,
+                    TotalGenerado = total,
+                    Impuestos = impuestos,
+                    TotalNeto = neto,
+                    Porcentaje = f.PorcentajeGanancia,
+                    PagoFinal = pago
+                };
+            }).ToList();
+
+            ViewBag.InicioSemana = inicioSemana;
+            ViewBag.FinSemana = finSemana;
+
+            return View(pagos);
+        }
+
     }
 }

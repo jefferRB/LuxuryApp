@@ -8,8 +8,7 @@ namespace LuxuryApp.Models.Finanzas
 
         public CobroFiltroViewModel Filtros { get; set; }
 
-        public List<SelectListItem> Barberos { get; set; }
-
+        public List<SelectListItem> Funcionarios { get; set; }
         public List<SelectListItem> MetodosPago { get; set; }
         public decimal TotalCobrado { get; set; }
         public int CantidadServicios { get; set; }

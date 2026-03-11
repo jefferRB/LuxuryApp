@@ -43,7 +43,7 @@ namespace ProyectoIdentity.Datos
         public DbSet<ClienteVisitas> ClienteVisitas { get; set; }
         public DbSet<ClienteImagenesModel> ClienteImagenes { get; set; }
         //Calendar
-        public DbSet<Barbero> Barberos { get; set; }
+       
         public DbSet<Cita> Citas { get; set; }
         
         //Finanzas

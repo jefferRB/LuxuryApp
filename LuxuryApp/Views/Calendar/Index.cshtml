@@ -7,35 +7,76 @@
 
         <!-- Calendario (75%) -->
         <div class="col-md-9">
-            <div class="d-flex justify-content-between align-items-center mb-3">
+
+            <!-- FILA 1: controles principales -->
+            <div class="d-flex justify-content-between align-items-center mb-2">
+
                 <div class="btn-group" role="group">
                     <button id="viewMonthBtn" class="btn btn-dark btn-sm active">
                         📅 Mensual
                     </button>
+
                     <button id="viewDayBtn" class="btn btn-outline-dark btn-sm">
                         📆 Diario
                     </button>
                 </div>
 
-                <input type="date" id="dayPicker" class="form-control form-control-sm w-auto d-none">
+                <input type="date"
+                       id="dayPicker"
+                       class="form-control form-control-sm w-auto d-none">
+
             </div>
+
+
+            <!-- FILA 2: configuración horario -->
+            <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+
+                <label class="small mb-0">Inicio</label>
+                <input type="number"
+                       id="horaInicio"
+                       class="form-control form-control-sm"
+                       style="width:65px"
+                       min="0"
+                       max="23">
+
+                <label class="small mb-0">Fin</label>
+                <input type="number"
+                       id="horaFin"
+                       class="form-control form-control-sm"
+                       style="width:65px"
+                       min="0"
+                       max="23">
+
+                <label class="small mb-0">Intervalo</label>
+                <select id="intervaloCitas"
+                        class="form-select form-select-sm"
+                        style="width:85px">
+
+                    <option value="5">5 min</option>
+                    <option value="10">10 min</option>
+                    <option value="15">15 min</option>
+                    <option value="30">30 min</option>
+
+                </select>
+
+                <button id="aplicarHorario"
+                        class="btn btn-dark btn-sm">
+                    Aplicar
+                </button>
+
+            </div>
+
+
             <div id="calendar" class="calendar-container">
                 <!-- El calendario se renderiza con JS -->
             </div>
+
         </div>
 
 
 
         <!-- Lista de tareas (25%) -->
         <div class="col-md-3">
-
-            
-
-            <button class="btn btn-dark mb-3" onclick="openManualCitaModal()">
-                ➕ Agregar cita manual
-            </button>
-
-            
             <div class="mb-2">
                 <select id="funcionarioFiltro" class="form-select">
                     <option value="">Todos los funcionarios</option>
@@ -50,16 +91,14 @@
                 </button>
             </div>
 
-            
-
-            <!-- 👇 ESTE es el que se oculta -->
             <div id="tareasContainer">
                 <ul id="listaTareas" class="list-group">
                     <!-- Se llena por JS -->
                 </ul>
             </div>
 
-        <!-- Modal -->
+        <!-------------------- Modals ------------------->
+
         <!-- MODAL HORAS -->
         <div class="modal fade" id="dayModal" tabindex="-1">
             <div class="modal-dialog modal-lg">
@@ -72,7 +111,7 @@
 
                     <div class="modal-body">
                         <div id="hoursContainer" class="list-group">
-                            <!-- Horas -->
+                            
                         </div>
                     </div>
 
@@ -101,10 +140,15 @@
 
                             <input type="hidden" id="duracionMinutos" value="30" />
 
-                        <div class="mb-2">
-                            <label class="form-label">Nombre del cliente</label>
-                            <input id="nombreCliente" class="form-control">
-                        </div>
+                            <div class="mb-2 position-relative">
+                                <label class="form-label">Nombre del cliente</label>
+                                <input id="nombreCliente" class="form-control" autocomplete="off">
+
+                                <!-- las sugerencias -->
+                                <div id="sugerenciasClientes"
+                                     class="list-group position-absolute w-100"
+                                     style="z-index: 1055;"></div>
+                            </div>
 
                         <div class="mb-2">
                             <label class="form-label">Teléfono</label>
@@ -122,6 +166,24 @@
                                 <option value="">Seleccione un funcionario</option>
                             </select>
                         </div>
+
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="duplicarCita">
+                                <label class="form-check-label">
+                                    Repetir cita en otras fechas
+                                </label>
+                            </div>
+
+                            <div id="duplicarConfig" class="d-none">
+
+                                <label class="form-label">Seleccione los días</label>
+
+                                <input type="text"
+                                       id="fechasDuplicadas"
+                                       class="form-control"
+                                       placeholder="Seleccione fechas">
+
+                            </div>
 
                         <button class="btn btn-dark w-100" onclick="guardarCita()">
                             Guardar cita
@@ -149,8 +211,13 @@
             <div class="modal-body">
                 <input type="hidden" id="editCitaId" />
 
+                    <div class="mb-2">
+                        <label>Fecha y hora</label>
+                        <input type="datetime-local" class="form-control" id="editFechaHora">
+                    </div>
+
                 <div class="mb-2">
-                    <label>Cliente</label>
+                    <label>Nombre del cliente</label>
                     <input class="form-control" id="editNombreCliente">
                 </div>
 
@@ -159,82 +226,44 @@
                     <input class="form-control" id="editTelefonoCliente">
                 </div>
 
-                <div class="mb-2">
-                    <label>Servicio</label>
-                    <input class="form-control" id="editServicio">
-                </div>
+                    <div class="mb-3">
+                        <label class="form-label">Servicio</label>
+                        <select id="editServicioId" class="form-select"></select>
+                    </div>
 
-                <div class="mb-2">
-                    <label>Fecha y hora</label>
-                    <input type="datetime-local" class="form-control" id="editFechaHora">
-                </div>
+                    <div class="mb-2"> 
+                        <label>Funcionario</label> 
+                        <select id="editFuncionarioId" class="form-select"></select> 
+                    </div>
 
-                <div class="mb-2">
-                        <label>Funcionario</label>
-                        <select id="editFuncionarioId" class="form-select"></select>
-                </div>
             </div>
 
-            <div class="modal-footer">
-                <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button class="btn btn-primary" onclick="guardarEdicion()">Guardar cambios</button>
-            </div>
+                <div class="modal-footer justify-content-between">
+                    <button class="btn btn-danger"
+                            onclick="cancelarCita()">
+                        Cancelar cita
+                    </button>
+
+                    <div>
+                        <button class="btn btn-secondary"
+                                data-bs-dismiss="modal">
+                            Volver
+                        </button>
+
+                        <button class="btn btn-primary"
+                                onclick="guardarEdicion()">
+                            Guardar cambios
+                        </button>
+
+                    </div>
+                </div>
 
         </div>
     </div>
 </div>
 
 
-<!-- MODAL CITA MANUAL -->
-<div class="modal fade" id="manualCitaModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
 
-            <div class="modal-header">
-                <h5 class="modal-title">➕ Nueva cita manual</h5>
-                <button class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-
-            <div class="modal-body">
-
-                <div class="mb-2">
-                    <label class="form-label">Fecha</label>
-                    <input type="date" id="manualFecha" class="form-control">
-                </div>
-
-                <div class="mb-2">
-                    <label class="form-label">Hora</label>
-                    <input type="time" id="manualHora" class="form-control">
-                </div>
-
-                <div class="mb-2">
-                    <label class="form-label">Nombre del cliente</label>
-                    <input id="manualNombre" class="form-control">
-                </div>
-
-                <div class="mb-2">
-                    <label class="form-label">Teléfono</label>
-                    <input id="manualTelefono" class="form-control">
-                </div>
-
-                <div class="mb-2">
-                    <label class="form-label">Servicio</label>
-                    <input id="manualServicio" class="form-control">
-                </div>
-
-                <div class="mb-3">
-                        <label class="form-label">Funcionario</label>
-                        <select id="manualFuncionarioId" class="form-select"></select>
-                </div>
-
-                <button class="btn btn-dark w-100" onclick="guardarCitaManual()">
-                    Guardar cita
-                </button>
-
-            </div>
-        </div>
-    </div>
-</div>
 
 @section Scripts {
     <script src="~/js/calendar.js"></script>

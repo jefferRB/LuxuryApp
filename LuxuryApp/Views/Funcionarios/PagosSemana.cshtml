@@ -1,0 +1,122 @@
+﻿@model List<LuxuryApp.Models.Finanzas.PagoFuncionarioVM>
+
+@{
+    var inicio = (DateTime)ViewBag.InicioSemana;
+    var fin = (DateTime)ViewBag.FinSemana;
+
+    var semanaAnterior = inicio.AddDays(-7);
+    var semanaSiguiente = inicio.AddDays(7);
+}
+
+<div class="card border-0 shadow-lg">
+
+    <!-- HEADER -->
+    <div class="card-header bg-dark text-white py-3">
+        <h5 class="m-0">
+            <i class="fas fa-user-tie me-2"></i>
+            Pago semanal de los funcionarios
+        </h5>
+    </div>
+
+    <div class="card-body">
+
+        <!-- NAVEGADOR DE SEMANA -->
+        <div class="d-flex justify-content-between align-items-center mb-3">
+
+            <a asp-action="PagosSemana"
+               asp-route-fecha="@semanaAnterior.ToString("yyyy-MM-dd")"
+               class="btn btn-dark">
+                ⬅ Semana anterior
+            </a>
+
+            <h5 class="m-0 text-center">
+
+                Semana
+                <strong>
+                    @inicio.ToString("dd MMM")
+                    -
+                    @fin.AddDays(-1).ToString("dd MMM yyyy")
+                </strong>
+
+            </h5>
+
+            <a asp-action="PagosSemana"
+               asp-route-fecha="@semanaSiguiente.ToString("yyyy-MM-dd")"
+               class="btn btn-dark">
+                Semana siguiente ➡
+            </a>
+
+        </div>
+
+        <!-- SELECTOR DE FECHA -->
+        <div class="mb-4">
+
+            <form method="get" asp-action="PagosSemana">
+
+                <div class="row">
+
+                    <div class="col-md-4">
+
+                        <label class="form-label">Seleccionar semana</label>
+
+                        <input type="date"
+                               name="fecha"
+                               class="form-control"
+                               value="@inicio.ToString("yyyy-MM-dd")"
+                               onchange="this.form.submit()" />
+
+                    </div>
+
+                </div>
+
+            </form>
+
+        </div>
+
+        <!-- TABLA PAGOS -->
+        <div class="table-responsive">
+
+            <table class="table table-striped align-middle">
+
+                <thead class="table-dark">
+                    <tr>
+                        <th>Funcionario</th>
+                        <th>Total Generado</th>
+                        <th>Impuestos</th>
+                        <th>Total Neto</th>
+                        <th>% Ganancia</th>
+                        <th>Pago Colaborador</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+
+                    @foreach (var f in Model)
+                    {
+                        <tr>
+
+                            <td class="fw-semibold">@f.Nombre</td>
+
+                            <td>₡ @f.TotalGenerado.ToString("N0")</td>
+
+                            <td>₡ @f.Impuestos.ToString("N0")</td>
+
+                            <td>₡ @f.TotalNeto.ToString("N0")</td>
+
+                            <td>@f.Porcentaje %</td>
+
+                            <td class="fw-bold text-success">
+                                ₡ @f.PagoFinal.ToString("N0")
+                            </td>
+
+                        </tr>
+                    }
+
+                </tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+</div>

@@ -13,6 +13,10 @@
             <i class="fas fa-user-plus me-1"></i>Nuevo Funcionario
         </a>
 
+        <a asp-action="PagosSemana" class="btn btn-success">
+            💰 Ver Pagos de la Semana
+        </a>
+
         <button class="btn btn-outline-dark"
                 data-bs-toggle="modal"
                 data-bs-target="#modalPuestos"
@@ -27,7 +31,7 @@
             <strong>Funcionarios registrados:</strong> @Model.Count()
         </span>
     </div>
-
+    
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">

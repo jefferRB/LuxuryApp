@@ -22,9 +22,9 @@ namespace LuxuryApp.Controllers.Calendar
             return View();
         }
 
-        // ============================
+        
         // CREAR CITA
-        // ============================
+        
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CitaCreateVM vm)
         {
@@ -88,6 +88,30 @@ namespace LuxuryApp.Controllers.Calendar
             _context.Citas.Add(cita);
             await _context.SaveChangesAsync();
 
+            // DUPLICAR CITAS
+            if (vm.Duplicar && vm.FechasDuplicadas != null)
+            {
+                foreach (var fecha in vm.FechasDuplicadas)
+                {
+                    var nuevaFecha = DateTime.Parse(fecha)
+                    .AddHours(inicio.Hour)
+                    .AddMinutes(inicio.Minute);
+
+                    var nuevaCita = new Cita
+                    {
+                        NombreCliente = vm.NombreCliente,
+                        TelefonoCliente = vm.TelefonoCliente,
+                        ServicioId = servicio.Id,
+                        FuncionarioId = funcionarioData.IdFuncionario,
+                        FechaHoraCita = nuevaFecha
+                    };
+
+                    _context.Citas.Add(nuevaCita);
+                }
+
+                await _context.SaveChangesAsync();
+            }
+
             // 5️⃣ WhatsApp
             try
             {
@@ -135,9 +159,7 @@ namespace LuxuryApp.Controllers.Calendar
             return Ok(citaCreada);
         }
 
-        // ============================
-        // CITAS POR DÍA
-        // ============================
+        
         [HttpGet]
         public IActionResult GetCitasByDay(string date)
         {
@@ -166,13 +188,13 @@ namespace LuxuryApp.Controllers.Calendar
             return Ok(citas);
         }
 
-        // ============================
-        // OBTENER POR ID
-        // ============================
+        
+
         [HttpGet("Calendar/GetById/{id}")]
         public async Task<IActionResult> GetById(int id)
         {
             var cita = await _context.Citas
+                .Include(c => c.Servicio)     
                 .Include(c => c.Funcionario)
                 .FirstOrDefaultAsync(c => c.Id == id);
 
@@ -181,40 +203,75 @@ namespace LuxuryApp.Controllers.Calendar
 
             return Ok(new
             {
-                cita.Id,
-                cita.NombreCliente,
-                cita.TelefonoCliente,
-                cita.Servicio,
-                cita.FechaHoraCita,
-                cita.FuncionarioId
+                id = cita.Id,
+                nombreCliente = cita.NombreCliente,
+                telefonoCliente = cita.TelefonoCliente,
+                servicioId = cita.ServicioId,          
+                servicioNombre = cita.Servicio.Nombre, 
+                fechaHoraCita = cita.FechaHoraCita,
+                funcionarioId = cita.FuncionarioId
             });
         }
 
-        // ============================
-        // EDITAR
-        // ============================
+       
         [HttpPut("Calendar/Edit/{id}")]
         public async Task<IActionResult> Edit(int id, [FromBody] CitaCreateVM vm)
         {
-            var cita = await _context.Citas.FindAsync(id);
+            var cita = await _context.Citas
+                .Include(c => c.Servicio)
+                .FirstOrDefaultAsync(c => c.Id == id);
 
             if (cita == null)
                 return NotFound();
 
+            var servicio = await _context.Servicios
+                .FirstOrDefaultAsync(s => s.Id == vm.ServicioId && s.Activo);
+
+            if (servicio == null)
+                return BadRequest("Servicio inválido");
+
+            var duracion = servicio.DuracionMinutos ?? 30;
+
+            var inicio = vm.FechaHoraCita;
+            var fin = inicio.AddMinutes(duracion);
+
+            // Validar choques (excepto esta misma cita)
+            var citasExistentes = await _context.Citas
+                .Include(c => c.Servicio)
+                .Where(c => c.FuncionarioId == vm.FuncionarioId && c.Id != id)
+                .ToListAsync();
+
+            foreach (var c in citasExistentes)
+            {
+                var cInicio = c.FechaHoraCita;
+                var cFin = cInicio.AddMinutes(c.Servicio?.DuracionMinutos ?? 30);
+
+                if (inicio < cFin && fin > cInicio)
+                    return BadRequest("Ya existe una cita en ese horario");
+            }
+
+            // Actualizar
             cita.NombreCliente = vm.NombreCliente;
             cita.TelefonoCliente = vm.TelefonoCliente;
-            cita.ServicioId = vm.ServicioId;
-            cita.FechaHoraCita = vm.FechaHoraCita;
-            cita.FuncionarioId = vm.FuncionarioId; // 🔥
+            cita.ServicioId = servicio.Id;
+            cita.FechaHoraCita = inicio;
+            cita.FuncionarioId = vm.FuncionarioId;
 
             await _context.SaveChangesAsync();
 
-            return Ok();
+            return Ok(new
+            {
+                id = cita.Id,
+                nombreCliente = cita.NombreCliente,
+                telefonoCliente = cita.TelefonoCliente,
+                fechaHoraCita = cita.FechaHoraCita,
+                duracionMinutos = duracion,
+                funcionarioId = cita.FuncionarioId,
+                servicioNombre = servicio.Nombre
+            });
         }
 
-        // ============================
-        // ELIMINAR
-        // ============================
+        
         [HttpDelete("Calendar/Delete/{id}")]
         public async Task<IActionResult> Delete(int id)
         {
@@ -229,9 +286,7 @@ namespace LuxuryApp.Controllers.Calendar
             return Ok();
         }
 
-        // ============================
-        // CONTADOR POR MES
-        // ============================
+       
         [HttpGet]
         public IActionResult GetCitasCountByMonth(int year, int month)
         {
@@ -249,45 +304,39 @@ namespace LuxuryApp.Controllers.Calendar
             return Ok(data);
         }
 
-        // ============================
-        // PRÓXIMAS CITAS
-        // ============================
+        
         [HttpGet]
         public async Task<IActionResult> GetUpcomingAppointments(int? funcionarioId)
         {
             var now = DateTime.Now;
 
-            var citas = await _context.Citas
+            var query = _context.Citas
+                .Include(c => c.Servicio)
                 .Include(c => c.Funcionario)
-                .Where(c => c.FechaHoraCita >= now)
-                .OrderBy(c => c.FechaHoraCita)
-                .ToListAsync();
+                .Where(c => c.FechaHoraCita >= now);
 
-            if (funcionarioId.HasValue)
+            if (funcionarioId.HasValue && funcionarioId.Value > 0)
             {
-                citas = citas
-                    .Where(c => c.FuncionarioId == funcionarioId.Value)
-                    .ToList();
+                query = query.Where(c => c.FuncionarioId == funcionarioId.Value);
             }
 
-            return Ok(citas.Select(c => new
-            {
-                c.Id,
-                c.NombreCliente,
-                c.TelefonoCliente,
-                c.Servicio,
-                c.FechaHoraCita,
-                Funcionario = new
+            var citas = await query
+                .OrderBy(c => c.FechaHoraCita)
+                .Select(c => new
                 {
-                    c.FuncionarioId,
-                    c.Funcionario.Nombre
-                }
-            }));
+                    id = c.Id,
+                    nombreCliente = c.NombreCliente,
+                    telefonoCliente = c.TelefonoCliente,
+                    fechaHoraCita = c.FechaHoraCita,
+                    servicioNombre = c.Servicio.Nombre,        
+                    funcionarioNombre = c.Funcionario.Nombre  
+                })
+                .ToListAsync();
+
+            return Ok(citas);
         }
 
-        // ============================
-        // SERVICIOS ACTIVOS
-        // ============================
+        
         [HttpGet]
         public async Task<IActionResult> GetServiciosActivos()
         {
@@ -302,5 +351,35 @@ namespace LuxuryApp.Controllers.Calendar
 
             return Ok(servicios);
         }
+
+        [HttpPost("Calendar/ProcesarVisitas")]
+        public async Task<IActionResult> ProcesarVisitas()
+        {
+            var servicio = HttpContext.RequestServices
+                .GetRequiredService<VisitasAutomaticasService>();
+
+            await servicio.ProcesarCitasFinalizadas();
+
+            return Ok(new { success = true });
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> GetFechasOcupadas(int funcionarioId)
+        {
+            var citas = await _context.Citas
+                .Include(c => c.Servicio)
+                .Where(c => c.FuncionarioId == funcionarioId)
+                .Select(c => new
+                {
+                    fecha = c.FechaHoraCita.ToString("yyyy-MM-dd"),
+                    hora = c.FechaHoraCita.ToString("HH:mm"),
+                    duracion = c.Servicio.DuracionMinutos ?? 30,
+                    funcionarioId = c.FuncionarioId
+                })
+                .ToListAsync();
+
+            return Ok(citas);
+        }
+
     }
 }

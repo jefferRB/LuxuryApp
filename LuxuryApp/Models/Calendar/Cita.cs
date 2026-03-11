@@ -15,7 +15,7 @@ namespace LuxuryApp.Models.Calendar
         public string? TelefonoCliente { get; set; }
 
         public int? ServicioId { get; set; }
-        public Servicio Servicio { get; set; }
+        public Servicio? Servicio { get; set; }
 
         [Required]
         public DateTime FechaHoraCita { get; set; }
@@ -24,11 +24,14 @@ namespace LuxuryApp.Models.Calendar
         public bool ConfirmacionEnviada { get; set; }
         public bool Recordatorio24hEnviado { get; set; }
         public bool Recordatorio3hEnviado { get; set; }
-       
+        public bool VisitaProcesada { get; set; } = false;
+
         // 🔥 FK
         public int FuncionarioId { get; set; }
 
         // 🔥 Navigation property
         public Funcionario Funcionario { get; set; }
+
+        
     }
 }

@@ -43,11 +43,11 @@ namespace LuxuryApp.Controllers.Finanzas
                 PagoColaboradores = pagoColaboradores,
                 TotalNeto = totalNeto,
 
-                Barberos = await _context.Barberos
+                Funcionarios  = await _context.Funcionarios 
                     .Where(b => b.Activo)
                     .Select(b => new SelectListItem
                     {
-                        Value = b.Id.ToString(),
+                        Value = b.IdFuncionario.ToString(),
                         Text = b.Nombre
                     }).ToListAsync(),
 
@@ -78,11 +78,11 @@ namespace LuxuryApp.Controllers.Finanzas
                 },
 
 
-                Barberos = await _context.Barberos
+                Funcionarios  = await _context.Funcionarios 
                     .Where(b => b.Activo)
                     .Select(b => new SelectListItem
                     {
-                        Value = b.Id.ToString(),
+                        Value = b.IdFuncionario.ToString(),
                         Text = b.Nombre
                     }).ToListAsync(),
 
@@ -303,7 +303,7 @@ namespace LuxuryApp.Controllers.Finanzas
 
                 ws.Cell(headerRow, 1).Value = "Fecha";
                 ws.Cell(headerRow, 2).Value = "Cliente";
-                ws.Cell(headerRow, 3).Value = "Barbero";
+                ws.Cell(headerRow, 3).Value = "Funcionario";
                 ws.Cell(headerRow, 4).Value = "Detalle";
                 ws.Cell(headerRow, 5).Value = "Monto";
                 ws.Cell(headerRow, 6).Value = "Método Pago";
@@ -323,7 +323,7 @@ namespace LuxuryApp.Controllers.Finanzas
                     ws.Cell(fila, 1).Style.DateFormat.Format = "dd/MM/yyyy";
 
                     ws.Cell(fila, 2).Value = c.NombreCliente;
-                    ws.Cell(fila, 3).Value = c.Barbero?.Nombre;
+                    ws.Cell(fila, 3).Value = c.Funcionario?.Nombre;
 
                     // 🔥 NUEVA LOGICA SERVICIO / PRODUCTO
                     string detalle = c.Servicio != null
@@ -380,13 +380,13 @@ namespace LuxuryApp.Controllers.Finanzas
         private async Task<List<Cobro>> ObtenerCobrosFiltrados(CobroFiltroViewModel filtros)
         {
             var query = _context.Cobros
-                .Include(c => c.Barbero)
+                .Include(c => c.Funcionario)
                 .Include(c => c.Servicio)
                 .Include(c => c.Producto)
                 .AsQueryable();
 
-            if (filtros.BarberoId.HasValue)
-                query = query.Where(c => c.BarberoId == filtros.BarberoId);
+            if (filtros.FuncionarioId.HasValue)
+                query = query.Where(c => c.FuncionarioId == filtros.FuncionarioId);
 
             if (!string.IsNullOrEmpty(filtros.MetodoPago))
                 query = query.Where(c => c.MetodoPago == filtros.MetodoPago);
@@ -468,11 +468,11 @@ namespace LuxuryApp.Controllers.Finanzas
 
         private async Task<IActionResult> RecargarCombos(CobroViewModel vm)
         {
-            vm.Barberos = await _context.Barberos
+            vm.Funcionarios  = await _context.Funcionarios 
                 .Where(b => b.Activo)
                 .Select(b => new SelectListItem
                 {
-                    Value = b.Id.ToString(),
+                    Value = b.IdFuncionario.ToString(),
                     Text = b.Nombre
                 }).ToListAsync();
 

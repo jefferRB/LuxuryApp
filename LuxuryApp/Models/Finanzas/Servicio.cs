@@ -8,7 +8,7 @@ namespace LuxuryApp.Models.Finanzas
 
         [Required]
         [Display(Name = "Servicio")]
-        public string? Nombre { get; set; }
+        public string Nombre { get; set; } = string.Empty;
 
         [Required]
         [Display(Name = "Precio")]

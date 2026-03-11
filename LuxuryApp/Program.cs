@@ -62,6 +62,9 @@ builder.Services.AddTransient<IResend, ResendClient>();
 //whatsapp
 builder.Services.AddScoped<WhatsAppService>();
 builder.Services.AddHostedService<ReminderWorker>();
+//Visitas automaticas
+builder.Services.AddScoped<VisitasAutomaticasService>();
+builder.Services.AddHostedService<VisitasBackgroundService>();
 
 var app = builder.Build();
 

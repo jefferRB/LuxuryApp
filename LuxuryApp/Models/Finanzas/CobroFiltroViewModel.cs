@@ -5,7 +5,7 @@
         public string VistaTiempo { get; set; } = "dia";
         // dia / semana / mes / año
 
-        public int? BarberoId { get; set; }
+        public int? FuncionarioId { get; set; }
 
         public string MetodoPago { get; set; }
 

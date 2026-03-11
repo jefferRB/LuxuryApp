@@ -220,69 +220,9 @@
         margin-top: 6px;
     }
 
-/* ===============================
-   BARBEROS – MODAL
-================================ */
 
-.barberos-modal {
-    border-radius: 20px;
-    border: none;
-    overflow: hidden;
+.dia-ocupado {
+    background: #ffb3b3 !important;
+    color: #6b0000 !important;
+    font-weight: 600;
 }
-
-.barberos-header {
-    background: linear-gradient(135deg, #004445, #006666);
-    color: #fff;
-    border-bottom: none;
-}
-
-    .barberos-header h5 {
-        font-weight: 600;
-    }
-
-/* Agregar barbero */
-.barbero-add {
-    display: flex;
-    gap: 10px;
-}
-
-    .barbero-add input {
-        border-radius: 12px;
-        padding: 10px 12px;
-    }
-
-    .barbero-add button {
-        border-radius: 12px;
-        padding: 10px 16px;
-        font-weight: 500;
-    }
-
-/* Lista */
-.barberos-list {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-    .barberos-list .list-group-item {
-        border-radius: 14px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 10px 14px;
-        border: 1px solid transparent;
-        background-image: linear-gradient(#ffffff, #ffffff), linear-gradient(135deg, #004445, #008080);
-        background-origin: border-box;
-        background-clip: padding-box, border-box;
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }
-
-        .barberos-list .list-group-item:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(0, 68, 69, 0.25);
-        }
-
-    .barberos-list span {
-        font-weight: 500;
-        color: #004445;
-    }
