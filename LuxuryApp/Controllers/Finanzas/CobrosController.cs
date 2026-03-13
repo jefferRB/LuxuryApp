@@ -29,8 +29,12 @@ namespace LuxuryApp.Controllers.Finanzas
             var cantidadServicios = cobros.Count;
             var totalImpuestos = totalCobrado * 0.13m;
             var totalNeto = totalCobrado - totalImpuestos;
-            var pagoColaboradores = totalNeto * 0.50m;
-            
+            var pagoColaboradores = cobros.Sum(c =>
+    (c.Monto - (c.Monto * 0.13m)) * (c.Funcionario?.PorcentajeGanancia ?? 0) / 100
+);
+            var gananciaNegocio = totalNeto - pagoColaboradores;
+
+
 
 
             var vm = new CobroIndexViewModel
@@ -42,6 +46,7 @@ namespace LuxuryApp.Controllers.Finanzas
                 TotalImpuestos = totalImpuestos,
                 PagoColaboradores = pagoColaboradores,
                 TotalNeto = totalNeto,
+                GananciaNegocio = gananciaNegocio,
 
                 Funcionarios  = await _context.Funcionarios 
                     .Where(b => b.Activo)

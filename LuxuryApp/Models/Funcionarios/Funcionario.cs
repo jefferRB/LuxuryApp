@@ -24,6 +24,7 @@ namespace LuxuryApp.Models.Funcionarios
 
         [Range(0, 100)]
         public decimal PorcentajeGanancia { get; set; }
+        public decimal PorcentajeProducto { get; set; }
 
         public DateTime FechaIngreso { get; set; }
 

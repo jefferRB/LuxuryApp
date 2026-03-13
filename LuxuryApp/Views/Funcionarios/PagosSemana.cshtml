@@ -1,4 +1,4 @@
-﻿@model List<LuxuryApp.Models.Finanzas.PagoFuncionarioVM>
+﻿@model List<LuxuryApp.Models.Funcionarios.PagoFuncionarioVM>
 
 @{
     var inicio = (DateTime)ViewBag.InicioSemana;
@@ -30,14 +30,12 @@
             </a>
 
             <h5 class="m-0 text-center">
-
                 Semana
                 <strong>
                     @inicio.ToString("dd MMM")
                     -
-                    @fin.AddDays(-1).ToString("dd MMM yyyy")
+                    @fin.AddDays(0).ToString("dd MMM yyyy")
                 </strong>
-
             </h5>
 
             <a asp-action="PagosSemana"
@@ -48,30 +46,125 @@
 
         </div>
 
-        <!-- SELECTOR DE FECHA -->
-        <div class="mb-4">
+        <!--  -->
+        <div class="d-flex justify-content-between align-items-start mb-4">
 
+            <!-- Selector de semana (izquierda) -->
             <form method="get" asp-action="PagosSemana">
-
                 <div class="row">
-
-                    <div class="col-md-4">
-
+                    <div class="col-md-12">
                         <label class="form-label">Seleccionar semana</label>
-
                         <input type="date"
                                name="fecha"
                                class="form-control"
                                value="@inicio.ToString("yyyy-MM-dd")"
                                onchange="this.form.submit()" />
-
                     </div>
-
                 </div>
+            </form>
+
+            <!-- Botón pagar semana (derecha) -->
+            <form method="post" asp-action="PagarTodaLaSemana">
+
+                <input type="hidden" name="inicioSemana" value="@inicio.ToString("yyyy-MM-dd")" />
+                <input type="hidden" name="finSemana" value="@fin.ToString("yyyy-MM-dd")" />
+
+                <button class="btn btn-success mt-4">
+                    <i class="fas fa-coins me-2"></i>
+                    Pagar toda la semana
+                </button>
+
+            </form>
+
+            <form method="get" asp-action="ExportarPagosExcel">
+
+                <input type="hidden" name="inicioSemana" value="@inicio.ToString("yyyy-MM-dd")" />
+                <input type="hidden" name="finSemana" value="@fin.ToString("yyyy-MM-dd")" />
+
+                <button class="btn btn-dark mt-4 ms-2">
+                    <i class="fas fa-file-excel me-2"></i>
+                    Exportar Excel
+                </button>
 
             </form>
 
         </div>
+
+        <div class="row mx-3 mb-3 g-3">
+
+            <!-- TOTAL GENERADO -->
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted">
+                            <i class="fas fa-money-bill-wave me-1"></i>Total Generado
+                        </h6>
+                        <h3 class="fw-bold text-success">
+                            ₡ @ViewBag.TotalGeneradoGeneral.ToString("N2")
+                        </h3>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TOTAL SIN IMPUESTOS -->
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted">
+                            <i class="fas fa-percentage me-1"></i>Total sin impuestos
+                        </h6>
+                        <h3 class="fw-bold text-dark">
+                            ₡ @ViewBag.TotalSinImpuestosGeneral.ToString("N2")
+                        </h3>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TOTAL PAGADO -->
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted">
+                            <i class="fas fa-hand-holding-usd me-1"></i>Total pagado
+                        </h6>
+                        <h3 class="fw-bold text-primary">
+                            ₡ @ViewBag.TotalPagadoGeneral.ToString("N2")
+                        </h3>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TOTAL PENDIENTE -->
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted">
+                            <i class="fas fa-clock me-1"></i>Total pendiente
+                        </h6>
+                        <h3 class="fw-bold text-warning">
+                            ₡ @ViewBag.TotalPendienteGeneral.ToString("N2")
+                        </h3>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GANANCIA NEGOCIO -->
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted">
+                            <i class="fas fa-chart-line me-1"></i>Ganancia negocio
+                        </h6>
+                        <h3 class="fw-bold text-success">
+                            ₡ @ViewBag.GananciaNegocio.ToString("N2")
+                        </h3>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+
 
         <!-- TABLA PAGOS -->
         <div class="table-responsive">
@@ -84,8 +177,12 @@
                         <th>Total Generado</th>
                         <th>Impuestos</th>
                         <th>Total Neto</th>
-                        <th>% Ganancia</th>
-                        <th>Pago Colaborador</th>
+                        <th>% Servicio</th>
+                        <th>% Producto</th>
+                        <th>Monto Generado</th>
+                        <th>Monto Pagado</th>
+                        <th>Pendiente</th>
+                        <th></th>
                     </tr>
                 </thead>
 
@@ -93,23 +190,184 @@
 
                     @foreach (var f in Model)
                     {
+                        <!-- FILA PRINCIPAL -->
                         <tr>
 
-                            <td class="fw-semibold">@f.Nombre</td>
+                            <td class="fw-semibold">
 
-                            <td>₡ @f.TotalGenerado.ToString("N0")</td>
+                                <button class="btn btn-sm btn-light border me-2"
+                                        data-bs-toggle="collapse"
+                                        data-bs-target="#detalle_@f.FuncionarioId">
 
-                            <td>₡ @f.Impuestos.ToString("N0")</td>
+                                    <i class="fas fa-chevron-down"></i>
 
-                            <td>₡ @f.TotalNeto.ToString("N0")</td>
+                                </button>
 
-                            <td>@f.Porcentaje %</td>
+                                <span class="fw-bold">@f.Nombre</span>
 
-                            <td class="fw-bold text-success">
+                            </td>
+
+                            <td>
+                                <span class="text-muted">₡</span>
+                                @f.TotalGenerado.ToString("N0")
+                            </td>
+
+                            <td class="text-danger">
+                                ₡ @f.Impuestos.ToString("N0")
+                            </td>
+
+                            <td class="fw-bold">
+                                ₡ @f.TotalNeto.ToString("N0")
+                            </td>
+
+                            <td>
+                                <span class="badge bg-dark">
+                                    @f.Porcentaje %
+                                </span>
+                            </td>
+
+                            <td>
+                                <span class="badge bg-dark">
+                                    @f.PorcentajeProducto %
+                                </span>
+                            </td>
+
+                            <td class="fw-bold text-primary fs-6">
                                 ₡ @f.PagoFinal.ToString("N0")
                             </td>
 
+                            <td class="text-success fw-bold">
+                                ₡ @f.MontoPagado.ToString("N0")
+                            </td>
+
+                            <td class="fw-bold text-danger">
+                                ₡ @f.MontoPendiente.ToString("N0")
+                            </td>
+
+                            <td>
+
+                                @if (f.MontoPendiente > 0)
+                                {
+                                    <button class="btn btn-success btn-sm"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#modalPago"
+                                            onclick="setPago(@f.FuncionarioId, '@f.Nombre', @f.MontoPendiente)">
+                                        <i class="fas fa-coins me-1"></i>
+                                        Pagar
+                                    </button>
+                                }
+                                else
+                                {
+                                    
+                                }
+
+                            </td>
+
                         </tr>
+                        <!-- DETALLE POR DÍAS -->
+
+                        <tr class="collapse table-light" id="detalle_@f.FuncionarioId">
+
+                            <td colspan="9">
+
+                                <div class="row g-3 mb-4">
+
+                                    <h6 class="fw-bold mb-3">
+                                        <i class="fas fa-calendar-week me-2"></i>
+                                        Producción por día
+                                    </h6>
+
+                                    <div class="row row-cols-7 g-2">
+
+                                        @foreach (var d in f.DetalleDias)
+                                        {
+
+                                            <div class="col">
+
+                                                <div class="card border-0 shadow-sm h-100">
+
+                                                    <div class="card-body text-center p-2">
+
+                                                        <div class="fw-bold text-dark small">
+                                                            @d.Dia
+                                                        </div>
+
+                                                        <span class="badge bg-secondary mb-1">
+                                                            @d.CantidadServicios
+                                                        </span>
+
+                                                        <div class="fw-bold text-success small">
+                                                            ₡ @d.Monto.ToString("N0")
+                                                        </div>
+
+                                                    </div>
+
+                                                </div>
+
+                                            </div>
+
+                                        }
+
+                                    </div>
+             
+                   </div>
+
+                                <h6 class="text-muted mb-3">
+                                    
+                                </h6>
+
+                                @if (f.HistorialPagos.Any())
+                                {
+                                    <table class="table table-sm table-bordered">
+
+                                        <thead class="table-secondary">
+                                            <tr>
+                                                <th>Fecha</th>
+                                                <th>Monto</th>
+                                                <th>Observación</th>
+                                            </tr>
+                                        </thead>
+
+                                        <tbody>
+
+                                            @foreach (var p in f.HistorialPagos)
+                                            {
+                                                <tr>
+
+                                                    <td>
+                                                        @p.FechaPago.ToString("dd MMM yyyy HH:mm")
+                                                    </td>
+
+                                                    <td class="text-success fw-bold fs-6">
+                                                        ₡ @p.MontoPagado.ToString("N0")
+                                                    </td>
+
+                                                    <td>
+                                                        @(string.IsNullOrEmpty(p.Observacion) ? "-" : p.Observacion)
+                                                    </td>
+
+                                                </tr>
+                                            }
+
+                                        </tbody>
+
+                                    </table>
+                                }
+                                else
+                                {
+                                    <div class="text-muted">
+                                        No hay pagos registrados esta semana.
+                                    </div>
+                                }
+
+                            </td>
+
+
+
+                        </tr>
+
+
+
                     }
 
                 </tbody>
@@ -120,3 +378,111 @@
 
     </div>
 </div>
+
+
+
+
+
+
+<!-- MODAL PAGAR -->
+<div class="modal fade" id="modalPago" tabindex="-1">
+
+    <div class="modal-dialog">
+
+        <div class="modal-content">
+
+            <form method="post" asp-action="RegistrarPago">
+
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title">
+                        <i class="fas fa-money-bill-wave me-2"></i>
+                        Registrar pago
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+
+                <div class="modal-body">
+
+                    <input type="hidden" name="funcionarioId" id="funcionarioId" />
+                    <input type="hidden" name="inicioSemana" value="@inicio" />
+                    <input type="hidden" name="finSemana" value="@fin" />
+
+                    <!-- FUNCIONARIO -->
+
+                    <div class="mb-3">
+                        <label class="form-label">Funcionario</label>
+
+                        <input type="text"
+                               id="nombreFuncionario"
+                               class="form-control"
+                               readonly />
+                    </div>
+
+                    <!-- MONTO -->
+
+                    <div class="mb-3">
+
+                        <label class="form-label">Monto a pagar</label>
+
+                        <input type="number"
+                               name="monto"
+                               id="montoPago"
+                               class="form-control"
+                               required />
+
+                        <div class="form-text">
+                            Puedes registrar pagos completos o parciales.
+                        </div>
+
+                    </div>
+
+                    <!-- OBSERVACIONES -->
+
+                    <div class="mb-3">
+
+                        <label class="form-label">Observaciones (opcional)</label>
+
+                        <textarea name="observacion"
+                                  class="form-control"
+                                  rows="3"
+                                  placeholder="Ej: Pago completo, adelanto, compra de bebidas, herramientas, etc."></textarea>
+
+                    </div>
+
+                </div>
+
+                <div class="modal-footer">
+
+                    <button type="button"
+                            class="btn btn-secondary"
+                            data-bs-dismiss="modal">
+                        Cancelar
+                    </button>
+
+                    <button type="submit"
+                            class="btn btn-success">
+                        <i class="fas fa-check me-1"></i>
+                        Registrar pago
+                    </button>
+
+                </div>
+
+            </form>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<script>
+
+    function setPago(id, nombre, pendiente)
+    {
+        document.getElementById("funcionarioId").value = id;
+        document.getElementById("nombreFuncionario").value = nombre;
+        document.getElementById("montoPago").value = pendiente;
+    }
+
+</script>

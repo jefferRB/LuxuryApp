@@ -58,6 +58,7 @@ namespace ProyectoIdentity.Datos
         //Funcionarios
         public DbSet<Funcionario> Funcionarios { get; set; }
         public DbSet<Puesto> Puestos { get; set; }
+        public DbSet<PagoFuncionario> PagosFuncionarios { get; set; }
 
 
 

@@ -16,5 +16,6 @@ namespace LuxuryApp.Models.Finanzas
         public decimal TotalImpuestos { get; set; }
         public decimal PagoColaboradores { get; set; }
         public decimal TotalNeto { get; set; }
+        public decimal GananciaNegocio { get; set; }
     }
 }

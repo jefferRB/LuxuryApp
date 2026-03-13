@@ -44,6 +44,14 @@
             </div>
 
             <div class="mb-3">
+                <label asp-for="PorcentajeProducto" class="form-label"></label>
+                <input asp-for="PorcentajeProducto"
+                       class="form-control"
+                       type="number"
+                       step="0.01" />
+            </div>
+
+            <div class="mb-3">
                 <label asp-for="ColorCalendario" class="form-label"></label>
                 <input asp-for="ColorCalendario"
                        type="color"

@@ -21,11 +21,17 @@
                     onclick="cargarServicios()">
                 ⚙ Gestionar Servicios
             </button>
+
+            <button type="submit"
+                    formaction="@Url.Action("ExportarExcel")"
+                    class="btn btn-success shadow-sm px-4">
+                <i class="fas fa-file-excel me-1"></i> Excel
+            </button>
         </div>
 
     </div>
 
-    <form method="get" class="row g-2 px-3 mb-3">
+    <form method="get" id="formFiltros" class="row g-2 px-3 mb-3">
 
         <div class="col-md-3">
             <select asp-for="Filtros.VistaTiempo" class="form-select" id="vistaTiempoSelect">
@@ -95,24 +101,6 @@
 
         </div>
 
-        <div class="col-12">
-            <div class="d-flex justify-content-center gap-3 mt-2">
-
-                <button type="submit"
-                        formaction="@Url.Action("Index")"
-                        class="btn btn-dark shadow-sm px-4">
-                    <i class="fas fa-filter me-1"></i> Filtrar
-                </button>
-
-                <button type="submit"
-                        formaction="@Url.Action("ExportarExcel")"
-                        class="btn btn-success shadow-sm px-4">
-                    <i class="fas fa-file-excel me-1"></i> Excel
-                </button>
-
-            </div>
-        </div>
-
     </form>
 
     
@@ -120,7 +108,7 @@
     <div class="row mx-3 mb-3 g-3">
 
         <!-- TOTAL COBRADO -->
-        <div class="col-lg-3 col-md-6">
+        <div class="col">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body text-center">
                     <h6 class="text-muted">
@@ -134,7 +122,7 @@
         </div>
 
         <!-- IMPUESTOS -->
-        <div class="col-lg-3 col-md-6">
+        <div class="col">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body text-center">
                     <h6 class="text-muted">
@@ -148,7 +136,7 @@
         </div>
         
         <!-- TOTAL NETO -->
-        <div class="col-lg-3 col-md-6">
+        <div class="col">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body text-center">
                     <h6 class="text-muted">
@@ -162,7 +150,7 @@
         </div>
 
         <!-- PAGO COLABORADORES -->
-        <div class="col-lg-3 col-md-6">
+        <div class="col">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body text-center">
                     <h6 class="text-muted">
@@ -170,6 +158,20 @@
                     </h6>
                     <h3 class="fw-bold text-primary">
                         ₡ @Model.PagoColaboradores.ToString("N2")
+                    </h3>
+                </div>
+            </div>
+        </div>
+
+        <!-- GANANCIA NEGOCIO -->
+        <div class="col">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">
+                        <i class="fas fa-chart-line me-1"></i>Ganancia negocio
+                    </h6>
+                    <h3 class="fw-bold text-success">
+                        ₡ @Model.GananciaNegocio.ToString("N2")
                     </h3>
                 </div>
             </div>
@@ -301,6 +303,49 @@
             toggleRangoFechas();
 
             select.addEventListener("change", toggleRangoFechas);
+
+        });
+                document.addEventListener("DOMContentLoaded", function () {
+
+            const form = document.getElementById("formFiltros");
+
+            const filtros = form.querySelectorAll("select, input");
+
+            filtros.forEach(filtro => {
+
+                filtro.addEventListener("change", function () {
+
+                    // Si selecciona rango de fechas no enviar todavía
+                    if (this.id === "vistaTiempoSelect") {
+
+                        toggleRangoFechas();
+
+                        if (this.value !== "fechas") {
+                            form.submit();
+                        }
+
+                        return;
+                    }
+
+                    form.submit();
+
+                });
+
+            });
+
+        });
+                document.querySelectorAll("#rangoFechasContainer input").forEach(input => {
+
+            input.addEventListener("change", function () {
+
+                const inicio = document.querySelector("[name='Filtros.FechaInicio']").value;
+                const fin = document.querySelector("[name='Filtros.FechaFin']").value;
+
+                if (inicio && fin) {
+                    document.getElementById("formFiltros").submit();
+                }
+
+            });
 
         });
 
