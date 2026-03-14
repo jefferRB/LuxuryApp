@@ -1,4 +1,6 @@
-﻿namespace LuxuryApp.Models.Funcionarios
+﻿using LuxuryApp.Models.Productos;
+
+namespace LuxuryApp.Models.Funcionarios
 {
     public class PagoFuncionarioVM
     {
@@ -24,6 +26,9 @@
 
         public List<DetalleDiaVM> DetalleDias { get; set; }
         public List<PagoFuncionario> HistorialPagos { get; set; } = new();
+
+        public List<ProductoVendidoVM> ProductosVendidos { get; set; } = new();
+
 
         // 🔵 INDICADORES GENERALES
         public decimal TotalGeneradoGeneral { get; set; }

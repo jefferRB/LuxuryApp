@@ -90,84 +90,128 @@
 
         </div>
 
-        <div class="row mx-3 mb-3 g-3">
+        <div class="container-fluid px-3">
 
-            <!-- TOTAL GENERADO -->
-            <div class="col">
-                <div class="card border-0 shadow-sm h-100">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted">
-                            <i class="fas fa-money-bill-wave me-1"></i>Total Generado
-                        </h6>
-                        <h3 class="fw-bold text-success">
-                            ₡ @ViewBag.TotalGeneradoGeneral.ToString("N2")
-                        </h3>
+            <!-- FILA 1 -->
+            <div class="row g-3 mb-3">
+
+                <div class="col-lg-3 col-md-6">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body text-center">
+                            <h6 class="text-muted">
+                                <i class="fas fa-cut me-1"></i>Total en Servicios
+                            </h6>
+                            <h3 class="fw-bold text-primary">
+                                ₡ @ViewBag.TotalGeneradoServicios.ToString("N2")
+                            </h3>
+                        </div>
                     </div>
                 </div>
+
+                <div class="col-lg-3 col-md-6">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body text-center">
+                            <h6 class="text-muted">
+                                <i class="fas fa-box me-1"></i>Total en Productos
+                            </h6>
+                            <h3 class="fw-bold text-info">
+                                ₡ @ViewBag.TotalGeneradoProductos.ToString("N2")
+                            </h3>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-3 col-md-6">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body text-center">
+                            <h6 class="text-muted">
+                                <i class="fas fa-money-bill-wave me-1"></i>Total generado
+                            </h6>
+                            <h3 class="fw-bold text-success">
+                                ₡ @ViewBag.TotalGeneradoGeneral.ToString("N2")
+                            </h3>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-3 col-md-6">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body text-center">
+                            <h6 class="text-muted">
+                                <i class="fas fa-calculator me-1"></i>Total sin impuestos
+                            </h6>
+                            <h3 class="fw-bold text-dark">
+                                ₡ @ViewBag.TotalSinImpuestosGeneral.ToString("N2")
+                            </h3>
+                        </div>
+                    </div>
+                </div>
+
             </div>
 
-            <!-- TOTAL SIN IMPUESTOS -->
-            <div class="col">
-                <div class="card border-0 shadow-sm h-100">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted">
-                            <i class="fas fa-percentage me-1"></i>Total sin impuestos
-                        </h6>
-                        <h3 class="fw-bold text-dark">
-                            ₡ @ViewBag.TotalSinImpuestosGeneral.ToString("N2")
-                        </h3>
-                    </div>
-                </div>
-            </div>
 
-            <!-- TOTAL PAGADO -->
-            <div class="col">
-                <div class="card border-0 shadow-sm h-100">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted">
-                            <i class="fas fa-hand-holding-usd me-1"></i>Total pagado
-                        </h6>
-                        <h3 class="fw-bold text-primary">
-                            ₡ @ViewBag.TotalPagadoGeneral.ToString("N2")
-                        </h3>
-                    </div>
-                </div>
-            </div>
+            <!-- FILA 2 -->
+            <div class="row g-3">
 
-            <!-- TOTAL PENDIENTE -->
-            <div class="col">
-                <div class="card border-0 shadow-sm h-100">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted">
-                            <i class="fas fa-clock me-1"></i>Total pendiente
-                        </h6>
-                        <h3 class="fw-bold text-warning">
-                            ₡ @ViewBag.TotalPendienteGeneral.ToString("N2")
-                        </h3>
+                <div class="col-lg-3 col-md-6">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body text-center">
+                            <h6 class="text-muted">
+                                <i class="fas fa-percentage me-1"></i>Total de Impuestos
+                            </h6>
+                            <h3 class="fw-bold text-danger">
+                                ₡ @ViewBag.TotalImpuestosGeneral.ToString("N2")
+                            </h3>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- GANANCIA NEGOCIO -->
-            <div class="col">
-                <div class="card border-0 shadow-sm h-100">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted">
-                            <i class="fas fa-chart-line me-1"></i>Ganancia negocio
-                        </h6>
-                        <h3 class="fw-bold text-success">
-                            ₡ @ViewBag.GananciaNegocio.ToString("N2")
-                        </h3>
+                <div class="col-lg-3 col-md-6">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body text-center">
+                            <h6 class="text-muted">
+                                <i class="fas fa-hand-holding-usd me-1"></i>Total pagado
+                            </h6>
+                            <h3 class="fw-bold text-primary">
+                                ₡ @ViewBag.TotalPagadoGeneral.ToString("N2")
+                            </h3>
+                        </div>
                     </div>
                 </div>
+
+                <div class="col-lg-3 col-md-6">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body text-center">
+                            <h6 class="text-muted">
+                                <i class="fas fa-clock me-1"></i>Monto Pendiente
+                            </h6>
+                            <h3 class="fw-bold text-warning">
+                                ₡ @ViewBag.TotalPendienteGeneral.ToString("N2")
+                            </h3>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-3 col-md-6">
+                    <div class="card border-0 shadow-sm h-100 border-success">
+                        <div class="card-body text-center">
+                            <h6 class="text-muted">
+                                <i class="fas fa-chart-line me-1"></i>Ganancia negocio
+                            </h6>
+                            <h3 class="fw-bold text-success">
+                                ₡ @ViewBag.GananciaNegocio.ToString("N2")
+                            </h3>
+                        </div>
+                    </div>
+                </div>
+
             </div>
 
         </div>
 
 
-
         <!-- TABLA PAGOS -->
-        <div class="table-responsive">
+        <div class="table-responsive mt-4 ">
 
             <table class="table table-striped align-middle">
 
@@ -312,12 +356,60 @@
              
                    </div>
 
-                                <h6 class="text-muted mb-3">
-                                    
-                                </h6>
+                                @if (f.ProductosVendidos.Any())
+                                {
+                                    <h6 class="fw-bold mt-4 mb-3">
+                                        <i class="fas fa-box me-2"></i>
+                                        Productos vendidos
+                                    </h6>
 
+                                    <table class="table table-sm table-bordered">
+
+                                        <thead class="table-secondary">
+                                            <tr>
+                                                <th>Fecha</th>
+                                                <th>Producto</th>
+                                                <th>Precio</th>
+                                                <th>Ganancia funcionario</th>
+                                            </tr>
+                                        </thead>
+
+                                        <tbody>
+
+                                            @foreach (var p in f.ProductosVendidos)
+                                            {
+                                                <tr>
+
+                                                    <td>
+                                                        @p.Fecha.ToString("dd MMM yyyy")
+                                                    </td>
+
+                                                    <td>
+                                                        @p.NombreProducto
+                                                    </td>
+
+                                                    <td class="fw-bold">
+                                                        ₡ @p.Precio.ToString("N0")
+                                                    </td>
+
+                                                    <td class="text-success fw-bold">
+                                                        ₡ @p.GananciaFuncionario.ToString("N0")
+                                                    </td>
+
+                                                </tr>
+                                            }
+
+                                        </tbody>
+
+                                    </table>
+                                }
+                                
                                 @if (f.HistorialPagos.Any())
                                 {
+                                    <h6 class="fw-bold mt-4 mb-3">
+                                        <i class="fas fa-box me-2"></i>
+                                        Historial de pagos
+                                    </h6>
                                     <table class="table table-sm table-bordered">
 
                                         <thead class="table-secondary">

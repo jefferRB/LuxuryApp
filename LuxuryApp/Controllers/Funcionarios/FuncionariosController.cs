@@ -1,6 +1,7 @@
 ﻿using ClosedXML.Excel;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
+using LuxuryApp.Models.Productos;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -188,8 +189,9 @@ namespace LuxuryApp.Controllers.Funcionarios
                 .ToListAsync();
 
             var cobros = await _context.Cobros
-                .Where(c => c.FechaCobro.Date >= inicioSemana && c.FechaCobro.Date <= finSemana)
-                .ToListAsync();
+            .Include(c => c.Producto)
+            .Where(c => c.FechaCobro.Date >= inicioSemana && c.FechaCobro.Date <= finSemana)
+            .ToListAsync();
 
             var pagosSemana = await _context.PagosFuncionarios
                 .Where(p => p.InicioSemana.Date == inicioSemana && p.FinSemana.Date == finSemana)
@@ -237,7 +239,7 @@ namespace LuxuryApp.Controllers.Funcionarios
                 {
                     var fechaDia = inicioSemana.AddDays(i).Date;
 
-                    var serviciosDia = serviciosFuncionario
+                    var serviciosDia = servicios
                         .Where(c => c.FechaCobro.Date == fechaDia)
                         .ToList();
 
@@ -249,6 +251,16 @@ namespace LuxuryApp.Controllers.Funcionarios
                     };
                 }).ToList();
 
+                var productosVendidos = productos
+                 .Select(p => new ProductoVendidoVM
+                 {
+                     Fecha = p.FechaCobro,
+                     NombreProducto = p.Producto?.NombreProducto ?? "Producto",
+                     Precio = p.Monto,
+                     GananciaFuncionario = (p.Monto - (p.Monto * 0.13m)) * (f.PorcentajeProducto / 100)
+                 })
+                 .OrderByDescending(p => p.Fecha)
+                 .ToList();
 
 
                 return new PagoFuncionarioVM
@@ -262,6 +274,8 @@ namespace LuxuryApp.Controllers.Funcionarios
 
                     Porcentaje = f.PorcentajeGanancia,
 
+                    PorcentajeProducto = f.PorcentajeProducto,
+
                     PagoFinal = pagoFuncionario,
 
                     MontoPagado = totalPagado,
@@ -269,6 +283,8 @@ namespace LuxuryApp.Controllers.Funcionarios
                     MontoPendiente = pendiente,
 
                     DetalleDias = detalleDias,
+
+                    ProductosVendidos = productosVendidos,
 
                     HistorialPagos = pagosSemana
                         .Where(p => p.FuncionarioId == f.IdFuncionario)
@@ -278,21 +294,41 @@ namespace LuxuryApp.Controllers.Funcionarios
 
             }).ToList();
 
-            var totalGeneradoGeneral = pagos.Sum(p => p.TotalGenerado);
+            var totalGeneradoServicios = cobros
+    .Where(c => c.ServicioId != null)
+    .Sum(c => c.Monto);
 
-            var totalSinImpuestosGeneral = pagos.Sum(p => p.TotalNeto);
+            var totalGeneradoProductos = cobros
+                .Where(c => c.ProductoId != null)
+                .Sum(c => c.Monto);
+
+            var totalGeneradoGeneral = totalGeneradoServicios + totalGeneradoProductos;
+
+            var totalImpuestosGeneral = totalGeneradoGeneral * 0.13m;
+
+            var totalSinImpuestosGeneral = totalGeneradoGeneral - totalImpuestosGeneral;
 
             var totalPagadoGeneral = pagos.Sum(p => p.MontoPagado);
 
             var totalPendienteGeneral = pagos.Sum(p => p.MontoPendiente);
 
-            // Ganancia del negocio = lo que queda después de pagar funcionarios
+            // Ganancia del negocio
             var gananciaNegocio = totalSinImpuestosGeneral - pagos.Sum(p => p.PagoFinal);
 
+            ViewBag.TotalGeneradoServicios = totalGeneradoServicios;
+
+            ViewBag.TotalGeneradoProductos = totalGeneradoProductos;
+
             ViewBag.TotalGeneradoGeneral = totalGeneradoGeneral;
+
+            ViewBag.TotalImpuestosGeneral = totalImpuestosGeneral;
+
             ViewBag.TotalSinImpuestosGeneral = totalSinImpuestosGeneral;
+
             ViewBag.TotalPagadoGeneral = totalPagadoGeneral;
+
             ViewBag.TotalPendienteGeneral = totalPendienteGeneral;
+
             ViewBag.GananciaNegocio = gananciaNegocio;
 
             ViewBag.InicioSemana = inicioSemana;
@@ -335,8 +371,9 @@ namespace LuxuryApp.Controllers.Funcionarios
                 .ToListAsync();
 
             var cobros = await _context.Cobros
-                .Where(c => c.FechaCobro.Date >= inicioSemana && c.FechaCobro.Date <= finSemana)
-                .ToListAsync();
+    .Include(c => c.Producto)
+    .Where(c => c.FechaCobro.Date >= inicioSemana && c.FechaCobro.Date <= finSemana)
+    .ToListAsync();
 
             foreach (var f in funcionarios)
             {
