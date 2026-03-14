@@ -1,4 +1,5 @@
 ﻿using ClosedXML.Excel;
+using DocumentFormat.OpenXml.Spreadsheet;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Productos;
 using Microsoft.AspNetCore.Authorization;
@@ -25,36 +26,112 @@ namespace LuxuryApp.Controllers.Finanzas
         public async Task<IActionResult> Index(CobroFiltroViewModel filtros)
         {
             var cobros = await ObtenerCobrosFiltrados(filtros);
-            var totalCobrado = cobros.Sum(c => c.Monto);
-            var cantidadServicios = cobros.Count;
-            var totalImpuestos = totalCobrado * 0.13m;
-            var totalNeto = totalCobrado - totalImpuestos;
-            var pagoColaboradores = cobros.Sum(c =>
-    (c.Monto - (c.Monto * 0.13m)) * (c.Funcionario?.PorcentajeGanancia ?? 0) / 100
-);
-            var gananciaNegocio = totalNeto - pagoColaboradores;
 
 
+            // =========================
+            // CALCULOS FINANCIEROS
+            // =========================
 
+            var totalServicios = cobros
+                .Where(c => c.ServicioId != null)
+                .Sum(c => c.Monto);
+
+            var totalProductos = cobros
+                .Where(c => c.ProductoId != null)
+                .Sum(c => c.Monto);
+
+            var totalGenerado = totalServicios + totalProductos;
+
+            var totalImpuestos = totalGenerado * 0.13m;
+
+            var totalSinImpuestos = totalGenerado - totalImpuestos;
+
+
+            // PAGO FUNCIONARIOS
+
+            var funcionarios = await _context.Funcionarios
+    .Where(f => f.Activo)
+    .ToListAsync();
+
+            decimal pagoColaboradores = 0;
+
+            foreach (var f in funcionarios)
+            {
+                var cobrosFuncionario = cobros
+                    .Where(c => c.FuncionarioId == f.IdFuncionario)
+                    .ToList();
+
+                var servicios = cobrosFuncionario
+                    .Where(c => c.ServicioId != null)
+                    .ToList();
+
+                var productos = cobrosFuncionario
+                    .Where(c => c.ProductoId != null)
+                    .ToList();
+
+                var totalServiciosFuncionario = servicios.Sum(s => s.Monto);
+                var totalProductosFuncionario = productos.Sum(p => p.Monto);
+
+                var netoServicios = totalServiciosFuncionario - (totalServiciosFuncionario * 0.13m);
+                var netoProductos = totalProductosFuncionario - (totalProductosFuncionario * 0.13m);
+
+                var pagoServicios = netoServicios * (f.PorcentajeGanancia / 100);
+                var pagoProductos = netoProductos * (f.PorcentajeProducto / 100);
+
+                pagoColaboradores += pagoServicios + pagoProductos;
+            }
+
+
+            var gananciaNegocio = totalSinImpuestos - pagoColaboradores;
+
+
+            // =========================
+            // METODOS DE PAGO
+            // =========================
+
+            var gananciaEfectivo = cobros
+                .Where(c => c.MetodoPago == "EFECTIVO")
+                .Sum(c => c.Monto);
+
+            var gananciaTarjeta = cobros
+                .Where(c => c.MetodoPago == "TARJETA")
+                .Sum(c => c.Monto);
+
+            var gananciaSinpe = cobros
+                .Where(c => c.MetodoPago == "SINPE")
+                .Sum(c => c.Monto);
+
+
+            // =========================
+            // VIEWMODEL
+            // =========================
 
             var vm = new CobroIndexViewModel
             {
                 Cobros = cobros,
                 Filtros = filtros,
-                TotalCobrado = totalCobrado,
-                CantidadServicios = cantidadServicios,
+
+                TotalServicios = totalServicios,
+                TotalProductos = totalProductos,
+                TotalGenerado = totalGenerado,
                 TotalImpuestos = totalImpuestos,
+                TotalSinImpuestos = totalSinImpuestos,
+
                 PagoColaboradores = pagoColaboradores,
-                TotalNeto = totalNeto,
                 GananciaNegocio = gananciaNegocio,
 
-                Funcionarios  = await _context.Funcionarios 
-                    .Where(b => b.Activo)
-                    .Select(b => new SelectListItem
+                GananciaEfectivo = gananciaEfectivo,
+                GananciaTarjeta = gananciaTarjeta,
+                GananciaSinpe = gananciaSinpe,
+
+                Funcionarios = await _context.Funcionarios
+                    .Where(f => f.Activo)
+                    .Select(f => new SelectListItem
                     {
-                        Value = b.IdFuncionario.ToString(),
-                        Text = b.Nombre
-                    }).ToListAsync(),
+                        Value = f.IdFuncionario.ToString(),
+                        Text = f.Nombre
+                    })
+                    .ToListAsync(),
 
                 MetodosPago = ObtenerMetodosPago()
             };
@@ -264,122 +341,204 @@ namespace LuxuryApp.Controllers.Finanzas
         {
             var cobros = await ObtenerCobrosFiltrados(filtros);
 
+            var totalServicios = cobros.Where(c => c.ServicioId != null).Sum(c => c.Monto);
+            var totalProductos = cobros.Where(c => c.ProductoId != null).Sum(c => c.Monto);
+
+            var totalGenerado = totalServicios + totalProductos;
+            var totalImpuestos = totalGenerado * 0.13m;
+            var totalSinImpuestos = totalGenerado - totalImpuestos;
+
+            var funcionarios = await _context.Funcionarios.Where(f => f.Activo).ToListAsync();
+
+            decimal pagoColaboradores = 0;
+
+            foreach (var f in funcionarios)
+            {
+                var cobrosFuncionario = cobros.Where(c => c.FuncionarioId == f.IdFuncionario).ToList();
+
+                var servicios = cobrosFuncionario.Where(c => c.ServicioId != null).ToList();
+                var productos = cobrosFuncionario.Where(c => c.ProductoId != null).ToList();
+
+                var totalServiciosFuncionario = servicios.Sum(s => s.Monto);
+                var totalProductosFuncionario = productos.Sum(p => p.Monto);
+
+                var netoServicios = totalServiciosFuncionario - (totalServiciosFuncionario * 0.13m);
+                var netoProductos = totalProductosFuncionario - (totalProductosFuncionario * 0.13m);
+
+                var pagoServicios = netoServicios * (f.PorcentajeGanancia / 100);
+                var pagoProductos = netoProductos * (f.PorcentajeProducto / 100);
+
+                pagoColaboradores += pagoServicios + pagoProductos;
+            }
+
+            var gananciaNegocio = totalSinImpuestos - pagoColaboradores;
+
+            var gananciaEfectivo = cobros.Where(c => c.MetodoPago == "EFECTIVO").Sum(c => c.Monto);
+            var gananciaTarjeta = cobros.Where(c => c.MetodoPago == "TARJETA").Sum(c => c.Monto);
+            var gananciaSinpe = cobros.Where(c => c.MetodoPago == "SINPE").Sum(c => c.Monto);
+
             using (var workbook = new XLWorkbook())
             {
                 var ws = workbook.Worksheets.Add("Reporte Cobros");
 
                 var colorNegro = XLColor.FromHtml("#1C1C1C");
                 var colorDorado = XLColor.FromHtml("#C6A55C");
-                var colorGrisSuave = XLColor.FromHtml("#F5F5F5");
+                var colorGris = XLColor.FromHtml("#F5F5F5");
 
-                ws.Range("A1:F1").Merge();
+                ws.Range("A1:G1").Merge();
                 ws.Cell("A1").Value = "LUXE CENTRO DE BELLEZA";
                 ws.Cell("A1").Style.Font.FontSize = 20;
                 ws.Cell("A1").Style.Font.Bold = true;
                 ws.Cell("A1").Style.Font.FontColor = colorDorado;
                 ws.Cell("A1").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-                ws.Range("A2:F2").Merge();
+                ws.Range("A2:G2").Merge();
                 ws.Cell("A2").Value = "Reporte Financiero de Cobros";
                 ws.Cell("A2").Style.Font.FontSize = 14;
                 ws.Cell("A2").Style.Font.Bold = true;
                 ws.Cell("A2").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-                ws.Range("A3:F3").Merge();
+                ws.Range("A3:G3").Merge();
                 ws.Cell("A3").Value = $"Generado el {DateTime.Now:dd/MM/yyyy HH:mm}";
-                ws.Cell("A3").Style.Font.Italic = true;
                 ws.Cell("A3").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-                int kpiRow = 5;
+                int fila = 5;
 
-                ws.Cell(kpiRow, 1).Value = "Cantidad Cobros";
-                ws.Cell(kpiRow, 2).Value = cobros.Count();
+                ws.Cell(fila, 1).Value = "Resumen Financiero";
+                ws.Cell(fila, 1).Style.Font.Bold = true;
+                ws.Cell(fila, 1).Style.Font.FontSize = 14;
 
-                ws.Cell(kpiRow, 3).Value = "Monto Total";
-                ws.Cell(kpiRow, 4).Value = cobros.Sum(x => x.Monto);
+                fila += 2;
 
-                var kpiRange = ws.Range(kpiRow, 1, kpiRow, 6);
-                kpiRange.Style.Fill.BackgroundColor = colorGrisSuave;
-                kpiRange.Style.Font.Bold = true;
+                ws.Cell(fila, 1).Value = "Cantidad Cobros";
+                ws.Cell(fila, 2).Value = cobros.Count();
+                ws.Cell(fila, 2).Style.NumberFormat.Format = "0";
 
-                ws.Cell(kpiRow, 4).Style.NumberFormat.Format = "₡ #,##0.00";
+                fila++;
 
-                int headerRow = 7;
+                int filaInicioMontos = fila;
+
+                ws.Cell(fila, 1).Value = "Total Servicios";
+                ws.Cell(fila, 2).Value = totalServicios;
+                fila++;
+
+                ws.Cell(fila, 1).Value = "Total Productos";
+                ws.Cell(fila, 2).Value = totalProductos;
+                fila++;
+
+                ws.Cell(fila, 1).Value = "Total Generado";
+                ws.Cell(fila, 2).Value = totalGenerado;
+                fila++;
+
+                ws.Cell(fila, 1).Value = "Impuestos";
+                ws.Cell(fila, 2).Value = totalImpuestos;
+                fila++;
+
+                ws.Cell(fila, 1).Value = "Total sin impuestos";
+                ws.Cell(fila, 2).Value = totalSinImpuestos;
+                fila++;
+
+                ws.Cell(fila, 1).Value = "Pago colaboradores";
+                ws.Cell(fila, 2).Value = pagoColaboradores;
+                fila++;
+
+                ws.Cell(fila, 1).Value = "Ganancia negocio";
+                ws.Cell(fila, 2).Value = gananciaNegocio;
+                fila++;
+
+                ws.Cell(fila, 1).Value = "Ventas efectivo";
+                ws.Cell(fila, 2).Value = gananciaEfectivo;
+                fila++;
+
+                ws.Cell(fila, 1).Value = "Ventas tarjeta";
+                ws.Cell(fila, 2).Value = gananciaTarjeta;
+                fila++;
+
+                ws.Cell(fila, 1).Value = "Ventas SINPE";
+                ws.Cell(fila, 2).Value = gananciaSinpe;
+
+                int filaFinMontos = fila;
+
+                ws.Range(filaInicioMontos, 2, filaFinMontos, 2)
+                    .Style.NumberFormat.Format = "₡ #,##0.00";
+
+                fila += 3;
+
+                int headerRow = fila;
 
                 ws.Cell(headerRow, 1).Value = "Fecha";
                 ws.Cell(headerRow, 2).Value = "Cliente";
                 ws.Cell(headerRow, 3).Value = "Funcionario";
-                ws.Cell(headerRow, 4).Value = "Detalle";
-                ws.Cell(headerRow, 5).Value = "Monto";
-                ws.Cell(headerRow, 6).Value = "Método Pago";
+                ws.Cell(headerRow, 4).Value = "Tipo";
+                ws.Cell(headerRow, 5).Value = "Detalle";
+                ws.Cell(headerRow, 6).Value = "Monto";
+                ws.Cell(headerRow, 7).Value = "Método Pago";
 
-                var header = ws.Range(headerRow, 1, headerRow, 6);
+                var header = ws.Range(headerRow, 1, headerRow, 7);
 
                 header.Style.Fill.BackgroundColor = colorNegro;
                 header.Style.Font.FontColor = XLColor.White;
                 header.Style.Font.Bold = true;
                 header.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-                int fila = headerRow + 1;
+                fila = headerRow + 1;
 
                 foreach (var c in cobros)
                 {
                     ws.Cell(fila, 1).Value = c.FechaCobro;
-                    ws.Cell(fila, 1).Style.DateFormat.Format = "dd/MM/yyyy";
+                    ws.Cell(fila, 1).Style.DateFormat.Format = "dd/MM/yyyy HH:mm";
 
                     ws.Cell(fila, 2).Value = c.NombreCliente;
                     ws.Cell(fila, 3).Value = c.Funcionario?.Nombre;
 
-                    // 🔥 NUEVA LOGICA SERVICIO / PRODUCTO
+                    string tipo = c.Servicio != null ? "Servicio" : "Producto";
+
                     string detalle = c.Servicio != null
-                        ? $"Servicio: {c.Servicio.Nombre}"
-                        : c.Producto != null
-                            ? $"Producto: {c.Producto.NombreProducto}"
-                            : "-";
+                        ? c.Servicio.Nombre
+                        : c.Producto?.NombreProducto;
 
-                    ws.Cell(fila, 4).Value = detalle;
+                    ws.Cell(fila, 4).Value = tipo;
+                    ws.Cell(fila, 5).Value = detalle;
 
-                    ws.Cell(fila, 5).Value = c.Monto;
-                    ws.Cell(fila, 5).Style.NumberFormat.Format = "₡ #,##0.00";
+                    ws.Cell(fila, 6).Value = c.Monto;
+                    ws.Cell(fila, 6).Style.NumberFormat.Format = "₡ #,##0.00";
 
-                    ws.Cell(fila, 6).Value = c.MetodoPago;
+                    ws.Cell(fila, 7).Value = c.MetodoPago;
 
                     fila++;
                 }
 
-                var dataRange = ws.Range(headerRow + 1, 1, fila - 1, 6);
+                var dataRange = ws.Range(headerRow + 1, 1, fila - 1, 7);
 
                 dataRange.AddConditionalFormat()
                     .WhenIsTrue("MOD(ROW(),2)=0")
-                    .Fill.SetBackgroundColor(colorGrisSuave);
+                    .Fill.SetBackgroundColor(colorGris);
 
-                ws.Cell(fila, 4).Value = "TOTAL GENERAL";
-                ws.Cell(fila, 4).Style.Font.Bold = true;
-
-                ws.Cell(fila, 5).FormulaA1 = $"SUM(E{headerRow + 1}:E{fila - 1})";
-                ws.Cell(fila, 5).Style.NumberFormat.Format = "₡ #,##0.00";
+                ws.Cell(fila, 5).Value = "TOTAL GENERAL";
                 ws.Cell(fila, 5).Style.Font.Bold = true;
-                ws.Cell(fila, 5).Style.Font.FontColor = colorDorado;
+
+                ws.Cell(fila, 6).FormulaA1 = $"SUM(F{headerRow + 1}:F{fila - 1})";
+                ws.Cell(fila, 6).Style.NumberFormat.Format = "₡ #,##0.00";
+                ws.Cell(fila, 6).Style.Font.Bold = true;
+                ws.Cell(fila, 6).Style.Font.FontColor = colorDorado;
 
                 ws.Columns().AdjustToContents();
 
-                ws.Range(headerRow, 1, fila - 1, 6).SetAutoFilter();
+                ws.Range(headerRow, 1, fila - 1, 7).SetAutoFilter();
                 ws.SheetView.FreezeRows(headerRow);
 
                 using (var stream = new MemoryStream())
                 {
                     workbook.SaveAs(stream);
-                    var content = stream.ToArray();
 
                     return File(
-                        content,
+                        stream.ToArray(),
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         $"LuxeReporteCobros_{DateTime.Now:yyyyMMdd_HHmm}.xlsx"
                     );
                 }
             }
         }
-
 
 
         private async Task<List<Cobro>> ObtenerCobrosFiltrados(CobroFiltroViewModel filtros)

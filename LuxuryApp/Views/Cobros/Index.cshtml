@@ -23,6 +23,7 @@
             </button>
 
             <button type="submit"
+                    form="formFiltros"
                     formaction="@Url.Action("ExportarExcel")"
                     class="btn btn-success shadow-sm px-4">
                 <i class="fas fa-file-excel me-1"></i> Excel
@@ -107,15 +108,49 @@
 
     <div class="row mx-3 mb-3 g-3">
 
-        <!-- TOTAL COBRADO -->
+        <!-- TOTAL SERVICIOS -->
         <div class="col">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body text-center">
-                    <h6 class="text-muted">
-                        <i class="fas fa-coins me-1"></i>Total Cobrado
-                    </h6>
+                    <h6 class="text-muted">Total en servicios</h6>
+                    <h3 class="fw-bold text-primary">
+                        ₡ @Model.TotalServicios.ToString("N2")
+                    </h3>
+                </div>
+            </div>
+        </div>
+
+        <!-- TOTAL PRODUCTOS -->
+        <div class="col">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">Total en productos</h6>
+                    <h3 class="fw-bold text-info">
+                        ₡ @Model.TotalProductos.ToString("N2")
+                    </h3>
+                </div>
+            </div>
+        </div>
+
+        <!-- TOTAL GENERADO -->
+        <div class="col">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">Total generado</h6>
                     <h3 class="fw-bold text-success">
-                        ₡ @Model.TotalCobrado.ToString("N2")
+                        ₡ @Model.TotalGenerado.ToString("N2")
+                    </h3>
+                </div>
+            </div>
+        </div>
+
+        <!-- SIN IMPUESTOS -->
+        <div class="col">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">Total sin impuestos</h6>
+                    <h3 class="fw-bold text-dark">
+                        ₡ @Model.TotalSinImpuestos.ToString("N2")
                     </h3>
                 </div>
             </div>
@@ -125,37 +160,24 @@
         <div class="col">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body text-center">
-                    <h6 class="text-muted">
-                        <i class="fas fa-file-invoice-dollar me-1"></i>Impuestos (13%)
-                    </h6>
+                    <h6 class="text-muted">Total de impuestos</h6>
                     <h3 class="fw-bold text-danger">
                         ₡ @Model.TotalImpuestos.ToString("N2")
                     </h3>
                 </div>
             </div>
         </div>
-        
-        <!-- TOTAL NETO -->
-        <div class="col">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body text-center">
-                    <h6 class="text-muted">
-                        <i class="fas fa-chart-line me-1"></i>Total Neto
-                    </h6>
-                    <h3 class="fw-bold text-dark">
-                        ₡ @Model.TotalNeto.ToString("N2")
-                    </h3>
-                </div>
-            </div>
-        </div>
 
-        <!-- PAGO COLABORADORES -->
+    </div>
+
+
+    <div class="row mx-3 mb-3 g-3">
+
+        <!-- PAGADO FUNCIONARIOS -->
         <div class="col">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body text-center">
-                    <h6 class="text-muted">
-                        <i class="fas fa-user-tie me-1"></i>Pago Colaboradores
-                    </h6>
+                    <h6 class="text-muted">Total de funcionarios</h6>
                     <h3 class="fw-bold text-primary">
                         ₡ @Model.PagoColaboradores.ToString("N2")
                     </h3>
@@ -167,21 +189,51 @@
         <div class="col">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body text-center">
-                    <h6 class="text-muted">
-                        <i class="fas fa-chart-line me-1"></i>Ganancia negocio
-                    </h6>
-                    <h3 class="fw-bold text-success">
+                    <h6 class="text-muted">Ganancia del negocio</h6>
+                    <h3 class="fw-bold text-info">
                         ₡ @Model.GananciaNegocio.ToString("N2")
                     </h3>
                 </div>
             </div>
         </div>
 
-       
+        <!-- EFECTIVO -->
+        <div class="col">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">Monto en efectivo</h6>
+                    <h3 class="fw-bold text-success">
+                        ₡ @Model.GananciaEfectivo.ToString("N2")
+                    </h3>
+                </div>
+            </div>
+        </div>
 
+        <!-- TARJETA -->
+        <div class="col">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">monto en tarjeta</h6>
+                    <h3 class="fw-bold text-dark">
+                        ₡ @Model.GananciaTarjeta.ToString("N2")
+                    </h3>
+                </div>
+            </div>
+        </div>
+
+        <!-- SINPE -->
+        <div class="col">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body text-center">
+                    <h6 class="text-muted">Monto en sinpe</h6>
+                    <h3 class="fw-bold text-danger">
+                        ₡ @Model.GananciaSinpe.ToString("N2")
+                    </h3>
+                </div>
+            </div>
+        </div>
 
     </div>
-
 
 
     <div class="card-body p-0">

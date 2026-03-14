@@ -20,6 +20,9 @@ namespace LuxuryApp.Models.Calendar
         [Required]
         public DateTime FechaHoraCita { get; set; }
 
+        public string Tipo { get; set; } = "CITA";
+        public int? DuracionMinutos { get; set; }
+
 
         public bool ConfirmacionEnviada { get; set; }
         public bool Recordatorio24hEnviado { get; set; }
@@ -32,6 +35,10 @@ namespace LuxuryApp.Models.Calendar
         // 🔥 Navigation property
         public Funcionario? Funcionario { get; set; }
 
+        // para almuerzos y breaks 
+
         
+
+
     }
 }

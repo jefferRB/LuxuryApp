@@ -837,7 +837,7 @@ function abrirModalConDuracion(date, hour, minute, duracion, funcionarioId = nul
         }, 300); // pequeño delay para asegurar que ya cargó
     }
 
-    cargarServicios();
+    
 
     new bootstrap.Modal(
         document.getElementById("createCitaModal")

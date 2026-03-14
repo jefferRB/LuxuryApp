@@ -444,6 +444,7 @@ namespace LuxuryApp.Controllers.Funcionarios
                 .ToListAsync();
 
             var cobros = await _context.Cobros
+                .Include(c => c.Producto)
                 .Where(c => c.FechaCobro.Date >= inicioSemana.Date && c.FechaCobro.Date <= finSemana.Date)
                 .ToListAsync();
 
@@ -459,40 +460,76 @@ namespace LuxuryApp.Controllers.Funcionarios
 
             var datos = funcionarios.Select(f =>
             {
-                var serviciosFuncionario = cobros
+                var cobrosFuncionario = cobros
                     .Where(c => c.FuncionarioId == f.IdFuncionario)
                     .ToList();
 
-                var total = serviciosFuncionario.Sum(c => c.Monto);
+                var servicios = cobrosFuncionario
+                    .Where(c => c.ServicioId != null)
+                    .ToList();
+
+                var productos = cobrosFuncionario
+                    .Where(c => c.ProductoId != null)
+                    .ToList();
+
+                var totalServicios = servicios.Sum(c => c.Monto);
+                var totalProductos = productos.Sum(c => c.Monto);
+
+                var total = totalServicios + totalProductos;
 
                 var impuestos = total * 0.13m;
 
-                var neto = total - impuestos;
+                var netoServicios = totalServicios - (totalServicios * 0.13m);
+                var netoProductos = totalProductos - (totalProductos * 0.13m);
 
-                var montoGenerado = neto * (f.PorcentajeGanancia / 100);
+                var pagoServicios = netoServicios * (f.PorcentajeGanancia / 100);
+                var pagoProductos = netoProductos * (f.PorcentajeProducto / 100);
+
+                var pagoFinal = pagoServicios + pagoProductos;
 
                 var pagado = pagosRegistrados
                     .Where(p => p.FuncionarioId == f.IdFuncionario)
                     .Sum(p => p.MontoPagado);
 
-                var pendiente = montoGenerado - pagado;
+                var pendiente = pagoFinal - pagado;
+
+                var productosVendidos = productos.Select(p => new
+                {
+                    Funcionario = f.Nombre,
+                    Fecha = p.FechaCobro,
+                    Producto = p.Producto?.NombreProducto ?? "Producto",
+                    Precio = p.Monto,
+                    Ganancia = (p.Monto - (p.Monto * 0.13m)) * (f.PorcentajeProducto / 100)
+                }).ToList();
 
                 return new
                 {
                     Funcionario = f.Nombre,
                     TotalGenerado = total,
                     Impuestos = impuestos,
-                    TotalNeto = neto,
+                    TotalNeto = total - impuestos,
                     Porcentaje = f.PorcentajeGanancia,
-                    MontoGenerado = montoGenerado,
+                    PorcentajeProducto = f.PorcentajeProducto,
+                    MontoGenerado = pagoFinal,
                     MontoPagado = pagado,
-                    Pendiente = pendiente
+                    Pendiente = pendiente,
+                    TotalServicios = totalServicios,
+                    TotalProductos = totalProductos,
+                    ProductosVendidos = productosVendidos
                 };
             }).ToList();
 
-            var totalGeneradoSalon = datos.Sum(d => d.TotalGenerado);
+            var totalGeneradoServicios = datos.Sum(d => d.TotalServicios);
+            var totalGeneradoProductos = datos.Sum(d => d.TotalProductos);
+            var totalGeneradoGeneral = totalGeneradoServicios + totalGeneradoProductos;
+
+            var totalImpuestosGeneral = totalGeneradoGeneral * 0.13m;
+            var totalSinImpuestosGeneral = totalGeneradoGeneral - totalImpuestosGeneral;
+
             var totalPagadoFuncionarios = datos.Sum(d => d.MontoPagado);
-            var gananciaSalon = totalGeneradoSalon - totalPagadoFuncionarios;
+            var totalPendienteFuncionarios = datos.Sum(d => d.Pendiente);
+
+            var gananciaNegocio = totalSinImpuestosGeneral - datos.Sum(d => d.MontoGenerado);
 
             using (var workbook = new XLWorkbook())
             {
@@ -502,20 +539,20 @@ namespace LuxuryApp.Controllers.Funcionarios
                 var colorDorado = XLColor.FromHtml("#C6A55C");
                 var colorGris = XLColor.FromHtml("#F5F5F5");
 
-                ws.Range("A1:H1").Merge();
+                ws.Range("A1:I1").Merge();
                 ws.Cell("A1").Value = "LUXE CENTRO DE BELLEZA";
                 ws.Cell("A1").Style.Font.FontSize = 20;
                 ws.Cell("A1").Style.Font.Bold = true;
                 ws.Cell("A1").Style.Font.FontColor = colorDorado;
                 ws.Cell("A1").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-                ws.Range("A2:H2").Merge();
+                ws.Range("A2:I2").Merge();
                 ws.Cell("A2").Value = "Reporte de Pagos a Funcionarios";
                 ws.Cell("A2").Style.Font.FontSize = 14;
                 ws.Cell("A2").Style.Font.Bold = true;
                 ws.Cell("A2").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-                ws.Range("A3:H3").Merge();
+                ws.Range("A3:I3").Merge();
                 ws.Cell("A3").Value = $"Semana: {inicioSemana:dd/MM/yyyy} - {finSemana:dd/MM/yyyy}";
                 ws.Cell("A3").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
@@ -525,12 +562,13 @@ namespace LuxuryApp.Controllers.Funcionarios
                 ws.Cell(headerRow, 2).Value = "Total Generado";
                 ws.Cell(headerRow, 3).Value = "Impuestos";
                 ws.Cell(headerRow, 4).Value = "Total Neto";
-                ws.Cell(headerRow, 5).Value = "%";
-                ws.Cell(headerRow, 6).Value = "Monto Generado";
-                ws.Cell(headerRow, 7).Value = "Monto Pagado";
-                ws.Cell(headerRow, 8).Value = "Pendiente";
+                ws.Cell(headerRow, 5).Value = "% Servicio";
+                ws.Cell(headerRow, 6).Value = "% Producto";
+                ws.Cell(headerRow, 7).Value = "Monto Generado";
+                ws.Cell(headerRow, 8).Value = "Monto Pagado";
+                ws.Cell(headerRow, 9).Value = "Pendiente";
 
-                var header = ws.Range(headerRow, 1, headerRow, 8);
+                var header = ws.Range(headerRow, 1, headerRow, 9);
 
                 header.Style.Fill.BackgroundColor = colorNegro;
                 header.Style.Font.FontColor = XLColor.White;
@@ -546,29 +584,30 @@ namespace LuxuryApp.Controllers.Funcionarios
                     ws.Cell(fila, 3).Value = d.Impuestos;
                     ws.Cell(fila, 4).Value = d.TotalNeto;
                     ws.Cell(fila, 5).Value = d.Porcentaje;
-                    ws.Cell(fila, 6).Value = d.MontoGenerado;
-                    ws.Cell(fila, 7).Value = d.MontoPagado;
-                    ws.Cell(fila, 8).Value = d.Pendiente;
+                    ws.Cell(fila, 6).Value = d.PorcentajeProducto;
+                    ws.Cell(fila, 7).Value = d.MontoGenerado;
+                    ws.Cell(fila, 8).Value = d.MontoPagado;
+                    ws.Cell(fila, 9).Value = d.Pendiente;
 
                     ws.Range(fila, 2, fila, 4).Style.NumberFormat.Format = "₡ #,##0.00";
-                    ws.Range(fila, 6, fila, 8).Style.NumberFormat.Format = "₡ #,##0.00";
+                    ws.Range(fila, 7, fila, 9).Style.NumberFormat.Format = "₡ #,##0.00";
 
                     fila++;
                 }
 
-                var dataRange = ws.Range(headerRow + 1, 1, fila - 1, 8);
+                var dataRange = ws.Range(headerRow + 1, 1, fila - 1, 9);
 
                 dataRange.AddConditionalFormat()
                     .WhenIsTrue("MOD(ROW(),2)=0")
                     .Fill.SetBackgroundColor(colorGris);
 
-                ws.Cell(fila, 6).Value = "TOTAL PAGADO";
-                ws.Cell(fila, 6).Style.Font.Bold = true;
-
-                ws.Cell(fila, 7).FormulaA1 = $"SUM(G{headerRow + 1}:G{fila - 1})";
-                ws.Cell(fila, 7).Style.NumberFormat.Format = "₡ #,##0.00";
+                ws.Cell(fila, 7).Value = "TOTAL PAGADO";
                 ws.Cell(fila, 7).Style.Font.Bold = true;
-                ws.Cell(fila, 7).Style.Font.FontColor = colorDorado;
+
+                ws.Cell(fila, 8).FormulaA1 = $"SUM(H{headerRow + 1}:H{fila - 1})";
+                ws.Cell(fila, 8).Style.NumberFormat.Format = "₡ #,##0.00";
+                ws.Cell(fila, 8).Style.Font.Bold = true;
+                ws.Cell(fila, 8).Style.Font.FontColor = colorDorado;
 
                 fila += 3;
 
@@ -577,27 +616,52 @@ namespace LuxuryApp.Controllers.Funcionarios
 
                 fila++;
 
-                ws.Cell(fila, 1).Value = "Total generado por servicios";
-                ws.Cell(fila, 2).Value = totalGeneradoSalon;
+                ws.Cell(fila, 1).Value = "Total generado servicios";
+                ws.Cell(fila, 2).Value = totalGeneradoServicios;
 
                 fila++;
 
-                ws.Cell(fila, 1).Value = "Total pagado a funcionarios";
+                ws.Cell(fila, 1).Value = "Total generado productos";
+                ws.Cell(fila, 2).Value = totalGeneradoProductos;
+
+                fila++;
+
+                ws.Cell(fila, 1).Value = "Total generado general";
+                ws.Cell(fila, 2).Value = totalGeneradoGeneral;
+
+                fila++;
+
+                ws.Cell(fila, 1).Value = "Total impuestos";
+                ws.Cell(fila, 2).Value = totalImpuestosGeneral;
+
+                fila++;
+
+                ws.Cell(fila, 1).Value = "Total sin impuestos";
+                ws.Cell(fila, 2).Value = totalSinImpuestosGeneral;
+
+                fila++;
+
+                ws.Cell(fila, 1).Value = "Total pagado funcionarios";
                 ws.Cell(fila, 2).Value = totalPagadoFuncionarios;
 
                 fila++;
 
-                ws.Cell(fila, 1).Value = "Ganancia del salón";
-                ws.Cell(fila, 2).Value = gananciaSalon;
+                ws.Cell(fila, 1).Value = "Total pendiente funcionarios";
+                ws.Cell(fila, 2).Value = totalPendienteFuncionarios;
 
-                ws.Range(fila - 2, 2, fila, 2).Style.NumberFormat.Format = "₡ #,##0.00";
+                fila++;
+
+                ws.Cell(fila, 1).Value = "Ganancia del negocio";
+                ws.Cell(fila, 2).Value = gananciaNegocio;
+
+                ws.Range(fila - 7, 2, fila, 2).Style.NumberFormat.Format = "₡ #,##0.00";
 
                 ws.Cell(fila, 2).Style.Font.Bold = true;
                 ws.Cell(fila, 2).Style.Font.FontColor = colorDorado;
 
                 fila += 3;
 
-                ws.Cell(fila, 1).Value = "Historial de Pagos";
+                ws.Cell(fila, 1).Value = "Productos Vendidos";
                 ws.Cell(fila, 1).Style.Font.Bold = true;
                 ws.Cell(fila, 1).Style.Font.FontSize = 14;
 
@@ -605,28 +669,34 @@ namespace LuxuryApp.Controllers.Funcionarios
 
                 ws.Cell(fila, 1).Value = "Funcionario";
                 ws.Cell(fila, 2).Value = "Fecha";
-                ws.Cell(fila, 3).Value = "Monto";
-                ws.Cell(fila, 4).Value = "Observación";
+                ws.Cell(fila, 3).Value = "Producto";
+                ws.Cell(fila, 4).Value = "Precio";
+                ws.Cell(fila, 5).Value = "Ganancia Funcionario";
 
-                var headerHistorial = ws.Range(fila, 1, fila, 4);
+                var headerProductos = ws.Range(fila, 1, fila, 5);
 
-                headerHistorial.Style.Fill.BackgroundColor = colorNegro;
-                headerHistorial.Style.Font.FontColor = XLColor.White;
-                headerHistorial.Style.Font.Bold = true;
+                headerProductos.Style.Fill.BackgroundColor = colorNegro;
+                headerProductos.Style.Font.FontColor = XLColor.White;
+                headerProductos.Style.Font.Bold = true;
 
                 fila++;
 
-                foreach (var pago in historialPagos)
+                foreach (var d in datos)
                 {
-                    ws.Cell(fila, 1).Value = pago.Funcionario?.Nombre;
-                    ws.Cell(fila, 2).Value = pago.FechaPago;
-                    ws.Cell(fila, 3).Value = pago.MontoPagado;
-                    ws.Cell(fila, 4).Value = pago.Observacion;
+                    foreach (var p in d.ProductosVendidos)
+                    {
+                        ws.Cell(fila, 1).Value = p.Funcionario;
+                        ws.Cell(fila, 2).Value = p.Fecha;
+                        ws.Cell(fila, 3).Value = p.Producto;
+                        ws.Cell(fila, 4).Value = p.Precio;
+                        ws.Cell(fila, 5).Value = p.Ganancia;
 
-                    ws.Cell(fila, 2).Style.DateFormat.Format = "dd/MM/yyyy HH:mm";
-                    ws.Cell(fila, 3).Style.NumberFormat.Format = "₡ #,##0.00";
+                        ws.Cell(fila, 2).Style.DateFormat.Format = "dd/MM/yyyy HH:mm";
+                        ws.Cell(fila, 4).Style.NumberFormat.Format = "₡ #,##0.00";
+                        ws.Cell(fila, 5).Style.NumberFormat.Format = "₡ #,##0.00";
 
-                    fila++;
+                        fila++;
+                    }
                 }
 
                 ws.Columns().AdjustToContents();

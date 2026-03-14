@@ -2,7 +2,7 @@
 {
     public class CobroFiltroViewModel
     {
-        public string VistaTiempo { get; set; } = "semana";
+        public string VistaTiempo { get; set; } = "dia";
         // dia / semana / mes / año
 
         public int? FuncionarioId { get; set; }
@@ -14,7 +14,7 @@
         public DateTime? FechaFin { get; set; }
 
         public bool MostrarServicios { get; set; } = true;
-        public bool MostrarProductos { get; set; } = false;
+        public bool MostrarProductos { get; set; } = true;
 
     }
 }
