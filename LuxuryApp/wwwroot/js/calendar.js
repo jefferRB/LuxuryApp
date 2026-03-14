@@ -12,6 +12,8 @@ let calendarConfig = {
 
 /* INICIALIZACIÓN */
 
+
+
 document.addEventListener("DOMContentLoaded", initApp);
 
 function initApp() {
@@ -211,6 +213,27 @@ function initEvents() {
     document
         .getElementById("aplicarHorario")
         ?.addEventListener("click", actualizarHorario);
+
+    document.getElementById("esDescanso").addEventListener("change", function () {
+
+        const esDescanso = this.checked;
+
+        const camposCita = document.getElementById("camposCita");
+        const duracionDescanso = document.getElementById("duracionDescansoContainer");
+
+        if (esDescanso) {
+
+            camposCita.classList.add("d-none");
+            duracionDescanso.classList.remove("d-none");
+
+        } else {
+
+            camposCita.classList.remove("d-none");
+            duracionDescanso.classList.add("d-none");
+
+        }
+
+    });
 
     /* CARGAR CONFIGURACIÓN GUARDADA */
 
@@ -632,14 +655,35 @@ async function buildDayGrid(container, date) {
 
         bloque.style.top = top + "px";
         bloque.style.height = altura + "px";
-        bloque.style.backgroundColor = cita.colorCalendario || "#004445";
+        if (cita.tipo === "DESCANSO") {
 
-        bloque.innerHTML = `
-    <div style="font-weight:600">${cita.nombreCliente}</div>
-    <div style="font-size:11px; opacity:0.9">
-        ${cita.servicioNombre}
-    </div>
-`;
+            bloque.style.backgroundColor = "#6c757d";
+
+        } else {
+
+            bloque.style.backgroundColor = cita.colorCalendario || "#004445";
+
+        }
+
+        if (cita.tipo === "DESCANSO") {
+
+            bloque.innerHTML = `
+        <div style="font-weight:600">☕ DESCANSO</div>
+        <div style="font-size:11px">
+            ${cita.duracionMinutos} min
+        </div>
+    `;
+
+        } else {
+
+            bloque.innerHTML = `
+        <div style="font-weight:600">${cita.nombreCliente}</div>
+        <div style="font-size:11px; opacity:0.9">
+            ${cita.servicioNombre}
+        </div>
+    `;
+
+        }
 
         bloque.addEventListener("mousedown", (e) => {
             e.stopPropagation();
@@ -981,17 +1025,28 @@ async function guardarCita() {
         return;
     }
 
+    const esDescanso = document.getElementById("esDescanso").checked;
+
     const data = {
-        nombreCliente: document.getElementById("nombreCliente").value,
-        telefonoCliente: document.getElementById("telefonoCliente").value,
-        servicioId: parseInt(servicio.value),
+        nombreCliente: esDescanso ? null : document.getElementById("nombreCliente").value,
+        telefonoCliente: esDescanso ? null : document.getElementById("telefonoCliente").value,
+
+        servicioId: esDescanso
+            ? null
+            : parseInt(servicio.value),
+
         fechaHoraCita: fechaInput.value,
         funcionarioId: parseInt(funcionario.value),
+
+        tipo: esDescanso ? "DESCANSO" : "CITA",
+
+        duracionMinutos: esDescanso
+            ? parseInt(document.getElementById("duracionDescanso").value)
+            : null,
 
         duplicar: duplicar,
         fechasDuplicadas: duplicar ? fechasDuplicadas : []
     };
-
 
     const res = await fetch("/Calendar/Create", {
         method: "POST",
@@ -1086,14 +1141,35 @@ function agregarCitaVisual(cita, container = document) {
 
     bloque.style.top = top + "px";
     bloque.style.height = altura + "px";
-    bloque.style.backgroundColor = cita.colorCalendario || "#004445";
+    if (cita.tipo === "DESCANSO") {
 
-    bloque.innerHTML = `
+        bloque.style.backgroundColor = "#6c757d";
+
+    } else {
+
+        bloque.style.backgroundColor = cita.colorCalendario || "#004445";
+
+    }
+
+    if (cita.tipo === "DESCANSO") {
+
+        bloque.innerHTML = `
+        <div style="font-weight:600">☕ DESCANSO</div>
+        <div style="font-size:11px">
+            ${cita.duracionMinutos} min
+        </div>
+    `;
+
+    } else {
+
+        bloque.innerHTML = `
         <div style="font-weight:600">${cita.nombreCliente}</div>
         <div style="font-size:11px; opacity:0.9">
             ${cita.servicioNombre}
         </div>
     `;
+
+    }
 
     bloque.addEventListener("mousedown", (e) => {
         e.stopPropagation();

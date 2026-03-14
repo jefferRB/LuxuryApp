@@ -131,6 +131,13 @@
 
                     <div class="modal-body">
 
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="esDescanso">
+                                <label class="form-check-label fw-bold">
+                                    Registrar descanso
+                                </label>
+                            </div>
+
                             <div class="mb-3">
                                 <label class="form-label">Fecha y hora</label>
                                 <input type="datetime-local"
@@ -138,7 +145,19 @@
                                        class="form-control">
                             </div>
 
+                            <div id="duracionDescansoContainer" class="mb-3 d-none">
+                                <label class="form-label">Duración del descanso (minutos)</label>
+                                <input type="number"
+                                       id="duracionDescanso"
+                                       class="form-control"
+                                       value="30"
+                                       min="5"
+                                       max="180">
+                            </div>
+
                             <input type="hidden" id="duracionMinutos" value="30" />
+
+                            <div id="camposCita">
 
                             <div class="mb-2 position-relative">
                                 <label class="form-label">Nombre del cliente</label>
@@ -184,6 +203,7 @@
                                        placeholder="Seleccione fechas">
 
                             </div>
+                        </div>
 
                         <button class="btn btn-dark w-100" onclick="guardarCita()">
                             Guardar cita

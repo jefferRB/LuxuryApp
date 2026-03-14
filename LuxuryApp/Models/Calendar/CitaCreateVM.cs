@@ -12,6 +12,8 @@ namespace LuxuryApp.Models.Calendar
         [Required]
         public DateTime FechaHoraCita { get; set; }
         public int FuncionarioId { get; set; }
+        public string Tipo { get; set; } = "CITA";
+        public int? DuracionMinutos { get; set; }
 
         public bool Duplicar { get; set; }
 
