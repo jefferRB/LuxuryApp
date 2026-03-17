@@ -14,6 +14,7 @@
             <i class="fas fa-plus me-1"></i>Nuevo Egreso
         </a>
 
+        <div class="d-flex gap-2 align-items-center">
         <button class="btn btn-outline-primary"
                 data-bs-toggle="modal"
                 data-bs-target="#modalCategorias"
@@ -21,10 +22,21 @@
             ⚙ Gestionar Categorías
         </button>
 
+        <button type="submit"
+                form="formFiltros"
+                formaction="@Url.Action("ExportarExcel")"
+                class="btn btn-success shadow-sm px-4">
+            <i class="fas fa-file-excel me-1"></i> Excel
+        </button>
+        </div>
+
     </div>
 
+
+
+
     <!-- FILTROS -->
-    <form method="get" class="row g-2 px-3 mb-3">
+    <form method="get" id="formFiltros" class="row g-2 px-3 mb-3">
 
         <!-- Vista tiempo -->
         <div class="col-md-3">
@@ -61,22 +73,9 @@
             </select>
         </div>
 
-        <div class="col-md-1">
-            <button type="submit"
-                    formaction="@Url.Action("Index")"
-                    class="btn btn-dark w-100">
-                Filtrar
-            </button>
-        </div>
+        
 
-        <div class="col-md-1">
-            <button type="submit"
-                    formaction="@Url.Action("ExportarExcel")"
-                    class="btn btn-success w-100">
-                📊 Excel
-            </button>
-        </div>
-
+    
     </form>
 
     <!-- KPIs -->
@@ -201,18 +200,35 @@
 
             if (select.value === "fechas") {
                 container.classList.remove("d-none");
-            }
-            else {
+            } else {
                 container.classList.add("d-none");
             }
         }
 
+        function enviarFiltros() {
+            document.getElementById("formFiltros").submit();
+        }
+
         document.addEventListener("DOMContentLoaded", function () {
 
-            const select = document.getElementById("vistaTiempoSelect");
+            const vistaTiempo = document.getElementById("vistaTiempoSelect");
+            const categoria = document.querySelector("[name='Filtros.CategoriaId']");
+            const metodo = document.querySelector("[name='Filtros.MetodoPago']");
+            const fechaInicio = document.querySelector("[name='Filtros.FechaInicio']");
+            const fechaFin = document.querySelector("[name='Filtros.FechaFin']");
 
             toggleRangoFechas();
-            select.addEventListener("change", toggleRangoFechas);
+
+            vistaTiempo.addEventListener("change", function () {
+                toggleRangoFechas();
+                enviarFiltros();
+            });
+
+            categoria.addEventListener("change", enviarFiltros);
+            metodo.addEventListener("change", enviarFiltros);
+
+            fechaInicio.addEventListener("change", enviarFiltros);
+            fechaFin.addEventListener("change", enviarFiltros);
 
         });
 

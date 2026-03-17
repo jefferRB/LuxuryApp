@@ -218,50 +218,77 @@
 </div>
 
 
-<!-- MODAL De Editar citas-->
-<div class="modal fade" id="editCitaModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
+    <!-- MODAL EDITAR -->
+    <div class="modal fade" id="editCitaModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
 
-            <div class="modal-header">
-                <h5 class="modal-title">✏️ Editar cita</h5>
-                <button class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-
-            <div class="modal-body">
-                <input type="hidden" id="editCitaId" />
-
-                    <div class="mb-2">
-                        <label>Fecha y hora</label>
-                        <input type="datetime-local" class="form-control" id="editFechaHora">
-                    </div>
-
-                <div class="mb-2">
-                    <label>Nombre del cliente</label>
-                    <input class="form-control" id="editNombreCliente">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editModalTitle">✏️ Editar</h5>
+                    <button class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
 
-                <div class="mb-2">
-                    <label>Teléfono</label>
-                    <input class="form-control" id="editTelefonoCliente">
-                </div>
+                <div class="modal-body">
+
+                    <input type="hidden" id="editCitaId" />
+                    <input type="hidden" id="editTipo" />
 
                     <div class="mb-3">
-                        <label class="form-label">Servicio</label>
-                        <select id="editServicioId" class="form-select"></select>
+                        <label>Fecha y hora</label>
+                        <input type="datetime-local"
+                               class="form-control"
+                               id="editFechaHora">
                     </div>
 
-                    <div class="mb-2"> 
-                        <label>Funcionario</label> 
-                        <select id="editFuncionarioId" class="form-select"></select> 
+
+                    <!-- CAMPOS DE CITA -->
+                    <div id="editCamposCita">
+
+                        <div class="mb-2">
+                            <label>Nombre del cliente</label>
+                            <input class="form-control" id="editNombreCliente">
+                        </div>
+
+                        <div class="mb-2">
+                            <label>Teléfono</label>
+                            <input class="form-control" id="editTelefonoCliente">
+                        </div>
+
+                        <div class="mb-3">
+                            <label>Servicio</label>
+                            <select id="editServicioId" class="form-select"></select>
+                        </div>
+
                     </div>
 
-            </div>
+
+                    <!-- CAMPOS DE DESCANSO -->
+                    <div id="editCamposDescanso" class="d-none">
+
+                        <div class="mb-3">
+                            <label>Duración del descanso (minutos)</label>
+                            <input type="number"
+                                   class="form-control"
+                                   id="editDuracionDescanso"
+                                   min="5"
+                                   max="180">
+                        </div>
+
+                    </div>
+
+
+                    <div class="mb-2">
+                        <label>Funcionario</label>
+                        <select id="editFuncionarioId" class="form-select"></select>
+                    </div>
+
+                </div>
 
                 <div class="modal-footer justify-content-between">
+
                     <button class="btn btn-danger"
                             onclick="cancelarCita()">
-                        Cancelar cita
+                        Eliminar
                     </button>
 
                     <div>
@@ -274,13 +301,13 @@
                                 onclick="guardarEdicion()">
                             Guardar cambios
                         </button>
-
                     </div>
+
                 </div>
 
+            </div>
         </div>
     </div>
-</div>
 
 
 

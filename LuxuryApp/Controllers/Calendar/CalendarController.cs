@@ -1,5 +1,6 @@
 ﻿using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.Finanzas;
+using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -45,8 +46,13 @@ namespace LuxuryApp.Controllers.Calendar
             else
             {
                 // 🔥 SI ES CITA NORMAL
+                if (!vm.ServicioId.HasValue)
+                    return BadRequest("Debe seleccionar un servicio");
+
+                var servicioId = vm.ServicioId.Value;
+
                 servicio = await _context.Servicios
-                    .FirstOrDefaultAsync(s => s.Id == vm.ServicioId && s.Activo);
+                    .FirstOrDefaultAsync(s => s.Id == servicioId && s.Activo);
 
                 if (servicio == null)
                     return BadRequest("Servicio inválido");
@@ -128,7 +134,7 @@ namespace LuxuryApp.Controllers.Calendar
                     {
                         NombreCliente = vm.NombreCliente,
                         TelefonoCliente = vm.TelefonoCliente,
-                        ServicioId = servicio.Id,
+                        ServicioId = servicio?.Id,
                         FuncionarioId = funcionarioData.IdFuncionario,
                         FechaHoraCita = nuevaFecha
                     };
@@ -161,7 +167,7 @@ namespace LuxuryApp.Controllers.Calendar
                 { "1", cita.NombreCliente },
                 { "2", cita.FechaHoraCita.ToString("dd/MM/yyyy") },
                 { "3", cita.FechaHoraCita.ToString("hh:mm tt") },
-                { "4", servicio.Nombre },
+                { "4", servicio?.Nombre },
                 { "5", funcionarioData.Nombre }
                     });
 
@@ -183,8 +189,9 @@ namespace LuxuryApp.Controllers.Calendar
                 fechaHoraCita = cita.FechaHoraCita,
                 duracionMinutos = duracion,
                 funcionarioId = funcionarioData.IdFuncionario,
-                servicioNombre = servicio.Nombre,
-                colorCalendario = funcionarioData.ColorCalendario
+                servicioNombre = servicio?.Nombre,
+                colorCalendario = funcionarioData.ColorCalendario,
+                tipo = cita.Tipo
             };
 
             return Ok(citaCreada);
@@ -232,7 +239,7 @@ namespace LuxuryApp.Controllers.Calendar
         public async Task<IActionResult> GetById(int id)
         {
             var cita = await _context.Citas
-                .Include(c => c.Servicio)     
+                .Include(c => c.Servicio)
                 .Include(c => c.Funcionario)
                 .FirstOrDefaultAsync(c => c.Id == id);
 
@@ -242,38 +249,58 @@ namespace LuxuryApp.Controllers.Calendar
             return Ok(new
             {
                 id = cita.Id,
+                tipo = cita.Tipo,
+
                 nombreCliente = cita.NombreCliente,
                 telefonoCliente = cita.TelefonoCliente,
-                servicioId = cita.ServicioId,          
-                servicioNombre = cita.Servicio.Nombre, 
+
+                servicioId = cita.ServicioId,
+                servicioNombre = cita.Servicio?.Nombre, // 🔥 NULL SAFE
+
                 fechaHoraCita = cita.FechaHoraCita,
-                funcionarioId = cita.FuncionarioId
+                funcionarioId = cita.FuncionarioId,
+
+                duracionMinutos =
+                    cita.Tipo == "DESCANSO"
+                    ? cita.DuracionMinutos
+                    : cita.Servicio?.DuracionMinutos
             });
         }
 
-       
+
         [HttpPut("Calendar/Edit/{id}")]
         public async Task<IActionResult> Edit(int id, [FromBody] CitaCreateVM vm)
         {
             var cita = await _context.Citas
-                .Include(c => c.Servicio)
-                .FirstOrDefaultAsync(c => c.Id == id);
+            .Include(c => c.Servicio)
+            .Include(c => c.Funcionario)
+            .FirstOrDefaultAsync(c => c.Id == id);
 
             if (cita == null)
                 return NotFound();
 
-            var servicio = await _context.Servicios
-                .FirstOrDefaultAsync(s => s.Id == vm.ServicioId && s.Activo);
+            int duracion = 30;
+            Servicio? servicio = null;
 
-            if (servicio == null)
-                return BadRequest("Servicio inválido");
+            if (vm.Tipo == "DESCANSO")
+            {
+                duracion = vm.DuracionMinutos ?? 30;
+            }
+            else
+            {
+                servicio = await _context.Servicios
+                    .FirstOrDefaultAsync(s => s.Id == vm.ServicioId && s.Activo);
 
-            var duracion = servicio.DuracionMinutos ?? 30;
+                if (servicio == null)
+                    return BadRequest("Servicio inválido");
+
+                duracion = servicio.DuracionMinutos ?? 30;
+            }
 
             var inicio = vm.FechaHoraCita;
             var fin = inicio.AddMinutes(duracion);
 
-            // Validar choques (excepto esta misma cita)
+            // validar choques
             var citasExistentes = await _context.Citas
                 .Include(c => c.Servicio)
                 .Where(c => c.FuncionarioId == vm.FuncionarioId && c.Id != id)
@@ -282,20 +309,33 @@ namespace LuxuryApp.Controllers.Calendar
             foreach (var c in citasExistentes)
             {
                 var cInicio = c.FechaHoraCita;
-                var cFin = cInicio.AddMinutes(c.Servicio?.DuracionMinutos ?? 30);
+
+                int cDuracion =
+                    c.Tipo == "DESCANSO"
+                    ? c.DuracionMinutos ?? 30
+                    : c.Servicio?.DuracionMinutos ?? 30;
+
+                var cFin = cInicio.AddMinutes(cDuracion);
 
                 if (inicio < cFin && fin > cInicio)
-                    return BadRequest("Ya existe una cita en ese horario");
+                    return BadRequest("Ya existe una cita o descanso en ese horario");
             }
 
-            // Actualizar
-            cita.NombreCliente = vm.NombreCliente;
+            // actualizar
+            cita.NombreCliente = vm.Tipo == "DESCANSO" ? "DESCANSO" : vm.NombreCliente;
             cita.TelefonoCliente = vm.TelefonoCliente;
-            cita.ServicioId = servicio.Id;
+            cita.ServicioId = vm.Tipo == "DESCANSO" ? null : servicio!.Id;
             cita.FechaHoraCita = inicio;
             cita.FuncionarioId = vm.FuncionarioId;
+            cita.Tipo = vm.Tipo;
+            cita.DuracionMinutos = vm.Tipo == "DESCANSO" ? vm.DuracionMinutos : null;
 
             await _context.SaveChangesAsync();
+
+            var funcionario = await _context.Funcionarios
+    .Where(f => f.IdFuncionario == cita.FuncionarioId)
+    .Select(f => f.ColorCalendario)
+    .FirstOrDefaultAsync();
 
             return Ok(new
             {
@@ -305,11 +345,13 @@ namespace LuxuryApp.Controllers.Calendar
                 fechaHoraCita = cita.FechaHoraCita,
                 duracionMinutos = duracion,
                 funcionarioId = cita.FuncionarioId,
-                servicioNombre = servicio.Nombre
+                tipo = cita.Tipo,
+                servicioNombre = servicio?.Nombre,
+                colorCalendario = funcionario
             });
         }
 
-        
+
         [HttpDelete("Calendar/Delete/{id}")]
         public async Task<IActionResult> Delete(int id)
         {
@@ -324,7 +366,6 @@ namespace LuxuryApp.Controllers.Calendar
             return Ok();
         }
 
-       
         [HttpGet]
         public IActionResult GetCitasCountByMonth(int year, int month)
         {
@@ -343,16 +384,20 @@ namespace LuxuryApp.Controllers.Calendar
             return Ok(data);
         }
 
-        
         [HttpGet]
-        public async Task<IActionResult> GetUpcomingAppointments(int? funcionarioId)
+        public async Task<IActionResult> GetUpcomingAppointments(DateTime date, int? funcionarioId)
         {
-            var now = DateTime.Now;
+            var inicioDia = date.Date;
+            var finDia = inicioDia.AddDays(1);
+            var ahora = DateTime.Now;
 
             var query = _context.Citas
-             .Include(c => c.Servicio)
-             .Include(c => c.Funcionario)
-             .Where(c => c.Tipo == "CITA" && c.FechaHoraCita >= now);
+                .Include(c => c.Servicio)
+                .Include(c => c.Funcionario)
+                .Where(c => c.Tipo == "CITA"
+                    && c.FechaHoraCita >= inicioDia
+                    && c.FechaHoraCita < finDia
+                     && c.FechaHoraCita >= ahora);
 
             if (funcionarioId.HasValue && funcionarioId.Value > 0)
             {
@@ -367,15 +412,14 @@ namespace LuxuryApp.Controllers.Calendar
                     nombreCliente = c.NombreCliente,
                     telefonoCliente = c.TelefonoCliente,
                     fechaHoraCita = c.FechaHoraCita,
-                    servicioNombre = c.Servicio.Nombre,        
-                    funcionarioNombre = c.Funcionario.Nombre  
+                    servicioNombre = c.Servicio.Nombre,
+                    funcionarioNombre = c.Funcionario.Nombre
                 })
                 .ToListAsync();
 
             return Ok(citas);
         }
 
-        
         [HttpGet]
         public async Task<IActionResult> GetServiciosActivos()
         {
@@ -420,6 +464,55 @@ namespace LuxuryApp.Controllers.Calendar
             .ToListAsync();
 
             return Ok(citas);
+        }
+
+        [HttpPut("Calendar/Move/{id}")]
+        public async Task<IActionResult> Move(int id, [FromBody] MoveCitaVM vm)
+        {
+            var cita = await _context.Citas
+                .Include(c => c.Servicio)
+                .FirstOrDefaultAsync(c => c.Id == id);
+
+            if (cita == null)
+                return NotFound();
+
+            DateTime nuevaFecha = vm.FechaHoraCita;
+
+            int funcionarioId = vm.FuncionarioId ?? cita.FuncionarioId;
+
+            int duracion =
+                cita.Tipo == "DESCANSO"
+                ? cita.DuracionMinutos ?? 30
+                : cita.Servicio?.DuracionMinutos ?? 30;
+
+            var fin = nuevaFecha.AddMinutes(duracion);
+
+            var citasExistentes = await _context.Citas
+                .Include(c => c.Servicio)
+                .Where(c => c.FuncionarioId == funcionarioId && c.Id != id)
+                .ToListAsync();
+
+            foreach (var c in citasExistentes)
+            {
+                var cInicio = c.FechaHoraCita;
+
+                int cDuracion =
+                    c.Tipo == "DESCANSO"
+                    ? c.DuracionMinutos ?? 30
+                    : c.Servicio?.DuracionMinutos ?? 30;
+
+                var cFin = cInicio.AddMinutes(cDuracion);
+
+                if (nuevaFecha < cFin && fin > cInicio)
+                    return BadRequest("Choque con otra cita");
+            }
+
+            cita.FechaHoraCita = nuevaFecha;
+            cita.FuncionarioId = funcionarioId;
+
+            await _context.SaveChangesAsync();
+
+            return Ok();
         }
 
     }

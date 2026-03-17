@@ -339,11 +339,11 @@ namespace LuxuryApp.Controllers.Funcionarios
 
         [HttpPost]
         public async Task<IActionResult> RegistrarPago(
-          int funcionarioId,
-          decimal monto,
-          DateTime inicioSemana,
-          DateTime finSemana,
-          string? observacion)
+    int funcionarioId,
+    decimal monto,
+    DateTime inicioSemana,
+    DateTime finSemana,
+    string? observacion)
         {
             var pago = new PagoFuncionario
             {
@@ -359,6 +359,31 @@ namespace LuxuryApp.Controllers.Funcionarios
 
             await _context.SaveChangesAsync();
 
+            // Obtener funcionario
+            var funcionario = await _context.Funcionarios
+                .FirstOrDefaultAsync(f => f.IdFuncionario == funcionarioId);
+
+            // Obtener categoria
+            var categoria = await _context.Categorias
+                .FirstOrDefaultAsync(c => c.Nombre == "Pago Funcionarios");
+
+            if (funcionario != null && categoria != null)
+            {
+                var egreso = new Egreso
+                {
+                    FechaEgreso = DateTime.Now,
+                    CategoriaId = categoria.Id,
+                    Monto = monto,
+                    MetodoPago = "EFECTIVO",
+
+                    Detalle = $"Pago a {funcionario.Nombre} - Semana {inicioSemana:dd/MM} al {finSemana:dd/MM}"
+                };
+
+                _context.Egresos.Add(egreso);
+
+                await _context.SaveChangesAsync();
+            }
+
             return RedirectToAction("PagosSemana", new { fecha = inicioSemana });
         }
 
@@ -371,15 +396,18 @@ namespace LuxuryApp.Controllers.Funcionarios
                 .ToListAsync();
 
             var cobros = await _context.Cobros
-    .Include(c => c.Producto)
-    .Where(c => c.FechaCobro.Date >= inicioSemana && c.FechaCobro.Date <= finSemana)
-    .ToListAsync();
+                .Include(c => c.Producto)
+                .Where(c => c.FechaCobro.Date >= inicioSemana && c.FechaCobro.Date <= finSemana)
+                .ToListAsync();
+
+            var categoria = await _context.Categorias
+                .FirstOrDefaultAsync(c => c.Nombre == "Pago Funcionarios");
 
             foreach (var f in funcionarios)
             {
                 var cobrosFuncionario = cobros
-     .Where(c => c.FuncionarioId == f.IdFuncionario)
-     .ToList();
+                    .Where(c => c.FuncionarioId == f.IdFuncionario)
+                    .ToList();
 
                 var servicios = cobrosFuncionario
                     .Where(c => c.ServicioId != null)
@@ -399,12 +427,6 @@ namespace LuxuryApp.Controllers.Funcionarios
                 var pagoProductos = netoProductos * (f.PorcentajeProducto / 100);
 
                 var pagoFinal = pagoServicios + pagoProductos;
-
-                var total = servicios.Sum(s => s.Monto);
-                var impuestos = total * 0.13m;
-                var neto = total - impuestos;
-
-                
 
                 var pagado = await _context.PagosFuncionarios
                     .Where(p => p.FuncionarioId == f.IdFuncionario &&
@@ -427,6 +449,20 @@ namespace LuxuryApp.Controllers.Funcionarios
                     };
 
                     _context.PagosFuncionarios.Add(pago);
+
+                    if (categoria != null)
+                    {
+                        var egreso = new Egreso
+                        {
+                            FechaEgreso = DateTime.Now,
+                            Detalle = $"Pago semanal automático a {f.Nombre} ({inicioSemana:dd/MM} - {finSemana:dd/MM})",
+                            CategoriaId = categoria.Id,
+                            Monto = pendiente,
+                            MetodoPago = "EFECTIVO"
+                        };
+
+                        _context.Egresos.Add(egreso);
+                    }
                 }
             }
 

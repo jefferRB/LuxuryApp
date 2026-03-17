@@ -7,102 +7,8 @@
 <link rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 
-<style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-    .dashboard-title {
-        font-weight: 600;
-        margin-bottom: 25px;
-        color: #2c2c2c;
-    }
-
-    .kpi-card {
-        border: none;
-        border-radius: 18px;
-        padding: 20px;
-        background: white;
-        box-shadow: 0 8px 18px rgba(0,0,0,0.05);
-        transition: 0.25s ease;
-        height: 100%;
-    }
-
-        .kpi-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 14px 25px rgba(0,0,0,0.08);
-        }
-
-    .kpi-icon {
-        font-size: 28px;
-        padding: 14px;
-        border-radius: 12px;
-        color: white;
-    }
-
-    .kpi-value {
-        font-size: 26px;
-        font-weight: 600;
-        margin-top: 10px;
-    }
-
-    .kpi-label {
-        font-size: 14px;
-        color: #6c757d;
-    }
-
-    .bg-soft-green {
-        background: #e9f9f1;
-    }
-
-    .bg-soft-red {
-        background: #fdeaea;
-    }
-
-    .bg-soft-blue {
-        background: #eaf2ff;
-    }
-
-    .bg-soft-dark {
-        background: #f3f3f3;
-    }
-
-    .bg-soft-yellow {
-        background: #fff8e5;
-    }
-
-    .icon-green {
-        background: #28a745;
-    }
-
-    .icon-red {
-        background: #dc3545;
-    }
-
-    .icon-blue {
-        background: #0d6efd;
-    }
-
-    .icon-dark {
-        background: #343a40;
-    }
-
-    .icon-yellow {
-        background: #ffc107;
-    }
-
-    .dashboard-wrapper {
-        padding: 30px;
-    }
-
-    .dashboard-container {
-        background: rgba(255, 255, 255, 0.85);
-        backdrop-filter: blur(10px);
-        border-radius: 25px;
-        padding: 35px;
-        box-shadow: 0 15px 40px rgba(0,0,0,0.12);
-        
-    }
-
-
-</style>
 
 
 <div class="dashboard-wrapper">
@@ -121,27 +27,35 @@
             <!-- Selector Mes / Año -->
             <form asp-action="Index" method="get" class="d-flex gap-2 align-items-center">
 
-                <select name="mes" class="form-select shadow-sm" style="width:150px;">
+                <!-- Mes -->
+                <select name="mes"
+                        class="form-select shadow-sm"
+                        style="width:150px;"
+                        onchange="this.form.submit()">
+
                     @for (int m = 1; m <= 12; m++)
                     {
                         <option value="@m" selected="@(m == Model.MesSeleccionado)">
                             @System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(m)
                         </option>
                     }
+
                 </select>
 
-                <select name="anio" class="form-select shadow-sm" style="width:120px;">
+                <!-- Año -->
+                <select name="anio"
+                        class="form-select shadow-sm"
+                        style="width:120px;"
+                        onchange="this.form.submit()">
+
                     @for (int a = DateTime.Today.Year - 5; a <= DateTime.Today.Year + 1; a++)
                     {
                         <option value="@a" selected="@(a == Model.AnioSeleccionado)">
                             @a
                         </option>
                     }
-                </select>
 
-                <button class="btn btn-outline-dark shadow-sm">
-                    <i class="bi bi-search"></i>
-                </button>
+                </select>
 
             </form>
 
@@ -167,141 +81,217 @@
 
         </h3>
 
-<div class="row g-4">
+        <div class="row g-4">
 
-    <!-- INGRESOS -->
-    <div class="col-xl-3 col-md-6">
-        <div class="kpi-card bg-soft-green">
-            <div class="d-flex justify-content-between">
-                <div>
-                    <div class="kpi-label">Ingresos del Mes</div>
-                    <div class="kpi-value text-success">
-                        ₡ @Model.TotalIngresosMes.ToString("N2")
-                    </div>
-                </div>
-
-                <div class="kpi-icon icon-green">
-                    <i class="bi bi-cash-stack"></i>
-                </div>
-            </div>
-        </div>
-    </div>
-
-
-    <!-- EGRESOS -->
-    <div class="col-xl-3 col-md-6">
-        <div class="kpi-card bg-soft-red">
-            <div class="d-flex justify-content-between">
-                <div>
-                    <div class="kpi-label">Egresos del Mes</div>
-                    <div class="kpi-value text-danger">
-                        ₡ @Model.TotalEgresosMes.ToString("N2")
-                    </div>
-                </div>
-
-                <div class="kpi-icon icon-red">
-                    <i class="bi bi-graph-down-arrow"></i>
-                </div>
-            </div>
-        </div>
-    </div>
-
-
-    <!-- GANANCIA -->
-    <div class="col-xl-3 col-md-6">
-        <div class="kpi-card bg-soft-blue">
-            <div class="d-flex justify-content-between">
-                <div>
-                    <div class="kpi-label">Ganancia Neta</div>
-                    <div class="kpi-value text-primary">
-                        ₡ @Model.GananciaNeta.ToString("N2")
-                    </div>
-                </div>
-
-                <div class="kpi-icon icon-blue">
-                    <i class="bi bi-bar-chart-line"></i>
-                </div>
-            </div>
-        </div>
-    </div>
-
-            <!-- Patrimonio Inventario -->
+            <!-- SERVICIOS -->
             <div class="col-xl-3 col-md-6">
-                <div class="kpi-card bg-soft-blue">
+                <div class="kpi-card bg-soft-green">
                     <div class="d-flex justify-content-between">
                         <div>
-                            <div class="kpi-label">Patrimonio en Productos</div>
-                            <div class="kpi-value text-primary">
-                                ₡ @Model.ValorInventarioProductos.ToString("N2")
+                            <div class="kpi-label">Servicios Generados</div>
+                            <div class="kpi-value text-success">
+                                ₡ @Model.TotalServicios.ToString("N2")
                             </div>
                         </div>
+                        <div class="kpi-icon icon-green">
+                            <i class="bi bi-scissors"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-                        <div class="kpi-icon icon-blue">
+            <!-- PRODUCTOS -->
+            <div class="col-xl-3 col-md-6">
+                <div class="kpi-card bg-soft-green">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <div class="kpi-label">Productos Generados</div>
+                            <div class="kpi-value text-success">
+                                ₡ @Model.TotalProductos.ToString("N2")
+                            </div>
+                        </div>
+                        <div class="kpi-icon icon-green">
                             <i class="bi bi-box-seam"></i>
                         </div>
                     </div>
                 </div>
             </div>
 
-
-    <!-- CLIENTES -->
-    <div class="col-xl-3 col-md-6">
-        <div class="kpi-card bg-soft-dark">
-            <div class="d-flex justify-content-between">
-                <div>
-                    <div class="kpi-label">Clientes Registrados</div>
-                    <div class="kpi-value text-dark">
-                        @Model.CantidadClientes
+            <!-- TOTAL GENERADO -->
+            <div class="col-xl-3 col-md-6">
+                <div class="kpi-card bg-soft-blue">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <div class="kpi-label">Total Generado</div>
+                            <div class="kpi-value text-primary">
+                                ₡ @Model.TotalGenerado.ToString("N2")
+                            </div>
+                        </div>
+                        <div class="kpi-icon icon-blue">
+                            <i class="bi bi-cash-stack"></i>
+                        </div>
                     </div>
                 </div>
-
-                <div class="kpi-icon icon-dark">
-                    <i class="bi bi-people"></i>
-                </div>
             </div>
-        </div>
-    </div>
 
-
-            <!-- Producto -->
+            <!-- SIN IMPUESTOS -->
             <div class="col-xl-3 col-md-6">
                 <div class="kpi-card bg-soft-dark">
                     <div class="d-flex justify-content-between">
                         <div>
-                            <div class="kpi-label">Productos Registrados</div>
+                            <div class="kpi-label">Total sin Impuestos</div>
                             <div class="kpi-value text-dark">
-                                @Model.TotalProductosInventario
+                                ₡ @Model.TotalSinImpuestos.ToString("N2")
                             </div>
                         </div>
-
                         <div class="kpi-icon icon-dark">
-                            <i class="bi bi-archive"></i>
+                            <i class="bi bi-receipt"></i>
                         </div>
                     </div>
                 </div>
             </div>
 
-
-    <!-- CITAS -->
-    <div class="col-xl-3 col-md-6">
-        <div class="kpi-card bg-soft-yellow">
-            <div class="d-flex justify-content-between">
-                <div>
-                    <div class="kpi-label">Citas del Mes</div>
-                    <div class="kpi-value text-warning">
-                        @Model.CantidadCitasMes
+            <!-- IMPUESTOS -->
+            <div class="col-xl-3 col-md-6">
+                <div class="kpi-card bg-soft-yellow">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <div class="kpi-label">Impuestos</div>
+                            <div class="kpi-value text-warning">
+                                ₡ @Model.TotalImpuestos.ToString("N2")
+                            </div>
+                        </div>
+                        <div class="kpi-icon icon-yellow">
+                            <i class="bi bi-percent"></i>
+                        </div>
                     </div>
                 </div>
+            </div>
 
-                <div class="kpi-icon icon-yellow">
-                    <i class="bi bi-calendar-check"></i>
+            <!-- PAGOS FUNCIONARIOS -->
+            <div class="col-xl-3 col-md-6">
+                <div class="kpi-card bg-soft-red">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <div class="kpi-label">Pagado Funcionarios</div>
+                            <div class="kpi-value text-danger">
+                                ₡ @Model.TotalPagadoFuncionarios.ToString("N2")
+                            </div>
+                        </div>
+                        <div class="kpi-icon icon-red">
+                            <i class="bi bi-person-cash"></i>
+                        </div>
+                    </div>
                 </div>
             </div>
+
+            <!-- EGRESOS -->
+            <div class="col-xl-3 col-md-6">
+                <div class="kpi-card bg-soft-red">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <div class="kpi-label">Total Egresos</div>
+                            <div class="kpi-value text-danger">
+                                ₡ @Model.TotalEgresos.ToString("N2")
+                            </div>
+                        </div>
+                        <div class="kpi-icon icon-red">
+                            <i class="bi bi-graph-down-arrow"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GANANCIA -->
+            <div class="col-xl-3 col-md-6">
+                <div class="kpi-card bg-soft-blue">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <div class="kpi-label">Ganancia del Negocio</div>
+                            <div class="kpi-value text-primary">
+                                ₡ @Model.GananciaNegocio.ToString("N2")
+                            </div>
+                        </div>
+                        <div class="kpi-icon icon-blue">
+                            <i class="bi bi-bar-chart-line"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </div>
+
+
+        <!-- Graficos -->
+
+        <div class="row mt-4 g-4">
+
+            <div class="col-lg-6">
+                <div class="kpi-card">
+                    <h6 class="mb-3">Ingresos por Método de Pago</h6>
+                    <canvas id="metodosPagoChart"></canvas>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="kpi-card">
+                    <h6 class="mb-3">Ganancia del Negocio por Mes</h6>
+                    <canvas id="gananciaMesChart"></canvas>
+                </div>
+            </div>
+
+        </div>
+
+        
+
+
     </div>
-           
 
 </div>
-    </div>
 
-</div>
+@section Scripts {
+
+    <script>
+
+        const ctx = document.getElementById('metodosPagoChart');
+
+        new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+        labels: ['Efectivo','SINPE','Tarjeta'],
+        datasets: [{
+        data: [
+        @Model.IngresosEfectivo,
+        @Model.IngresosSinpe,
+        @Model.IngresosTarjeta
+        ],
+        backgroundColor: [
+        '#28a745',
+        '#0d6efd',
+        '#ffc107'
+        ]
+        }]
+        }
+        });
+
+        const ctx2 = document.getElementById('gananciaMesChart');
+
+        new Chart(ctx2, {
+        type: 'bar',
+        data: {
+        labels: [
+        'Ene','Feb','Mar','Abr','May','Jun',
+        'Jul','Ago','Sep','Oct','Nov','Dic'
+        ],
+        datasets: [{
+        label: 'Ganancia',
+        data: @Html.Raw(Json.Serialize(Model.GananciaPorMes)),
+        backgroundColor:'#0d6efd'
+        }]
+        }
+        });
+
+    </script>
+
+}
+
