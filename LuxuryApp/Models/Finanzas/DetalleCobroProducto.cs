@@ -1,11 +1,13 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using LuxuryApp.Models.Common;
 using LuxuryApp.Models.Productos;
 
 namespace LuxuryApp.Models.Finanzas
 {
-    public class DetalleCobroProducto
+    public class DetalleCobroProducto : ITenantEntity
     {
+        public Guid TenantId { get; set; }
         [Key]
         
         public int IdDetalle { get; set; }

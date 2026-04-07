@@ -1,9 +1,11 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using LuxuryApp.Models.Common;
 
 namespace LuxuryApp.Models.Productos
 {
-    public class Producto
+    public class Producto : ITenantEntity
     {
+        public Guid TenantId { get; set; }
         [Key]
         public int IdProducto { get; set; }
 

@@ -1,10 +1,12 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using LuxuryApp.Models.Common;
 
 namespace LuxuryApp.Models.Productos
 {
-    public class MovimientoInventario
+    public class MovimientoInventario : ITenantEntity
     {
+        public Guid TenantId { get; set; }
         [Key]
         public int IdMovimiento { get; set; }
 

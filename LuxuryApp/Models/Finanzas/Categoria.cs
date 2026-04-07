@@ -1,9 +1,11 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using LuxuryApp.Models.Common;
 
 namespace LuxuryApp.Models.Finanzas
 {
-    public class Categoria
+    public class Categoria : ITenantEntity
     {
+        public Guid TenantId { get; set; }
         public int Id { get; set; }
 
         [Required]

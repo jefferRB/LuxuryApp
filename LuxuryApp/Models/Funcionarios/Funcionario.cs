@@ -1,9 +1,12 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using LuxuryApp.Models.Common;
 
 namespace LuxuryApp.Models.Funcionarios
 {
-    public class Funcionario
+    public class Funcionario : ITenantEntity
     {
+    
+        public Guid TenantId { get; set; }
         [Key]
         public int IdFuncionario { get; set; }
 

@@ -3,12 +3,15 @@ using LuxuryApp.Emails;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Services;
 using LuxuryApp.Services.DataBase;
+using LuxuryApp.Services.Identity;
+using LuxuryApp.Services.Tenant;
 using LuxuryApp.Workers;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 using Resend;
+using Stripe;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -65,6 +68,16 @@ builder.Services.AddHostedService<ReminderWorker>();
 //Visitas automaticas
 builder.Services.AddScoped<VisitasAutomaticasService>();
 builder.Services.AddHostedService<VisitasBackgroundService>();
+//Multitenant
+builder.Services.AddHttpContextAccessor();
+// Tenant Provider
+builder.Services.AddScoped<ITenantProvider, TenantProvider>();
+// Claims personalizados
+builder.Services.AddScoped<IUserClaimsPrincipalFactory<AppUsuario>, CustomClaimsPrincipalFactory>();
+
+// 🔥 Stripe config GLOBAL (thread-safe)
+StripeConfiguration.ApiKey = builder.Configuration["Stripe:SecretKey"];
+
 
 var app = builder.Build();
 
@@ -83,6 +96,7 @@ app.UseStaticFiles();
 app.UseRouting();
 
 app.UseAuthentication();
+app.UseMiddleware<SuscripcionMiddleware>();
 app.UseAuthorization();
 
 app.MapStaticAssets();

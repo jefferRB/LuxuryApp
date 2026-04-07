@@ -2,7 +2,7 @@
 
 namespace LuxuryApp.Datos
 {
-    public class IdentitySeeder
+    public class IdentitySeeder   
     {
         public static async Task SeedRolesAsync(IServiceProvider serviceProvider)
         {

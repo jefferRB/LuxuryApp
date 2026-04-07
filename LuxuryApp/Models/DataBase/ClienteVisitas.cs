@@ -1,7 +1,10 @@
-﻿namespace LuxuryApp.Models.DataBase
+﻿using LuxuryApp.Models.Common;
+
+namespace LuxuryApp.Models.DataBase
 {
-    public class ClienteVisitas
+    public class ClienteVisitas : ITenantEntity
     {
+        public Guid TenantId { get; set; }
         public int Id { get; set; }
 
         public string NumeroTelefono { get; set; } = string.Empty;

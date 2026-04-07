@@ -1,11 +1,13 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using LuxuryApp.Models.Common;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 
 namespace LuxuryApp.Models.Calendar
 {
-    public class Cita
+    public class Cita : ITenantEntity
     {
+        public Guid TenantId { get; set; }
         public int Id { get; set; }
 
         [MaxLength(100)]

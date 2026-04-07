@@ -1,10 +1,12 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using LuxuryApp.Models.Common;
 
 namespace LuxuryApp.Models.DataBase
 {
-    public class ClientesModel
+    public class ClientesModel : ITenantEntity
     {
+        public Guid TenantId { get; set; }
         [Key]
         public string NumeroTelefono { get; set; }
         public string CorreoElectronico { get; set; }

@@ -1,0 +1,64 @@
+﻿using LuxuryApp.Models.Identity;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
+using System.Security.Claims;
+
+namespace LuxuryApp.Services.Identity
+{
+    public static class CustomClaimTypes
+    {
+        public const string TenantId = "tenant_id";
+        public const string UserId = "user_id";
+        public const string UserName = "user_name";
+    }
+
+    public class CustomClaimsPrincipalFactory
+        : UserClaimsPrincipalFactory<AppUsuario, IdentityRole>
+    {
+        private readonly ILogger<CustomClaimsPrincipalFactory> _logger;
+
+        public CustomClaimsPrincipalFactory(
+            UserManager<AppUsuario> userManager,
+            RoleManager<IdentityRole> roleManager,
+            IOptions<IdentityOptions> optionsAccessor,
+            ILogger<CustomClaimsPrincipalFactory> logger)
+            : base(userManager, roleManager, optionsAccessor)
+        {
+            _logger = logger;
+        }
+
+        protected override async Task<ClaimsIdentity> GenerateClaimsAsync(AppUsuario user)
+        {
+            var identity = await base.GenerateClaimsAsync(user);
+
+            // 🔒 VALIDACIÓN SEGURA (NO rompe sistema)
+            if (user.TenantId == Guid.Empty)
+            {
+                _logger.LogCritical("Usuario {UserId} sin TenantId asignado", user.Id);
+
+                // 👉 NO lanzar exception
+                // 👉 no agregar claim = usuario inválido
+                return identity;
+            }
+
+            // 🔹 CLAIM PRINCIPAL (CRÍTICO)
+            identity.AddClaim(new Claim(
+                CustomClaimTypes.TenantId,
+                user.TenantId.ToString()
+            ));
+
+            // 🔹 CLAIMS ÚTILES (nivel PRO)
+            identity.AddClaim(new Claim(
+                CustomClaimTypes.UserId,
+                user.Id
+            ));
+
+            identity.AddClaim(new Claim(
+                CustomClaimTypes.UserName,
+                user.UserName ?? string.Empty
+            ));
+
+            return identity;
+        }
+    }
+}

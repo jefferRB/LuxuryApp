@@ -1,12 +1,14 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using LuxuryApp.Models.Calendar;
+using LuxuryApp.Models.Common;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Productos;
 
 namespace LuxuryApp.Models.Finanzas
 {
-    public class Cobro
+    public class Cobro : ITenantEntity
     {
+        public Guid TenantId { get; set; }
         [Key]
         public int IdCobro { get; set; }
 
