@@ -1,4 +1,34 @@
-﻿<h1>✅ Pago exitoso</h1>
-<p>Tu suscripción fue activada correctamente.</p>
+@model LuxuryApp.Models.SaaS.ResultadoCheckoutViewModel
 
-<a href="/Home/Index">Ir al sistema</a>
+<h1>Estado del pago</h1>
+
+<p>@Model.MensajePrincipal</p>
+
+@if (!string.IsNullOrWhiteSpace(Model.Referencia))
+{
+    <p><strong>Referencia:</strong> @Model.Referencia</p>
+}
+
+@if (!string.IsNullOrWhiteSpace(Model.NombrePlan))
+{
+    <p><strong>Plan:</strong> @Model.NombrePlan</p>
+}
+
+@if (!string.IsNullOrWhiteSpace(Model.CodigoProveedor))
+{
+    <p><strong>Código proveedor:</strong> @Model.CodigoProveedor</p>
+}
+
+@if (!string.IsNullOrWhiteSpace(Model.DescripcionProveedor))
+{
+    <p><strong>Descripción:</strong> @Model.DescripcionProveedor</p>
+}
+
+@if (Model.ConfirmadoPorWebhook)
+{
+    <a href="/Home/Index">Ir al sistema</a>
+}
+else
+{
+    <a href="/Billing/Planes">Volver a planes</a>
+}

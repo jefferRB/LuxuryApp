@@ -10,20 +10,25 @@ using LuxuryApp.Models.Saas;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Tenant;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 
 namespace ProyectoIdentity.Datos
 {
     public class ApplicationDbContext : IdentityDbContext<AppUsuario>
     {
         private readonly ITenantProvider _tenantProvider;
+        private readonly ILogger<ApplicationDbContext> _logger;
 
         public ApplicationDbContext(
             DbContextOptions options,
-            ITenantProvider tenantProvider) : base(options)
+            ITenantProvider tenantProvider,
+            ILogger<ApplicationDbContext> logger) : base(options)
         {
             _tenantProvider = tenantProvider
                 ?? throw new Exception("TenantProvider no disponible");
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
         // 🔥 PRO: Obtener tenant dinámico (NO en constructor)
@@ -79,6 +84,87 @@ namespace ProyectoIdentity.Datos
                     .IsRequired(false);
             });
 
+            modelBuilder.Entity<Plan>(entity =>
+            {
+                entity.Property(p => p.Nombre).IsRequired();
+                entity.Property(p => p.Moneda).HasMaxLength(100);
+                entity.Property(p => p.EsPlanValidacion).HasDefaultValue(false);
+                entity.Property(p => p.PrecioMensual).HasColumnType("decimal(10,2)");
+            });
+
+            modelBuilder.Entity<Funcionario>(entity =>
+            {
+                entity.HasOne(f => f.Puesto)
+                    .WithMany(p => p.Funcionarios)
+                    .HasForeignKey(f => f.IdPuesto);
+
+                entity.Property(f => f.PorcentajeGanancia).HasColumnType("decimal(18,2)");
+                entity.Property(f => f.PorcentajeProducto).HasColumnType("decimal(18,2)");
+            });
+
+            modelBuilder.Entity<Servicio>(entity =>
+            {
+                entity.Property(s => s.Precio).HasColumnType("decimal(10,2)");
+            });
+
+            modelBuilder.Entity<Cobro>(entity =>
+            {
+                entity.Property(c => c.Monto).HasColumnType("decimal(10,2)");
+            });
+
+            modelBuilder.Entity<Egreso>(entity =>
+            {
+                entity.Property(e => e.Monto).HasColumnType("decimal(10,2)");
+            });
+
+            modelBuilder.Entity<Producto>(entity =>
+            {
+                entity.Property(p => p.PrecioProducto).HasColumnType("decimal(10,2)");
+            });
+
+            modelBuilder.Entity<PagoFuncionario>(entity =>
+            {
+                entity.Property(p => p.MontoPagado).HasColumnType("decimal(10,2)");
+            });
+
+            modelBuilder.Entity<Tenant>(entity =>
+            {
+                entity.Property(t => t.Nombre).IsRequired();
+            });
+
+            modelBuilder.Entity<Suscripcion>(entity =>
+            {
+                entity.HasIndex(s => s.TenantId).IsUnique();
+                entity.Property(s => s.MotivoEstado).HasMaxLength(250);
+            });
+
+            modelBuilder.Entity<PagoSuscripcion>(entity =>
+            {
+                entity.HasIndex(p => new { p.Proveedor, p.ReferenciaInterna }).IsUnique();
+                entity.HasIndex(p => new { p.Proveedor, p.ProviderReference }).IsUnique().HasFilter("[ProviderReference] IS NOT NULL");
+                entity.HasIndex(p => new { p.Proveedor, p.ProviderTransactionId }).IsUnique().HasFilter("[ProviderTransactionId] IS NOT NULL");
+                entity.HasIndex(p => new { p.Proveedor, p.ProviderCheckoutId }).IsUnique().HasFilter("[ProviderCheckoutId] IS NOT NULL");
+                entity.Property(p => p.Monto).HasColumnType("decimal(18,2)");
+            });
+
+            modelBuilder.Entity<Factura>(entity =>
+            {
+                entity.HasIndex(f => new { f.Proveedor, f.ProviderTransactionId }).IsUnique().HasFilter("[ProviderTransactionId] IS NOT NULL");
+                entity.HasIndex(f => new { f.Proveedor, f.ProviderReference, f.Estado }).HasFilter("[ProviderReference] IS NOT NULL");
+                entity.Property(f => f.Monto).HasColumnType("decimal(18,2)");
+            });
+
+            modelBuilder.Entity<EventoPago>(entity =>
+            {
+                entity.HasIndex(e => new { e.Proveedor, e.ProveedorEventId }).IsUnique();
+                entity.HasIndex(e => new { e.Proveedor, e.ReferenciaExterna });
+            });
+
+            modelBuilder.Entity<HistorialSuscripcion>()
+                .HasQueryFilter(historial =>
+                    CurrentTenantId == Guid.Empty ||
+                    (historial.Suscripcion != null && historial.Suscripcion.TenantId == CurrentTenantId));
+
             // 🔹 MULTITENANT FILTER
             foreach (var entityType in modelBuilder.Model.GetEntityTypes())
             {
@@ -94,47 +180,351 @@ namespace ProyectoIdentity.Datos
         }
 
         // 🔥 SAVE CHANGES BLINDADO
-        public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        public override int SaveChanges()
+        {
+            ApplyTenantGuards();
+            return base.SaveChanges();
+        }
+
+        public override int SaveChanges(bool acceptAllChangesOnSuccess)
+        {
+            ApplyTenantGuards();
+            return base.SaveChanges(acceptAllChangesOnSuccess);
+        }
+
+        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
+            SaveChangesAsync(acceptAllChangesOnSuccess: true, cancellationToken);
+
+        public override async Task<int> SaveChangesAsync(
+            bool acceptAllChangesOnSuccess,
+            CancellationToken cancellationToken = default)
+        {
+            await ApplyTenantGuardsAsync(cancellationToken);
+            return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        }
+
+        private void ApplyTenantGuards()
         {
             var hasTenant = _tenantProvider.HasTenant();
             var tenantId = hasTenant ? _tenantProvider.GetTenantId() : Guid.Empty;
+            Guid? systemTenantId = null;
 
             foreach (var entry in ChangeTracker.Entries<ITenantEntity>())
             {
                 var entity = entry.Entity;
+                if (entry.State == EntityState.Unchanged || entry.State == EntityState.Detached)
+                    continue;
 
-                // 🚨 BLOQUEO TOTAL si intenta modificar sin tenant
-                if (!hasTenant)
-                    throw new Exception("Operación bloqueada: Tenant no resuelto");
+                if (entry.State == EntityState.Added)
+                {
+                    if (hasTenant)
+                    {
+                        entity.TenantId = tenantId;
+                    }
+                    else
+                    {
+                        EnsureSystemTenant(entity.TenantId, ref systemTenantId);
+                    }
+
+                    ValidateTenantRelationships(entry);
+                }
+                else if (entry.State == EntityState.Modified || entry.State == EntityState.Deleted)
+                {
+                    entry.Property(nameof(ITenantEntity.TenantId)).IsModified = false;
+                    var persistedTenantId = ResolvePersistedTenantId(entry);
+
+                    if (hasTenant)
+                    {
+                        if (persistedTenantId != tenantId)
+                        {
+                            _logger.LogWarning(
+                                "Intento de modificación cross-tenant bloqueado. EntityType {EntityType}. TenantId {TenantId}. PersistedTenantId {PersistedTenantId}.",
+                                entry.Metadata.ClrType.Name,
+                                tenantId,
+                                persistedTenantId);
+                            throw new Exception("Intento de modificar datos de otro tenant");
+                        }
+                    }
+                    else
+                    {
+                        EnsureSystemTenant(persistedTenantId, ref systemTenantId);
+                    }
+
+                    if (entry.State == EntityState.Modified)
+                    {
+                        ValidateTenantRelationships(entry);
+                    }
+                }
+            }
+        }
+
+        private async Task ApplyTenantGuardsAsync(CancellationToken cancellationToken)
+        {
+            var hasTenant = _tenantProvider.HasTenant();
+            var tenantId = hasTenant ? _tenantProvider.GetTenantId() : Guid.Empty;
+            Guid? systemTenantId = null;
+
+            foreach (var entry in ChangeTracker.Entries<ITenantEntity>())
+            {
+                var entity = entry.Entity;
+                if (entry.State == EntityState.Unchanged || entry.State == EntityState.Detached)
+                    continue;
 
                 // 🔹 INSERT
                 if (entry.State == EntityState.Added)
                 {
-                    entity.TenantId = tenantId;
+                    if (hasTenant)
+                    {
+                        entity.TenantId = tenantId;
+                    }
+                    else
+                    {
+                        EnsureSystemTenant(entity.TenantId, ref systemTenantId);
+                    }
+
+                    await ValidateTenantRelationshipsAsync(entry, cancellationToken);
                 }
 
-                // 🔹 UPDATE
-                else if (entry.State == EntityState.Modified)
+                else if (entry.State == EntityState.Modified || entry.State == EntityState.Deleted)
                 {
                     entry.Property(nameof(ITenantEntity.TenantId)).IsModified = false;
+                    var persistedTenantId = await ResolvePersistedTenantIdAsync(entry, cancellationToken);
 
-                    var originalTenantId = (Guid)entry.OriginalValues[nameof(ITenantEntity.TenantId)];
+                    if (hasTenant)
+                    {
+                        if (persistedTenantId != tenantId)
+                        {
+                            _logger.LogWarning(
+                                "Intento de modificación cross-tenant bloqueado en async. EntityType {EntityType}. TenantId {TenantId}. PersistedTenantId {PersistedTenantId}.",
+                                entry.Metadata.ClrType.Name,
+                                tenantId,
+                                persistedTenantId);
+                            throw new Exception("Intento de modificar datos de otro tenant");
+                        }
+                    }
+                    else
+                    {
+                        EnsureSystemTenant(persistedTenantId, ref systemTenantId);
+                    }
 
-                    if (originalTenantId != tenantId)
-                        throw new Exception("Intento de modificar datos de otro tenant");
+                    if (entry.State == EntityState.Modified)
+                    {
+                        await ValidateTenantRelationshipsAsync(entry, cancellationToken);
+                    }
+                }
+            }
+        }
+
+        private static Guid ResolvePersistedTenantId(EntityEntry<ITenantEntity> entry)
+        {
+            var databaseValues = entry.GetDatabaseValues();
+            if (databaseValues is null)
+                throw new DbUpdateConcurrencyException("No se pudo resolver el tenant persistido para la entidad.");
+
+            return (Guid)(databaseValues[nameof(ITenantEntity.TenantId)]
+                ?? throw new Exception("La entidad persistida no tiene TenantId."));
+        }
+
+        private void ValidateTenantRelationships(EntityEntry<ITenantEntity> entry)
+        {
+            foreach (var foreignKey in entry.Metadata.GetForeignKeys())
+            {
+                if (!typeof(ITenantEntity).IsAssignableFrom(foreignKey.PrincipalEntityType.ClrType))
+                {
+                    continue;
                 }
 
-                // 🔹 DELETE
-                else if (entry.State == EntityState.Deleted)
+                if (!TryGetForeignKeyValues(entry, foreignKey, out var keyValues))
                 {
-                    var originalTenantId = (Guid)entry.OriginalValues[nameof(ITenantEntity.TenantId)];
+                    continue;
+                }
 
-                    if (originalTenantId != tenantId)
-                        throw new Exception("Intento de eliminar datos de otro tenant");
+                var principalTenantId = ResolvePrincipalTenantId(entry, foreignKey, keyValues);
+                EnsurePrincipalTenant(entry, foreignKey, principalTenantId);
+            }
+        }
+
+        private async Task ValidateTenantRelationshipsAsync(
+            EntityEntry<ITenantEntity> entry,
+            CancellationToken cancellationToken)
+        {
+            foreach (var foreignKey in entry.Metadata.GetForeignKeys())
+            {
+                if (!typeof(ITenantEntity).IsAssignableFrom(foreignKey.PrincipalEntityType.ClrType))
+                {
+                    continue;
+                }
+
+                if (!TryGetForeignKeyValues(entry, foreignKey, out var keyValues))
+                {
+                    continue;
+                }
+
+                var principalTenantId = await ResolvePrincipalTenantIdAsync(entry, foreignKey, keyValues, cancellationToken);
+                EnsurePrincipalTenant(entry, foreignKey, principalTenantId);
+            }
+        }
+
+        private static bool TryGetForeignKeyValues(
+            EntityEntry<ITenantEntity> entry,
+            IForeignKey foreignKey,
+            out object?[] keyValues)
+        {
+            keyValues = new object?[foreignKey.Properties.Count];
+
+            for (var index = 0; index < foreignKey.Properties.Count; index++)
+            {
+                var dependentProperty = foreignKey.Properties[index];
+                var value = entry.Property(dependentProperty.Name).CurrentValue;
+
+                if (value is null)
+                {
+                    return false;
+                }
+
+                keyValues[index] = value;
+            }
+
+            return true;
+        }
+
+        private Guid? ResolvePrincipalTenantId(
+            EntityEntry<ITenantEntity> entry,
+            IForeignKey foreignKey,
+            object?[] keyValues)
+        {
+            var trackedPrincipalTenantId = ResolveTrackedPrincipalTenantId(foreignKey, keyValues);
+            if (trackedPrincipalTenantId.HasValue)
+            {
+                return trackedPrincipalTenantId.Value;
+            }
+
+            var principal = Find(foreignKey.PrincipalEntityType.ClrType, keyValues);
+            if (principal is not ITenantEntity principalTenantEntity)
+            {
+                _logger.LogWarning(
+                    "Relación inválida detectada. EntityType {EntityType}. PrincipalType {PrincipalType}. TenantId {TenantId}.",
+                    entry.Metadata.ClrType.Name,
+                    foreignKey.PrincipalEntityType.ClrType.Name,
+                    entry.Entity.TenantId);
+                return null;
+            }
+
+            return principalTenantEntity.TenantId;
+        }
+
+        private async Task<Guid?> ResolvePrincipalTenantIdAsync(
+            EntityEntry<ITenantEntity> entry,
+            IForeignKey foreignKey,
+            object?[] keyValues,
+            CancellationToken cancellationToken)
+        {
+            var trackedPrincipalTenantId = ResolveTrackedPrincipalTenantId(foreignKey, keyValues);
+            if (trackedPrincipalTenantId.HasValue)
+            {
+                return trackedPrincipalTenantId.Value;
+            }
+
+            var principal = await FindAsync(foreignKey.PrincipalEntityType.ClrType, keyValues, cancellationToken);
+            if (principal is not ITenantEntity principalTenantEntity)
+            {
+                _logger.LogWarning(
+                    "Relación inválida detectada en async. EntityType {EntityType}. PrincipalType {PrincipalType}. TenantId {TenantId}.",
+                    entry.Metadata.ClrType.Name,
+                    foreignKey.PrincipalEntityType.ClrType.Name,
+                    entry.Entity.TenantId);
+                return null;
+            }
+
+            return principalTenantEntity.TenantId;
+        }
+
+        private Guid? ResolveTrackedPrincipalTenantId(IForeignKey foreignKey, object?[] keyValues)
+        {
+            foreach (var trackedEntry in ChangeTracker.Entries())
+            {
+                if (trackedEntry.Metadata != foreignKey.PrincipalEntityType ||
+                    trackedEntry.State == EntityState.Detached ||
+                    trackedEntry.State == EntityState.Deleted ||
+                    trackedEntry.Entity is not ITenantEntity trackedTenantEntity)
+                {
+                    continue;
+                }
+
+                var keyMatches = true;
+                for (var index = 0; index < foreignKey.PrincipalKey.Properties.Count; index++)
+                {
+                    var principalKeyProperty = foreignKey.PrincipalKey.Properties[index];
+                    var trackedValue = trackedEntry.Property(principalKeyProperty.Name).CurrentValue;
+
+                    if (!Equals(trackedValue, keyValues[index]))
+                    {
+                        keyMatches = false;
+                        break;
+                    }
+                }
+
+                if (keyMatches)
+                {
+                    return trackedTenantEntity.TenantId;
                 }
             }
 
-            return await base.SaveChangesAsync(cancellationToken);
+            return null;
+        }
+
+        private void EnsurePrincipalTenant(
+            EntityEntry<ITenantEntity> entry,
+            IForeignKey foreignKey,
+            Guid? principalTenantId)
+        {
+            if (!principalTenantId.HasValue)
+            {
+                throw new InvalidOperationException(
+                    $"La relación hacia '{foreignKey.PrincipalEntityType.ClrType.Name}' no existe o no pertenece al tenant actual.");
+            }
+
+            if (principalTenantId.Value == entry.Entity.TenantId)
+            {
+                return;
+            }
+
+            _logger.LogWarning(
+                "Relación cross-tenant bloqueada. EntityType {EntityType}. PrincipalType {PrincipalType}. TenantId {TenantId}. PrincipalTenantId {PrincipalTenantId}.",
+                entry.Metadata.ClrType.Name,
+                foreignKey.PrincipalEntityType.ClrType.Name,
+                entry.Entity.TenantId,
+                principalTenantId.Value);
+
+            throw new InvalidOperationException(
+                $"La relación hacia '{foreignKey.PrincipalEntityType.ClrType.Name}' pertenece a otro tenant.");
+        }
+
+        private static async Task<Guid> ResolvePersistedTenantIdAsync(
+            EntityEntry<ITenantEntity> entry,
+            CancellationToken cancellationToken)
+        {
+            var databaseValues = await entry.GetDatabaseValuesAsync(cancellationToken);
+            if (databaseValues is null)
+                throw new DbUpdateConcurrencyException("No se pudo resolver el tenant persistido para la entidad.");
+
+            return (Guid)(databaseValues[nameof(ITenantEntity.TenantId)]
+                ?? throw new Exception("La entidad persistida no tiene TenantId."));
+        }
+
+        private static void EnsureSystemTenant(Guid candidateTenantId, ref Guid? systemTenantId)
+        {
+            if (candidateTenantId == Guid.Empty)
+                throw new Exception("Operación bloqueada: Tenant no resuelto");
+
+            if (!systemTenantId.HasValue)
+            {
+                systemTenantId = candidateTenantId;
+                return;
+            }
+
+            if (systemTenantId.Value != candidateTenantId)
+                throw new Exception("Operación bloqueada: contexto de sistema intentando mezclar tenants");
         }
 
 
@@ -168,7 +558,8 @@ namespace ProyectoIdentity.Datos
         public DbSet<PlanFeature> PlanFeatures { get; set; }
         public DbSet<Feature> Features { get; set; }
         public DbSet<Factura> Facturas { get; set; }
-        public DbSet<StripeEvento> StripeEventos { get; set; }
+        public DbSet<PagoSuscripcion> PagosSuscripcion { get; set; }
+        public DbSet<EventoPago> EventosPago { get; set; }
 
 
 

@@ -7,6 +7,7 @@ namespace LuxuryApp.Models.Calendar
 {
     public class Cita : ITenantEntity
     {
+        [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever]
         public Guid TenantId { get; set; }
         public int Id { get; set; }
 

@@ -5,13 +5,14 @@ namespace LuxuryApp.Models.Productos
 {
     public class Producto : ITenantEntity
     {
+        [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever]
         public Guid TenantId { get; set; }
         [Key]
         public int IdProducto { get; set; }
 
         [Required]
         [Display(Name = "Nombre")]
-        public string NombreProducto { get; set; }
+        public string NombreProducto { get; set; } = string.Empty;
 
         [Display(Name = "Detalle")]
         [StringLength(300)]

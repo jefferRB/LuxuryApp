@@ -8,6 +8,7 @@ namespace LuxuryApp.Models.Finanzas
 {
     public class Cobro : ITenantEntity
     {
+        [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever]
         public Guid TenantId { get; set; }
         [Key]
         public int IdCobro { get; set; }
@@ -18,7 +19,7 @@ namespace LuxuryApp.Models.Finanzas
 
         [Required]
         [Display(Name = "Nombre Cliente")]
-        public string NombreCliente { get; set; }
+        public string NombreCliente { get; set; } = string.Empty;
 
         [Required]
         [Display(Name = "Funcionario")]
@@ -34,7 +35,7 @@ namespace LuxuryApp.Models.Finanzas
 
         [Required]
         [Display(Name = "Método de Pago")]
-        public string MetodoPago { get; set; }
+        public string MetodoPago { get; set; } = string.Empty;
 
         [Display(Name = "Observaciones")]
         public string? Observaciones { get; set; }

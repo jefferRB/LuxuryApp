@@ -5,12 +5,12 @@ namespace LuxuryApp.Models.Finanzas
 {
     public class EgresoViewModel
     {
-        public Egreso Egreso { get; set; }
+        public Egreso Egreso { get; set; } = new();
 
         [ValidateNever]
-        public List<SelectListItem> MetodosPago { get; set; }
+        public List<SelectListItem> MetodosPago { get; set; } = new();
 
         [ValidateNever]
-        public List<SelectListItem> Categorias { get; set; }
+        public List<SelectListItem> Categorias { get; set; } = new();
     }
 }

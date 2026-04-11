@@ -41,7 +41,9 @@ namespace LuxuryApp.Controllers.Funcionarios
         // ========================================
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create(Puesto puesto)
+        public async Task<IActionResult> Create(
+            [Bind(nameof(Puesto.NombrePuesto) + "," + nameof(Puesto.Detalle))]
+            Puesto puesto)
         {
             bool existe = await _context.Puestos
                 .AnyAsync(p => p.NombrePuesto == puesto.NombrePuesto);
@@ -75,7 +77,8 @@ namespace LuxuryApp.Controllers.Funcionarios
         // ========================================
         public async Task<IActionResult> Edit(int id)
         {
-            var puesto = await _context.Puestos.FindAsync(id);
+            var puesto = await _context.Puestos
+                .FirstOrDefaultAsync(p => p.IdPuesto == id);
 
             if (puesto == null)
                 return NotFound();
@@ -88,7 +91,10 @@ namespace LuxuryApp.Controllers.Funcionarios
         // ========================================
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(int id, Puesto puesto)
+        public async Task<IActionResult> Edit(
+            int id,
+            [Bind(nameof(Puesto.IdPuesto) + "," + nameof(Puesto.NombrePuesto) + "," + nameof(Puesto.Detalle))]
+            Puesto puesto)
         {
             if (id != puesto.IdPuesto)
                 return NotFound();
@@ -97,7 +103,15 @@ namespace LuxuryApp.Controllers.Funcionarios
             {
                 try
                 {
-                    _context.Update(puesto);
+                    var puestoDb = await _context.Puestos
+                        .FirstOrDefaultAsync(p => p.IdPuesto == id);
+
+                    if (puestoDb == null)
+                        return NotFound();
+
+                    puestoDb.NombrePuesto = puesto.NombrePuesto;
+                    puestoDb.Detalle = puesto.Detalle;
+
                     await _context.SaveChangesAsync();
                 }
                 catch (DbUpdateConcurrencyException)
@@ -120,7 +134,8 @@ namespace LuxuryApp.Controllers.Funcionarios
         [HttpPost]
         public async Task<IActionResult> ToggleActivo(int id)
         {
-            var puesto = await _context.Puestos.FindAsync(id);
+            var puesto = await _context.Puestos
+                .FirstOrDefaultAsync(p => p.IdPuesto == id);
 
             if (puesto == null)
                 return NotFound();

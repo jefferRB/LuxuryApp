@@ -5,6 +5,7 @@ namespace LuxuryApp.Models.Finanzas
 {
     public class Categoria : ITenantEntity
     {
+        [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever]
         public Guid TenantId { get; set; }
         public int Id { get; set; }
 

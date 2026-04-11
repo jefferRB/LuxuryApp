@@ -206,6 +206,15 @@ namespace LuxuryApp.Controllers.Finanzas
             if (!ModelState.IsValid)
                 return await RecargarCombos(vm);
 
+            var funcionario = await _context.Funcionarios
+                .FirstOrDefaultAsync(f => f.IdFuncionario == vm.Cobro.FuncionarioId && f.Activo);
+
+            if (funcionario == null)
+            {
+                ModelState.AddModelError(nameof(vm.Cobro.FuncionarioId), "El funcionario seleccionado no existe o no pertenece al tenant actual.");
+                return await RecargarCombos(vm);
+            }
+
             // Normalizar fecha
             vm.Cobro.FechaCobro = new DateTime(
                 vm.Cobro.FechaCobro.Year,
@@ -223,15 +232,29 @@ namespace LuxuryApp.Controllers.Finanzas
             if (vm.Cobro.ProductoId.HasValue)
                 vm.Cobro.ServicioId = null;
 
+            if (vm.Cobro.ServicioId.HasValue)
+            {
+                var servicio = await _context.Servicios
+                    .FirstOrDefaultAsync(s => s.Id == vm.Cobro.ServicioId.Value && s.Activo);
+
+                if (servicio == null)
+                {
+                    ModelState.AddModelError(nameof(vm.Cobro.ServicioId), "El servicio seleccionado no existe o no pertenece al tenant actual.");
+                    return await RecargarCombos(vm);
+                }
+
+                vm.Cobro.Monto = servicio.Precio;
+            }
+
             // ===============================
             // VALIDAR STOCK SI ES PRODUCTO
             // ===============================
-            Producto producto = null;
+            Producto? producto = null;
 
             if (vm.Cobro.ProductoId.HasValue)
             {
                 producto = await _context.Productos
-                    .FirstOrDefaultAsync(p => p.IdProducto == vm.Cobro.ProductoId.Value);
+                    .FirstOrDefaultAsync(p => p.IdProducto == vm.Cobro.ProductoId.Value && p.Activo);
 
                 if (producto == null)
                 {
@@ -252,44 +275,49 @@ namespace LuxuryApp.Controllers.Finanzas
             // ===============================
             // GUARDAR COBRO
             // ===============================
-            _context.Cobros.Add(vm.Cobro);
-            await _context.SaveChangesAsync();
-
-            // ===============================
-            // REBAJAR INVENTARIO SI ES PRODUCTO
-            // ===============================
-            if (producto != null)
+            var executionStrategy = _context.Database.CreateExecutionStrategy();
+            await executionStrategy.ExecuteAsync(async () =>
             {
-                int stockAnterior = producto.CantidadProducto;
+                await using var transaction = await _context.Database.BeginTransactionAsync();
 
-                producto.CantidadProducto -= 1;
-
-                var detalle = new DetalleCobroProducto
-                {
-                    CobroId = vm.Cobro.IdCobro,
-                    ProductoId = producto.IdProducto,
-                    Cantidad = 1,
-                    PrecioUnitario = producto.PrecioProducto,
-                    Subtotal = producto.PrecioProducto
-                };
-
-                _context.DetalleCobroProductos.Add(detalle);
-
-                var movimiento = new MovimientoInventario
-                {
-                    ProductoId = producto.IdProducto,
-                    FechaMovimiento = DateTime.Now,
-                    TipoMovimiento = "VENTA",
-                    Cantidad = 1,
-                    StockAnterior = stockAnterior,
-                    StockNuevo = producto.CantidadProducto,
-                    Observacion = $"Venta en cobro #{vm.Cobro.IdCobro}"
-                };
-
-                _context.MovimientosInventario.Add(movimiento);
-
+                _context.Cobros.Add(vm.Cobro);
                 await _context.SaveChangesAsync();
-            }
+
+                if (producto != null)
+                {
+                    int stockAnterior = producto.CantidadProducto;
+
+                    producto.CantidadProducto -= 1;
+
+                    var detalle = new DetalleCobroProducto
+                    {
+                        CobroId = vm.Cobro.IdCobro,
+                        ProductoId = producto.IdProducto,
+                        Cantidad = 1,
+                        PrecioUnitario = producto.PrecioProducto,
+                        Subtotal = producto.PrecioProducto
+                    };
+
+                    _context.DetalleCobroProductos.Add(detalle);
+
+                    var movimiento = new MovimientoInventario
+                    {
+                        ProductoId = producto.IdProducto,
+                        FechaMovimiento = DateTime.Now,
+                        TipoMovimiento = "VENTA",
+                        Cantidad = 1,
+                        StockAnterior = stockAnterior,
+                        StockNuevo = producto.CantidadProducto,
+                        Observacion = $"Venta en cobro #{vm.Cobro.IdCobro}"
+                    };
+
+                    _context.MovimientosInventario.Add(movimiento);
+
+                    await _context.SaveChangesAsync();
+                }
+
+                await transaction.CommitAsync();
+            });
 
             return RedirectToAction(nameof(Index));
         }
@@ -493,9 +521,9 @@ namespace LuxuryApp.Controllers.Finanzas
 
                     string tipo = c.Servicio != null ? "Servicio" : "Producto";
 
-                    string detalle = c.Servicio != null
-                        ? c.Servicio.Nombre
-                        : c.Producto?.NombreProducto;
+                    string detalle = c.Servicio?.Nombre
+                        ?? c.Producto?.NombreProducto
+                        ?? "Sin detalle";
 
                     ws.Cell(fila, 4).Value = tipo;
                     ws.Cell(fila, 5).Value = detalle;

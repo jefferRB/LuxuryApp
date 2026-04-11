@@ -7,6 +7,7 @@ namespace LuxuryApp.Models.Funcionarios
     public class PagoFuncionario : ITenantEntity
     {
     
+        [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever]
         public Guid TenantId { get; set; }
         [Key]
         public int IdPago { get; set; }

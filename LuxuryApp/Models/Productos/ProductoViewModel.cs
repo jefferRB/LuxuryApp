@@ -2,6 +2,6 @@
 {
     public class ProductoViewModel
     {
-        public Producto Producto { get; set; }
+        public Producto Producto { get; set; } = new();
     }
 }

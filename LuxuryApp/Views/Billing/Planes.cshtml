@@ -1,7 +1,80 @@
-﻿<h1>💰 Planes</h1>
+﻿@model List<LuxuryApp.Models.SaaS.Plan>
 
-<p>Selecciona un plan:</p>
+@{
+    ViewData["Title"] = "Planes";
+}
 
-<a href="/Checkout/Comprar?plan=pro">Plan Pro</a>
-<br />
-<a href="/Checkout/Comprar?plan=premium">Plan Premium</a>
+<h2 class="text-center mb-4">Elige tu plan</h2>
+
+@if (TempData["BillingError"] is string billingError)
+{
+    <div class="alert alert-danger" role="alert">
+        @billingError
+    </div>
+}
+
+@if (Model.Any(plan => plan.EsPlanValidacion))
+{
+    <div class="alert alert-warning" role="alert">
+        El plan marcado como <strong>Validación</strong> está pensado para una prueba controlada de Tilopay con monto reducido.
+    </div>
+}
+
+<div class="row justify-content-center">
+
+    @foreach (var plan in Model)
+    {
+        var esEmpresarial = plan.Nombre == "Empresarial";
+        var esPlanValidacion = plan.EsPlanValidacion;
+
+        <div class="col-md-4 mb-4">
+            <div class="card shadow-lg border-0 @(esPlanValidacion ? "border-info" : esEmpresarial ? "border-warning" : "")">
+
+                <div class="card-body text-center">
+
+                    <h4 class="card-title">
+                        @plan.Nombre
+                        @if (esPlanValidacion)
+                        {
+                            <span class="badge bg-info text-dark ms-2">Validación</span>
+                        }
+                    </h4>
+
+                    <h2 class="my-3">
+                        ₡@plan.PrecioMensual
+                        <small class="text-muted">/mes</small>
+                    </h2>
+
+                    @if (esPlanValidacion)
+                    {
+                        <p class="text-muted small mb-3">
+                            Plan temporal para validar el primer cobro real con Tilopay y minimizar riesgo financiero.
+                        </p>
+                    }
+
+                    <ul class="list-unstyled mb-4">
+                        <li>
+                            👥 Funcionarios:
+                            @(plan.MaxFuncionarios.HasValue? plan.MaxFuncionarios.ToString() : "Ilimitados")
+                        </li>
+
+                        <li>📅 Agenda de citas</li>
+                        <li>📊 Dashboard básico</li>
+                        <li>💰 Control financiero</li>
+                    </ul>
+
+                    <form asp-action="Checkout" method="post">
+                        <input type="hidden" name="planId" value="@plan.Id" />
+
+                        <button class="btn @(esPlanValidacion ? "btn-info" : esEmpresarial ? "btn-warning" : "btn-dark") w-100">
+                            Elegir plan
+                        </button>
+                    </form>
+
+                </div>
+
+            </div>
+        </div>
+    }
+
+</div>

@@ -6,13 +6,14 @@ namespace LuxuryApp.Models.Funcionarios
     public class Funcionario : ITenantEntity
     {
     
+        [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever]
         public Guid TenantId { get; set; }
         [Key]
         public int IdFuncionario { get; set; }
 
         [Required]
         [MaxLength(100)]
-        public string Nombre { get; set; }
+        public string Nombre { get; set; } = string.Empty;
 
         [MaxLength(20)]
         public string? Telefono { get; set; }
@@ -23,7 +24,7 @@ namespace LuxuryApp.Models.Funcionarios
         public Puesto? Puesto { get; set; }
 
         [Required]
-        public string ColorCalendario { get; set; }
+        public string ColorCalendario { get; set; } = string.Empty;
 
         [Range(0, 100)]
         public decimal PorcentajeGanancia { get; set; }

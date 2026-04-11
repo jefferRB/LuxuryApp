@@ -2,6 +2,7 @@
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Productos;
+using LuxuryApp.Models.SaaS;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -48,8 +49,45 @@ namespace LuxuryApp.Controllers.Funcionarios
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create(Funcionario funcionario)
+        public async Task<IActionResult> Create(
+            [Bind(
+                nameof(Funcionario.Nombre) + "," +
+                nameof(Funcionario.Telefono) + "," +
+                nameof(Funcionario.IdPuesto) + "," +
+                nameof(Funcionario.ColorCalendario) + "," +
+                nameof(Funcionario.PorcentajeGanancia) + "," +
+                nameof(Funcionario.PorcentajeProducto) + "," +
+                nameof(Funcionario.FechaIngreso))]
+            Funcionario funcionario)
         {
+            // 🔥 1. Obtener suscripción
+            var suscripcion = HttpContext.Items["Suscripcion"] as Suscripcion;
+
+            if (suscripcion == null)
+            {
+                TempData["Error"] = "No tienes una suscripción activa.";
+                return RedirectToAction("Index");
+            }
+
+            var plan = suscripcion.Plan;
+            if (plan == null)
+            {
+                TempData["Error"] = "Tu suscripción no tiene un plan válido asociado.";
+                return RedirectToAction("Index");
+            }
+
+            // 🔥 2. Contar funcionarios actuales
+            var totalFuncionarios = await _context.Funcionarios.CountAsync();
+
+            // 🔥 3. Validar límite
+            if (plan.MaxFuncionarios.HasValue &&
+                totalFuncionarios >= plan.MaxFuncionarios.Value)
+            {
+                TempData["Error"] = $"Has alcanzado el límite de funcionarios de tu plan ({plan.Nombre}).";
+                return RedirectToAction("Index");
+            }
+
+            // 🔥 4. Validación existente
             bool nombreExiste = await _context.Funcionarios
                 .AnyAsync(f => f.Nombre == funcionario.Nombre);
 
@@ -58,9 +96,21 @@ namespace LuxuryApp.Controllers.Funcionarios
                 ModelState.AddModelError("Nombre", "Ya existe un funcionario con ese nombre.");
             }
 
-            if (!ModelState.IsValid)
-                return View(funcionario);
+            var puesto = await _context.Puestos
+                .FirstOrDefaultAsync(p => p.IdPuesto == funcionario.IdPuesto && p.Activo);
 
+            if (puesto == null)
+            {
+                ModelState.AddModelError(nameof(funcionario.IdPuesto), "El puesto seleccionado no existe o no pertenece al tenant actual.");
+            }
+
+            if (!ModelState.IsValid)
+            {
+                await CargarPuestosAsync();
+                return View(funcionario);
+            }
+
+            funcionario.Activo = true;
             _context.Funcionarios.Add(funcionario);
             await _context.SaveChangesAsync();
 
@@ -78,26 +128,46 @@ namespace LuxuryApp.Controllers.Funcionarios
             if (funcionario == null)
                 return NotFound();
 
-            ViewBag.Puestos = await _context.Puestos
-                .Where(p => p.Activo)
-                .OrderBy(p => p.NombrePuesto)
-                .ToListAsync();
+            await CargarPuestosAsync();
 
             return View(funcionario);
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(Funcionario funcionario)
+        public async Task<IActionResult> Edit(
+            [Bind(
+                nameof(Funcionario.IdFuncionario) + "," +
+                nameof(Funcionario.Nombre) + "," +
+                nameof(Funcionario.Telefono) + "," +
+                nameof(Funcionario.IdPuesto) + "," +
+                nameof(Funcionario.ColorCalendario) + "," +
+                nameof(Funcionario.PorcentajeGanancia) + "," +
+                nameof(Funcionario.PorcentajeProducto) + "," +
+                nameof(Funcionario.FechaIngreso))]
+            Funcionario funcionario)
         {
             if (!ModelState.IsValid)
+            {
+                await CargarPuestosAsync();
                 return View(funcionario);
+            }
 
             var funcionarioDB = await _context.Funcionarios
                 .FirstOrDefaultAsync(f => f.IdFuncionario == funcionario.IdFuncionario);
 
             if (funcionarioDB == null)
                 return NotFound();
+
+            var puesto = await _context.Puestos
+                .FirstOrDefaultAsync(p => p.IdPuesto == funcionario.IdPuesto && p.Activo);
+
+            if (puesto == null)
+            {
+                ModelState.AddModelError(nameof(funcionario.IdPuesto), "El puesto seleccionado no existe o no pertenece al tenant actual.");
+                await CargarPuestosAsync();
+                return View(funcionario);
+            }
 
             funcionarioDB.Nombre = funcionario.Nombre;
             funcionarioDB.Telefono = funcionario.Telefono;
@@ -345,46 +415,63 @@ namespace LuxuryApp.Controllers.Funcionarios
     DateTime finSemana,
     string? observacion)
         {
-            var pago = new PagoFuncionario
-            {
-                FuncionarioId = funcionarioId,
-                MontoPagado = monto,
-                InicioSemana = inicioSemana,
-                FinSemana = finSemana,
-                FechaPago = DateTime.Now,
-                Observacion = observacion
-            };
-
-            _context.PagosFuncionarios.Add(pago);
-
-            await _context.SaveChangesAsync();
-
-            // Obtener funcionario
             var funcionario = await _context.Funcionarios
                 .FirstOrDefaultAsync(f => f.IdFuncionario == funcionarioId);
 
-            // Obtener categoria
+            if (funcionario == null)
+            {
+                return NotFound();
+            }
+
             var categoria = await _context.Categorias
                 .FirstOrDefaultAsync(c => c.Nombre == "Pago Funcionarios");
 
-            if (funcionario != null && categoria != null)
+            var executionStrategy = _context.Database.CreateExecutionStrategy();
+            await executionStrategy.ExecuteAsync(async () =>
             {
-                var egreso = new Egreso
-                {
-                    FechaEgreso = DateTime.Now,
-                    CategoriaId = categoria.Id,
-                    Monto = monto,
-                    MetodoPago = "EFECTIVO",
+                await using var transaction = await _context.Database.BeginTransactionAsync();
 
-                    Detalle = $"Pago a {funcionario.Nombre} - Semana {inicioSemana:dd/MM} al {finSemana:dd/MM}"
+                var pago = new PagoFuncionario
+                {
+                    FuncionarioId = funcionarioId,
+                    MontoPagado = monto,
+                    InicioSemana = inicioSemana,
+                    FinSemana = finSemana,
+                    FechaPago = DateTime.Now,
+                    Observacion = observacion
                 };
 
-                _context.Egresos.Add(egreso);
+                _context.PagosFuncionarios.Add(pago);
 
                 await _context.SaveChangesAsync();
-            }
+
+                if (categoria != null)
+                {
+                    var egreso = new Egreso
+                    {
+                        FechaEgreso = DateTime.Now,
+                        CategoriaId = categoria.Id,
+                        Monto = monto,
+                        MetodoPago = "EFECTIVO",
+                        Detalle = $"Pago a {funcionario.Nombre} - Semana {inicioSemana:dd/MM} al {finSemana:dd/MM}"
+                    };
+
+                    _context.Egresos.Add(egreso);
+                    await _context.SaveChangesAsync();
+                }
+
+                await transaction.CommitAsync();
+            });
 
             return RedirectToAction("PagosSemana", new { fecha = inicioSemana });
+        }
+
+        private async Task CargarPuestosAsync()
+        {
+            ViewBag.Puestos = await _context.Puestos
+                .Where(p => p.Activo)
+                .OrderBy(p => p.NombrePuesto)
+                .ToListAsync();
         }
 
 

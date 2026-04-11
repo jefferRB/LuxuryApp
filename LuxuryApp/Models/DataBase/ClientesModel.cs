@@ -6,11 +6,12 @@ namespace LuxuryApp.Models.DataBase
 {
     public class ClientesModel : ITenantEntity
     {
+        [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever]
         public Guid TenantId { get; set; }
         [Key]
-        public string NumeroTelefono { get; set; }
-        public string CorreoElectronico { get; set; }
-        public string Nombre { get; set; }
+        public string NumeroTelefono { get; set; } = string.Empty;
+        public string CorreoElectronico { get; set; } = string.Empty;
+        public string Nombre { get; set; } = string.Empty;
         public int FrecuenciaVisita { get; set; }
         public DateTime FechaUltimaVisita { get; set; }
 

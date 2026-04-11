@@ -1,10 +1,12 @@
-﻿using LuxuryApp.Models.Finanzas;
+using LuxuryApp.Models.Finanzas;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Controllers.Finanzas
 {
+    [Authorize(Roles = "Administrador")]
     public class ServiciosController : Controller
     {
         private readonly ApplicationDbContext _context;
@@ -14,7 +16,6 @@ namespace LuxuryApp.Controllers.Finanzas
             _context = context;
         }
 
-        // LISTAR SERVICIOS
         public async Task<IActionResult> Index()
         {
             var servicios = await _context.Servicios
@@ -24,20 +25,16 @@ namespace LuxuryApp.Controllers.Finanzas
             return View(servicios);
         }
 
-        
-        // CREAR SERVICIO (GET)
-       
         public IActionResult Create()
         {
             return View();
         }
 
-
-        // CREAR SERVICIO (POST)
-
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create(Servicio servicio)
+        public async Task<IActionResult> Create(
+            [Bind(nameof(Servicio.Nombre) + "," + nameof(Servicio.Precio) + "," + nameof(Servicio.DuracionMinutos))]
+            Servicio servicio)
         {
             if (ModelState.IsValid)
             {
@@ -46,7 +43,6 @@ namespace LuxuryApp.Controllers.Finanzas
                 _context.Add(servicio);
                 await _context.SaveChangesAsync();
 
-                // 👉 Si viene del modal (AJAX)
                 if (Request.Headers["X-Requested-With"] == "XMLHttpRequest")
                 {
                     return Ok();
@@ -55,7 +51,6 @@ namespace LuxuryApp.Controllers.Finanzas
                 return RedirectToAction(nameof(Index));
             }
 
-            // 👉 Si AJAX devolver partial
             if (Request.Headers["X-Requested-With"] == "XMLHttpRequest")
             {
                 return PartialView("_FormServicio", servicio);
@@ -64,13 +59,10 @@ namespace LuxuryApp.Controllers.Finanzas
             return View(servicio);
         }
 
-
-
-        // EDITAR SERVICIO (GET)
-
         public async Task<IActionResult> Edit(int id)
         {
-            var servicio = await _context.Servicios.FindAsync(id);
+            var servicio = await _context.Servicios
+                .FirstOrDefaultAsync(s => s.Id == id);
 
             if (servicio == null)
                 return NotFound();
@@ -78,12 +70,12 @@ namespace LuxuryApp.Controllers.Finanzas
             return View(servicio);
         }
 
-        
-        // EDITAR SERVICIO (POST)
-        
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(int id, Servicio servicio)
+        public async Task<IActionResult> Edit(
+            int id,
+            [Bind(nameof(Servicio.Id) + "," + nameof(Servicio.Nombre) + "," + nameof(Servicio.Precio) + "," + nameof(Servicio.DuracionMinutos))]
+            Servicio servicio)
         {
             if (id != servicio.Id)
                 return NotFound();
@@ -92,7 +84,8 @@ namespace LuxuryApp.Controllers.Finanzas
             {
                 try
                 {
-                    var servicioDb = await _context.Servicios.FindAsync(id);
+                    var servicioDb = await _context.Servicios
+                        .FirstOrDefaultAsync(s => s.Id == id);
 
                     if (servicioDb == null)
                         return NotFound();
@@ -107,8 +100,8 @@ namespace LuxuryApp.Controllers.Finanzas
                 {
                     if (!_context.Servicios.Any(s => s.Id == servicio.Id))
                         return NotFound();
-                    else
-                        throw;
+
+                    throw;
                 }
 
                 return RedirectToAction(nameof(Index));
@@ -117,13 +110,11 @@ namespace LuxuryApp.Controllers.Finanzas
             return View(servicio);
         }
 
-        
-        // ACTIVAR / DESACTIVAR
-        
         [HttpPost]
         public async Task<IActionResult> ToggleActivo(int id)
         {
-            var servicio = await _context.Servicios.FindAsync(id);
+            var servicio = await _context.Servicios
+                .FirstOrDefaultAsync(s => s.Id == id);
 
             if (servicio == null)
                 return NotFound();
@@ -135,9 +126,6 @@ namespace LuxuryApp.Controllers.Finanzas
             return Ok();
         }
 
-        
-        // OBTENER PRECIO (AJAX)
-        
         [HttpGet]
         public async Task<JsonResult> ObtenerPrecio(int id)
         {
@@ -163,16 +151,15 @@ namespace LuxuryApp.Controllers.Finanzas
             return PartialView("~/Views/Servicios/_FormServicio.cshtml", new Servicio());
         }
 
-
         [HttpPost]
         public async Task<IActionResult> Eliminar(int id)
         {
-            var servicio = await _context.Servicios.FindAsync(id);
+            var servicio = await _context.Servicios
+                .FirstOrDefaultAsync(s => s.Id == id);
 
             if (servicio == null)
                 return NotFound();
 
-            // 🔎 Validar si tiene cobros asociados
             var tieneCobros = await _context.Cobros
                 .AnyAsync(c => c.ServicioId == id);
 
@@ -181,10 +168,8 @@ namespace LuxuryApp.Controllers.Finanzas
                 return BadRequest("No se puede eliminar este servicio porque tiene cobros asociados.");
             }
 
-           
             var tieneCitas = await _context.Citas
                 .AnyAsync(c => c.ServicioId == id);
-       
 
             if (tieneCitas)
             {
@@ -196,6 +181,5 @@ namespace LuxuryApp.Controllers.Finanzas
 
             return Ok();
         }
-
     }
 }

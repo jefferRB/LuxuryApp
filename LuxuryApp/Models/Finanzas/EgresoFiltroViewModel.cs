@@ -5,9 +5,9 @@
         public string VistaTiempo { get; set; } = "dia";
         // dia / semana / mes / año
 
-        public string MetodoPago { get; set; }
+        public string MetodoPago { get; set; } = string.Empty;
 
-        public string Categoria { get; set; }
+        public string Categoria { get; set; } = string.Empty;
 
         public DateTime? FechaInicio { get; set; }
 

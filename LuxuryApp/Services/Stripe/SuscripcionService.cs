@@ -1,5 +1,6 @@
-﻿using LuxuryApp.Models.SaaS;
+using LuxuryApp.Models.SaaS;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Services.SaaS
@@ -7,40 +8,64 @@ namespace LuxuryApp.Services.SaaS
     public class SuscripcionService
     {
         private readonly ApplicationDbContext _db;
+        private readonly IMemoryCache _cache;
         private readonly ILogger<SuscripcionService> _logger;
 
-        public SuscripcionService(ApplicationDbContext db, ILogger<SuscripcionService> logger)
+        public SuscripcionService(
+            ApplicationDbContext db,
+            IMemoryCache cache,
+            ILogger<SuscripcionService> logger)
         {
             _db = db;
+            _cache = cache;
             _logger = logger;
         }
 
-        // ================================
-        // 🔹 ACTIVAR SUSCRIPCIÓN
-        // ================================
         public async Task ActivarSuscripcionAsync(
             Guid tenantId,
             Guid planId,
-            string subscriptionId,
-            string customerId,
-            DateTime? trialEnd = null)
+            PaymentProviderType provider,
+            string? providerCustomerId,
+            string? providerSubscriptionId,
+            string? providerPaymentLinkId,
+            string? providerTransactionId,
+            string? providerReference,
+            DateTime? trialEnd = null,
+            string? motivo = null,
+            CancellationToken cancellationToken = default)
         {
+            using var scope = _logger.BeginScope(new Dictionary<string, object?>
+            {
+                ["TenantId"] = tenantId,
+                ["PlanId"] = planId,
+                ["Provider"] = provider,
+                ["ProviderReference"] = providerReference
+            });
+
             var suscripcion = await _db.Suscripciones
                 .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(s => s.TenantId == tenantId);
+                .FirstOrDefaultAsync(s => s.TenantId == tenantId, cancellationToken);
 
-            if (suscripcion == null)
+            var nuevoEstado = trialEnd.HasValue ? EstadoSuscripcion.Trial : EstadoSuscripcion.Activa;
+
+            if (suscripcion is null)
             {
                 suscripcion = new Suscripcion
                 {
                     Id = Guid.NewGuid(),
                     TenantId = tenantId,
                     PlanId = planId,
-                    StripeSubscriptionId = subscriptionId,
-                    StripeCustomerId = customerId,
-                    Estado = trialEnd.HasValue ? EstadoSuscripcion.Trial : EstadoSuscripcion.Activa,
+                    Proveedor = provider,
+                    ProviderCustomerId = providerCustomerId,
+                    ProviderSubscriptionId = providerSubscriptionId,
+                    ProviderPaymentLinkId = providerPaymentLinkId,
+                    ProviderTransactionId = providerTransactionId,
+                    ProviderReference = providerReference,
+                    Estado = nuevoEstado,
                     FechaInicio = DateTime.UtcNow,
                     FechaTrialFin = trialEnd,
+                    FechaUltimaActualizacionUtc = DateTime.UtcNow,
+                    MotivoEstado = motivo,
                     CancelAtPeriodEnd = false
                 };
 
@@ -49,120 +74,214 @@ namespace LuxuryApp.Services.SaaS
             else
             {
                 var planAnterior = suscripcion.PlanId;
+                var estadoAnterior = suscripcion.Estado;
 
                 suscripcion.PlanId = planId;
-                suscripcion.StripeSubscriptionId = subscriptionId;
-                suscripcion.StripeCustomerId = customerId;
-                suscripcion.Estado = EstadoSuscripcion.Activa;
+                suscripcion.Proveedor = provider;
+                suscripcion.ProviderCustomerId = providerCustomerId ?? suscripcion.ProviderCustomerId;
+                suscripcion.ProviderSubscriptionId = providerSubscriptionId ?? suscripcion.ProviderSubscriptionId;
+                suscripcion.ProviderPaymentLinkId = providerPaymentLinkId ?? suscripcion.ProviderPaymentLinkId;
+                suscripcion.ProviderTransactionId = providerTransactionId ?? suscripcion.ProviderTransactionId;
+                suscripcion.ProviderReference = providerReference ?? suscripcion.ProviderReference;
+                suscripcion.Estado = nuevoEstado;
+                suscripcion.FechaTrialFin = trialEnd;
+                suscripcion.FechaFin = null;
+                suscripcion.CancelAtPeriodEnd = false;
+                suscripcion.FechaUltimaActualizacionUtc = DateTime.UtcNow;
+                suscripcion.MotivoEstado = motivo;
 
-                // 🔥 HISTORIAL CORRECTO
-                _db.HistorialSuscripciones.Add(new HistorialSuscripcion
+                if (planAnterior != planId || estadoAnterior != nuevoEstado)
+                {
+                    _db.HistorialSuscripciones.Add(new HistorialSuscripcion
+                    {
+                        Id = Guid.NewGuid(),
+                        SuscripcionId = suscripcion.Id,
+                        PlanIdAnterior = planAnterior,
+                        PlanIdNuevo = planId,
+                        FechaCambio = DateTime.UtcNow,
+                        Proveedor = provider,
+                        Motivo = motivo ?? "Actualización de suscripción"
+                    });
+                }
+            }
+
+            await _db.SaveChangesAsync(cancellationToken);
+            InvalidateSubscriptionCache(tenantId);
+
+            _logger.LogInformation(
+                "Suscripción activada o actualizada correctamente. Estado {Estado}.",
+                suscripcion.Estado);
+        }
+
+        public async Task RegistrarPagoConfirmadoAsync(
+            Guid tenantId,
+            Guid planId,
+            Guid? pagoSuscripcionId,
+            PaymentProviderType provider,
+            string providerReference,
+            string? providerTransactionId,
+            string? providerAuthorizationCode,
+            decimal monto,
+            string moneda,
+            string? motivo = null,
+            CancellationToken cancellationToken = default)
+        {
+            var suscripcion = await EnsureSubscriptionForPaymentAsync(
+                tenantId,
+                planId,
+                provider,
+                providerReference,
+                providerTransactionId,
+                cancellationToken);
+
+            var facturaExiste = await _db.Facturas
+                .IgnoreQueryFilters()
+                .AnyAsync(
+                    factura => factura.Proveedor == provider &&
+                    (
+                        (!string.IsNullOrWhiteSpace(providerTransactionId) &&
+                         factura.ProviderTransactionId == providerTransactionId) ||
+                        factura.ProviderReference == providerReference
+                    ),
+                    cancellationToken);
+
+            if (!facturaExiste)
+            {
+                _db.Facturas.Add(new Factura
                 {
                     Id = Guid.NewGuid(),
+                    TenantId = tenantId,
                     SuscripcionId = suscripcion.Id,
-                    PlanIdAnterior = planAnterior,
-                    PlanIdNuevo = planId,
-                    FechaCambio = DateTime.UtcNow
+                    PagoSuscripcionId = pagoSuscripcionId,
+                    Proveedor = provider,
+                    ProviderInvoiceId = providerReference,
+                    ProviderTransactionId = providerTransactionId,
+                    ProviderReference = providerReference,
+                    Monto = monto,
+                    Moneda = moneda,
+                    Estado = "Pagado",
+                    Fecha = DateTime.UtcNow
                 });
             }
 
-            await _db.SaveChangesAsync();
+            suscripcion.Estado = EstadoSuscripcion.Activa;
+            suscripcion.ProviderTransactionId = providerTransactionId ?? suscripcion.ProviderTransactionId;
+            suscripcion.ProviderReference = providerReference;
+            suscripcion.FechaUltimoPagoUtc = DateTime.UtcNow;
+            suscripcion.FechaUltimaActualizacionUtc = DateTime.UtcNow;
+            suscripcion.MotivoEstado = motivo ?? "Pago confirmado";
+            suscripcion.CancelAtPeriodEnd = false;
 
-            _logger.LogInformation("✅ Suscripción activada | Tenant: {TenantId}", tenantId);
+            await _db.SaveChangesAsync(cancellationToken);
+            InvalidateSubscriptionCache(tenantId);
+
+            _logger.LogInformation("Pago confirmado registrado correctamente.");
         }
 
-        // ================================
-        // 🔹 REGISTRAR PAGO
-        // ================================
-        public async Task RegistrarPagoAsync(
-          string subscriptionId,
-          string stripeInvoiceId,
-          decimal monto,
-          string moneda)
+        public async Task RegistrarPagoFallidoAsync(
+            Guid tenantId,
+            Guid planId,
+            Guid? pagoSuscripcionId,
+            PaymentProviderType provider,
+            string providerReference,
+            string? providerTransactionId,
+            decimal monto,
+            string moneda,
+            string? motivo = null,
+            CancellationToken cancellationToken = default)
         {
             var suscripcion = await _db.Suscripciones
                 .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(s => s.StripeSubscriptionId == subscriptionId);
+                .FirstOrDefaultAsync(s => s.TenantId == tenantId, cancellationToken);
 
-            if (suscripcion == null) return;
-
-            // 🔥 PROTECCIÓN ANTI DUPLICADO
-            var yaExiste = await _db.Facturas
-                .AnyAsync(f => f.StripeInvoiceId == stripeInvoiceId);
-
-            if (yaExiste)
+            if (suscripcion is null)
             {
-                _logger.LogWarning("⚠️ Factura ya registrada | InvoiceId: {InvoiceId}", stripeInvoiceId);
+                suscripcion = new Suscripcion
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = tenantId,
+                    PlanId = planId,
+                    Proveedor = provider,
+                    ProviderReference = providerReference,
+                    ProviderTransactionId = providerTransactionId,
+                    Estado = EstadoSuscripcion.Fallida,
+                    FechaInicio = DateTime.UtcNow,
+                    FechaUltimaActualizacionUtc = DateTime.UtcNow,
+                    MotivoEstado = motivo ?? "Pago fallido"
+                };
+
+                _db.Suscripciones.Add(suscripcion);
+            }
+            else
+            {
+                suscripcion.PlanId = planId;
+                suscripcion.Proveedor = provider;
+                suscripcion.ProviderReference = providerReference;
+                suscripcion.ProviderTransactionId = providerTransactionId ?? suscripcion.ProviderTransactionId;
+                suscripcion.Estado = suscripcion.Estado == EstadoSuscripcion.Activa || suscripcion.Estado == EstadoSuscripcion.Trial
+                    ? EstadoSuscripcion.Morosa
+                    : EstadoSuscripcion.Fallida;
+                suscripcion.FechaUltimaActualizacionUtc = DateTime.UtcNow;
+                suscripcion.MotivoEstado = motivo ?? "Pago fallido";
+            }
+
+            var facturaExiste = await _db.Facturas
+                .IgnoreQueryFilters()
+                .AnyAsync(
+                    factura => factura.Proveedor == provider &&
+                    (
+                        (!string.IsNullOrWhiteSpace(providerTransactionId) &&
+                         factura.ProviderTransactionId == providerTransactionId) ||
+                        factura.ProviderReference == providerReference
+                    ),
+                    cancellationToken);
+
+            if (!facturaExiste)
+            {
+                _db.Facturas.Add(new Factura
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = tenantId,
+                    SuscripcionId = suscripcion.Id,
+                    PagoSuscripcionId = pagoSuscripcionId,
+                    Proveedor = provider,
+                    ProviderInvoiceId = providerReference,
+                    ProviderTransactionId = providerTransactionId,
+                    ProviderReference = providerReference,
+                    Monto = monto,
+                    Moneda = moneda,
+                    Estado = "Fallido",
+                    Fecha = DateTime.UtcNow
+                });
+            }
+
+            await _db.SaveChangesAsync(cancellationToken);
+            InvalidateSubscriptionCache(tenantId);
+
+            _logger.LogWarning("Pago fallido registrado. Estado de suscripción actualizado a {Estado}.", suscripcion.Estado);
+        }
+
+        public async Task CancelarSuscripcionAsync(
+            string providerSubscriptionId,
+            bool cancelAtPeriodEnd,
+            CancellationToken cancellationToken = default)
+        {
+            var suscripcion = await _db.Suscripciones
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(
+                    s => s.ProviderSubscriptionId == providerSubscriptionId,
+                    cancellationToken);
+
+            if (suscripcion is null)
+            {
                 return;
             }
 
-            // 🔥 CREAR FACTURA
-            _db.Facturas.Add(new Factura
-            {
-                Id = Guid.NewGuid(),
-                TenantId = suscripcion.TenantId,
-                StripeInvoiceId = stripeInvoiceId,
-                Monto = monto,
-                Moneda = moneda,
-                Estado = "Pagado",
-                Fecha = DateTime.UtcNow
-            });
-
-            // 🔥 RECUPERAR SI ESTABA MOROSA
-            if (suscripcion.Estado == EstadoSuscripcion.Morosa)
-                suscripcion.Estado = EstadoSuscripcion.Activa;
-
-            await _db.SaveChangesAsync();
-
-            _logger.LogInformation("💰 Pago registrado correctamente");
-        }
-
-        // ================================
-        // 🔹 PAGO FALLIDO
-        // ================================
-        public async Task MarcarPagoFallidoAsync(
-            string subscriptionId,
-            string stripeInvoiceId,
-            decimal monto,
-            string moneda)
-        {
-            var suscripcion = await _db.Suscripciones
-                .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(s => s.StripeSubscriptionId == subscriptionId);
-
-            if (suscripcion == null) return;
-
-            // 🔥 FACTURA FALLIDA
-            _db.Facturas.Add(new Factura
-            {
-                Id = Guid.NewGuid(),
-                TenantId = suscripcion.TenantId,
-                StripeInvoiceId = stripeInvoiceId,
-                Monto = monto,
-                Moneda = moneda,
-                Estado = "Fallido",
-                Fecha = DateTime.UtcNow
-            });
-
-            suscripcion.Estado = EstadoSuscripcion.Morosa;
-
-            await _db.SaveChangesAsync();
-
-            _logger.LogWarning("⚠️ Pago fallido → suscripción morosa");
-        }
-
-        // ================================
-        // 🔹 CANCELAR SUSCRIPCIÓN
-        // ================================
-        public async Task CancelarSuscripcionAsync(string subscriptionId, bool cancelAtPeriodEnd)
-        {
-            var suscripcion = await _db.Suscripciones
-                .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(s => s.StripeSubscriptionId == subscriptionId);
-
-            if (suscripcion == null) return;
-
             suscripcion.CancelAtPeriodEnd = cancelAtPeriodEnd;
+            suscripcion.FechaUltimaActualizacionUtc = DateTime.UtcNow;
+            suscripcion.MotivoEstado = cancelAtPeriodEnd
+                ? "Cancelación programada"
+                : "Cancelación inmediata";
 
             if (!cancelAtPeriodEnd)
             {
@@ -170,36 +289,155 @@ namespace LuxuryApp.Services.SaaS
                 suscripcion.FechaFin = DateTime.UtcNow;
             }
 
-            await _db.SaveChangesAsync();
-
-            _logger.LogWarning("🛑 Suscripción cancelada");
+            await _db.SaveChangesAsync(cancellationToken);
+            InvalidateSubscriptionCache(suscripcion.TenantId);
         }
 
         public async Task ActualizarEstadoDesdeStripeAsync(
-            string subscriptionId,
+            string providerSubscriptionId,
             EstadoSuscripcion nuevoEstado,
-            bool cancelAtPeriodEnd)
+            bool cancelAtPeriodEnd,
+            CancellationToken cancellationToken = default)
         {
             var suscripcion = await _db.Suscripciones
                 .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(s => s.StripeSubscriptionId == subscriptionId);
+                .FirstOrDefaultAsync(
+                    s => s.ProviderSubscriptionId == providerSubscriptionId,
+                    cancellationToken);
 
-            if (suscripcion == null) return;
+            if (suscripcion is null)
+            {
+                return;
+            }
 
             suscripcion.Estado = nuevoEstado;
             suscripcion.CancelAtPeriodEnd = cancelAtPeriodEnd;
+            suscripcion.FechaUltimaActualizacionUtc = DateTime.UtcNow;
+            suscripcion.MotivoEstado = "Actualización de estado desde proveedor externo";
 
             if (nuevoEstado == EstadoSuscripcion.Cancelada)
             {
                 suscripcion.FechaFin = DateTime.UtcNow;
             }
 
-            await _db.SaveChangesAsync();
-
-            _logger.LogInformation(
-                "🔄 Estado actualizado desde Stripe | Sub: {SubscriptionId} | Estado: {Estado}",
-                subscriptionId, nuevoEstado);
+            await _db.SaveChangesAsync(cancellationToken);
+            InvalidateSubscriptionCache(suscripcion.TenantId);
         }
 
+        // Compatibilidad razonable con el código legado de Stripe.
+        public Task ActivarSuscripcionAsync(
+            Guid tenantId,
+            Guid planId,
+            string subscriptionId,
+            string customerId,
+            DateTime? trialEnd = null) =>
+            ActivarSuscripcionAsync(
+                tenantId,
+                planId,
+                PaymentProviderType.Stripe,
+                customerId,
+                subscriptionId,
+                providerPaymentLinkId: null,
+                providerTransactionId: null,
+                providerReference: subscriptionId,
+                trialEnd: trialEnd,
+                motivo: "Activación desde Stripe");
+
+        public async Task RegistrarPagoAsync(
+            string subscriptionId,
+            string invoiceId,
+            decimal monto,
+            string moneda)
+        {
+            var suscripcion = await _db.Suscripciones
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(s => s.ProviderSubscriptionId == subscriptionId);
+
+            if (suscripcion is null)
+            {
+                return;
+            }
+
+            await RegistrarPagoConfirmadoAsync(
+                suscripcion.TenantId,
+                suscripcion.PlanId,
+                pagoSuscripcionId: null,
+                provider: PaymentProviderType.Stripe,
+                providerReference: invoiceId,
+                providerTransactionId: invoiceId,
+                providerAuthorizationCode: null,
+                monto: monto,
+                moneda: moneda,
+                motivo: "Pago confirmado desde Stripe");
+        }
+
+        public async Task MarcarPagoFallidoAsync(
+            string subscriptionId,
+            string invoiceId,
+            decimal monto,
+            string moneda)
+        {
+            var suscripcion = await _db.Suscripciones
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(s => s.ProviderSubscriptionId == subscriptionId);
+
+            if (suscripcion is null)
+            {
+                return;
+            }
+
+            await RegistrarPagoFallidoAsync(
+                suscripcion.TenantId,
+                suscripcion.PlanId,
+                pagoSuscripcionId: null,
+                provider: PaymentProviderType.Stripe,
+                providerReference: invoiceId,
+                providerTransactionId: invoiceId,
+                monto: monto,
+                moneda: moneda,
+                motivo: "Pago fallido desde Stripe");
+        }
+
+        private async Task<Suscripcion> EnsureSubscriptionForPaymentAsync(
+            Guid tenantId,
+            Guid planId,
+            PaymentProviderType provider,
+            string providerReference,
+            string? providerTransactionId,
+            CancellationToken cancellationToken)
+        {
+            var suscripcion = await _db.Suscripciones
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(s => s.TenantId == tenantId, cancellationToken);
+
+            if (suscripcion is not null)
+            {
+                return suscripcion;
+            }
+
+            suscripcion = new Suscripcion
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                PlanId = planId,
+                Proveedor = provider,
+                ProviderReference = providerReference,
+                ProviderTransactionId = providerTransactionId,
+                Estado = EstadoSuscripcion.Pendiente,
+                FechaInicio = DateTime.UtcNow,
+                FechaUltimaActualizacionUtc = DateTime.UtcNow,
+                MotivoEstado = "Suscripción creada desde confirmación de pago"
+            };
+
+            _db.Suscripciones.Add(suscripcion);
+            await _db.SaveChangesAsync(cancellationToken);
+
+            return suscripcion;
+        }
+
+        private void InvalidateSubscriptionCache(Guid tenantId)
+        {
+            _cache.Remove($"suscripcion_{tenantId}");
+        }
     }
 }

@@ -1,30 +1,30 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using LuxuryApp.Services.Tenant;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 namespace LuxuryApp.Services
 {
     public class VisitasBackgroundService : BackgroundService
     {
-        private readonly IServiceScopeFactory _scopeFactory;
+        private readonly TenantExecutionService _tenantExecutionService;
 
-        public VisitasBackgroundService(IServiceScopeFactory scopeFactory)
+        public VisitasBackgroundService(TenantExecutionService tenantExecutionService)
         {
-            _scopeFactory = scopeFactory;
+            _tenantExecutionService = tenantExecutionService;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                using (var scope = _scopeFactory.CreateScope())
-                {
-                    var servicio = scope.ServiceProvider
-                        .GetRequiredService<VisitasAutomaticasService>();
+                await _tenantExecutionService.RunForEachActiveTenantAsync(
+                    async (serviceProvider, _, cancellationToken) =>
+                    {
+                        var servicio = serviceProvider.GetRequiredService<VisitasAutomaticasService>();
+                        await servicio.ProcesarCitasFinalizadas(cancellationToken);
+                    },
+                    stoppingToken);
 
-                    await servicio.ProcesarCitasFinalizadas();
-                }
-
-                // 🔥 Corre cada 5 minutos
                 await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
             }
         }

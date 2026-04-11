@@ -9,24 +9,24 @@ namespace LuxuryApp.Models.SaaS
 
         [Required]
         [MaxLength(50)]
-        public string Nombre { get; set; } // Free, Pro, Premium
+        public string Nombre { get; set; } = string.Empty;
 
         [MaxLength(100)]
-        public string StripeProductId { get; set; }
+        public string? ProviderProductId { get; set; }
 
         [MaxLength(100)]
-        public string StripePriceId { get; set; }
+        public string? ProviderPriceId { get; set; }
 
         [MaxLength(100)]
-        public string Moneda { get; set; }
-
+        public string Moneda { get; set; } = "CRC";
 
         [Required]
         public decimal PrecioMensual { get; set; }
-
         public bool Activo { get; set; } = true;
+        public bool EsPlanValidacion { get; set; } = false;
+        public int? MaxFuncionarios { get; set; } // null = ilimitado
 
         // Navegación
-        public ICollection<PlanFeature> PlanFeatures { get; set; }
+        public ICollection<PlanFeature> PlanFeatures { get; set; } = new List<PlanFeature>();
     }
 }

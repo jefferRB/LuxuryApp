@@ -17,7 +17,7 @@ namespace LuxuryApp.Models.Calendar
 
         public bool Duplicar { get; set; }
 
-        public List<string> FechasDuplicadas { get; set; }
+        public List<string> FechasDuplicadas { get; set; } = new();
 
     }
 }

@@ -1,47 +1,78 @@
 using LuxuryApp.Datos;
 using LuxuryApp.Emails;
 using LuxuryApp.Models.Identity;
+using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services;
 using LuxuryApp.Services.DataBase;
 using LuxuryApp.Services.Identity;
+using LuxuryApp.Services.Payments;
+using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Tenant;
+using LuxuryApp.Services.Tilopay;
 using LuxuryApp.Workers;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ProyectoIdentity.Datos;
 using Resend;
-using Stripe;
 
 var builder = WebApplication.CreateBuilder(args);
 
-//Identity configurations
+builder.Services.AddScoped<TenantSessionConnectionInterceptor>();
 
-//Configuramos la conexion a sql server
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("ConexionSql")));
+builder.Services.AddDbContext<ApplicationDbContext>((serviceProvider, options) =>
+{
+    options.UseSqlServer(builder.Configuration.GetConnectionString("ConexionSql"));
+    options.AddInterceptors(serviceProvider.GetRequiredService<TenantSessionConnectionInterceptor>());
+});
 
-//Add the service identity a la app
-builder.Services.AddIdentity<AppUsuario, IdentityRole>().AddEntityFrameworkStores<ApplicationDbContext>().AddDefaultTokenProviders();
+builder.Services
+    .AddIdentity<AppUsuario, IdentityRole>()
+    .AddEntityFrameworkStores<ApplicationDbContext>()
+    .AddDefaultTokenProviders();
 
-//Esta linea es para la url de retorno al acceder
+builder.Services.AddScoped<TenantSessionSecurityValidator>();
+builder.Services.AddScoped<LegacyUserStateRepairService>();
+
 builder.Services.ConfigureApplicationCookie(options =>
 {
     options.LoginPath = new PathString("/Accounts/Acceso");
     options.AccessDeniedPath = new PathString("/Accounts/Bloqueado");
+    options.Events.OnValidatePrincipal = async context =>
+    {
+        await SecurityStampValidator.ValidatePrincipalAsync(context);
+
+        if (context.Principal?.Identity?.IsAuthenticated != true)
+        {
+            return;
+        }
+
+        var validator = context.HttpContext.RequestServices.GetRequiredService<TenantSessionSecurityValidator>();
+        var isValid = await validator.ValidateAsync(context.Principal, context.HttpContext.RequestAborted);
+
+        if (!isValid)
+        {
+            context.RejectPrincipal();
+            await context.HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
+        }
+    };
 });
 
-//Estas son opciones de configuracion de identity
 builder.Services.Configure<IdentityOptions>(options =>
 {
     options.Password.RequiredLength = 5;
     options.Password.RequireUppercase = true;
     options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(1);
     options.Lockout.MaxFailedAccessAttempts = 3;
-
 });
 
-// Add services to the container.
+builder.Services.Configure<SecurityStampValidatorOptions>(options =>
+{
+    options.ValidationInterval = TimeSpan.Zero;
+});
+
 builder.Services.AddControllersWithViews(options =>
 {
     var policy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
@@ -51,42 +82,55 @@ builder.Services.AddControllersWithViews(options =>
     options.Filters.Add(new Microsoft.AspNetCore.Mvc.Authorization.AuthorizeFilter(policy));
 });
 
-//DataBase 
+builder.Services.AddMemoryCache();
+
+builder.Services.Configure<OpcionesPago>(builder.Configuration.GetSection("Payments"));
+builder.Services.Configure<OpcionesTilopay>(builder.Configuration.GetSection("Tilopay"));
+builder.Services.Configure<OpcionesOnboardingTenant>(builder.Configuration.GetSection("TenantOnboarding"));
+
 builder.Services.AddSingleton<RecordatorioService>();
-//builder.Services.AddHostedService<RecordatorioJob>();
 builder.Services.AddScoped<EmailSender>();
 builder.Services.AddTransient<EmailService, EmailSender>();
 builder.Services.AddHttpClient<ResendClient>();
-builder.Services.Configure<ResendClientOptions>(o =>
+builder.Services.Configure<ResendClientOptions>(options =>
 {
-    o.ApiToken = builder.Configuration["Email:resendAPIKey"];
+    options.ApiToken = builder.Configuration["Email:resendAPIKey"] ?? string.Empty;
 });
 builder.Services.AddTransient<IResend, ResendClient>();
-//whatsapp
+
 builder.Services.AddScoped<WhatsAppService>();
 builder.Services.AddHostedService<ReminderWorker>();
-//Visitas automaticas
 builder.Services.AddScoped<VisitasAutomaticasService>();
 builder.Services.AddHostedService<VisitasBackgroundService>();
-//Multitenant
+
 builder.Services.AddHttpContextAccessor();
-// Tenant Provider
+builder.Services.AddSingleton<ITenantExecutionContextAccessor, TenantExecutionContextAccessor>();
 builder.Services.AddScoped<ITenantProvider, TenantProvider>();
-// Claims personalizados
+builder.Services.AddSingleton<TenantExecutionService>();
+builder.Services.AddScoped<TenantProvisioningService>();
 builder.Services.AddScoped<IUserClaimsPrincipalFactory<AppUsuario>, CustomClaimsPrincipalFactory>();
 
-// 🔥 Stripe config GLOBAL (thread-safe)
-StripeConfiguration.ApiKey = builder.Configuration["Stripe:SecretKey"];
+builder.Services.AddScoped<SuscripcionService>();
+builder.Services.AddScoped<SaaSPaymentService>();
+builder.Services.AddScoped<PaymentProviderResolver>();
+builder.Services.AddHttpClient<PublicCallbackHealthService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
 
+builder.Services.AddHttpClient<TilopayService>((serviceProvider, client) =>
+{
+    var options = serviceProvider.GetRequiredService<IOptions<OpcionesTilopay>>().Value;
+    client.BaseAddress = new Uri(options.BaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(Math.Max(5, options.TimeoutSeconds));
+});
+builder.Services.AddScoped<IPaymentProvider>(serviceProvider => serviceProvider.GetRequiredService<TilopayService>());
 
 var app = builder.Build();
 
-
-// Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Home/Error");
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
 
@@ -102,14 +146,15 @@ app.UseAuthorization();
 app.MapStaticAssets();
 
 app.MapControllerRoute(
-    name: "default",
-    pattern: "{controller=Home}/{action=Index}/{id?}")
+        name: "default",
+        pattern: "{controller=Home}/{action=Index}/{id?}")
     .WithStaticAssets();
 
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
     await IdentitySeeder.SeedRolesAsync(services);
+    await services.GetRequiredService<LegacyUserStateRepairService>().RepairAsync();
 }
 
 app.Run();

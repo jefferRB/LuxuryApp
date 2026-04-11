@@ -15,8 +15,13 @@ namespace LuxuryApp.Models.SaaS
 
         public DateTime FechaCambio { get; set; } = DateTime.Now;
 
+        public PaymentProviderType? Proveedor { get; set; }
+
+        [MaxLength(250)]
+        public string? Motivo { get; set; }
+
         // Relación
         [ForeignKey("SuscripcionId")]
-        public Suscripcion Suscripcion { get; set; }
+        public Suscripcion? Suscripcion { get; set; }
     }
 }

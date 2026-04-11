@@ -164,10 +164,10 @@ namespace LuxuryApp.Controllers.Calendar
                     template!,
                     new Dictionary<string, object>
                     {
-                { "1", cita.NombreCliente },
+                { "1", cita.NombreCliente ?? string.Empty },
                 { "2", cita.FechaHoraCita.ToString("dd/MM/yyyy") },
                 { "3", cita.FechaHoraCita.ToString("hh:mm tt") },
-                { "4", servicio?.Nombre },
+                { "4", servicio?.Nombre ?? string.Empty },
                 { "5", funcionarioData.Nombre }
                     });
 
@@ -222,11 +222,11 @@ namespace LuxuryApp.Controllers.Calendar
 
                     DuracionMinutos = c.Tipo == "DESCANSO"
                         ? c.DuracionMinutos
-                        : c.Servicio.DuracionMinutos,
+                        : c.Servicio != null ? c.Servicio.DuracionMinutos : null,
 
                     FuncionarioId = c.FuncionarioId,
-                    FuncionarioNombre = c.Funcionario.Nombre,
-                    ColorCalendario = c.Funcionario.ColorCalendario
+                    FuncionarioNombre = c.Funcionario != null ? c.Funcionario.Nombre : string.Empty,
+                    ColorCalendario = c.Funcionario != null ? c.Funcionario.ColorCalendario : string.Empty
                 })
                 .ToList();
 
@@ -355,7 +355,8 @@ namespace LuxuryApp.Controllers.Calendar
         [HttpDelete("Calendar/Delete/{id}")]
         public async Task<IActionResult> Delete(int id)
         {
-            var cita = await _context.Citas.FindAsync(id);
+            var cita = await _context.Citas
+                .FirstOrDefaultAsync(c => c.Id == id);
 
             if (cita == null)
                 return NotFound();
@@ -412,8 +413,8 @@ namespace LuxuryApp.Controllers.Calendar
                     nombreCliente = c.NombreCliente,
                     telefonoCliente = c.TelefonoCliente,
                     fechaHoraCita = c.FechaHoraCita,
-                    servicioNombre = c.Servicio.Nombre,
-                    funcionarioNombre = c.Funcionario.Nombre
+                    servicioNombre = c.Servicio != null ? c.Servicio.Nombre : string.Empty,
+                    funcionarioNombre = c.Funcionario != null ? c.Funcionario.Nombre : string.Empty
                 })
                 .ToListAsync();
 
@@ -458,7 +459,7 @@ namespace LuxuryApp.Controllers.Calendar
                 hora = c.FechaHoraCita.ToString("HH:mm"),
                 duracion = c.Tipo == "DESCANSO"
                     ? c.DuracionMinutos ?? 30
-                    : c.Servicio.DuracionMinutos ?? 30,
+                    : c.Servicio != null ? c.Servicio.DuracionMinutos ?? 30 : 30,
                 funcionarioId = c.FuncionarioId
             })
             .ToListAsync();

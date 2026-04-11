@@ -72,10 +72,18 @@ namespace LuxuryApp.Controllers.DataBase
         // ✅ GUARDAR CLIENTE NUEVO
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public IActionResult Create(ClientesModel cliente)
+        public async Task<IActionResult> Create(
+            [Bind(
+                nameof(ClientesModel.NumeroTelefono) + "," +
+                nameof(ClientesModel.CorreoElectronico) + "," +
+                nameof(ClientesModel.Nombre) + "," +
+                nameof(ClientesModel.FrecuenciaVisita) + "," +
+                nameof(ClientesModel.FechaUltimaVisita) + "," +
+                nameof(ClientesModel.FechaCumpleaños))]
+            ClientesModel cliente)
         {
-            bool telefonoExiste = _context.Clientes
-            .Any(c => c.NumeroTelefono == cliente.NumeroTelefono);
+            bool telefonoExiste = await _context.Clientes
+                .AnyAsync(c => c.NumeroTelefono == cliente.NumeroTelefono);
 
             if (telefonoExiste)
             {
@@ -84,20 +92,24 @@ namespace LuxuryApp.Controllers.DataBase
             }
             if (ModelState.IsValid)
             {
-                _context.Clientes.Add(cliente);
-                _context.SaveChanges();
-
-                // Registrar  primera visita
                 var primeraVisita = new ClienteVisitas
                 {
                     NumeroTelefono = cliente.NumeroTelefono,
                     FechaVisita = cliente.FechaUltimaVisita
                 };
 
-                _context.ClienteVisitas.Add(primeraVisita);
-                _context.SaveChanges();
+                var executionStrategy = _context.Database.CreateExecutionStrategy();
+                await executionStrategy.ExecuteAsync(async () =>
+                {
+                    await using var transaction = await _context.Database.BeginTransactionAsync();
 
-                
+                    _context.Clientes.Add(cliente);
+                    _context.ClienteVisitas.Add(primeraVisita);
+
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                });
+
 
                 return RedirectToAction(nameof(Index));
             }
@@ -164,7 +176,15 @@ namespace LuxuryApp.Controllers.DataBase
         // ✅ GUARDAR CAMBIOS DEL CLIENTE
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public IActionResult Editar(ClientesModel cliente)
+        public IActionResult Editar(
+            [Bind(
+                nameof(ClientesModel.NumeroTelefono) + "," +
+                nameof(ClientesModel.CorreoElectronico) + "," +
+                nameof(ClientesModel.Nombre) + "," +
+                nameof(ClientesModel.FrecuenciaVisita) + "," +
+                nameof(ClientesModel.FechaUltimaVisita) + "," +
+                nameof(ClientesModel.FechaCumpleaños))]
+            ClientesModel cliente)
         {
             if (!ModelState.IsValid)
             {
@@ -301,7 +321,6 @@ namespace LuxuryApp.Controllers.DataBase
             };
 
             _context.ClienteVisitas.Add(visita);
-            _context.Clientes.Update(cliente);
 
             _context.SaveChanges();
 
@@ -316,10 +335,13 @@ namespace LuxuryApp.Controllers.DataBase
         public async Task<IActionResult> RegistrarServicios(ServicioRealizadoViewModel model)
         {
             var cliente = _context.Clientes.FirstOrDefault(c => c.NumeroTelefono == model.NumeroTelefono);
+            if (cliente == null)
+            {
+                return NotFound();
+            }
 
             // Actualizar descripción general del cliente
             cliente.DescripcionServiciosRealizados = model.DescripcionServicios;
-            _context.Clientes.Update(cliente);
 
             // Guardar imágenes si existen
             if (model.Imagenes != null && model.Imagenes.Count > 0)

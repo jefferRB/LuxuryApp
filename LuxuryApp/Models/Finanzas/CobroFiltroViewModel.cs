@@ -7,7 +7,7 @@
 
         public int? FuncionarioId { get; set; }
 
-        public string MetodoPago { get; set; }
+        public string MetodoPago { get; set; } = string.Empty;
 
         public DateTime? FechaInicio { get; set; }
 

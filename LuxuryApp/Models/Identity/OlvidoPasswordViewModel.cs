@@ -6,6 +6,6 @@ namespace LuxuryApp.Models.Identity
     {
         [Required(ErrorMessage = "The Email is required")]
         [EmailAddress]
-        public string Email { get; set; }
+        public string Email { get; set; } = string.Empty;
     }
 }

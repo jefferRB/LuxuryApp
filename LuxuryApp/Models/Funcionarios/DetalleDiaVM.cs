@@ -2,7 +2,7 @@
 {
     public class DetalleDiaVM
     {
-        public string Dia { get; set; }
+        public string Dia { get; set; } = string.Empty;
 
         public int CantidadServicios { get; set; }
 

@@ -7,6 +7,7 @@ namespace LuxuryApp.Models.Finanzas
 {
     public class DetalleCobroProducto : ITenantEntity
     {
+        [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever]
         public Guid TenantId { get; set; }
         [Key]
         
@@ -25,8 +26,8 @@ namespace LuxuryApp.Models.Finanzas
         public decimal Subtotal { get; set; }
 
         // NAV
-        public Cobro Cobro { get; set; }
+        public Cobro Cobro { get; set; } = null!;
 
-        public Producto Producto { get; set; }
+        public Producto Producto { get; set; } = null!;
     }
 }

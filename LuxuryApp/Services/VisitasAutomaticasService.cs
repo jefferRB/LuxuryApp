@@ -13,14 +13,14 @@ namespace LuxuryApp.Services
             _context = context;
         }
 
-        public async Task ProcesarCitasFinalizadas()
+        public async Task ProcesarCitasFinalizadas(CancellationToken cancellationToken = default)
         {
             var ahora = DateTime.Now;
 
             var citas = await _context.Citas
-    .Include(c => c.Servicio)
-    .Where(c => !c.VisitaProcesada && c.ServicioId != null)
-    .ToListAsync();
+                .Include(c => c.Servicio)
+                .Where(c => !c.VisitaProcesada && c.ServicioId != null)
+                .ToListAsync(cancellationToken);
 
             foreach (var cita in citas)
             {
@@ -33,7 +33,8 @@ namespace LuxuryApp.Services
                 {
                     var cliente = await _context.Clientes
                         .FirstOrDefaultAsync(c =>
-                            c.NumeroTelefono == cita.TelefonoCliente);
+                            c.NumeroTelefono == cita.TelefonoCliente,
+                            cancellationToken);
 
                     if (cliente == null)
                         continue;
@@ -42,7 +43,8 @@ namespace LuxuryApp.Services
                     bool existe = await _context.ClienteVisitas
                         .AnyAsync(v =>
                             v.NumeroTelefono == cliente.NumeroTelefono &&
-                            v.FechaVisita == fin);
+                            v.FechaVisita == fin,
+                            cancellationToken);
 
                     if (!existe)
                     {
@@ -59,7 +61,7 @@ namespace LuxuryApp.Services
                 }
             }
 
-            await _context.SaveChangesAsync();
+            await _context.SaveChangesAsync(cancellationToken);
         }
     }
 }

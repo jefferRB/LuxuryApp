@@ -5,6 +5,7 @@ namespace LuxuryApp.Models.Finanzas
 {
     public class Egreso : ITenantEntity
     {
+        [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever]
         public Guid TenantId { get; set; }
         [Key]
         public int IdEgreso { get; set; }
@@ -16,7 +17,7 @@ namespace LuxuryApp.Models.Finanzas
         [Required]
         [Display(Name = "Detalle")]
         [StringLength(200)]
-        public string Detalle { get; set; }
+        public string Detalle { get; set; } = string.Empty;
 
        
 
@@ -27,7 +28,7 @@ namespace LuxuryApp.Models.Finanzas
 
         [Required]
         [Display(Name = "Método de Pago")]
-        public string MetodoPago { get; set; }
+        public string MetodoPago { get; set; } = string.Empty;
         public int CategoriaId { get; set; }
         public Categoria? Categoria { get; set; }
     }

@@ -4,12 +4,12 @@ namespace LuxuryApp.Models.Finanzas
 {
     public class CobroIndexViewModel
     {
-        public List<Cobro> Cobros { get; set; }
+        public List<Cobro> Cobros { get; set; } = new();
 
-        public CobroFiltroViewModel Filtros { get; set; }
+        public CobroFiltroViewModel Filtros { get; set; } = new();
 
-        public List<SelectListItem> Funcionarios { get; set; }
-        public List<SelectListItem> MetodosPago { get; set; }
+        public List<SelectListItem> Funcionarios { get; set; } = new();
+        public List<SelectListItem> MetodosPago { get; set; } = new();
         public decimal TotalCobrado { get; set; }
         public int CantidadServicios { get; set; }
 

@@ -1,10 +1,12 @@
-﻿using LuxuryApp.Models.Finanzas;
+using LuxuryApp.Models.Finanzas;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Controllers.Finanzas
 {
+    [Authorize(Roles = "Administrador")]
     public class CategoriasController : Controller
     {
         private readonly ApplicationDbContext _context;
@@ -14,9 +16,6 @@ namespace LuxuryApp.Controllers.Finanzas
             _context = context;
         }
 
-        // =============================
-        // LISTAR CATEGORIAS
-        // =============================
         public async Task<IActionResult> Index()
         {
             var categorias = await _context.Categorias
@@ -26,20 +25,16 @@ namespace LuxuryApp.Controllers.Finanzas
             return View(categorias);
         }
 
-        // =============================
-        // CREAR CATEGORIA (GET)
-        // =============================
         public IActionResult Create()
         {
             return View();
         }
 
-        // =============================
-        // CREAR CATEGORIA (POST)
-        // =============================
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create(Categoria categoria)
+        public async Task<IActionResult> Create(
+            [Bind(nameof(Categoria.Nombre) + "," + nameof(Categoria.Detalle))]
+            Categoria categoria)
         {
             if (ModelState.IsValid)
             {
@@ -48,7 +43,6 @@ namespace LuxuryApp.Controllers.Finanzas
                 _context.Add(categoria);
                 await _context.SaveChangesAsync();
 
-                // AJAX modal
                 if (Request.Headers["X-Requested-With"] == "XMLHttpRequest")
                     return Ok();
 
@@ -61,12 +55,10 @@ namespace LuxuryApp.Controllers.Finanzas
             return View(categoria);
         }
 
-        // =============================
-        // EDITAR CATEGORIA (GET)
-        // =============================
         public async Task<IActionResult> Edit(int id)
         {
-            var categoria = await _context.Categorias.FindAsync(id);
+            var categoria = await _context.Categorias
+                .FirstOrDefaultAsync(c => c.Id == id);
 
             if (categoria == null)
                 return NotFound();
@@ -74,12 +66,12 @@ namespace LuxuryApp.Controllers.Finanzas
             return View(categoria);
         }
 
-        // =============================
-        // EDITAR CATEGORIA (POST)
-        // =============================
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(int id, Categoria categoria)
+        public async Task<IActionResult> Edit(
+            int id,
+            [Bind(nameof(Categoria.Id) + "," + nameof(Categoria.Nombre) + "," + nameof(Categoria.Detalle))]
+            Categoria categoria)
         {
             if (id != categoria.Id)
                 return NotFound();
@@ -88,15 +80,23 @@ namespace LuxuryApp.Controllers.Finanzas
             {
                 try
                 {
-                    _context.Update(categoria);
+                    var categoriaDb = await _context.Categorias
+                        .FirstOrDefaultAsync(c => c.Id == id);
+
+                    if (categoriaDb == null)
+                        return NotFound();
+
+                    categoriaDb.Nombre = categoria.Nombre;
+                    categoriaDb.Detalle = categoria.Detalle;
+
                     await _context.SaveChangesAsync();
                 }
                 catch (DbUpdateConcurrencyException)
                 {
                     if (!_context.Categorias.Any(c => c.Id == categoria.Id))
                         return NotFound();
-                    else
-                        throw;
+
+                    throw;
                 }
 
                 return RedirectToAction(nameof(Index));
@@ -105,13 +105,11 @@ namespace LuxuryApp.Controllers.Finanzas
             return View(categoria);
         }
 
-        // =============================
-        // ACTIVAR / DESACTIVAR
-        // =============================
         [HttpPost]
         public async Task<IActionResult> ToggleActivo(int id)
         {
-            var categoria = await _context.Categorias.FindAsync(id);
+            var categoria = await _context.Categorias
+                .FirstOrDefaultAsync(c => c.Id == id);
 
             if (categoria == null)
                 return NotFound();
@@ -123,9 +121,6 @@ namespace LuxuryApp.Controllers.Finanzas
             return Ok();
         }
 
-        // =============================
-        // MODAL LISTADO
-        // =============================
         public IActionResult ModalCategorias()
         {
             var categorias = _context.Categorias
@@ -135,9 +130,6 @@ namespace LuxuryApp.Controllers.Finanzas
             return PartialView("_CategoriasModal", categorias);
         }
 
-        // =============================
-        // FORMULARIO MODAL
-        // =============================
         public IActionResult FormCategoria()
         {
             return PartialView("~/Views/Categorias/_FormCategoria.cshtml", new Categoria());

@@ -4,6 +4,7 @@ namespace LuxuryApp.Models.DataBase
 {
     public class ClienteImagenesModel : ITenantEntity
     {
+        [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever]
         public Guid TenantId { get; set; }
         public int Id { get; set; }
 

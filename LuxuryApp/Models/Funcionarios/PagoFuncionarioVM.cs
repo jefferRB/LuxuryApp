@@ -6,7 +6,7 @@ namespace LuxuryApp.Models.Funcionarios
     {
         public int FuncionarioId { get; set; }
 
-        public string Nombre { get; set; }
+        public string Nombre { get; set; } = string.Empty;
 
         public decimal TotalGenerado { get; set; }
 
@@ -24,7 +24,7 @@ namespace LuxuryApp.Models.Funcionarios
 
         public decimal MontoPendiente { get; set; }
 
-        public List<DetalleDiaVM> DetalleDias { get; set; }
+        public List<DetalleDiaVM> DetalleDias { get; set; } = new();
         public List<PagoFuncionario> HistorialPagos { get; set; } = new();
 
         public List<ProductoVendidoVM> ProductosVendidos { get; set; } = new();

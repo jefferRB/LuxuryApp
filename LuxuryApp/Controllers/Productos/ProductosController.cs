@@ -53,11 +53,25 @@ namespace LuxuryApp.Controllers.Productos
         // =========================
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create(ProductoViewModel vm)
+        public async Task<IActionResult> Create(
+            [Bind(
+                nameof(Producto.NombreProducto),
+                nameof(Producto.DetalleProducto),
+                nameof(Producto.PrecioProducto),
+                nameof(Producto.CantidadProducto),
+                nameof(Producto.StockMinimo),
+                Prefix = "Producto")]
+            Producto producto)
         {
+            var vm = new ProductoViewModel
+            {
+                Producto = producto
+            };
+
             if (ModelState.IsValid)
             {
-                _context.Productos.Add(vm.Producto);
+                producto.Activo = true;
+                _context.Productos.Add(producto);
                 await _context.SaveChangesAsync();
 
                 return RedirectToAction(nameof(Index));
@@ -71,7 +85,8 @@ namespace LuxuryApp.Controllers.Productos
         // =========================
         public async Task<IActionResult> Edit(int id)
         {
-            var producto = await _context.Productos.FindAsync(id);
+            var producto = await _context.Productos
+                .FirstOrDefaultAsync(p => p.IdProducto == id);
 
             if (producto == null)
                 return NotFound();
@@ -87,14 +102,40 @@ namespace LuxuryApp.Controllers.Productos
         // =========================
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(int id, ProductoViewModel vm)
+        public async Task<IActionResult> Edit(
+            int id,
+            [Bind(
+                nameof(Producto.IdProducto),
+                nameof(Producto.NombreProducto),
+                nameof(Producto.DetalleProducto),
+                nameof(Producto.PrecioProducto),
+                nameof(Producto.CantidadProducto),
+                nameof(Producto.StockMinimo),
+                Prefix = "Producto")]
+            Producto producto)
         {
-            if (id != vm.Producto.IdProducto)
+            var vm = new ProductoViewModel
+            {
+                Producto = producto
+            };
+
+            if (id != producto.IdProducto)
                 return NotFound();
 
             if (ModelState.IsValid)
             {
-                _context.Update(vm.Producto);
+                var productoDb = await _context.Productos
+                    .FirstOrDefaultAsync(p => p.IdProducto == id);
+
+                if (productoDb == null)
+                    return NotFound();
+
+                productoDb.NombreProducto = producto.NombreProducto;
+                productoDb.DetalleProducto = producto.DetalleProducto;
+                productoDb.PrecioProducto = producto.PrecioProducto;
+                productoDb.CantidadProducto = producto.CantidadProducto;
+                productoDb.StockMinimo = producto.StockMinimo;
+
                 await _context.SaveChangesAsync();
 
                 return RedirectToAction(nameof(Index));
@@ -109,7 +150,8 @@ namespace LuxuryApp.Controllers.Productos
         [HttpPost]
         public async Task<IActionResult> ToggleActivo(int id)
         {
-            var producto = await _context.Productos.FindAsync(id);
+            var producto = await _context.Productos
+                .FirstOrDefaultAsync(p => p.IdProducto == id);
 
             if (producto == null)
                 return NotFound();

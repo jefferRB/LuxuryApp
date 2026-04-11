@@ -4,10 +4,22 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>LuxuryApp-a2d6e79d-4b16-49d7-9d15-5c1ea4dfe9ee</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
     <Folder Include="wwwroot\Images\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="ValidationHarness\**\*.cs" />
+    <Compile Remove="LuxuryApp.Tests\**\*.cs" />
+    <Content Remove="ValidationHarness\**\*" />
+    <Content Remove="LuxuryApp.Tests\**\*" />
+    <EmbeddedResource Remove="ValidationHarness\**\*" />
+    <EmbeddedResource Remove="LuxuryApp.Tests\**\*" />
+    <None Remove="ValidationHarness\**\*" />
+    <None Remove="LuxuryApp.Tests\**\*" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,5 +1,7 @@
-﻿using LuxuryApp.Models.SaaS;
+using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Identity;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using ProyectoIdentity.Datos;
@@ -24,8 +26,7 @@ public class SuscripcionMiddleware
     {
         try
         {
-            // 🔹 1. Ignorar rutas públicas / críticas
-            var path = context.Request.Path.Value?.ToLower();
+            var path = (context.Request.Path.Value ?? string.Empty).ToLowerInvariant();
 
             if (path.StartsWith("/accounts") ||
                 path.StartsWith("/home") ||
@@ -36,46 +37,37 @@ public class SuscripcionMiddleware
                 return;
             }
 
-            // 🔹 2. Usuario no autenticado
             if (context.User?.Identity == null || !context.User.Identity.IsAuthenticated)
             {
                 await _next(context);
                 return;
             }
 
-            // 🔹 3. Obtener TenantId seguro
             var tenantClaim = context.User.FindFirst(CustomClaimTypes.TenantId);
 
-            if (tenantClaim == null || !Guid.TryParse(tenantClaim.Value, out var tenantId))
+            if (tenantClaim == null || !Guid.TryParse(tenantClaim.Value, out var tenantId) || tenantId == Guid.Empty)
             {
-                _logger.LogWarning("TenantId inválido o inexistente");
+                _logger.LogWarning("TenantId invalido o inexistente.");
+                await context.SignOutAsync(IdentityConstants.ApplicationScheme);
                 context.Response.Redirect("/Accounts/Acceso");
                 return;
             }
 
-            //  (SESSION_CONTEXT)
-            var connection = db.Database.GetDbConnection();
+            var tenantActivo = await db.Tenants
+                .AsNoTracking()
+                .AnyAsync(t => t.Id == tenantId && t.Activo);
 
-            if (connection.State != System.Data.ConnectionState.Open)
-                await connection.OpenAsync();
-
-            using (var command = connection.CreateCommand())
+            if (!tenantActivo)
             {
-                command.CommandText = "EXEC sp_set_session_context @key=N'TenantId', @value=@tenantId";
-
-                var param = command.CreateParameter();
-                param.ParameterName = "@tenantId";
-                param.Value = tenantId;
-
-                command.Parameters.Add(param);
-
-                await command.ExecuteNonQueryAsync();
+                _logger.LogWarning("Tenant suspendido o inexistente detectado en middleware. TenantId {TenantId}", tenantId);
+                await context.SignOutAsync(IdentityConstants.ApplicationScheme);
+                context.Response.Redirect("/Accounts/Acceso");
+                return;
             }
 
-            // 🔥 4. CACHE (CLAVE PARA ESCALAR)
             var cacheKey = $"suscripcion_{tenantId}";
 
-            if (!_cache.TryGetValue(cacheKey, out Suscripcion suscripcion))
+            if (!_cache.TryGetValue(cacheKey, out Suscripcion? suscripcion))
             {
                 suscripcion = await db.Suscripciones
                     .AsNoTracking()
@@ -90,7 +82,6 @@ public class SuscripcionMiddleware
                 }
             }
 
-            // 🔹 5. Validaciones
             if (suscripcion == null)
             {
                 context.Response.Redirect("/Billing/SinSuscripcion");
@@ -111,7 +102,6 @@ public class SuscripcionMiddleware
                 return;
             }
 
-            // 🔹 6. Guardar contexto
             context.Items["TenantId"] = tenantId;
             context.Items["Suscripcion"] = suscripcion;
 
@@ -120,8 +110,6 @@ public class SuscripcionMiddleware
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error en SuscripcionMiddleware");
-
-            // 🔒 fallback seguro
             context.Response.Redirect("/Home/Error");
         }
     }

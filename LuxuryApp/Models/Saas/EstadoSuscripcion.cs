@@ -5,6 +5,9 @@
         Trial = 0,
         Activa = 1,
         Morosa = 2,
-        Cancelada = 3
+        Cancelada = 3,
+        Pendiente = 4,
+        Fallida = 5,
+        Vencida = 6
     }
 }

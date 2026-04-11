@@ -7,25 +7,24 @@ namespace LuxuryApp.Models.Identity
         [Required(ErrorMessage = "The Email is required")]
         [EmailAddress]
         //todas las validaciones con buen manejo
-        public string Email { get; set; }
+        public string Email { get; set; } = string.Empty;
         [Required(ErrorMessage = "The Password is required ")]
         [StringLength(50, ErrorMessage = "The {0} must be at least {2} characters long", MinimumLength = 5)]
         [DataType(DataType.Password)]
         [Display(Name = "Contraseña")] // Used to choose the name to display
-        public string Password { get; set; }
+        public string Password { get; set; } = string.Empty;
 
         //todas las validaciones con buen manejo
         [Required(ErrorMessage = "The Password Confirmation is required ")]
         [Compare("Password", ErrorMessage = " Password and Password Confirmation are not equals")]
         [DataType(DataType.Password)]
         [Display(Name = "Confirmar Contraseña")] // Used to choose the name to display
-        public string ConfirmPassword { get; set; }
+        public string ConfirmPassword { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "The Name is required  ")]
         [Display(Name = "Nombre")]
-        public string Name { get; set; }
+        public string Name { get; set; } = string.Empty;
         [Display(Name = "Telefono")]
-        public string PhoneNumber { get; set; }
-        public bool State { get; set; }
+        public string PhoneNumber { get; set; } = string.Empty;
     }
 }
