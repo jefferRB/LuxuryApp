@@ -329,7 +329,7 @@ namespace ProyectoIdentity.Datos
         {
             foreach (var foreignKey in entry.Metadata.GetForeignKeys())
             {
-                if (!typeof(ITenantEntity).IsAssignableFrom(foreignKey.PrincipalEntityType.ClrType))
+                if (!RequiresTenantRelationshipValidation(foreignKey))
                 {
                     continue;
                 }
@@ -350,7 +350,7 @@ namespace ProyectoIdentity.Datos
         {
             foreach (var foreignKey in entry.Metadata.GetForeignKeys())
             {
-                if (!typeof(ITenantEntity).IsAssignableFrom(foreignKey.PrincipalEntityType.ClrType))
+                if (!RequiresTenantRelationshipValidation(foreignKey))
                 {
                     continue;
                 }
@@ -387,6 +387,13 @@ namespace ProyectoIdentity.Datos
 
             return true;
         }
+
+        private static bool RequiresTenantRelationshipValidation(IForeignKey foreignKey) =>
+            IsTenantScoped(foreignKey.DeclaringEntityType.ClrType) &&
+            IsTenantScoped(foreignKey.PrincipalEntityType.ClrType);
+
+        private static bool IsTenantScoped(Type clrType) =>
+            typeof(ITenantEntity).IsAssignableFrom(clrType);
 
         private Guid? ResolvePrincipalTenantId(
             EntityEntry<ITenantEntity> entry,

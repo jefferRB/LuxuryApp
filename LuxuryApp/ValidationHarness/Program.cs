@@ -368,7 +368,7 @@ static async Task RunExitoCancelAsync(IServiceProvider services, StaticTenantPro
     var controller = CreateController(scope.ServiceProvider, validation, tilopayOptions, "https://validation.example/luxuryapp/");
     var beforeState = (await db.Suscripciones.IgnoreQueryFilters().AsNoTracking().FirstAsync(s => s.TenantId == validation.TenantId)).Estado;
     var beforeFacturas = await db.Facturas.IgnoreQueryFilters().CountAsync(f => f.TenantId == validation.TenantId);
-    var exito = await controller.Exito(reference, "1", "simulado") as ViewResult;
+    var exito = await controller.Exito(reference: reference, code: "1", description: "simulado") as ViewResult;
     _ = controller.Cancelado("cancelado") as ViewResult;
     var afterState = (await db.Suscripciones.IgnoreQueryFilters().AsNoTracking().FirstAsync(s => s.TenantId == validation.TenantId)).Estado;
     var afterFacturas = await db.Facturas.IgnoreQueryFilters().CountAsync(f => f.TenantId == validation.TenantId);

@@ -58,7 +58,8 @@ namespace LuxuryApp.Services.Payments
             var reference = GenerateReference(tenantId);
             var existingSubscription = await _db.Suscripciones
                 .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(s => s.TenantId == tenantId, cancellationToken);
+                .AsTracking()
+                .SingleOrDefaultAsync(s => s.TenantId == tenantId, cancellationToken);
 
             using var scope = _logger.BeginScope(new Dictionary<string, object?>
             {
@@ -240,6 +241,8 @@ namespace LuxuryApp.Services.Payments
                         cancellationToken);
             }
 
+            var resolvedProviderReference = ResolveProviderReference(webhook);
+
             var evento = existingEvent;
             if (evento is null)
             {
@@ -252,7 +255,7 @@ namespace LuxuryApp.Services.Payments
                     PagoSuscripcionId = intento?.Id,
                     ProveedorEventId = webhook.EventId,
                     Tipo = webhook.EventType,
-                    ReferenciaExterna = webhook.Reference,
+                    ReferenciaExterna = resolvedProviderReference,
                     ProviderTransactionId = webhook.ProviderTransactionId,
                     CorrelationId = correlationId,
                     Payload = payload,
@@ -305,7 +308,7 @@ namespace LuxuryApp.Services.Payments
             evento.PlanId = intento?.PlanId ?? evento.PlanId;
             evento.PagoSuscripcionId = intento?.Id ?? evento.PagoSuscripcionId;
             evento.Tipo = webhook.EventType;
-            evento.ReferenciaExterna = webhook.Reference;
+            evento.ReferenciaExterna = resolvedProviderReference;
             evento.ProviderTransactionId = webhook.ProviderTransactionId ?? evento.ProviderTransactionId;
             evento.CorrelationId = correlationId;
             evento.Payload = payload;
@@ -363,7 +366,7 @@ namespace LuxuryApp.Services.Payments
 
                 intento.ProviderCheckoutId = webhook.ProviderCheckoutId ?? intento.ProviderCheckoutId;
                 intento.ProviderTransactionId = verification.ProviderTransactionId ?? webhook.ProviderTransactionId ?? intento.ProviderTransactionId;
-                intento.ProviderReference = webhook.Reference;
+                intento.ProviderReference = resolvedProviderReference;
                 intento.ProviderAuthorizationCode = verification.AuthorizationCode ?? webhook.AuthorizationCode;
                 intento.ProviderCardBrand = webhook.CardBrand ?? intento.ProviderCardBrand;
                 intento.ProviderCardLast4 = webhook.CardLast4 ?? intento.ProviderCardLast4;
@@ -569,14 +572,22 @@ namespace LuxuryApp.Services.Payments
             PaymentProviderWebhookData webhook,
             PaymentVerificationResult verification)
         {
-            var verifiedReference = verification.ProviderOrderNumber ?? verification.Reference;
-
-            if (!string.IsNullOrWhiteSpace(verifiedReference) &&
-                !string.Equals(verifiedReference, intento.ReferenciaInterna, StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(verifiedReference, intento.ProviderReference, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(verification.Reference) &&
+                !string.Equals(verification.Reference, intento.ReferenciaInterna, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(verification.Reference, intento.ProviderReference, StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException(
                     $"La verificacion del proveedor no coincide con la referencia interna del intento '{intento.ReferenciaInterna}'.");
+            }
+
+            var normalizedWebhookOrderNumber = NormalizeProviderOrderNumber(webhook.ProviderOrderNumber);
+            var normalizedVerificationOrderNumber = NormalizeProviderOrderNumber(verification.ProviderOrderNumber);
+
+            if (!string.IsNullOrWhiteSpace(normalizedWebhookOrderNumber) &&
+                !string.IsNullOrWhiteSpace(normalizedVerificationOrderNumber) &&
+                !string.Equals(normalizedWebhookOrderNumber, normalizedVerificationOrderNumber, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("La verificacion del proveedor no coincide con el orderNumber reportado por Tilopay.");
             }
 
             if (!string.IsNullOrWhiteSpace(webhook.ProviderCheckoutId) &&
@@ -605,6 +616,32 @@ namespace LuxuryApp.Services.Payments
                 throw new InvalidOperationException(
                     $"La moneda verificada ({verification.Currency}) no coincide con la moneda esperada ({intento.Moneda}).");
             }
+        }
+
+        private static string ResolveProviderReference(PaymentProviderWebhookData webhook) =>
+            !string.IsNullOrWhiteSpace(webhook.ProviderOrderNumber)
+                ? webhook.ProviderOrderNumber
+                : webhook.Reference;
+
+        private static string? NormalizeProviderOrderNumber(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            var trimmed = value.Trim();
+            var separatorIndex = trimmed.LastIndexOf('-');
+            if (separatorIndex > 0 && separatorIndex < trimmed.Length - 1)
+            {
+                var suffix = trimmed[(separatorIndex + 1)..];
+                if (suffix.Contains('_', StringComparison.Ordinal))
+                {
+                    return suffix;
+                }
+            }
+
+            return trimmed;
         }
 
         private async Task SetLastProviderEventAsync(

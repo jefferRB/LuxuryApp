@@ -1,5 +1,6 @@
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Productos;
+using LuxuryApp.Models.SaaS;
 using LuxuryApp.Tests.Support;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
@@ -78,6 +79,60 @@ namespace LuxuryApp.Tests.TenantIsolation
                 ex.Message.Contains("otro tenant", StringComparison.OrdinalIgnoreCase) ||
                 ex.Message.Contains("no existe", StringComparison.OrdinalIgnoreCase),
                 $"Mensaje inesperado: {ex.Message}");
+        }
+
+        [Fact]
+        public async Task TenantScopedEntity_CanReferenceGlobalPlan()
+        {
+            var tenantProvider = new TestTenantProvider();
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var tenantId = Guid.NewGuid();
+            var planId = Guid.NewGuid();
+
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = "Tenant A",
+                Activo = true
+            });
+
+            context.Planes.Add(new Plan
+            {
+                Id = planId,
+                Nombre = "Plan Global",
+                PrecioMensual = 19,
+                Moneda = "CRC",
+                Activo = true
+            });
+
+            await context.SaveChangesAsync();
+
+            tenantProvider.TenantId = tenantId;
+
+            context.PagosSuscripcion.Add(new PagoSuscripcion
+            {
+                Id = Guid.NewGuid(),
+                PlanId = planId,
+                Proveedor = PaymentProviderType.Tilopay,
+                ReferenciaInterna = "LXA-ABCDEF-1234567890",
+                ProviderReference = "LXA-ABCDEF-1234567890",
+                Estado = EstadoPagoProveedor.Pendiente,
+                Descripcion = "Checkout con plan global",
+                Monto = 19,
+                Moneda = "CRC"
+            });
+
+            await context.SaveChangesAsync();
+
+            var pago = await context.PagosSuscripcion
+                .IgnoreQueryFilters()
+                .SingleAsync();
+
+            Assert.Equal(tenantId, pago.TenantId);
+            Assert.Equal(planId, pago.PlanId);
         }
 
         private static SeededBundle CreateSeededContext(TestTenantProvider tenantProvider)

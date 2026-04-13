@@ -14,6 +14,9 @@ namespace LuxuryApp.Controllers
     [Authorize(Roles = "Administrador")]
     public class BillingController : Controller
     {
+        private const int CheckoutAutoRefreshSeconds = 4;
+        private const int CheckoutAutoRefreshMaxAttempts = 5;
+
         private readonly ILogger<BillingController> _logger;
         private readonly ApplicationDbContext _context;
         private readonly SaaSPaymentService _paymentService;
@@ -62,9 +65,11 @@ namespace LuxuryApp.Controllers
 
         [HttpGet]
         public async Task<IActionResult> Exito(
-            string? orderNumber,
-            string? code,
-            string? description)
+            string? orderNumber = null,
+            string? reference = null,
+            string? code = null,
+            string? description = null,
+            int pollAttempt = 0)
         {
             var user = await _userManager.GetUserAsync(User);
             if (user is null || user.TenantId == Guid.Empty)
@@ -72,30 +77,256 @@ namespace LuxuryApp.Controllers
                 return Challenge();
             }
 
-            var pago = string.IsNullOrWhiteSpace(orderNumber)
+            var requestedReference = !string.IsNullOrWhiteSpace(reference)
+                ? reference.Trim()
+                : orderNumber?.Trim();
+
+            var checkoutId = TryExtractTilopayCheckoutId(orderNumber);
+            var matchingPayments = await FindMatchingPaymentsAsync(requestedReference, checkoutId);
+
+            if (matchingPayments.Count > 1)
+            {
+                _logger.LogError(
+                    "Billing/Exito detecto una correlacion ambigua. UserId {UserId}. TenantId {TenantId}. RequestedReference {RequestedReference}. CheckoutId {CheckoutId}. Matches {Matches}.",
+                    user.Id,
+                    user.TenantId,
+                    requestedReference,
+                    checkoutId,
+                    matchingPayments.Count);
+
+                return BuildRestrictedCheckoutResult(
+                    requestedReference,
+                    code,
+                    description,
+                    "No fue posible validar de forma segura el retorno del pago. Inicia sesion nuevamente y vuelve a intentarlo.");
+            }
+
+            var pago = matchingPayments.SingleOrDefault();
+            if (pago is not null && pago.TenantId != user.TenantId)
+            {
+                _logger.LogWarning(
+                    "Billing/Exito rechazo un retorno cross-tenant. UserId {UserId}. CurrentTenantId {CurrentTenantId}. PaymentTenantId {PaymentTenantId}. RequestedReference {RequestedReference}. CheckoutId {CheckoutId}. PaymentId {PaymentId}.",
+                    user.Id,
+                    user.TenantId,
+                    pago.TenantId,
+                    requestedReference,
+                    checkoutId,
+                    pago.Id);
+
+                return BuildRestrictedCheckoutResult(
+                    requestedReference,
+                    code,
+                    description,
+                    "Este retorno de pago no pertenece a la cuenta autenticada. Ingresa con la cuenta que inicio el checkout.");
+            }
+
+            var suscripcion = pago is null
                 ? null
-                : await _context.PagosSuscripcion
-                    .AsNoTracking()
-                    .Include(p => p.Plan)
-                    .FirstOrDefaultAsync(
-                        p => p.TenantId == user.TenantId &&
-                             (p.ReferenciaInterna == orderNumber || p.ProviderReference == orderNumber));
+                : await FindCurrentSubscriptionAsync(user.TenantId);
+
+            var pollAttemptNormalized = Math.Max(0, pollAttempt);
+            var suscripcionActiva = IsSubscriptionActive(suscripcion);
+            var confirmadoPorWebhook = pago?.Estado == EstadoPagoProveedor.Confirmado || suscripcionActiva;
+            var pagoAprobadoPorProveedor = confirmadoPorWebhook || IsProviderApproved(code, description);
+            var requiereConsulta = pago is not null && pagoAprobadoPorProveedor && !confirmadoPorWebhook;
+            var debeAutoActualizar = requiereConsulta && pollAttemptNormalized < CheckoutAutoRefreshMaxAttempts;
 
             var model = new ResultadoCheckoutViewModel
             {
-                Referencia = orderNumber,
+                Referencia = requestedReference,
                 CodigoProveedor = code,
                 DescripcionProveedor = description,
-                NombrePlan = pago?.Plan?.Nombre,
+                NombrePlan = pago?.Plan?.Nombre ?? suscripcion?.Plan?.Nombre,
                 EstadoPago = pago?.Estado,
-                MensajePrincipal = pago is null
-                    ? "No encontramos un pago asociado a esa referencia dentro de tu tenant."
-                    : pago.Estado == EstadoPagoProveedor.Confirmado
-                    ? "Pago confirmado y suscripcion actualizada."
-                    : "Tu pago fue recibido. Estamos esperando la confirmacion final del proveedor."
+                EstadoSuscripcion = suscripcion?.Estado,
+                PagoAprobadoPorProveedor = pagoAprobadoPorProveedor,
+                ConfirmadoPorWebhook = confirmadoPorWebhook,
+                SuscripcionActiva = suscripcionActiva,
+                DebeAutoActualizar = debeAutoActualizar,
+                SegundosAutoActualizacion = debeAutoActualizar ? CheckoutAutoRefreshSeconds : 0,
+                UrlActualizacion = requiereConsulta
+                    ? BuildCheckoutRefreshUrl(orderNumber, reference, code, description, pollAttemptNormalized + 1)
+                    : null
             };
 
+            ApplyCheckoutMessaging(model, pago);
+
             return View(model);
+        }
+
+        private IActionResult BuildRestrictedCheckoutResult(
+            string? requestedReference,
+            string? code,
+            string? description,
+            string message)
+        {
+            Response.StatusCode = StatusCodes.Status403Forbidden;
+
+            return View(
+                "Exito",
+                new ResultadoCheckoutViewModel
+                {
+                    Referencia = requestedReference,
+                    CodigoProveedor = code,
+                    DescripcionProveedor = description,
+                    AccesoRestringido = true,
+                    MensajePrincipal = message
+                });
+        }
+
+        private Task<List<PagoSuscripcion>> FindMatchingPaymentsAsync(
+            string? requestedReference,
+            string? checkoutId)
+        {
+            if (string.IsNullOrWhiteSpace(requestedReference) && string.IsNullOrWhiteSpace(checkoutId))
+            {
+                return Task.FromResult(new List<PagoSuscripcion>());
+            }
+
+            return _context.PagosSuscripcion
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Include(p => p.Plan)
+                .Where(
+                    p => (!string.IsNullOrWhiteSpace(requestedReference) &&
+                          (p.ReferenciaInterna == requestedReference ||
+                           p.ProviderReference == requestedReference ||
+                           p.ProviderCheckoutId == requestedReference)) ||
+                         (!string.IsNullOrWhiteSpace(checkoutId) && p.ProviderCheckoutId == checkoutId))
+                .OrderByDescending(p => p.FechaCreacionUtc)
+                .Take(2)
+                .ToListAsync();
+        }
+
+        private Task<Suscripcion?> FindCurrentSubscriptionAsync(Guid tenantId) =>
+            _context.Suscripciones
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Include(s => s.Plan)
+                .Where(s => s.TenantId == tenantId)
+                .OrderByDescending(s => s.FechaUltimaActualizacionUtc ?? s.FechaInicio)
+                .ThenByDescending(s => s.FechaInicio)
+                .FirstOrDefaultAsync();
+
+        private static bool IsSubscriptionActive(Suscripcion? suscripcion)
+        {
+            if (suscripcion is null)
+            {
+                return false;
+            }
+
+            if (suscripcion.Estado != EstadoSuscripcion.Activa &&
+                suscripcion.Estado != EstadoSuscripcion.Trial)
+            {
+                return false;
+            }
+
+            return !suscripcion.FechaFin.HasValue || suscripcion.FechaFin.Value >= DateTime.UtcNow;
+        }
+
+        private static bool IsProviderApproved(string? code, string? description)
+        {
+            if (string.Equals(code?.Trim(), "1", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (string.IsNullOrWhiteSpace(description))
+            {
+                return false;
+            }
+
+            return description.Contains("approved", StringComparison.OrdinalIgnoreCase) ||
+                   description.Contains("aprob", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void ApplyCheckoutMessaging(
+            ResultadoCheckoutViewModel model,
+            PagoSuscripcion? pago)
+        {
+            if (pago is null)
+            {
+                model.MensajePrincipal = "No encontramos un pago asociado a esa referencia dentro de tu tenant.";
+                model.MensajeSecundario = "Verifica que ingresaste con la cuenta que inicio el checkout antes de volver a consultar.";
+                return;
+            }
+
+            if (model.SuscripcionActiva)
+            {
+                model.MensajePrincipal = "Pago confirmado y suscripcion activa.";
+                model.MensajeSecundario = "Tu acceso ya esta habilitado para continuar dentro del sistema.";
+                return;
+            }
+
+            if (model.PagoAprobadoPorProveedor)
+            {
+                model.MensajePrincipal = "Tilopay aprobo tu pago. Estamos activando tu suscripcion.";
+                model.MensajeSecundario = model.DebeAutoActualizar
+                    ? $"Esta pantalla se actualizara automaticamente en {model.SegundosAutoActualizacion} segundos."
+                    : "Pulsa Actualizar estado para consultar nuevamente el resultado final.";
+                return;
+            }
+
+            model.MensajePrincipal = "Tu pago fue recibido. Estamos esperando la confirmacion final del proveedor.";
+            model.MensajeSecundario = "Mantendremos esta referencia ligada a tu tenant hasta completar la activacion.";
+        }
+
+        private string BuildCheckoutRefreshUrl(
+            string? orderNumber,
+            string? reference,
+            string? code,
+            string? description,
+            int pollAttempt)
+        {
+            var basePath = Url?.Action(nameof(Exito), "Billing") ?? "/Billing/Exito";
+            var queryValues = new List<KeyValuePair<string, string?>>();
+
+            if (!string.IsNullOrWhiteSpace(orderNumber))
+            {
+                queryValues.Add(new KeyValuePair<string, string?>("orderNumber", orderNumber));
+            }
+
+            if (!string.IsNullOrWhiteSpace(reference))
+            {
+                queryValues.Add(new KeyValuePair<string, string?>("reference", reference));
+            }
+
+            if (!string.IsNullOrWhiteSpace(code))
+            {
+                queryValues.Add(new KeyValuePair<string, string?>("code", code));
+            }
+
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                queryValues.Add(new KeyValuePair<string, string?>("description", description));
+            }
+
+            queryValues.Add(new KeyValuePair<string, string?>("pollAttempt", pollAttempt.ToString()));
+
+            return $"{basePath}{QueryString.Create(queryValues)}";
+        }
+
+        private static string? TryExtractTilopayCheckoutId(string? orderNumber)
+        {
+            if (string.IsNullOrWhiteSpace(orderNumber))
+            {
+                return null;
+            }
+
+            var trimmed = orderNumber.Trim();
+            if (trimmed.All(char.IsDigit))
+            {
+                return trimmed;
+            }
+
+            var separatorIndex = trimmed.LastIndexOf('_');
+            if (separatorIndex < 0 || separatorIndex == trimmed.Length - 1)
+            {
+                return null;
+            }
+
+            var suffix = trimmed[(separatorIndex + 1)..];
+            return suffix.All(char.IsDigit) ? suffix : null;
         }
 
         [HttpGet]

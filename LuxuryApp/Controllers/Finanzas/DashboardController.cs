@@ -123,8 +123,11 @@ namespace LuxuryApp.Controllers.Finanzas
                     .Where(e => e.FechaEgreso >= inicio && e.FechaEgreso < fin)
                     .SumAsync(e => (decimal?)e.Monto) ?? 0;
 
-                gananciaPorMes.Add(ingresos - egresosMesLoop);
+                var totalSinImpuestosMes = ingresos - (ingresos * 0.13m);
+
+                gananciaPorMes.Add(totalSinImpuestosMes - egresosMesLoop);
             }
+
 
             var vm = new DashboardViewModel
             {

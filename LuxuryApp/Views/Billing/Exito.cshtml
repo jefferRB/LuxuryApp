@@ -1,34 +1,380 @@
 @model LuxuryApp.Models.SaaS.ResultadoCheckoutViewModel
 
-<h1>Estado del pago</h1>
+@{
+    Layout = "_CheckoutReturnLayout";
+    ViewData["Title"] = "Estado del pago";
 
-<p>@Model.MensajePrincipal</p>
+    var statusClass = Model.AccesoRestringido
+        ? "checkout-state-restricted"
+        : Model.SuscripcionActiva
+            ? "checkout-state-success"
+            : Model.PagoAprobadoPorProveedor
+                ? "checkout-state-processing"
+                : "checkout-state-pending";
 
-@if (!string.IsNullOrWhiteSpace(Model.Referencia))
-{
-    <p><strong>Referencia:</strong> @Model.Referencia</p>
+    var statusEyebrow = Model.AccesoRestringido
+        ? "Acceso restringido"
+        : Model.SuscripcionActiva
+            ? "Acceso habilitado"
+            : Model.PagoAprobadoPorProveedor
+                ? "Activando acceso"
+                : "Esperando confirmacion";
+
+    var paymentState = Model.EstadoPago?.ToString() ?? "Sin registro local";
+    var subscriptionState = Model.EstadoSuscripcion?.ToString() ?? "Sin suscripcion asociada";
 }
 
-@if (!string.IsNullOrWhiteSpace(Model.NombrePlan))
-{
-    <p><strong>Plan:</strong> @Model.NombrePlan</p>
-}
+<style>
+    .checkout-return {
+        --checkout-ink: #1f2937;
+        --checkout-ink-soft: #475569;
+        --checkout-line: rgba(15, 23, 42, 0.08);
+        --checkout-accent: #b58b57;
+        --checkout-accent-soft: #f7f0e7;
+        --checkout-success: #1f6b4f;
+        --checkout-success-bg: #edf7f1;
+        --checkout-info: #245c8c;
+        --checkout-info-bg: #eef5fb;
+        --checkout-warning: #8a6a2f;
+        --checkout-warning-bg: #fdf7ea;
+        --checkout-danger: #8a2742;
+        --checkout-danger-bg: #fdf0f3;
+        color: var(--checkout-ink);
+    }
 
-@if (!string.IsNullOrWhiteSpace(Model.CodigoProveedor))
-{
-    <p><strong>Código proveedor:</strong> @Model.CodigoProveedor</p>
-}
+    .checkout-card {
+        background: #ffffff;
+        border: 1px solid var(--checkout-line);
+        border-radius: 24px;
+        box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+        overflow: hidden;
+    }
 
-@if (!string.IsNullOrWhiteSpace(Model.DescripcionProveedor))
-{
-    <p><strong>Descripción:</strong> @Model.DescripcionProveedor</p>
-}
+    .checkout-hero {
+        background: linear-gradient(135deg, #111827 0%, #243244 70%, #b58b57 160%);
+        color: #f8fafc;
+        padding: 2.5rem;
+    }
 
-@if (Model.ConfirmadoPorWebhook)
-{
-    <a href="/Home/Index">Ir al sistema</a>
-}
-else
-{
-    <a href="/Billing/Planes">Volver a planes</a>
-}
+    .checkout-kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.45rem 0.85rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.12);
+        font-size: 0.85rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    .checkout-hero h1 {
+        margin-top: 1.25rem;
+        margin-bottom: 0.75rem;
+        font-size: clamp(2rem, 4vw, 2.75rem);
+        font-weight: 700;
+    }
+
+    .checkout-hero p {
+        max-width: 42rem;
+        margin-bottom: 0;
+        color: rgba(248, 250, 252, 0.82);
+    }
+
+    .checkout-body {
+        padding: 2rem;
+    }
+
+    .checkout-status {
+        border-radius: 20px;
+        border: 1px solid transparent;
+        padding: 1.5rem;
+        display: flex;
+        gap: 1rem;
+        align-items: flex-start;
+        margin-bottom: 1.5rem;
+    }
+
+    .checkout-status-mark {
+        width: 3rem;
+        height: 3rem;
+        flex: 0 0 3rem;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 1.1rem;
+        background: rgba(255, 255, 255, 0.7);
+    }
+
+    .checkout-status h2 {
+        margin-bottom: 0.4rem;
+        font-size: 1.3rem;
+        font-weight: 700;
+    }
+
+    .checkout-status p:last-child {
+        margin-bottom: 0;
+    }
+
+    .checkout-status-eyebrow {
+        margin-bottom: 0.35rem;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    .checkout-status-detail {
+        color: var(--checkout-ink-soft);
+    }
+
+    .checkout-state-success {
+        background: var(--checkout-success-bg);
+        border-color: rgba(31, 107, 79, 0.15);
+        color: var(--checkout-success);
+    }
+
+    .checkout-state-processing {
+        background: var(--checkout-info-bg);
+        border-color: rgba(36, 92, 140, 0.15);
+        color: var(--checkout-info);
+    }
+
+    .checkout-state-pending {
+        background: var(--checkout-warning-bg);
+        border-color: rgba(138, 106, 47, 0.18);
+        color: var(--checkout-warning);
+    }
+
+    .checkout-state-restricted {
+        background: var(--checkout-danger-bg);
+        border-color: rgba(138, 39, 66, 0.18);
+        color: var(--checkout-danger);
+    }
+
+    .checkout-meta {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .checkout-meta-card {
+        background: #f8fafc;
+        border: 1px solid rgba(15, 23, 42, 0.06);
+        border-radius: 18px;
+        padding: 1rem 1.1rem;
+    }
+
+    .checkout-meta-card dt {
+        margin-bottom: 0.35rem;
+        color: var(--checkout-ink-soft);
+        font-size: 0.8rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .checkout-meta-card dd {
+        margin-bottom: 0;
+        color: var(--checkout-ink);
+        font-weight: 600;
+        word-break: break-word;
+    }
+
+    .checkout-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.9rem;
+        align-items: center;
+    }
+
+    .checkout-btn-primary {
+        background: #212529;
+        border-color: #212529;
+        color: #ffffff;
+        padding-inline: 1.25rem;
+    }
+
+    .checkout-btn-primary:hover,
+    .checkout-btn-primary:focus {
+        background: #111827;
+        border-color: #111827;
+        color: #ffffff;
+    }
+
+    .checkout-btn-accent {
+        background: var(--checkout-accent);
+        border-color: var(--checkout-accent);
+        color: #ffffff;
+        padding-inline: 1.25rem;
+    }
+
+    .checkout-btn-accent:hover,
+    .checkout-btn-accent:focus {
+        background: #a17847;
+        border-color: #a17847;
+        color: #ffffff;
+    }
+
+    .checkout-refresh-note {
+        margin-top: 1rem;
+        margin-bottom: 0;
+        color: var(--checkout-ink-soft);
+    }
+
+    .checkout-progress {
+        margin-top: 1rem;
+        height: 0.45rem;
+        background: rgba(36, 92, 140, 0.12);
+        border-radius: 999px;
+        overflow: hidden;
+    }
+
+    .checkout-progress-bar {
+        height: 100%;
+        width: 38%;
+        background: linear-gradient(90deg, #245c8c 0%, #8fb4d8 100%);
+        border-radius: 999px;
+        animation: checkout-progress 1.2s ease-in-out infinite alternate;
+    }
+
+    @@keyframes checkout-progress {
+        from { transform: translateX(-8%); }
+        to { transform: translateX(115%); }
+    }
+
+    @@media (max-width: 767.98px) {
+        .checkout-hero,
+        .checkout-body {
+            padding: 1.5rem;
+        }
+
+        .checkout-status {
+            flex-direction: column;
+        }
+
+        .checkout-status-mark {
+            width: 2.75rem;
+            height: 2.75rem;
+        }
+    }
+</style>
+
+<div class="checkout-return container">
+    <div class="row justify-content-center">
+        <div class="col-xl-9 col-lg-10">
+            <section class="checkout-card">
+                <header class="checkout-hero">
+                    <span class="checkout-kicker">LuxuryApp Billing</span>
+                    <h1>Estado del pago</h1>
+                    <p>Validamos este retorno dentro de tu tenant actual y actualizamos la experiencia segun el estado real de tu suscripcion.</p>
+                </header>
+
+                <div class="checkout-body">
+                    <section class="checkout-status @statusClass" aria-live="polite">
+                        <div class="checkout-status-mark">
+                            @(Model.AccesoRestringido ? "!" : Model.SuscripcionActiva ? "OK" : Model.PagoAprobadoPorProveedor ? "..." : "?")
+                        </div>
+                        <div>
+                            <div class="checkout-status-eyebrow">@statusEyebrow</div>
+                            <h2>@Model.MensajePrincipal</h2>
+
+                            @if (!string.IsNullOrWhiteSpace(Model.MensajeSecundario))
+                            {
+                                <p class="checkout-status-detail">@Model.MensajeSecundario</p>
+                            }
+
+                            @if (Model.DebeAutoActualizar)
+                            {
+                                <div class="checkout-progress" aria-hidden="true">
+                                    <div class="checkout-progress-bar"></div>
+                                </div>
+                            }
+                        </div>
+                    </section>
+
+                    <dl class="checkout-meta">
+                        @if (!string.IsNullOrWhiteSpace(Model.Referencia))
+                        {
+                            <div class="checkout-meta-card">
+                                <dt>Referencia</dt>
+                                <dd>@Model.Referencia</dd>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(Model.NombrePlan))
+                        {
+                            <div class="checkout-meta-card">
+                                <dt>Plan</dt>
+                                <dd>@Model.NombrePlan</dd>
+                            </div>
+                        }
+
+                        <div class="checkout-meta-card">
+                            <dt>Estado del pago</dt>
+                            <dd>@paymentState</dd>
+                        </div>
+
+                        <div class="checkout-meta-card">
+                            <dt>Estado de suscripcion</dt>
+                            <dd>@subscriptionState</dd>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(Model.CodigoProveedor))
+                        {
+                            <div class="checkout-meta-card">
+                                <dt>Codigo proveedor</dt>
+                                <dd>@Model.CodigoProveedor</dd>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(Model.DescripcionProveedor))
+                        {
+                            <div class="checkout-meta-card">
+                                <dt>Detalle del proveedor</dt>
+                                <dd>@Model.DescripcionProveedor</dd>
+                            </div>
+                        }
+                    </dl>
+
+                    <div class="checkout-actions">
+                        @if (Model.AccesoRestringido)
+                        {
+                            <a class="btn checkout-btn-primary" href="/Accounts/Acceso">Ingresar con la cuenta correcta</a>
+                        }
+                        else if (Model.SuscripcionActiva)
+                        {
+                            <a class="btn checkout-btn-primary" href="/Home/Index">Ir al sistema</a>
+                        }
+                        else if (!string.IsNullOrWhiteSpace(Model.UrlActualizacion))
+                        {
+                            <a class="btn checkout-btn-accent" href="@Model.UrlActualizacion">Actualizar estado</a>
+                        }
+                        else
+                        {
+                            <a class="btn btn-outline-secondary" href="/Billing/Planes">Ver planes</a>
+                        }
+                    </div>
+
+                    @if (Model.DebeAutoActualizar && !string.IsNullOrWhiteSpace(Model.UrlActualizacion))
+                    {
+                        <p class="checkout-refresh-note">Consultaremos de nuevo en @Model.SegundosAutoActualizacion segundos para reflejar el estado final sin que tengas que salir de esta pantalla.</p>
+
+                        <script>
+                            (() => {
+                                const refreshUrl = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.UrlActualizacion));
+                                const refreshDelay = @(Model.SegundosAutoActualizacion * 1000);
+
+                                window.setTimeout(() => {
+                                    window.location.href = refreshUrl;
+                                }, refreshDelay);
+                            })();
+                        </script>
+                    }
+                </div>
+            </section>
+        </div>
+    </div>
+</div>

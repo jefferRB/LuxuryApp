@@ -166,7 +166,7 @@ namespace LuxuryApp.Services.Tilopay
                 throw new PaymentWebhookValidationException("Tilopay webhook sin referencia utilizable.");
             }
 
-            var providerOrderNumber = NormalizeOptionalValue(webhook.orderNumber);
+            var providerOrderNumber = NormalizeProviderOrderNumber(webhook.orderNumber);
             var providerTransactionId = ReadPositiveLongAsString(webhook.tilopayOrderId);
             var providerCheckoutId = ReadPositiveLongAsString(webhook.tilopayLinkId);
 
@@ -265,7 +265,7 @@ namespace LuxuryApp.Services.Tilopay
                     ProviderType = ProviderType,
                     Exists = false,
                     Reference = request.Reference,
-                    ProviderOrderNumber = request.ProviderOrderNumber ?? lookupReference,
+                    ProviderOrderNumber = NormalizeProviderOrderNumber(request.ProviderOrderNumber) ?? lookupReference,
                     RawResponse = raw
                 };
             }
@@ -274,13 +274,18 @@ namespace LuxuryApp.Services.Tilopay
                 ? parsedAmount
                 : 0m;
 
+            var normalizedProviderOrderNumber =
+                NormalizeProviderOrderNumber(tx.orderNumber) ??
+                NormalizeProviderOrderNumber(request.ProviderOrderNumber) ??
+                lookupReference;
+
             return new PaymentVerificationResult
             {
                 ProviderType = ProviderType,
                 Exists = true,
                 IsSuccess = string.Equals(tx.code, "1", StringComparison.OrdinalIgnoreCase),
                 Reference = request.Reference,
-                ProviderOrderNumber = NormalizeOptionalValue(tx.orderNumber) ?? request.ProviderOrderNumber ?? lookupReference,
+                ProviderOrderNumber = normalizedProviderOrderNumber,
                 StatusCode = tx.code ?? string.Empty,
                 StatusDescription = tx.response ?? string.Empty,
                 ProviderTransactionId = tx.id_tilopay?.ToString(CultureInfo.InvariantCulture),
@@ -394,6 +399,27 @@ namespace LuxuryApp.Services.Tilopay
             return string.Equals(value.Trim(), "null", StringComparison.OrdinalIgnoreCase)
                 ? null
                 : value.Trim();
+        }
+
+        private static string? NormalizeProviderOrderNumber(string? value)
+        {
+            var normalized = NormalizeOptionalValue(value);
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                return null;
+            }
+
+            var separatorIndex = normalized.LastIndexOf('-');
+            if (separatorIndex > 0 && separatorIndex < normalized.Length - 1)
+            {
+                var suffix = normalized[(separatorIndex + 1)..];
+                if (suffix.Contains('_', StringComparison.Ordinal))
+                {
+                    return suffix;
+                }
+            }
+
+            return normalized;
         }
 
         private static string? ReadPositiveLongAsString(JsonElement value)

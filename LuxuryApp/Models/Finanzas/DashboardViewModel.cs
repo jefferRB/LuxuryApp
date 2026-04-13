@@ -31,7 +31,7 @@
 
         public decimal TotalEgresos { get; set; }
 
-        public decimal GananciaNegocio => TotalGenerado - TotalEgresos;
+        public decimal GananciaNegocio => TotalSinImpuestos - TotalEgresos;
         public decimal IngresosEfectivo { get; set; }
         public decimal IngresosSinpe { get; set; }
         public decimal IngresosTarjeta { get; set; }
