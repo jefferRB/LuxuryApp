@@ -1,6 +1,8 @@
+using System.Security.Claims;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Identity;
+using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Tests.Support;
 using Microsoft.AspNetCore.Http;
@@ -10,7 +12,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ProyectoIdentity.Datos;
-using System.Security.Claims;
 
 namespace LuxuryApp.Tests.TenantIsolation
 {
@@ -141,8 +142,20 @@ namespace LuxuryApp.Tests.TenantIsolation
             context.Tenants.Add(new Tenant
             {
                 Id = tenantId,
-                Nombre = "Tenant sin suscripción",
+                Nombre = "Tenant sin suscripcion",
                 Activo = true
+            });
+
+            context.Users.Add(new AppUsuario
+            {
+                Id = "middleware-user",
+                UserName = "middleware-user@test.local",
+                NormalizedUserName = "MIDDLEWARE-USER@TEST.LOCAL",
+                Email = "middleware-user@test.local",
+                NormalizedEmail = "MIDDLEWARE-USER@TEST.LOCAL",
+                TenantId = tenantId,
+                State = true,
+                SecurityStamp = Guid.NewGuid().ToString("N")
             });
 
             await context.SaveChangesAsync();
@@ -152,6 +165,8 @@ namespace LuxuryApp.Tests.TenantIsolation
             httpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
                 new[]
                 {
+                    new Claim(ClaimTypes.NameIdentifier, "middleware-user"),
+                    new Claim(CustomClaimTypes.UserId, "middleware-user"),
                     new Claim(CustomClaimTypes.TenantId, tenantId.ToString()),
                     new Claim(ClaimTypes.Name, "usuario@test.local")
                 },
@@ -161,13 +176,21 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var middleware = new SuscripcionMiddleware(
                 _ => Task.CompletedTask,
-                new MemoryCache(Options.Create(new MemoryCacheOptions())),
                 NullLogger<SuscripcionMiddleware>.Instance);
 
-            await middleware.Invoke(httpContext, context);
+            await middleware.Invoke(httpContext, context, CreateResolver(context));
 
             Assert.Equal("/Billing/SinSuscripcion", httpContext.Response.Headers.Location.ToString());
             Assert.Equal(StatusCodes.Status302Found, httpContext.Response.StatusCode);
+        }
+
+        private static ITenantCommercialAccessResolver CreateResolver(ApplicationDbContext context)
+        {
+            var cache = new MemoryCache(new MemoryCacheOptions());
+            return new TenantCommercialAccessResolver(
+                context,
+                cache,
+                new TenantCommercialAccessCache(cache));
         }
     }
 }

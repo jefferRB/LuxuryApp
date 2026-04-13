@@ -55,6 +55,12 @@
                         <li class="nav-item">
                             <a class="nav-link text-white" asp-controller="Mensajes"  asp-action="Index"> Mensajes</a>
                         </li>
+                        @if (User.HasClaim("platform_super_admin", "True"))
+                        {
+                            <li class="nav-item">
+                                <a class="nav-link text-warning" asp-controller="Platform" asp-action="Index">Plataforma</a>
+                            </li>
+                        }
                         
                     </ul>
                     <!--Vista parcial para acceso y registro-->

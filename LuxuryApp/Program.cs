@@ -33,6 +33,13 @@ builder.Services
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
 
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(
+        PlatformAuthorizationPolicies.PlatformSuperAdmin,
+        policy => policy.RequireClaim(CustomClaimTypes.PlatformSuperAdmin, bool.TrueString));
+});
+
 builder.Services.AddScoped<TenantSessionSecurityValidator>();
 builder.Services.AddScoped<LegacyUserStateRepairService>();
 
@@ -111,6 +118,9 @@ builder.Services.AddScoped<TenantProvisioningService>();
 builder.Services.AddScoped<IUserClaimsPrincipalFactory<AppUsuario>, CustomClaimsPrincipalFactory>();
 
 builder.Services.AddScoped<SuscripcionService>();
+builder.Services.AddSingleton<ITenantCommercialAccessCache, TenantCommercialAccessCache>();
+builder.Services.AddScoped<ITenantCommercialAccessResolver, TenantCommercialAccessResolver>();
+builder.Services.AddScoped<IPromotionalCodeService, PromotionalCodeService>();
 builder.Services.AddScoped<SaaSPaymentService>();
 builder.Services.AddScoped<PaymentProviderResolver>();
 builder.Services.AddHttpClient<PublicCallbackHealthService>(client =>
@@ -154,6 +164,7 @@ using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
     await IdentitySeeder.SeedRolesAsync(services);
+    await IdentitySeeder.SeedPlatformAccessAsync(services);
     await services.GetRequiredService<LegacyUserStateRepairService>().RepairAsync();
 }
 

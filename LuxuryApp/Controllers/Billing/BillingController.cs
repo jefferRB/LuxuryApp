@@ -2,6 +2,7 @@ using System.Net;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Payments;
+using LuxuryApp.Services.SaaS;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -20,6 +21,8 @@ namespace LuxuryApp.Controllers
         private readonly ILogger<BillingController> _logger;
         private readonly ApplicationDbContext _context;
         private readonly SaaSPaymentService _paymentService;
+        private readonly IPromotionalCodeService _promotionalCodeService;
+        private readonly ITenantCommercialAccessResolver _commercialAccessResolver;
         private readonly PublicCallbackHealthService _publicCallbackHealthService;
         private readonly UserManager<AppUsuario> _userManager;
         private readonly OpcionesTilopay _tilopayOptions;
@@ -29,6 +32,8 @@ namespace LuxuryApp.Controllers
             ILogger<BillingController> logger,
             ApplicationDbContext context,
             SaaSPaymentService paymentService,
+            IPromotionalCodeService promotionalCodeService,
+            ITenantCommercialAccessResolver commercialAccessResolver,
             PublicCallbackHealthService publicCallbackHealthService,
             UserManager<AppUsuario> userManager,
             IOptions<OpcionesTilopay> tilopayOptions,
@@ -37,20 +42,37 @@ namespace LuxuryApp.Controllers
             _logger = logger;
             _context = context;
             _paymentService = paymentService;
+            _promotionalCodeService = promotionalCodeService;
+            _commercialAccessResolver = commercialAccessResolver;
             _publicCallbackHealthService = publicCallbackHealthService;
             _userManager = userManager;
             _tilopayOptions = tilopayOptions.Value;
             _paymentOptions = paymentOptions.Value;
         }
 
-        public async Task<IActionResult> Planes()
+        public async Task<IActionResult> Planes(CancellationToken cancellationToken)
         {
             var planes = await BuildAvailablePlansQuery()
                 .AsNoTracking()
                 .OrderBy(p => p.PrecioMensual)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
-            return View(planes);
+            var user = await _userManager.GetUserAsync(User);
+            TenantCommercialAccessResult? currentAccess = null;
+
+            if (user is not null && user.TenantId != Guid.Empty)
+            {
+                currentAccess = await _commercialAccessResolver.ResolveAsync(
+                    user.TenantId,
+                    user,
+                    cancellationToken);
+            }
+
+            return View(new BillingPlanesViewModel
+            {
+                Plans = planes,
+                CurrentAccess = currentAccess
+            });
         }
 
         public IActionResult SinSuscripcion()
@@ -61,6 +83,38 @@ namespace LuxuryApp.Controllers
         public IActionResult PlanVencido()
         {
             return View();
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> AplicarCodigoPromocional(string accessCode, CancellationToken cancellationToken)
+        {
+            var user = await _userManager.GetUserAsync(User);
+            if (user is null)
+            {
+                return Challenge();
+            }
+
+            if (user.TenantId == Guid.Empty)
+            {
+                TempData["BillingError"] = "Tu cuenta no tiene un tenant asociado para aplicar el código.";
+                return RedirectToAction(nameof(Planes));
+            }
+
+            var redemption = await _promotionalCodeService.RedeemAsync(
+                accessCode,
+                user.TenantId,
+                user,
+                cancellationToken);
+
+            if (!redemption.Succeeded)
+            {
+                TempData["BillingError"] = redemption.Error ?? "No fue posible aplicar el código promocional.";
+                return RedirectToAction(nameof(Planes));
+            }
+
+            TempData["BillingSuccess"] = $"Código aplicado correctamente. Tu acceso queda habilitado hasta {redemption.AccessGrant!.FechaFinUtc:yyyy-MM-dd HH:mm} UTC.";
+            return RedirectToAction("Index", "Home");
         }
 
         [HttpGet]

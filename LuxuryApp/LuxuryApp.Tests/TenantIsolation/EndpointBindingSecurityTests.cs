@@ -470,8 +470,12 @@ namespace LuxuryApp.Tests.TenantIsolation
             var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
             var allowedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
+                Path.Combine("Controllers", "Billing", "BillingController.cs"),
+                Path.Combine("Controllers", "Platform", "PlatformController.cs"),
                 Path.Combine("Services", "Payments", "SaaSPaymentService.cs"),
-                Path.Combine("Services", "Stripe", "SuscripcionService.cs")
+                Path.Combine("Services", "Stripe", "SuscripcionService.cs"),
+                Path.Combine("Services", "SaaS", "PromotionalCodeService.cs"),
+                Path.Combine("Services", "SaaS", "TenantCommercialAccessResolver.cs")
             };
 
             var targetRoots = new[]

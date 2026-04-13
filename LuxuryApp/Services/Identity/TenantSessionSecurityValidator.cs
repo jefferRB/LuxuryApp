@@ -35,15 +35,6 @@ namespace LuxuryApp.Services.Identity
                 return false;
             }
 
-            var tenantClaim = principal.FindFirstValue(CustomClaimTypes.TenantId);
-            if (!Guid.TryParse(tenantClaim, out var claimTenantId) || claimTenantId == Guid.Empty)
-            {
-                _logger.LogWarning(
-                    "Sesion rechazada para UserId {UserId} porque el claim tenant_id es invalido.",
-                    userId);
-                return false;
-            }
-
             var userState = await _context.Users
                 .AsNoTracking()
                 .Where(user => user.Id == userId)
@@ -52,7 +43,8 @@ namespace LuxuryApp.Services.Identity
                     user.Id,
                     user.State,
                     user.TenantId,
-                    user.LockoutEnd
+                    user.LockoutEnd,
+                    user.IsPlatformSuperAdmin
                 })
                 .SingleOrDefaultAsync(cancellationToken);
 
@@ -80,6 +72,15 @@ namespace LuxuryApp.Services.Identity
                 return false;
             }
 
+            var tenantClaim = principal.FindFirstValue(CustomClaimTypes.TenantId);
+            if (!Guid.TryParse(tenantClaim, out var claimTenantId) || claimTenantId == Guid.Empty)
+            {
+                _logger.LogWarning(
+                    "Sesion rechazada para UserId {UserId} porque el claim tenant_id es invalido.",
+                    userId);
+                return false;
+            }
+
             if (userState.TenantId != claimTenantId)
             {
                 _logger.LogWarning(
@@ -88,6 +89,11 @@ namespace LuxuryApp.Services.Identity
                     claimTenantId,
                     userState.TenantId);
                 return false;
+            }
+
+            if (userState.IsPlatformSuperAdmin)
+            {
+                return true;
             }
 
             var tenantIsActive = await _context.Tenants

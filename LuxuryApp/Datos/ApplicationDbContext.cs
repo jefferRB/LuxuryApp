@@ -89,7 +89,7 @@ namespace ProyectoIdentity.Datos
                 entity.Property(p => p.Nombre).IsRequired();
                 entity.Property(p => p.Moneda).HasMaxLength(100);
                 entity.Property(p => p.EsPlanValidacion).HasDefaultValue(false);
-                entity.Property(p => p.PrecioMensual).HasColumnType("decimal(10,2)");
+                entity.Property(p => p.PrecioMensual).HasColumnType("decimal(18,2)");
             });
 
             modelBuilder.Entity<Funcionario>(entity =>
@@ -104,38 +104,98 @@ namespace ProyectoIdentity.Datos
 
             modelBuilder.Entity<Servicio>(entity =>
             {
-                entity.Property(s => s.Precio).HasColumnType("decimal(10,2)");
+                entity.Property(s => s.Precio).HasColumnType("decimal(18,2)");
             });
 
             modelBuilder.Entity<Cobro>(entity =>
             {
-                entity.Property(c => c.Monto).HasColumnType("decimal(10,2)");
+                entity.Property(c => c.Monto).HasColumnType("decimal(18,2)");
             });
 
             modelBuilder.Entity<Egreso>(entity =>
             {
-                entity.Property(e => e.Monto).HasColumnType("decimal(10,2)");
+                entity.Property(e => e.Monto).HasColumnType("decimal(18,2)");
             });
 
             modelBuilder.Entity<Producto>(entity =>
             {
-                entity.Property(p => p.PrecioProducto).HasColumnType("decimal(10,2)");
+                entity.Property(p => p.PrecioProducto).HasColumnType("decimal(18,2)");
             });
 
             modelBuilder.Entity<PagoFuncionario>(entity =>
             {
-                entity.Property(p => p.MontoPagado).HasColumnType("decimal(10,2)");
+                entity.Property(p => p.MontoPagado).HasColumnType("decimal(18,2)");
             });
 
             modelBuilder.Entity<Tenant>(entity =>
             {
                 entity.Property(t => t.Nombre).IsRequired();
+                entity.Property(t => t.CommercialNotes).HasMaxLength(250);
+                entity.Property(t => t.CommercialUpdatedByUserId).HasMaxLength(450);
+
+                entity.HasOne(t => t.ForcedPlan)
+                    .WithMany()
+                    .HasForeignKey(t => t.ForcedPlanId)
+                    .OnDelete(DeleteBehavior.Restrict);
             });
 
             modelBuilder.Entity<Suscripcion>(entity =>
             {
                 entity.HasIndex(s => s.TenantId).IsUnique();
                 entity.Property(s => s.MotivoEstado).HasMaxLength(250);
+            });
+
+            modelBuilder.Entity<TenantCommercialAccessGrant>(entity =>
+            {
+                entity.HasIndex(g => new { g.TenantId, g.Activo, g.FechaInicioUtc, g.FechaFinUtc });
+                entity.Property(g => g.NotasInternas).HasMaxLength(2000);
+                entity.Property(g => g.CreadoPorUserId).HasMaxLength(450);
+
+                entity.HasOne(g => g.Tenant)
+                    .WithMany(t => t.CommercialAccessGrants)
+                    .HasForeignKey(g => g.TenantId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(g => g.Plan)
+                    .WithMany()
+                    .HasForeignKey(g => g.PlanId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(g => g.PromotionalCode)
+                    .WithMany(c => c.AccessGrants)
+                    .HasForeignKey(g => g.PromotionalCodeId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<PromotionalCode>(entity =>
+            {
+                entity.HasIndex(c => c.Codigo).IsUnique();
+                entity.Property(c => c.Codigo).HasMaxLength(100).IsRequired();
+                entity.Property(c => c.EmailObjetivo).HasMaxLength(256);
+                entity.Property(c => c.CreadoPorUserId).HasMaxLength(450);
+                entity.Property(c => c.NotasInternas).HasMaxLength(2000);
+
+                entity.HasOne(c => c.Plan)
+                    .WithMany()
+                    .HasForeignKey(c => c.PlanId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<PromotionalCodeRedemption>(entity =>
+            {
+                entity.HasIndex(r => new { r.PromotionalCodeId, r.TenantId }).IsUnique();
+                entity.Property(r => r.EmailConsumidor).HasMaxLength(256).IsRequired();
+                entity.Property(r => r.ConsumidoPorUserId).HasMaxLength(450);
+
+                entity.HasOne(r => r.PromotionalCode)
+                    .WithMany(c => c.Redemptions)
+                    .HasForeignKey(r => r.PromotionalCodeId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(r => r.AccessGrant)
+                    .WithMany(g => g.Redemptions)
+                    .HasForeignKey(r => r.TenantCommercialAccessGrantId)
+                    .OnDelete(DeleteBehavior.Restrict);
             });
 
             modelBuilder.Entity<PagoSuscripcion>(entity =>
@@ -567,6 +627,9 @@ namespace ProyectoIdentity.Datos
         public DbSet<Factura> Facturas { get; set; }
         public DbSet<PagoSuscripcion> PagosSuscripcion { get; set; }
         public DbSet<EventoPago> EventosPago { get; set; }
+        public DbSet<TenantCommercialAccessGrant> TenantCommercialAccessGrants { get; set; }
+        public DbSet<PromotionalCode> PromotionalCodes { get; set; }
+        public DbSet<PromotionalCodeRedemption> PromotionalCodeRedemptions { get; set; }
 
 
 

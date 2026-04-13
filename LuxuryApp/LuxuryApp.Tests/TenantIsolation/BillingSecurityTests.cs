@@ -425,6 +425,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 context,
                 null!,
                 null!,
+                null!,
+                null!,
                 userManager,
                 Options.Create(new OpcionesTilopay()),
                 Options.Create(new OpcionesPago()))
@@ -523,6 +525,8 @@ namespace LuxuryApp.Tests.TenantIsolation
             var controller = new BillingController(
                 NullLogger<BillingController>.Instance,
                 context,
+                null!,
+                null!,
                 null!,
                 null!,
                 userManager,
@@ -629,6 +633,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 context,
                 null!,
                 null!,
+                null!,
+                null!,
                 userManager,
                 Options.Create(new OpcionesTilopay()),
                 Options.Create(new OpcionesPago()))
@@ -727,6 +733,8 @@ namespace LuxuryApp.Tests.TenantIsolation
             var controller = new BillingController(
                 NullLogger<BillingController>.Instance,
                 context,
+                null!,
+                null!,
                 null!,
                 null!,
                 userManager,
@@ -828,6 +836,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 context,
                 null!,
                 null!,
+                null!,
+                null!,
                 userManager,
                 Options.Create(new OpcionesTilopay()),
                 Options.Create(new OpcionesPago()))
@@ -869,6 +879,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var subscriptionService = new SuscripcionService(
                 context,
                 cache,
+                new TenantCommercialAccessCache(cache),
                 NullLogger<SuscripcionService>.Instance);
 
             return new SaaSPaymentService(

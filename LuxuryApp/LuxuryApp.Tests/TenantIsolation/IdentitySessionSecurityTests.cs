@@ -2,6 +2,7 @@ using System.Security.Claims;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Identity;
+using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Tests.Support;
 using Microsoft.AspNetCore.Authentication;
@@ -136,6 +137,18 @@ namespace LuxuryApp.Tests.TenantIsolation
                 FechaInicio = DateTime.UtcNow
             });
 
+            context.Users.Add(new AppUsuario
+            {
+                Id = "user-1",
+                UserName = "user-1@test.local",
+                NormalizedUserName = "USER-1@TEST.LOCAL",
+                Email = "user-1@test.local",
+                NormalizedEmail = "USER-1@TEST.LOCAL",
+                TenantId = tenantId,
+                State = true,
+                SecurityStamp = Guid.NewGuid().ToString("N")
+            });
+
             await context.SaveChangesAsync();
 
             var httpContext = new DefaultHttpContext();
@@ -148,10 +161,9 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var middleware = new SuscripcionMiddleware(
                 _ => Task.CompletedTask,
-                new MemoryCache(new MemoryCacheOptions()),
                 NullLogger<SuscripcionMiddleware>.Instance);
 
-            await middleware.Invoke(httpContext, context);
+            await middleware.Invoke(httpContext, context, CreateResolver(context));
 
             Assert.Equal("/Accounts/Acceso", httpContext.Response.Headers.Location.ToString());
             Assert.Equal(StatusCodes.Status302Found, httpContext.Response.StatusCode);
@@ -166,6 +178,15 @@ namespace LuxuryApp.Tests.TenantIsolation
                     new Claim(CustomClaimTypes.TenantId, tenantId.ToString())
                 },
                 authenticationType: "TestAuth"));
+
+        private static ITenantCommercialAccessResolver CreateResolver(ProyectoIdentity.Datos.ApplicationDbContext context)
+        {
+            var cache = new MemoryCache(new MemoryCacheOptions());
+            return new TenantCommercialAccessResolver(
+                context,
+                cache,
+                new TenantCommercialAccessCache(cache));
+        }
 
         private sealed class FakeAuthenticationService : IAuthenticationService
         {

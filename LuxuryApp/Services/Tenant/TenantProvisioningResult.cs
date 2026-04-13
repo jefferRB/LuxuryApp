@@ -10,6 +10,7 @@ namespace LuxuryApp.Services.Tenant
         public Guid TenantId { get; init; }
         public bool RequiresPlanSelection { get; init; }
         public bool InitialSubscriptionCreated { get; init; }
+        public bool PromotionalAccessApplied { get; init; }
 
         public static TenantProvisioningResult Failure(params string[] errors) =>
             new()
@@ -21,14 +22,17 @@ namespace LuxuryApp.Services.Tenant
         public static TenantProvisioningResult Success(
             AppUsuario user,
             Guid tenantId,
-            bool initialSubscriptionCreated) =>
+            bool initialSubscriptionCreated,
+            bool promotionalAccessApplied,
+            bool requiresPlanSelection) =>
             new()
             {
                 Succeeded = true,
                 User = user,
                 TenantId = tenantId,
                 InitialSubscriptionCreated = initialSubscriptionCreated,
-                RequiresPlanSelection = !initialSubscriptionCreated
+                PromotionalAccessApplied = promotionalAccessApplied,
+                RequiresPlanSelection = requiresPlanSelection
             };
     }
 }

@@ -1,9 +1,16 @@
-﻿using Microsoft.AspNetCore.Identity;
+using LuxuryApp.Models.Identity;
+using LuxuryApp.Models.SaaS;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Datos
 {
-    public class IdentitySeeder   
+    public class IdentitySeeder
     {
+        private const string PlatformSuperAdminEmail = "05jeffer03@gmail.com";
+        private const string InternalPlatformTenantName = "Platform Internal";
+
         public static async Task SeedRolesAsync(IServiceProvider serviceProvider)
         {
             var roleManager = serviceProvider.GetRequiredService<RoleManager<IdentityRole>>();
@@ -16,6 +23,70 @@ namespace LuxuryApp.Datos
                 {
                     await roleManager.CreateAsync(new IdentityRole(role));
                 }
+            }
+        }
+
+        public static async Task SeedPlatformAccessAsync(IServiceProvider serviceProvider)
+        {
+            var userManager = serviceProvider.GetRequiredService<UserManager<AppUsuario>>();
+            var context = serviceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var user = await userManager.FindByEmailAsync(PlatformSuperAdminEmail);
+            if (user is null)
+            {
+                return;
+            }
+
+            var userChanged = false;
+            var hasValidTenant = user.TenantId != Guid.Empty &&
+                await context.Tenants.AnyAsync(tenant => tenant.Id == user.TenantId);
+
+            if (!hasValidTenant)
+            {
+                var internalTenant = await context.Tenants
+                    .FirstOrDefaultAsync(tenant => tenant.Nombre == InternalPlatformTenantName);
+
+                if (internalTenant is null)
+                {
+                    internalTenant = new Tenant
+                    {
+                        Id = Guid.NewGuid(),
+                        Nombre = InternalPlatformTenantName,
+                        Activo = true,
+                        FechaCreacion = DateTime.UtcNow,
+                        CommercialAccessMode = TenantCommercialAccessMode.Internal,
+                        CommercialNotes = "Tenant interno bootstrap para acceso de plataforma.",
+                        CommercialUpdatedUtc = DateTime.UtcNow
+                    };
+
+                    var preferredPlan = await context.Planes
+                        .Where(plan => plan.Activo)
+                        .OrderByDescending(plan => plan.Nombre == "Full")
+                        .ThenByDescending(plan => plan.PrecioMensual)
+                        .FirstOrDefaultAsync();
+
+                    if (preferredPlan is not null)
+                    {
+                        internalTenant.ForcedPlanId = preferredPlan.Id;
+                    }
+
+                    context.Tenants.Add(internalTenant);
+                    await context.SaveChangesAsync();
+                }
+
+                user.TenantId = internalTenant.Id;
+                userChanged = true;
+            }
+
+            if (!user.IsPlatformSuperAdmin)
+            {
+                user.IsPlatformSuperAdmin = true;
+                userChanged = true;
+            }
+
+            if (userChanged)
+            {
+                await userManager.UpdateAsync(user);
             }
         }
     }

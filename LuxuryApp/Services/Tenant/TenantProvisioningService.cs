@@ -1,5 +1,6 @@
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.SaaS;
+using LuxuryApp.Services.SaaS;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -13,18 +14,24 @@ namespace LuxuryApp.Services.Tenant
         private readonly UserManager<AppUsuario> _userManager;
         private readonly RoleManager<IdentityRole> _roleManager;
         private readonly OpcionesOnboardingTenant _options;
+        private readonly IPromotionalCodeService _promotionalCodeService;
+        private readonly ITenantCommercialAccessResolver _commercialAccessResolver;
         private readonly ILogger<TenantProvisioningService> _logger;
 
         public TenantProvisioningService(
             ApplicationDbContext context,
             UserManager<AppUsuario> userManager,
             RoleManager<IdentityRole> roleManager,
+            IPromotionalCodeService promotionalCodeService,
+            ITenantCommercialAccessResolver commercialAccessResolver,
             IOptions<OpcionesOnboardingTenant> options,
             ILogger<TenantProvisioningService> logger)
         {
             _context = context;
             _userManager = userManager;
             _roleManager = roleManager;
+            _promotionalCodeService = promotionalCodeService;
+            _commercialAccessResolver = commercialAccessResolver;
             _options = options.Value;
             _logger = logger;
         }
@@ -38,6 +45,7 @@ namespace LuxuryApp.Services.Tenant
             var email = request.Email.Trim();
             var name = request.Name.Trim();
             var phoneNumber = request.PhoneNumber?.Trim();
+            var accessCode = request.AccessCode?.Trim();
 
             var existingUser = await _userManager.FindByEmailAsync(email);
             if (existingUser is not null)
@@ -47,6 +55,7 @@ namespace LuxuryApp.Services.Tenant
 
             var executionStrategy = _context.Database.CreateExecutionStrategy();
             TenantProvisioningResult? provisioningResult = null;
+            var promotionalAccessApplied = false;
 
             await executionStrategy.ExecuteAsync(async () =>
             {
@@ -102,18 +111,45 @@ namespace LuxuryApp.Services.Tenant
                         }
                     }
 
+                    if (!string.IsNullOrWhiteSpace(accessCode))
+                    {
+                        var redemptionResult = await _promotionalCodeService.RedeemAsync(
+                            accessCode,
+                            tenant.Id,
+                            usuario,
+                            cancellationToken);
+
+                        if (!redemptionResult.Succeeded)
+                        {
+                            provisioningResult = TenantProvisioningResult.Failure(
+                                redemptionResult.Error ?? "No fue posible aplicar el código de acceso.");
+                            await transaction.RollbackAsync(cancellationToken);
+                            return;
+                        }
+
+                        promotionalAccessApplied = true;
+                    }
+
                     await transaction.CommitAsync(cancellationToken);
 
+                    var access = await _commercialAccessResolver.ResolveAsync(
+                        tenant.Id,
+                        usuario,
+                        cancellationToken);
+
                     _logger.LogInformation(
-                        "Tenant provisionado correctamente. TenantId {TenantId}. UserId {UserId}. InitialSubscriptionCreated {InitialSubscriptionCreated}.",
+                        "Tenant provisionado correctamente. TenantId {TenantId}. UserId {UserId}. InitialSubscriptionCreated {InitialSubscriptionCreated}. PromotionalAccessApplied {PromotionalAccessApplied}.",
                         tenant.Id,
                         usuario.Id,
-                        initialSubscriptionCreated);
+                        initialSubscriptionCreated,
+                        promotionalAccessApplied);
 
                     provisioningResult = TenantProvisioningResult.Success(
                         usuario,
                         tenant.Id,
-                        initialSubscriptionCreated);
+                        initialSubscriptionCreated,
+                        promotionalAccessApplied,
+                        requiresPlanSelection: !access.CanAccessApp);
                 }
                 catch
                 {

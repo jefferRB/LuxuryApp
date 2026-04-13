@@ -10,6 +10,7 @@ namespace LuxuryApp.Services.Identity
         public const string TenantId = "tenant_id";
         public const string UserId = "user_id";
         public const string UserName = "user_name";
+        public const string PlatformSuperAdmin = "platform_super_admin";
     }
 
     public class CustomClaimsPrincipalFactory
@@ -57,6 +58,14 @@ namespace LuxuryApp.Services.Identity
                 CustomClaimTypes.UserName,
                 user.UserName ?? string.Empty
             ));
+
+            if (user.IsPlatformSuperAdmin)
+            {
+                identity.AddClaim(new Claim(
+                    CustomClaimTypes.PlatformSuperAdmin,
+                    bool.TrueString
+                ));
+            }
 
             return identity;
         }

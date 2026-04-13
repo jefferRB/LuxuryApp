@@ -9,15 +9,18 @@ namespace LuxuryApp.Services.SaaS
     {
         private readonly ApplicationDbContext _db;
         private readonly IMemoryCache _cache;
+        private readonly ITenantCommercialAccessCache _accessCache;
         private readonly ILogger<SuscripcionService> _logger;
 
         public SuscripcionService(
             ApplicationDbContext db,
             IMemoryCache cache,
+            ITenantCommercialAccessCache accessCache,
             ILogger<SuscripcionService> logger)
         {
             _db = db;
             _cache = cache;
+            _accessCache = accessCache;
             _logger = logger;
         }
 
@@ -438,6 +441,7 @@ namespace LuxuryApp.Services.SaaS
         private void InvalidateSubscriptionCache(Guid tenantId)
         {
             _cache.Remove($"suscripcion_{tenantId}");
+            _accessCache.Invalidate(tenantId);
         }
     }
 }

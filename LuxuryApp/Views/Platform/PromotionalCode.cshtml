@@ -1,0 +1,60 @@
+@model LuxuryApp.Models.Platform.PlatformPromotionalCodeDetailsViewModel
+
+@{
+    ViewData["Title"] = "Detalle del código";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="mb-0">Detalle del código @Model.Code.Codigo</h2>
+    <a class="btn btn-outline-secondary" asp-action="PromotionalCodes">Volver</a>
+</div>
+
+<div class="card shadow-sm border-0 mb-4">
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-3"><strong>Plan:</strong> @Model.Code.PlanName</div>
+            <div class="col-md-2"><strong>Días:</strong> @Model.Code.DiasGratis</div>
+            <div class="col-md-2"><strong>Usos:</strong> @Model.Code.UsosActuales / @(Model.Code.MaxUsos?.ToString() ?? "∞")</div>
+            <div class="col-md-2"><strong>Estado:</strong> @(Model.Code.Activo ? "Activo" : "Inactivo")</div>
+            <div class="col-md-3"><strong>Expira:</strong> @(Model.Code.FechaExpiracionUtc?.ToString("yyyy-MM-dd HH:mm") ?? "Sin expiración")</div>
+        </div>
+        <hr />
+        <div><strong>Email objetivo:</strong> @Model.Code.EmailObjetivo</div>
+        <div><strong>Solo primer registro:</strong> @(Model.Code.SoloPrimerRegistro ? "Sí" : "No")</div>
+        <div><strong>Notas:</strong> @Model.NotasInternas</div>
+    </div>
+</div>
+
+<h4>Consumos</h4>
+<div class="table-responsive">
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Tenant</th>
+                <th>Email</th>
+                <th>Fecha consumo UTC</th>
+                <th>Acceso hasta UTC</th>
+            </tr>
+        </thead>
+        <tbody>
+            @if (!Model.Redemptions.Any())
+            {
+                <tr>
+                    <td colspan="4" class="text-center text-muted">Este código todavía no ha sido consumido.</td>
+                </tr>
+            }
+            else
+            {
+                @foreach (var redemption in Model.Redemptions)
+                {
+                    <tr>
+                        <td>@redemption.TenantName</td>
+                        <td>@redemption.EmailConsumidor</td>
+                        <td>@redemption.FechaConsumoUtc.ToString("yyyy-MM-dd HH:mm")</td>
+                        <td>@(redemption.AccessEndsUtc?.ToString("yyyy-MM-dd HH:mm") ?? "-")</td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+</div>

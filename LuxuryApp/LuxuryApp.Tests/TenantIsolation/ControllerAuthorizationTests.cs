@@ -4,7 +4,9 @@ using LuxuryApp.Controllers.DataBase;
 using LuxuryApp.Controllers.Finanzas;
 using LuxuryApp.Controllers.Funcionarios;
 using LuxuryApp.Controllers.Identity;
+using LuxuryApp.Controllers.Platform;
 using LuxuryApp.Controllers.Productos;
+using LuxuryApp.Services.Identity;
 using Microsoft.AspNetCore.Authorization;
 
 namespace LuxuryApp.Tests.TenantIsolation
@@ -41,6 +43,18 @@ namespace LuxuryApp.Tests.TenantIsolation
                 Assert.NotNull(authorizeAttribute);
                 Assert.Equal("Administrador", authorizeAttribute!.Roles);
             }
+        }
+
+        [Fact]
+        public void PlatformController_ShouldRequirePlatformSuperAdminPolicy()
+        {
+            var authorizeAttribute = typeof(PlatformController)
+                .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
+                .OfType<AuthorizeAttribute>()
+                .FirstOrDefault();
+
+            Assert.NotNull(authorizeAttribute);
+            Assert.Equal(PlatformAuthorizationPolicies.PlatformSuperAdmin, authorizeAttribute!.Policy);
         }
     }
 }

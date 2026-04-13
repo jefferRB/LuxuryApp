@@ -26,5 +26,9 @@ namespace LuxuryApp.Models.Identity
         public string Name { get; set; } = string.Empty;
         [Display(Name = "Telefono")]
         public string PhoneNumber { get; set; } = string.Empty;
+
+        [Display(Name = "Código de acceso")]
+        [StringLength(100)]
+        public string? AccessCode { get; set; }
     }
 }

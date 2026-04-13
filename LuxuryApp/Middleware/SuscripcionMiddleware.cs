@@ -1,28 +1,29 @@
-using LuxuryApp.Models.SaaS;
+using System.Security.Claims;
+using LuxuryApp.Models.Identity;
 using LuxuryApp.Services.Identity;
+using LuxuryApp.Services.SaaS;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
 using ProyectoIdentity.Datos;
 
 public class SuscripcionMiddleware
 {
     private readonly RequestDelegate _next;
-    private readonly IMemoryCache _cache;
     private readonly ILogger<SuscripcionMiddleware> _logger;
 
     public SuscripcionMiddleware(
         RequestDelegate next,
-        IMemoryCache cache,
         ILogger<SuscripcionMiddleware> logger)
     {
         _next = next;
-        _cache = cache;
         _logger = logger;
     }
 
-    public async Task Invoke(HttpContext context, ApplicationDbContext db)
+    public async Task Invoke(
+        HttpContext context,
+        ApplicationDbContext db,
+        ITenantCommercialAccessResolver commercialAccessResolver)
     {
         try
         {
@@ -31,7 +32,8 @@ public class SuscripcionMiddleware
             if (path.StartsWith("/accounts") ||
                 path.StartsWith("/home") ||
                 path.StartsWith("/error") ||
-                path.StartsWith("/billing"))
+                path.StartsWith("/billing") ||
+                path.StartsWith("/platform"))
             {
                 await _next(context);
                 return;
@@ -43,13 +45,55 @@ public class SuscripcionMiddleware
                 return;
             }
 
-            var tenantClaim = context.User.FindFirst(CustomClaimTypes.TenantId);
+            if (string.Equals(
+                context.User.FindFirstValue(CustomClaimTypes.PlatformSuperAdmin),
+                bool.TrueString,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                await _next(context);
+                return;
+            }
 
+            var tenantClaim = context.User.FindFirst(CustomClaimTypes.TenantId);
             if (tenantClaim == null || !Guid.TryParse(tenantClaim.Value, out var tenantId) || tenantId == Guid.Empty)
             {
                 _logger.LogWarning("TenantId invalido o inexistente.");
                 await context.SignOutAsync(IdentityConstants.ApplicationScheme);
                 context.Response.Redirect("/Accounts/Acceso");
+                return;
+            }
+
+            var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                ?? context.User.FindFirstValue(CustomClaimTypes.UserId);
+
+            if (string.IsNullOrWhiteSpace(userId))
+            {
+                await context.SignOutAsync(IdentityConstants.ApplicationScheme);
+                context.Response.Redirect("/Accounts/Acceso");
+                return;
+            }
+
+            var user = await db.Users
+                .AsNoTracking()
+                .Where(currentUser => currentUser.Id == userId)
+                .Select(currentUser => new AppUsuario
+                {
+                    Id = currentUser.Id,
+                    TenantId = currentUser.TenantId,
+                    IsPlatformSuperAdmin = currentUser.IsPlatformSuperAdmin
+                })
+                .FirstOrDefaultAsync();
+
+            if (user is null)
+            {
+                await context.SignOutAsync(IdentityConstants.ApplicationScheme);
+                context.Response.Redirect("/Accounts/Acceso");
+                return;
+            }
+
+            if (user.IsPlatformSuperAdmin)
+            {
+                await _next(context);
                 return;
             }
 
@@ -65,45 +109,17 @@ public class SuscripcionMiddleware
                 return;
             }
 
-            var cacheKey = $"suscripcion_{tenantId}";
-
-            if (!_cache.TryGetValue(cacheKey, out Suscripcion? suscripcion))
+            var access = await commercialAccessResolver.ResolveAsync(tenantId, user);
+            if (!access.CanAccessApp)
             {
-                suscripcion = await db.Suscripciones
-                    .AsNoTracking()
-                    .Include(s => s.Plan)
-                    .Where(s => s.TenantId == tenantId)
-                    .OrderByDescending(s => s.FechaInicio)
-                    .FirstOrDefaultAsync();
-
-                if (suscripcion != null)
-                {
-                    _cache.Set(cacheKey, suscripcion, TimeSpan.FromMinutes(5));
-                }
-            }
-
-            if (suscripcion == null)
-            {
-                context.Response.Redirect("/Billing/SinSuscripcion");
-                return;
-            }
-
-            if (suscripcion.Estado != EstadoSuscripcion.Activa &&
-                suscripcion.Estado != EstadoSuscripcion.Trial)
-            {
-                context.Response.Redirect("/Billing/PlanVencido");
-                return;
-            }
-
-            if (suscripcion.FechaFin.HasValue &&
-                suscripcion.FechaFin < DateTime.UtcNow)
-            {
-                context.Response.Redirect("/Billing/PlanVencido");
+                context.Response.Redirect(access.HasCommercialHistory
+                    ? "/Billing/PlanVencido"
+                    : "/Billing/SinSuscripcion");
                 return;
             }
 
             context.Items["TenantId"] = tenantId;
-            context.Items["Suscripcion"] = suscripcion;
+            context.Items["TenantCommercialAccess"] = access;
 
             await _next(context);
         }

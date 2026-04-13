@@ -1,0 +1,203 @@
+@using LuxuryApp.Models.SaaS
+@model LuxuryApp.Models.Platform.PlatformDashboardViewModel
+
+@{
+    ViewData["Title"] = "Plataforma";
+}
+
+<h2 class="mb-4">Administración de Plataforma</h2>
+
+@if (TempData["PlatformError"] is string platformError)
+{
+    <div class="alert alert-danger">@platformError</div>
+}
+
+@if (TempData["PlatformSuccess"] is string platformSuccess)
+{
+    <div class="alert alert-success">@platformSuccess</div>
+}
+
+<div class="row mb-4">
+    <div class="col-md-3 mb-3">
+        <div class="card border-0 shadow-sm"><div class="card-body"><strong>Tenants</strong><div class="display-6">@Model.TotalTenants</div></div></div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card border-0 shadow-sm"><div class="card-body"><strong>Usuarios</strong><div class="display-6">@Model.TotalUsers</div></div></div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card border-0 shadow-sm"><div class="card-body"><strong>Suscripciones activas</strong><div class="display-6">@Model.TotalActiveSubscriptions</div></div></div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card border-0 shadow-sm"><div class="card-body"><strong>Códigos promocionales</strong><div class="display-6">@Model.TotalPromotionalCodes</div></div></div>
+    </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">Tenants</h4>
+    <a class="btn btn-outline-dark" asp-action="PromotionalCodes">Gestionar códigos promocionales</a>
+</div>
+
+<div class="table-responsive mb-5">
+    <table class="table table-striped align-middle">
+        <thead>
+            <tr>
+                <th>Tenant</th>
+                <th>Owner</th>
+                <th>Estado</th>
+                <th>Acceso comercial</th>
+                <th>Plan forzado</th>
+                <th>Plan efectivo</th>
+                <th>Motivo</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var tenant in Model.Tenants)
+            {
+                <tr>
+                    <td>@tenant.TenantName</td>
+                    <td>@tenant.OwnerEmail</td>
+                    <td>
+                        @if (tenant.TenantActive)
+                        {
+                            <span class="badge bg-success">Activo</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-danger">Suspendido</span>
+                        }
+                    </td>
+                    <td>
+                        <form asp-action="UpdateTenantCommercialSettings" method="post" class="row g-2">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="tenantId" value="@tenant.TenantId" />
+                            <div class="col-md-4">
+                                <select class="form-select form-select-sm" name="commercialAccessMode">
+                                    @if (tenant.CommercialAccessMode == TenantCommercialAccessMode.RequiresSubscription)
+                                    {
+                                        <option value="@TenantCommercialAccessMode.RequiresSubscription" selected>Requiere suscripción</option>
+                                    }
+                                    else
+                                    {
+                                        <option value="@TenantCommercialAccessMode.RequiresSubscription">Requiere suscripción</option>
+                                    }
+                                    @if (tenant.CommercialAccessMode == TenantCommercialAccessMode.Exempt)
+                                    {
+                                        <option value="@TenantCommercialAccessMode.Exempt" selected>Exento</option>
+                                    }
+                                    else
+                                    {
+                                        <option value="@TenantCommercialAccessMode.Exempt">Exento</option>
+                                    }
+                                    @if (tenant.CommercialAccessMode == TenantCommercialAccessMode.Internal)
+                                    {
+                                        <option value="@TenantCommercialAccessMode.Internal" selected>Interno</option>
+                                    }
+                                    else
+                                    {
+                                        <option value="@TenantCommercialAccessMode.Internal">Interno</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <select class="form-select form-select-sm" name="forcedPlanId">
+                                    <option value="">Sin plan forzado</option>
+                                    @foreach (var plan in Model.AvailablePlans)
+                                    {
+                                        @if (tenant.ForcedPlanId == plan.Id)
+                                        {
+                                            <option value="@plan.Id" selected>@plan.Nombre</option>
+                                        }
+                                        else
+                                        {
+                                            <option value="@plan.Id">@plan.Nombre</option>
+                                        }
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <input class="form-control form-control-sm" name="commercialNotes" placeholder="Notas internas" />
+                            </div>
+                            <div class="col-12">
+                                <button type="submit" class="btn btn-sm btn-dark">Guardar</button>
+                            </div>
+                        </form>
+                    </td>
+                    <td>@tenant.ForcedPlanName</td>
+                    <td>@tenant.EffectivePlanName</td>
+                    <td>
+                        @if (tenant.CanAccessApp)
+                        {
+                            <span class="text-success">@tenant.Reason</span>
+                        }
+                        else
+                        {
+                            <span class="text-danger">@tenant.Reason</span>
+                        }
+                    </td>
+                    <td></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+<div class="row">
+    <div class="col-lg-6 mb-4">
+        <h4>Usuarios recientes</h4>
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Email</th>
+                        <th>Nombre</th>
+                        <th>Tenant</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var user in Model.RecentUsers)
+                    {
+                        <tr>
+                            <td>@user.Email</td>
+                            <td>@user.Name</td>
+                            <td>@user.TenantName</td>
+                            <td>
+                                @if (user.IsPlatformSuperAdmin)
+                                {
+                                    <span class="badge bg-dark">SuperAdmin</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="col-lg-6 mb-4">
+        <h4>Pagos recientes</h4>
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Tenant</th>
+                        <th>Plan</th>
+                        <th>Monto</th>
+                        <th>Estado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var payment in Model.RecentPayments)
+                    {
+                        <tr>
+                            <td>@payment.TenantName</td>
+                            <td>@payment.PlanName</td>
+                            <td>@payment.Currency @payment.Amount</td>
+                            <td>@payment.Status</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

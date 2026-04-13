@@ -1,4 +1,4 @@
-﻿@model List<LuxuryApp.Models.SaaS.Plan>
+@model LuxuryApp.Models.SaaS.BillingPlanesViewModel
 
 @{
     ViewData["Title"] = "Planes";
@@ -13,7 +13,44 @@
     </div>
 }
 
-@if (Model.Any(plan => plan.EsPlanValidacion))
+@if (TempData["BillingSuccess"] is string billingSuccess)
+{
+    <div class="alert alert-success" role="alert">
+        @billingSuccess
+    </div>
+}
+
+@if (Model.CurrentAccess?.CanAccessApp == true)
+{
+    <div class="alert alert-info" role="alert">
+        Tu tenant ya tiene acceso comercial activo por <strong>@Model.CurrentAccess.AccessSource</strong>.
+        @if (!string.IsNullOrWhiteSpace(Model.CurrentAccess.EffectivePlanName))
+        {
+            <span>Plan efectivo: <strong>@Model.CurrentAccess.EffectivePlanName</strong>.</span>
+        }
+    </div>
+}
+
+<div class="card shadow-sm border-0 mb-4">
+    <div class="card-body">
+        <h5 class="card-title">¿Tienes un código de acceso?</h5>
+        <p class="text-muted mb-3">
+            Puedes activar acceso temporal sin tarjeta si el código fue emitido por plataforma.
+        </p>
+        <form asp-action="AplicarCodigoPromocional" method="post" class="row g-2 align-items-end">
+            @Html.AntiForgeryToken()
+            <div class="col-md-8">
+                <label for="accessCode" class="form-label">Código promocional</label>
+                <input id="accessCode" name="accessCode" class="form-control" maxlength="100" />
+            </div>
+            <div class="col-md-4">
+                <button type="submit" class="btn btn-outline-dark w-100">Aplicar código</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+@if (Model.Plans.Any(plan => plan.EsPlanValidacion))
 {
     <div class="alert alert-warning" role="alert">
         El plan marcado como <strong>Validación</strong> está pensado para una prueba controlada de Tilopay con monto reducido.
@@ -22,7 +59,7 @@
 
 <div class="row justify-content-center">
 
-    @foreach (var plan in Model)
+    @foreach (var plan in Model.Plans)
     {
         var esEmpresarial = plan.Nombre == "Empresarial";
         var esPlanValidacion = plan.EsPlanValidacion;
@@ -54,16 +91,16 @@
 
                     <ul class="list-unstyled mb-4">
                         <li>
-                            👥 Funcionarios:
-                            @(plan.MaxFuncionarios.HasValue? plan.MaxFuncionarios.ToString() : "Ilimitados")
+                            Funcionarios:
+                            @(plan.MaxFuncionarios.HasValue ? plan.MaxFuncionarios.ToString() : "Ilimitados")
                         </li>
-
-                        <li>📅 Agenda de citas</li>
-                        <li>📊 Dashboard básico</li>
-                        <li>💰 Control financiero</li>
+                        <li>Agenda de citas</li>
+                        <li>Dashboard básico</li>
+                        <li>Control financiero</li>
                     </ul>
 
                     <form asp-action="Checkout" method="post">
+                        @Html.AntiForgeryToken()
                         <input type="hidden" name="planId" value="@plan.Id" />
 
                         <button class="btn @(esPlanValidacion ? "btn-info" : esEmpresarial ? "btn-warning" : "btn-dark") w-100">

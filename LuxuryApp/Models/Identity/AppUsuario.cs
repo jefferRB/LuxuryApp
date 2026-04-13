@@ -12,6 +12,9 @@ namespace LuxuryApp.Models.Identity
         public bool State { get; set; } = true;
 
         [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever]
+        public bool IsPlatformSuperAdmin { get; set; }
+
+        [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever]
         public Guid TenantId { get; set; }
 
         public Tenant? Tenant { get; set; }

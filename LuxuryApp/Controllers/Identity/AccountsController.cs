@@ -68,7 +68,8 @@ namespace LuxuryApp.Controllers.Identity
                         Email = model.Email,
                         Password = model.Password,
                         Name = model.Name,
-                        PhoneNumber = model.PhoneNumber
+                        PhoneNumber = model.PhoneNumber,
+                        AccessCode = model.AccessCode
                     },
                     cancellationToken);
 
@@ -163,7 +164,9 @@ namespace LuxuryApp.Controllers.Identity
                 var tenantDisponible = usuario.TenantId != Guid.Empty &&
                     await _context.Tenants
                         .AsNoTracking()
-                        .AnyAsync(t => t.Id == usuario.TenantId && t.Activo);
+                        .AnyAsync(t =>
+                            t.Id == usuario.TenantId &&
+                            (usuario.IsPlatformSuperAdmin || t.Activo));
 
                 if (!tenantDisponible)
                 {

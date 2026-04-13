@@ -1,0 +1,135 @@
+@model LuxuryApp.Models.Platform.PlatformPromotionalCodesPageViewModel
+
+@{
+    ViewData["Title"] = "Códigos promocionales";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="mb-0">Códigos promocionales</h2>
+    <a class="btn btn-outline-secondary" asp-action="Index">Volver a plataforma</a>
+</div>
+
+@if (TempData["PlatformError"] is string platformError)
+{
+    <div class="alert alert-danger">@platformError</div>
+}
+
+@if (TempData["PlatformSuccess"] is string platformSuccess)
+{
+    <div class="alert alert-success">@platformSuccess</div>
+}
+
+<div class="card shadow-sm border-0 mb-4">
+    <div class="card-body">
+        <h4 class="card-title">Crear código</h4>
+        <form asp-action="CreatePromotionalCode" method="post" class="row g-3">
+            @Html.AntiForgeryToken()
+            <div asp-validation-summary="All" class="text-danger"></div>
+            <div class="col-md-4">
+                <label asp-for="CreateForm.Codigo" class="form-label"></label>
+                <input asp-for="CreateForm.Codigo" class="form-control" />
+            </div>
+            <div class="col-md-4">
+                <label asp-for="CreateForm.PlanId" class="form-label">Plan</label>
+                <select asp-for="CreateForm.PlanId" class="form-select">
+                    <option value="">Selecciona un plan</option>
+                    @foreach (var plan in Model.AvailablePlans)
+                    {
+                        <option value="@plan.Id">@plan.Nombre</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label asp-for="CreateForm.DiasGratis" class="form-label"></label>
+                <input asp-for="CreateForm.DiasGratis" class="form-control" />
+            </div>
+            <div class="col-md-4">
+                <label asp-for="CreateForm.MaxUsos" class="form-label"></label>
+                <input asp-for="CreateForm.MaxUsos" class="form-control" />
+            </div>
+            <div class="col-md-4">
+                <label asp-for="CreateForm.FechaExpiracionUtc" class="form-label">Expiración UTC</label>
+                <input asp-for="CreateForm.FechaExpiracionUtc" type="datetime-local" class="form-control" />
+            </div>
+            <div class="col-md-4">
+                <label asp-for="CreateForm.EmailObjetivo" class="form-label"></label>
+                <input asp-for="CreateForm.EmailObjetivo" class="form-control" />
+            </div>
+            <div class="col-md-6 form-check ms-2">
+                <input asp-for="CreateForm.SoloPrimerRegistro" class="form-check-input" />
+                <label asp-for="CreateForm.SoloPrimerRegistro" class="form-check-label"></label>
+            </div>
+            <div class="col-md-6 form-check ms-2">
+                <input asp-for="CreateForm.Activo" class="form-check-input" />
+                <label asp-for="CreateForm.Activo" class="form-check-label"></label>
+            </div>
+            <div class="col-12">
+                <label asp-for="CreateForm.NotasInternas" class="form-label"></label>
+                <textarea asp-for="CreateForm.NotasInternas" class="form-control" rows="2"></textarea>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-dark">Crear código</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="table-responsive">
+    <table class="table table-striped align-middle">
+        <thead>
+            <tr>
+                <th>Código</th>
+                <th>Plan</th>
+                <th>Días</th>
+                <th>Usos</th>
+                <th>Expira</th>
+                <th>Email objetivo</th>
+                <th>Flags</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var code in Model.Codes)
+            {
+                <tr>
+                    <td>@code.Codigo</td>
+                    <td>@code.PlanName</td>
+                    <td>@code.DiasGratis</td>
+                    <td>@code.UsosActuales / @(code.MaxUsos?.ToString() ?? "∞")</td>
+                    <td>@(code.FechaExpiracionUtc?.ToString("yyyy-MM-dd HH:mm") ?? "Sin expiración")</td>
+                    <td>@code.EmailObjetivo</td>
+                    <td>
+                        @if (code.Activo)
+                        {
+                            <span class="badge bg-success">Activo</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-secondary">Inactivo</span>
+                        }
+                        @if (code.SoloPrimerRegistro)
+                        {
+                            <span class="badge bg-dark">Primer registro</span>
+                        }
+                    </td>
+                    <td class="text-end">
+                        <a class="btn btn-sm btn-outline-secondary" asp-action="PromotionalCode" asp-route-id="@code.Id">Ver</a>
+                        <form asp-action="TogglePromotionalCode" method="post" class="d-inline">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="id" value="@code.Id" />
+                            <button type="submit" class="btn btn-sm btn-outline-dark">
+                                @(code.Activo ? "Desactivar" : "Activar")
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@section Scripts {
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+}

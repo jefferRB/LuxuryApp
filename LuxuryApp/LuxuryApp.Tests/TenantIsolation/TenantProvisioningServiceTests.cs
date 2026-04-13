@@ -1,5 +1,6 @@
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.SaaS;
+using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Tenant;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
@@ -24,8 +25,10 @@ namespace LuxuryApp.Tests.TenantIsolation
             var services = new ServiceCollection();
             services.AddLogging();
             services.AddHttpContextAccessor();
+            services.AddMemoryCache();
             services.AddSingleton<ITenantExecutionContextAccessor, TenantExecutionContextAccessor>();
             services.AddScoped<ITenantProvider, TenantProvider>();
+            services.AddSingleton<ITenantCommercialAccessCache, TenantCommercialAccessCache>();
             services.Configure<IdentityOptions>(_ => { });
             services.Configure<OpcionesOnboardingTenant>(options =>
             {
@@ -42,6 +45,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 .AddIdentity<AppUsuario, IdentityRole>()
                 .AddEntityFrameworkStores<ApplicationDbContext>()
                 .AddDefaultTokenProviders();
+            services.AddScoped<ITenantCommercialAccessResolver, TenantCommercialAccessResolver>();
+            services.AddScoped<IPromotionalCodeService, PromotionalCodeService>();
             services.AddScoped<TenantProvisioningService>();
 
             await using var provider = services.BuildServiceProvider();
