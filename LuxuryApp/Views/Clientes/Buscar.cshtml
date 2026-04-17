@@ -42,7 +42,7 @@
                                 </h5>
 
                                 <p class="mb-1"><strong>Teléfono:</strong> @cliente.NumeroTelefono</p>
-                                <p class="mb-1"><strong>Correo:</strong> @cliente.CorreoElectronico</p>
+                                <p class="mb-1"><strong>Correo:</strong> @(string.IsNullOrWhiteSpace(cliente.CorreoElectronico) ? "No registrado" : cliente.CorreoElectronico)</p>
                                 <p class="mb-1">
                                     <strong>Última visita:</strong>
                                     @cliente.FechaUltimaVisita.ToShortDateString()
@@ -65,6 +65,13 @@
         {
             <div class="alert alert-warning mt-3">@ViewBag.Mensaje</div>
         }
+        @if (TempData["Error"] != null)
+        {
+            <div class="alert alert-danger alert-dismissible fade show mt-3" role="alert">
+                <i class="fas fa-exclamation-circle me-2"></i>@TempData["Error"]
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        }
         @if (TempData["Mensaje"] != null)
         {
             <div class="alert alert-success alert-dismissible fade show mt-3" role="alert">
@@ -83,7 +90,7 @@
                     </h5>
 
                     <p class="mb-1"><strong>Teléfono:</strong> @Model.ClienteSeleccionado.NumeroTelefono</p>
-                    <p class="mb-1"><strong>Correo Electrónico:</strong> @Model.ClienteSeleccionado.CorreoElectronico</p>
+                    <p class="mb-1"><strong>Correo Electrónico:</strong> @(string.IsNullOrWhiteSpace(Model.ClienteSeleccionado.CorreoElectronico) ? "No registrado" : Model.ClienteSeleccionado.CorreoElectronico)</p>
                     <p class="mb-1"><strong>Frecuencia de Visita:</strong> @Model.ClienteSeleccionado.FrecuenciaVisita días</p>
                     <p class="mb-1"><strong>Fecha Última Visita:</strong> @Model.ClienteSeleccionado.FechaUltimaVisita.ToShortDateString()</p>
 
@@ -106,7 +113,7 @@
 
                         <div>
                             <a asp-action="Editar"
-                               asp-route-numeroTelefono="@Model.ClienteSeleccionado.NumeroTelefono"
+                               asp-route-id="@Model.ClienteSeleccionado.Id"
                                class="btn btn-dark text-white">
                                 <i class="fas fa-edit me-1"></i>Editar Cliente
                             </a>
@@ -119,15 +126,15 @@
                             </button>
 
                             <a asp-action="RegistrarServicios"
-                               asp-route-numeroTelefono="@Model.ClienteSeleccionado.NumeroTelefono"
+                               asp-route-id="@Model.ClienteSeleccionado.Id"
                                class="btn btn-secondary text-white">
                                 <i class="fas fa-images me-1"></i>Registro de Servicios Realizados
                             </a>
                         </div>
 
                         <form asp-action="AgregarVisitaRapida" method="post">
-                            <input type="hidden" name="numeroTelefono"
-                                   value="@Model.ClienteSeleccionado.NumeroTelefono" />
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="id" value="@Model.ClienteSeleccionado.Id" />
                             <button type="submit" class="btn btn-success">
                                 <i class="fas fa-calendar-plus me-1"></i>Agregar visita
                             </button>
@@ -155,8 +162,7 @@
 
                                         @Html.AntiForgeryToken()
 
-                                        <input type="hidden" name="numeroTelefono" value="@visita.NumeroTelefono" />
-                                        <input type="hidden" name="fechaVisita" value="@visita.FechaVisita.ToString("yyyy-MM-dd")" />
+                                        <input type="hidden" name="id" value="@visita.Id" />
 
                                         <button type="submit"
                                                 class="btn btn-sm btn-outline-danger">

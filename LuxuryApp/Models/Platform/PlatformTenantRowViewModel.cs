@@ -11,6 +11,7 @@ namespace LuxuryApp.Models.Platform
         public Guid? ForcedPlanId { get; init; }
         public string? ForcedPlanName { get; init; }
         public string? OwnerEmail { get; init; }
+        public string? CommercialNotes { get; init; }
         public bool CanAccessApp { get; init; }
         public string? EffectivePlanName { get; init; }
         public string Reason { get; init; } = string.Empty;

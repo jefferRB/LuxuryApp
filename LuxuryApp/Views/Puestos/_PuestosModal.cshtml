@@ -2,6 +2,11 @@
 @model List<Puesto>
 
 <div class="mb-3">
+    <div id="puestosTokenContainer" class="d-none">
+        @Html.AntiForgeryToken()
+    </div>
+
+    <div id="puestosMessageContainer"></div>
 
     <button class="btn btn-dark" onclick="mostrarFormularioPuesto()">
         ➕ Nuevo Puesto
@@ -42,6 +47,10 @@
                 </td>
 
                 <td>
+                    <button class="btn btn-sm btn-outline-dark"
+                            onclick="mostrarFormularioPuesto(@item.IdPuesto)">
+                        Editar
+                    </button>
 
                     @if (item.Activo)
                     {
@@ -57,6 +66,11 @@
                             Activar
                         </button>
                     }
+
+                    <button class="btn btn-sm btn-outline-danger"
+                            onclick="eliminarPuesto(@item.IdPuesto)">
+                        Eliminar
+                    </button>
 
                 </td>
             </tr>

@@ -26,6 +26,20 @@
 
     </div>
 
+    @if (TempData["Mensaje"] != null)
+    {
+        <div class="alert alert-success mx-3 mb-0">
+            @TempData["Mensaje"]
+        </div>
+    }
+
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger mx-3 mb-0">
+            @TempData["Error"]
+        </div>
+    }
+
     <div class="mt-3 ms-3">
         <span style="font-size: 1.1rem;">
             <strong>Funcionarios registrados:</strong> @Model.Count()

@@ -8,15 +8,33 @@ namespace LuxuryApp.Models.DataBase
     {
         [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever]
         public Guid TenantId { get; set; }
+
         [Key]
+        [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
+        public int Id { get; set; }
+
+        [Required]
+        [StringLength(50)]
         public string NumeroTelefono { get; set; } = string.Empty;
-        public string CorreoElectronico { get; set; } = string.Empty;
+
+        [EmailAddress]
+        [StringLength(256)]
+        public string? CorreoElectronico { get; set; }
+
+        [Required]
+        [StringLength(150)]
         public string Nombre { get; set; } = string.Empty;
-        public int FrecuenciaVisita { get; set; }
+
+        [Range(1, int.MaxValue, ErrorMessage = "La frecuencia de visita debe ser mayor a cero.")]
+        public int FrecuenciaVisita { get; set; } 
+
         public DateTime FechaUltimaVisita { get; set; }
 
         public DateTime? FechaCumpleaños { get; set; }
         public string? DescripcionServiciosRealizados { get; set; }
+
+        public ICollection<ClienteVisitas> Visitas { get; set; } = new List<ClienteVisitas>();
+        public ICollection<ClienteImagenesModel> Imagenes { get; set; } = new List<ClienteImagenesModel>();
 
         [NotMapped]
         public DateTime ProximaVisita => FechaUltimaVisita.AddDays(FrecuenciaVisita);

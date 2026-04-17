@@ -3,201 +3,302 @@
 
 @{
     ViewData["Title"] = "Plataforma";
+
+    string DescribeMode(TenantCommercialAccessMode mode) => mode switch
+    {
+        TenantCommercialAccessMode.Exempt => "Exento",
+        TenantCommercialAccessMode.Internal => "Interno",
+        _ => "Requiere suscripcion"
+    };
+
+    string ModeBadgeClass(TenantCommercialAccessMode mode) => mode switch
+    {
+        TenantCommercialAccessMode.Exempt => "platform-badge-success",
+        TenantCommercialAccessMode.Internal => "platform-badge-blue",
+        _ => "platform-badge-warning"
+    };
 }
 
-<h2 class="mb-4">Administración de Plataforma</h2>
-
-@if (TempData["PlatformError"] is string platformError)
-{
-    <div class="alert alert-danger">@platformError</div>
+@section Styles {
+    <link rel="stylesheet" href="~/css/platform.css" asp-append-version="true" />
 }
 
-@if (TempData["PlatformSuccess"] is string platformSuccess)
-{
-    <div class="alert alert-success">@platformSuccess</div>
-}
-
-<div class="row mb-4">
-    <div class="col-md-3 mb-3">
-        <div class="card border-0 shadow-sm"><div class="card-body"><strong>Tenants</strong><div class="display-6">@Model.TotalTenants</div></div></div>
+<div class="platform-shell">
+    <div class="platform-hero">
+        <div>
+            <span class="platform-eyebrow">
+                <i class="bi bi-shield-lock"></i>
+                Modulo interno premium
+            </span>
+            <h1 class="platform-title">Administracion de plataforma</h1>
+            <p class="platform-subtitle">
+                Consola interna para supervisar tenants, acceso comercial y senales clave del SaaS sin mezclar privilegios globales con el aislamiento comercial de cada cuenta.
+            </p>
+        </div>
+        <div class="platform-toolbar">
+            <a class="btn btn-outline-dark platform-btn" asp-action="PromotionalCodes">
+                <i class="bi bi-ticket-perforated"></i>
+                Gestionar codigos
+            </a>
+        </div>
     </div>
-    <div class="col-md-3 mb-3">
-        <div class="card border-0 shadow-sm"><div class="card-body"><strong>Usuarios</strong><div class="display-6">@Model.TotalUsers</div></div></div>
-    </div>
-    <div class="col-md-3 mb-3">
-        <div class="card border-0 shadow-sm"><div class="card-body"><strong>Suscripciones activas</strong><div class="display-6">@Model.TotalActiveSubscriptions</div></div></div>
-    </div>
-    <div class="col-md-3 mb-3">
-        <div class="card border-0 shadow-sm"><div class="card-body"><strong>Códigos promocionales</strong><div class="display-6">@Model.TotalPromotionalCodes</div></div></div>
-    </div>
-</div>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0">Tenants</h4>
-    <a class="btn btn-outline-dark" asp-action="PromotionalCodes">Gestionar códigos promocionales</a>
-</div>
+    @if (TempData["PlatformError"] is string platformError)
+    {
+        <div class="platform-alert-stack">
+            <div class="alert alert-danger platform-alert mb-0">@platformError</div>
+        </div>
+    }
 
-<div class="table-responsive mb-5">
-    <table class="table table-striped align-middle">
-        <thead>
-            <tr>
-                <th>Tenant</th>
-                <th>Owner</th>
-                <th>Estado</th>
-                <th>Acceso comercial</th>
-                <th>Plan forzado</th>
-                <th>Plan efectivo</th>
-                <th>Motivo</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var tenant in Model.Tenants)
-            {
-                <tr>
-                    <td>@tenant.TenantName</td>
-                    <td>@tenant.OwnerEmail</td>
-                    <td>
-                        @if (tenant.TenantActive)
-                        {
-                            <span class="badge bg-success">Activo</span>
-                        }
-                        else
-                        {
-                            <span class="badge bg-danger">Suspendido</span>
-                        }
-                    </td>
-                    <td>
-                        <form asp-action="UpdateTenantCommercialSettings" method="post" class="row g-2">
-                            @Html.AntiForgeryToken()
-                            <input type="hidden" name="tenantId" value="@tenant.TenantId" />
-                            <div class="col-md-4">
-                                <select class="form-select form-select-sm" name="commercialAccessMode">
-                                    @if (tenant.CommercialAccessMode == TenantCommercialAccessMode.RequiresSubscription)
-                                    {
-                                        <option value="@TenantCommercialAccessMode.RequiresSubscription" selected>Requiere suscripción</option>
-                                    }
-                                    else
-                                    {
-                                        <option value="@TenantCommercialAccessMode.RequiresSubscription">Requiere suscripción</option>
-                                    }
-                                    @if (tenant.CommercialAccessMode == TenantCommercialAccessMode.Exempt)
-                                    {
-                                        <option value="@TenantCommercialAccessMode.Exempt" selected>Exento</option>
-                                    }
-                                    else
-                                    {
-                                        <option value="@TenantCommercialAccessMode.Exempt">Exento</option>
-                                    }
-                                    @if (tenant.CommercialAccessMode == TenantCommercialAccessMode.Internal)
-                                    {
-                                        <option value="@TenantCommercialAccessMode.Internal" selected>Interno</option>
-                                    }
-                                    else
-                                    {
-                                        <option value="@TenantCommercialAccessMode.Internal">Interno</option>
-                                    }
-                                </select>
-                            </div>
-                            <div class="col-md-4">
-                                <select class="form-select form-select-sm" name="forcedPlanId">
-                                    <option value="">Sin plan forzado</option>
-                                    @foreach (var plan in Model.AvailablePlans)
-                                    {
-                                        @if (tenant.ForcedPlanId == plan.Id)
-                                        {
-                                            <option value="@plan.Id" selected>@plan.Nombre</option>
-                                        }
-                                        else
-                                        {
-                                            <option value="@plan.Id">@plan.Nombre</option>
-                                        }
-                                    }
-                                </select>
-                            </div>
-                            <div class="col-md-4">
-                                <input class="form-control form-control-sm" name="commercialNotes" placeholder="Notas internas" />
-                            </div>
-                            <div class="col-12">
-                                <button type="submit" class="btn btn-sm btn-dark">Guardar</button>
-                            </div>
-                        </form>
-                    </td>
-                    <td>@tenant.ForcedPlanName</td>
-                    <td>@tenant.EffectivePlanName</td>
-                    <td>
-                        @if (tenant.CanAccessApp)
-                        {
-                            <span class="text-success">@tenant.Reason</span>
-                        }
-                        else
-                        {
-                            <span class="text-danger">@tenant.Reason</span>
-                        }
-                    </td>
-                    <td></td>
-                </tr>
-            }
-        </tbody>
-    </table>
-</div>
+    @if (TempData["PlatformSuccess"] is string platformSuccess)
+    {
+        <div class="platform-alert-stack">
+            <div class="alert alert-success platform-alert mb-0">@platformSuccess</div>
+        </div>
+    }
 
-<div class="row">
-    <div class="col-lg-6 mb-4">
-        <h4>Usuarios recientes</h4>
+    <div class="row g-4 mb-4">
+        <div class="col-md-6 col-xl-3">
+            <article class="platform-stat-card">
+                <div class="platform-stat-top">
+                    <div>
+                        <p class="platform-stat-label">Tenants</p>
+                        <p class="platform-stat-value">@Model.TotalTenants</p>
+                    </div>
+                    <span class="platform-stat-icon is-gold">
+                        <i class="bi bi-buildings"></i>
+                    </span>
+                </div>
+                <p class="platform-stat-note">Base multitenant actualmente registrada en la plataforma.</p>
+            </article>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <article class="platform-stat-card">
+                <div class="platform-stat-top">
+                    <div>
+                        <p class="platform-stat-label">Usuarios</p>
+                        <p class="platform-stat-value">@Model.TotalUsers</p>
+                    </div>
+                    <span class="platform-stat-icon is-blue">
+                        <i class="bi bi-people"></i>
+                    </span>
+                </div>
+                <p class="platform-stat-note">Usuarios activos o historicos visibles desde la consola interna.</p>
+            </article>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <article class="platform-stat-card">
+                <div class="platform-stat-top">
+                    <div>
+                        <p class="platform-stat-label">Suscripciones activas</p>
+                        <p class="platform-stat-value">@Model.TotalActiveSubscriptions</p>
+                    </div>
+                    <span class="platform-stat-icon is-green">
+                        <i class="bi bi-credit-card-2-front"></i>
+                    </span>
+                </div>
+                <p class="platform-stat-note">Tenants con trial o suscripcion comercial vigente.</p>
+            </article>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <article class="platform-stat-card">
+                <div class="platform-stat-top">
+                    <div>
+                        <p class="platform-stat-label">Codigos promocionales</p>
+                        <p class="platform-stat-value">@Model.TotalPromotionalCodes</p>
+                    </div>
+                    <span class="platform-stat-icon is-slate">
+                        <i class="bi bi-stars"></i>
+                    </span>
+                </div>
+                <p class="platform-stat-note">Instrumentos comerciales listos para activacion sin tarjeta.</p>
+            </article>
+        </div>
+    </div>
+
+    <section class="platform-section-card mb-4">
+        <div class="platform-section-header">
+            <div>
+                <p class="platform-section-kicker">Gobierno comercial</p>
+                <h2 class="platform-section-title">Tenants y acceso efectivo</h2>
+                <p class="platform-section-copy">
+                    Ajusta el modo comercial y el plan forzado cuando aplique. La resolucion efectiva sigue pasando por la capa central de acceso comercial.
+                </p>
+            </div>
+        </div>
+
         <div class="table-responsive">
-            <table class="table table-sm">
+            <table class="table platform-table align-middle">
                 <thead>
                     <tr>
-                        <th>Email</th>
-                        <th>Nombre</th>
                         <th>Tenant</th>
-                        <th></th>
+                        <th>Estado</th>
+                        <th>Configuracion comercial</th>
+                        <th>Plan efectivo</th>
+                        <th>Motivo</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var user in Model.RecentUsers)
+                    @foreach (var tenant in Model.Tenants)
                     {
                         <tr>
-                            <td>@user.Email</td>
-                            <td>@user.Name</td>
-                            <td>@user.TenantName</td>
                             <td>
-                                @if (user.IsPlatformSuperAdmin)
-                                {
-                                    <span class="badge bg-dark">SuperAdmin</span>
-                                }
+                                <div class="platform-table-title">@tenant.TenantName</div>
+                                <div class="platform-table-meta">Owner: @(tenant.OwnerEmail ?? "Sin usuario principal")</div>
+                            </td>
+                            <td>
+                                <div class="platform-badge-row">
+                                    <span class="platform-badge @(tenant.TenantActive ? "platform-badge-success" : "platform-badge-danger")">
+                                        <i class="bi @(tenant.TenantActive ? "bi-check-circle" : "bi-pause-circle")"></i>
+                                        @(tenant.TenantActive ? "Tenant activo" : "Tenant suspendido")
+                                    </span>
+                                    <span class="platform-badge @ModeBadgeClass(tenant.CommercialAccessMode)">
+                                        <i class="bi bi-sliders"></i>
+                                        @DescribeMode(tenant.CommercialAccessMode)
+                                    </span>
+                                </div>
+                            </td>
+                            <td>
+                                <form asp-action="UpdateTenantCommercialSettings" method="post" class="row g-2 platform-inline-form">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="tenantId" value="@tenant.TenantId" />
+                                    <div class="col-12 col-xl-4">
+                                        <select class="form-select form-select-sm" name="commercialAccessMode" aria-label="Modo comercial">
+                                            <option value="@TenantCommercialAccessMode.RequiresSubscription" selected="@(tenant.CommercialAccessMode == TenantCommercialAccessMode.RequiresSubscription)">Requiere suscripcion</option>
+                                            <option value="@TenantCommercialAccessMode.Exempt" selected="@(tenant.CommercialAccessMode == TenantCommercialAccessMode.Exempt)">Exento</option>
+                                            <option value="@TenantCommercialAccessMode.Internal" selected="@(tenant.CommercialAccessMode == TenantCommercialAccessMode.Internal)">Interno</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-12 col-xl-4">
+                                        <select class="form-select form-select-sm" name="forcedPlanId" aria-label="Plan forzado">
+                                            <option value="" selected="@(!tenant.ForcedPlanId.HasValue)">Sin plan forzado</option>
+                                            @foreach (var plan in Model.AvailablePlans)
+                                            {
+                                                <option value="@plan.Id" selected="@(tenant.ForcedPlanId == plan.Id)">@plan.Nombre</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="col-12 col-xl-4">
+                                        <input class="form-control form-control-sm" name="commercialNotes" placeholder="Notas internas" value="@tenant.CommercialNotes" />
+                                    </div>
+                                    <div class="col-12">
+                                        <button type="submit" class="btn btn-dark btn-sm platform-btn">
+                                            <i class="bi bi-floppy"></i>
+                                            Guardar
+                                        </button>
+                                    </div>
+                                </form>
+                            </td>
+                            <td>
+                                <div class="platform-stack">
+                                    <div class="platform-table-title">@(tenant.EffectivePlanName ?? "Sin acceso comercial")</div>
+                                    <div class="platform-table-meta">Plan forzado: @(tenant.ForcedPlanName ?? "No aplica")</div>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="platform-stack">
+                                    <span class="platform-badge @(tenant.CanAccessApp ? "platform-badge-success" : "platform-badge-danger")">
+                                        <i class="bi @(tenant.CanAccessApp ? "bi-unlock" : "bi-lock")"></i>
+                                        @(tenant.CanAccessApp ? "Puede acceder hoy" : "Requiere regularizacion")
+                                    </span>
+                                    <div class="platform-table-meta">@tenant.Reason</div>
+                                </div>
                             </td>
                         </tr>
                     }
                 </tbody>
             </table>
         </div>
-    </div>
-    <div class="col-lg-6 mb-4">
-        <h4>Pagos recientes</h4>
-        <div class="table-responsive">
-            <table class="table table-sm">
-                <thead>
-                    <tr>
-                        <th>Tenant</th>
-                        <th>Plan</th>
-                        <th>Monto</th>
-                        <th>Estado</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var payment in Model.RecentPayments)
-                    {
-                        <tr>
-                            <td>@payment.TenantName</td>
-                            <td>@payment.PlanName</td>
-                            <td>@payment.Currency @payment.Amount</td>
-                            <td>@payment.Status</td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+    </section>
+
+    <div class="row g-4">
+        <div class="col-xl-6">
+            <section class="platform-section-card h-100">
+                <div class="platform-section-header">
+                    <div>
+                        <p class="platform-section-kicker">Actividad reciente</p>
+                        <h2 class="platform-section-title">Usuarios visibles</h2>
+                        <p class="platform-section-copy">Referencia rapida de los usuarios mas recientes dentro del espacio interno.</p>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table platform-table align-middle">
+                        <thead>
+                            <tr>
+                                <th>Email</th>
+                                <th>Nombre</th>
+                                <th>Tenant</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var user in Model.RecentUsers)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="platform-table-title">@user.Email</div>
+                                    </td>
+                                    <td>@(user.Name ?? "Sin nombre")</td>
+                                    <td>@(user.TenantName ?? "Sin tenant")</td>
+                                    <td>
+                                        @if (user.IsPlatformSuperAdmin)
+                                        {
+                                            <span class="platform-badge platform-badge-dark">
+                                                <i class="bi bi-shield-check"></i>
+                                                SuperAdmin
+                                            </span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <div class="col-xl-6">
+            <section class="platform-section-card h-100">
+                <div class="platform-section-header">
+                    <div>
+                        <p class="platform-section-kicker">Cobro y activacion</p>
+                        <h2 class="platform-section-title">Pagos recientes</h2>
+                        <p class="platform-section-copy">Vista resumida de movimientos ligados al flujo comercial existente.</p>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table platform-table align-middle">
+                        <thead>
+                            <tr>
+                                <th>Tenant</th>
+                                <th>Plan</th>
+                                <th>Monto</th>
+                                <th>Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var payment in Model.RecentPayments)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="platform-table-title">@payment.TenantName</div>
+                                        <div class="platform-table-meta">@payment.CreatedUtc.ToString("yyyy-MM-dd HH:mm") UTC</div>
+                                    </td>
+                                    <td>@payment.PlanName</td>
+                                    <td>@payment.Currency @payment.Amount</td>
+                                    <td>
+                                        <span class="platform-badge @(payment.Status == EstadoPagoProveedor.Confirmado ? "platform-badge-success" : payment.Status == EstadoPagoProveedor.Pendiente ? "platform-badge-warning" : "platform-badge-danger")">
+                                            @payment.Status
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
         </div>
     </div>
 </div>

@@ -35,81 +35,97 @@ namespace LuxuryApp.Services.Identity
                 return false;
             }
 
-            var userState = await _context.Users
-                .AsNoTracking()
-                .Where(user => user.Id == userId)
-                .Select(user => new
+            try
+            {
+                var userState = await _context.Users
+                    .AsNoTracking()
+                    .Where(user => user.Id == userId)
+                    .Select(user => new
+                    {
+                        user.Id,
+                        user.State,
+                        user.TenantId,
+                        user.LockoutEnd,
+                        user.IsPlatformSuperAdmin
+                    })
+                    .SingleOrDefaultAsync(cancellationToken);
+
+                if (userState is null)
                 {
-                    user.Id,
-                    user.State,
-                    user.TenantId,
-                    user.LockoutEnd,
-                    user.IsPlatformSuperAdmin
-                })
-                .SingleOrDefaultAsync(cancellationToken);
+                    _logger.LogWarning("Sesion rechazada porque el usuario {UserId} ya no existe.", userId);
+                    return false;
+                }
 
-            if (userState is null)
-            {
-                _logger.LogWarning("Sesion rechazada porque el usuario {UserId} ya no existe.", userId);
-                return false;
-            }
+                if (!userState.State)
+                {
+                    _logger.LogWarning("Sesion rechazada para UserId {UserId} porque el usuario esta deshabilitado.", userId);
+                    return false;
+                }
 
-            if (!userState.State)
-            {
-                _logger.LogWarning("Sesion rechazada para UserId {UserId} porque el usuario esta deshabilitado.", userId);
-                return false;
-            }
+                if (userState.TenantId == Guid.Empty)
+                {
+                    _logger.LogWarning("Sesion rechazada para UserId {UserId} porque el usuario no tiene TenantId valido.", userId);
+                    return false;
+                }
 
-            if (userState.TenantId == Guid.Empty)
-            {
-                _logger.LogWarning("Sesion rechazada para UserId {UserId} porque el usuario no tiene TenantId valido.", userId);
-                return false;
-            }
+                if (userState.LockoutEnd.HasValue && userState.LockoutEnd.Value > DateTimeOffset.UtcNow)
+                {
+                    _logger.LogWarning("Sesion rechazada para UserId {UserId} porque el usuario esta bloqueado.", userId);
+                    return false;
+                }
 
-            if (userState.LockoutEnd.HasValue && userState.LockoutEnd.Value > DateTimeOffset.UtcNow)
-            {
-                _logger.LogWarning("Sesion rechazada para UserId {UserId} porque el usuario esta bloqueado.", userId);
-                return false;
-            }
+                var tenantClaim = principal.FindFirstValue(CustomClaimTypes.TenantId);
+                if (!Guid.TryParse(tenantClaim, out var claimTenantId) || claimTenantId == Guid.Empty)
+                {
+                    _logger.LogWarning(
+                        "Sesion rechazada para UserId {UserId} porque el claim tenant_id es invalido.",
+                        userId);
+                    return false;
+                }
 
-            var tenantClaim = principal.FindFirstValue(CustomClaimTypes.TenantId);
-            if (!Guid.TryParse(tenantClaim, out var claimTenantId) || claimTenantId == Guid.Empty)
-            {
-                _logger.LogWarning(
-                    "Sesion rechazada para UserId {UserId} porque el claim tenant_id es invalido.",
-                    userId);
-                return false;
-            }
+                if (userState.TenantId != claimTenantId)
+                {
+                    _logger.LogWarning(
+                        "Sesion rechazada para UserId {UserId} por desalineacion tenant-claim. ClaimTenantId {ClaimTenantId}. UserTenantId {UserTenantId}.",
+                        userId,
+                        claimTenantId,
+                        userState.TenantId);
+                    return false;
+                }
 
-            if (userState.TenantId != claimTenantId)
-            {
-                _logger.LogWarning(
-                    "Sesion rechazada para UserId {UserId} por desalineacion tenant-claim. ClaimTenantId {ClaimTenantId}. UserTenantId {UserTenantId}.",
-                    userId,
-                    claimTenantId,
-                    userState.TenantId);
-                return false;
-            }
+                if (userState.IsPlatformSuperAdmin)
+                {
+                    return true;
+                }
 
-            if (userState.IsPlatformSuperAdmin)
-            {
+                var tenantIsActive = await _context.Tenants
+                    .AsNoTracking()
+                    .AnyAsync(tenant => tenant.Id == userState.TenantId && tenant.Activo, cancellationToken);
+
+                if (!tenantIsActive)
+                {
+                    _logger.LogWarning(
+                        "Sesion rechazada para UserId {UserId} porque el tenant {TenantId} esta suspendido o no existe.",
+                        userId,
+                        userState.TenantId);
+                    return false;
+                }
+
                 return true;
             }
-
-            var tenantIsActive = await _context.Tenants
-                .AsNoTracking()
-                .AnyAsync(tenant => tenant.Id == userState.TenantId && tenant.Activo, cancellationToken);
-
-            if (!tenantIsActive)
+            catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
             {
-                _logger.LogWarning(
-                    "Sesion rechazada para UserId {UserId} porque el tenant {TenantId} esta suspendido o no existe.",
-                    userId,
-                    userState.TenantId);
-                return false;
+                _logger.LogDebug(
+                    ex,
+                    "Validacion de sesion cancelada de forma esperable para UserId {UserId} porque el request fue abortado.",
+                    userId);
+                return true;
             }
-
-            return true;
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error inesperado validando la sesion del UserId {UserId}.", userId);
+                throw;
+            }
         }
     }
 }

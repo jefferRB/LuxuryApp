@@ -42,7 +42,7 @@ namespace LuxuryApp.Services
                     // Evitar duplicados
                     bool existe = await _context.ClienteVisitas
                         .AnyAsync(v =>
-                            v.NumeroTelefono == cliente.NumeroTelefono &&
+                            v.ClienteId == cliente.Id &&
                             v.FechaVisita == fin,
                             cancellationToken);
 
@@ -52,6 +52,7 @@ namespace LuxuryApp.Services
 
                         _context.ClienteVisitas.Add(new ClienteVisitas
                         {
+                            ClienteId = cliente.Id,
                             NumeroTelefono = cliente.NumeroTelefono,
                             FechaVisita = fin
                         });

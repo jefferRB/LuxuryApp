@@ -2,6 +2,11 @@
 @model List<Categoria>
 
 <div class="mb-3">
+    <div id="categoriasTokenContainer" class="d-none">
+        @Html.AntiForgeryToken()
+    </div>
+
+    <div id="categoriasMessageContainer"></div>
 
     <button class="btn btn-dark" onclick="mostrarFormularioCategoria()">
 		➕ Nueva Categoria
@@ -42,8 +47,10 @@
                 </td>
 
                 <td>
-
-
+                    <button class="btn btn-sm btn-outline-dark"
+                            onclick="mostrarFormularioCategoria(@item.Id)">
+                        Editar
+                    </button>
 
                     @if (item.Activo)
                     {
@@ -60,6 +67,10 @@
                         </button>
                     }
 
+                    <button class="btn btn-sm btn-outline-danger"
+                            onclick="eliminarCategoria(@item.Id)">
+                        Eliminar
+                    </button>
                 </td>
             </tr>
         }

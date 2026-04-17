@@ -3,6 +3,9 @@
 <form id="formPuesto">
 
     @Html.AntiForgeryToken()
+    <input type="hidden" asp-for="IdPuesto" />
+
+    <div asp-validation-summary="ModelOnly" class="alert alert-danger" role="alert"></div>
 
     <div class="mb-2">
         <label class="form-label">Nombre del puesto</label>
@@ -15,12 +18,13 @@
         <textarea asp-for="Detalle"
                   class="form-control"
                   rows="2"></textarea>
+        <span asp-validation-for="Detalle" class="text-danger"></span>
     </div>
 
     <button type="button"
             class="btn btn-success"
             onclick="guardarPuesto()">
-        Guardar
+        @(Model.IdPuesto > 0 ? "Guardar Cambios" : "Guardar")
     </button>
 
 </form>

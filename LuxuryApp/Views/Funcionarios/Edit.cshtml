@@ -10,17 +10,20 @@
     <div class="card-body">
 
         <form asp-action="Edit" method="post">
+            <div asp-validation-summary="ModelOnly" class="alert alert-danger" role="alert"></div>
 
             <input type="hidden" asp-for="IdFuncionario" />
 
             <div class="mb-3">
                 <label asp-for="Nombre" class="form-label"></label>
                 <input asp-for="Nombre" class="form-control" />
+                <span asp-validation-for="Nombre" class="text-danger"></span>
             </div>
 
             <div class="mb-3">
                 <label asp-for="Telefono" class="form-label"></label>
                 <input asp-for="Telefono" class="form-control" />
+                <span asp-validation-for="Telefono" class="text-danger"></span>
             </div>
 
             <div class="mb-3">
@@ -41,6 +44,7 @@
                        type="number"
                        step="0.01"
                        class="form-control" />
+                <span asp-validation-for="PorcentajeGanancia" class="text-danger"></span>
             </div>
 
             <div class="mb-3">
@@ -49,6 +53,7 @@
                        type="number"
                        step="0.01"
                        class="form-control" />
+                <span asp-validation-for="PorcentajeProducto" class="text-danger"></span>
             </div>
 
             <div class="mb-3">
@@ -56,6 +61,7 @@
                 <input asp-for="ColorCalendario"
                        type="color"
                        class="form-control form-control-color" />
+                <span asp-validation-for="ColorCalendario" class="text-danger"></span>
             </div>
 
             <div class="mb-3">
@@ -63,6 +69,7 @@
                 <input asp-for="FechaIngreso"
                        type="date"
                        class="form-control" />
+                <span asp-validation-for="FechaIngreso" class="text-danger"></span>
             </div>
 
             <div class="alert alert-light border mb-3">
@@ -89,6 +96,7 @@
                   method="post"
                   style="display:inline;"
                   onsubmit="return confirm('¿Eliminar funcionario?');">
+                @Html.AntiForgeryToken()
 
                 <input type="hidden" asp-for="IdFuncionario" />
 

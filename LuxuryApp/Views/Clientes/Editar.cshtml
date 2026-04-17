@@ -9,9 +9,14 @@
 
     <div class="card-body">
         <form asp-action="Editar" method="post">
+            <input type="hidden" asp-for="Id" />
+
+            <div asp-validation-summary="ModelOnly" class="alert alert-danger" role="alert"></div>
+
             <div class="mb-3">
                 <label class="form-label">Número de Teléfono</label>
-                <input asp-for="NumeroTelefono" class="form-control" readonly />
+                <input asp-for="NumeroTelefono" class="form-control" />
+                <span asp-validation-for="NumeroTelefono" class="text-danger"></span>
             </div>
 
             <div class="mb-3">
@@ -62,7 +67,8 @@
         </form>
         <div class="d-flex justify-content-end mt-4">
             <form asp-action="Eliminar" method="post" onsubmit="return confirm('¿Estás seguro de eliminar este cliente?');">
-                <input type="hidden" asp-for="NumeroTelefono" />
+                @Html.AntiForgeryToken()
+                <input type="hidden" asp-for="Id" />
                 <button type="submit" class="btn btn-danger">
                     <i class="fas fa-trash-alt me-1"></i>Eliminar Cliente
                 </button>

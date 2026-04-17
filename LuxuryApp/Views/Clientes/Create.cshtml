@@ -9,12 +9,8 @@
 
     <div class="card-body">
         <form asp-action="Create" method="post">
-            <div class="mb-3">
-                <label asp-for="NumeroTelefono" class="form-label">Número de Teléfono</label>
-                <input asp-for="NumeroTelefono" class="form-control" placeholder="Ejemplo: 88889999" />
-                <span asp-validation-for="NumeroTelefono" class="text-danger"></span>
-            </div>
-
+            <div asp-validation-summary="ModelOnly" class="alert alert-danger" role="alert"></div>
+             
             <div class="mb-3">
                 <label asp-for="Nombre" class="form-label">Nombre</label>
                 <input asp-for="Nombre" class="form-control" placeholder="Nombre del cliente" />
@@ -22,13 +18,19 @@
             </div>
 
             <div class="mb-3">
-                <label asp-for="CorreoElectronico" class="form-label">Correo Electrónico</label>
+                <label asp-for="NumeroTelefono" class="form-label">Número de Teléfono</label>
+                <input asp-for="NumeroTelefono" class="form-control" placeholder="Ejemplo: 88889999" />
+                <span asp-validation-for="NumeroTelefono" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3">
+                <label asp-for="CorreoElectronico" class="form-label">Correo Electrónico (opcional)</label>
                 <input asp-for="CorreoElectronico" class="form-control" placeholder="cliente@correo.com" />
                 <span asp-validation-for="CorreoElectronico" class="text-danger"></span>
             </div>
 
             <div class="mb-3">
-                <label asp-for="FechaCumpleaños" class="form-label">Fecha De Cumpleaños</label>
+                <label asp-for="FechaCumpleaños" class="form-label">Fecha De Cumpleaños(opcional)</label>
                 <input asp-for="FechaCumpleaños" class="form-control" type="date" />
                 <span asp-validation-for="FechaCumpleaños" class="text-danger"></span>
             </div>

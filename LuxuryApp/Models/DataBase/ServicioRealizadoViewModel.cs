@@ -2,6 +2,7 @@
 {
     public class ServicioRealizadoViewModel
     {
+        public int ClienteId { get; set; }
         public string NumeroTelefono { get; set; } = null!;
 
         public List<IFormFile> Imagenes { get; set; } = new List<IFormFile>();

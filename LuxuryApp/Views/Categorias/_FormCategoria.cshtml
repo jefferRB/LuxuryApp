@@ -3,6 +3,9 @@
 <form id="formCategoria">
 
     @Html.AntiForgeryToken()
+    <input type="hidden" asp-for="Id" />
+
+    <div asp-validation-summary="ModelOnly" class="alert alert-danger" role="alert"></div>
 
     <div class="mb-2">
         <label class="form-label">Nombre de la categoria</label>
@@ -19,7 +22,7 @@
     <button type="button"
             class="btn btn-success"
             onclick="guardarCategoria()">
-        Guardar
+        @(Model.Id > 0 ? "Guardar Cambios" : "Guardar")
     </button>
 
 </form>

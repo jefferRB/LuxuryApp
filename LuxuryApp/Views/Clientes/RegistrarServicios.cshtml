@@ -14,6 +14,8 @@
     <div class="card-body">
 
         <form asp-action="RegistrarServicios" method="post" enctype="multipart/form-data">
+            @Html.AntiForgeryToken()
+            <input type="hidden" asp-for="ClienteId" />
 
             <input type="hidden" asp-for="NumeroTelefono" />
 

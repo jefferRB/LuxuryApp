@@ -10,10 +10,12 @@ namespace LuxuryApp.Controllers.Funcionarios
     public class PuestosController : Controller
     {
         private readonly ApplicationDbContext _context;
+        private readonly ILogger<PuestosController> _logger;
 
-        public PuestosController(ApplicationDbContext context)
+        public PuestosController(ApplicationDbContext context, ILogger<PuestosController> logger)
         {
             _context = context;
+            _logger = logger;
         }
 
         // ========================================
@@ -42,34 +44,68 @@ namespace LuxuryApp.Controllers.Funcionarios
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(
-            [Bind(nameof(Puesto.NombrePuesto) + "," + nameof(Puesto.Detalle))]
+            [Bind(nameof(Puesto.IdPuesto) + "," + nameof(Puesto.NombrePuesto) + "," + nameof(Puesto.Detalle))]
             Puesto puesto)
         {
+            return await Save(puesto);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Save(
+            [Bind(nameof(Puesto.IdPuesto) + "," + nameof(Puesto.NombrePuesto) + "," + nameof(Puesto.Detalle))]
+            Puesto puesto)
+        {
+            NormalizePuesto(puesto);
+
             bool existe = await _context.Puestos
-                .AnyAsync(p => p.NombrePuesto == puesto.NombrePuesto);
+                .AnyAsync(p => p.NombrePuesto == puesto.NombrePuesto && p.IdPuesto != puesto.IdPuesto);
 
             if (existe)
-                ModelState.AddModelError("NombrePuesto", "Ya existe un puesto con ese nombre.");
-
-            if (ModelState.IsValid)
             {
-                puesto.Activo = true;
-
-                _context.Add(puesto);
-                await _context.SaveChangesAsync();
-
-                // 👉 Soporte AJAX
-                if (Request.Headers["X-Requested-With"] == "XMLHttpRequest")
-                    return Ok();
-
-                return RedirectToAction(nameof(Index));
+                ModelState.AddModelError(nameof(Puesto.NombrePuesto), "Ya existe un puesto con ese nombre.");
             }
 
-            // 👉 Si es AJAX devolver partial
-            if (Request.Headers["X-Requested-With"] == "XMLHttpRequest")
+            if (!ModelState.IsValid)
+            {
                 return PartialView("_FormPuesto", puesto);
+            }
 
-            return View(puesto);
+            try
+            {
+                if (puesto.IdPuesto == 0)
+                {
+                    puesto.Activo = true;
+                    _context.Puestos.Add(puesto);
+                }
+                else
+                {
+                    var puestoDb = await _context.Puestos
+                        .FirstOrDefaultAsync(p => p.IdPuesto == puesto.IdPuesto);
+
+                    if (puestoDb == null)
+                    {
+                        return NotFound();
+                    }
+
+                    puestoDb.NombrePuesto = puesto.NombrePuesto;
+                    puestoDb.Detalle = puesto.Detalle;
+                }
+
+                await _context.SaveChangesAsync();
+                return Ok();
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al guardar puesto {PuestoId}.", puesto.IdPuesto);
+                ModelState.AddModelError(string.Empty, "No fue posible guardar el puesto.");
+                return PartialView("_FormPuesto", puesto);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Guard bloqueó la operación sobre puesto {PuestoId}.", puesto.IdPuesto);
+                return BadRequest("No fue posible guardar el puesto por una validación de seguridad o consistencia.");
+            }
         }
 
         // ========================================
@@ -132,6 +168,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         // ACTIVAR / DESACTIVAR
         // ========================================
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> ToggleActivo(int id)
         {
             var puesto = await _context.Puestos
@@ -157,6 +194,39 @@ namespace LuxuryApp.Controllers.Funcionarios
             return Ok();
         }
 
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Delete(int id)
+        {
+            var puesto = await _context.Puestos
+                .FirstOrDefaultAsync(p => p.IdPuesto == id);
+
+            if (puesto == null)
+            {
+                return NotFound();
+            }
+
+            bool estaEnUso = await _context.Funcionarios
+                .AnyAsync(f => f.IdPuesto == id);
+
+            if (estaEnUso)
+            {
+                return BadRequest("No se puede eliminar el puesto porque tiene funcionarios asociados.");
+            }
+
+            try
+            {
+                _context.Puestos.Remove(puesto);
+                await _context.SaveChangesAsync();
+                return Ok();
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al eliminar puesto {PuestoId}.", id);
+                return BadRequest("No fue posible eliminar el puesto porque tiene relaciones activas.");
+            }
+        }
+
         // ========================================
         // MODAL LISTADO
         // ========================================
@@ -173,9 +243,34 @@ namespace LuxuryApp.Controllers.Funcionarios
         // ========================================
         // FORMULARIO PARTIAL
         // ========================================
-        public IActionResult FormPuesto()
+        public async Task<IActionResult> FormPuesto(int? id)
         {
-            return PartialView("~/Views/Puestos/_FormPuesto.cshtml", new Puesto());
+            if (!id.HasValue || id.Value <= 0)
+            {
+                return PartialView("~/Views/Puestos/_FormPuesto.cshtml", new Puesto());
+            }
+
+            var puesto = await _context.Puestos
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.IdPuesto == id.Value);
+
+            if (puesto == null)
+            {
+                return NotFound();
+            }
+
+            return PartialView("~/Views/Puestos/_FormPuesto.cshtml", puesto);
+        }
+
+        private static void NormalizePuesto(Puesto puesto)
+        {
+            puesto.NombrePuesto = string.IsNullOrWhiteSpace(puesto.NombrePuesto)
+                ? string.Empty
+                : puesto.NombrePuesto.Trim();
+
+            puesto.Detalle = string.IsNullOrWhiteSpace(puesto.Detalle)
+                ? null
+                : puesto.Detalle.Trim();
         }
     }
 }

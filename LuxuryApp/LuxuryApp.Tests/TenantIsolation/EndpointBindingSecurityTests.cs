@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.Http;
 using LuxuryApp.Tests.Support;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LuxuryApp.Tests.TenantIsolation
 {
@@ -31,7 +32,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var tenantB = Guid.NewGuid();
             tenantProvider.TenantId = tenantA;
 
-            var controller = new CategoriasController(context)
+            var controller = new CategoriasController(context, NullLogger<CategoriasController>.Instance)
             {
                 ControllerContext = new ControllerContext
                 {
@@ -49,8 +50,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var result = await controller.Create(maliciousPayload);
 
-            var redirect = Assert.IsType<RedirectToActionResult>(result);
-            Assert.Equal(nameof(CategoriasController.Index), redirect.ActionName);
+            Assert.IsType<OkResult>(result);
 
             var persisted = context.Categorias.Single();
             Assert.Equal(tenantA, persisted.TenantId);
@@ -125,7 +125,12 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             context.ChangeTracker.Clear();
 
-            var controller = new ClientesController(context, null!, null!, null!);
+            var controller = new ClientesController(
+                context,
+                ControllerTestSupport.CreateRecordatorioService(),
+                new FakeWebHostEnvironment(),
+                new FakeEmailService(),
+                NullLogger<ClientesController>.Instance);
             var result = await controller.Autocompletado("Cliente");
 
             var ok = Assert.IsType<OkObjectResult>(result);
@@ -192,7 +197,9 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             context.ChangeTracker.Clear();
 
-            var controller = new FuncionariosController(context);
+            var controller = new FuncionariosController(
+                context,
+                NullLogger<FuncionariosController>.Instance);
             var result = await controller.GetActivos();
 
             var json = Assert.IsType<JsonResult>(result);

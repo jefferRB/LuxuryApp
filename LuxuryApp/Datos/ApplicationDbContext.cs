@@ -96,10 +96,57 @@ namespace ProyectoIdentity.Datos
             {
                 entity.HasOne(f => f.Puesto)
                     .WithMany(p => p.Funcionarios)
-                    .HasForeignKey(f => f.IdPuesto);
+                    .HasForeignKey(f => f.IdPuesto)
+                    .OnDelete(DeleteBehavior.Restrict);
 
                 entity.Property(f => f.PorcentajeGanancia).HasColumnType("decimal(18,2)");
                 entity.Property(f => f.PorcentajeProducto).HasColumnType("decimal(18,2)");
+            });
+
+            modelBuilder.Entity<ClientesModel>(entity =>
+            {
+                entity.Property(c => c.NumeroTelefono)
+                    .HasMaxLength(50)
+                    .IsRequired();
+
+                entity.Property(c => c.CorreoElectronico)
+                    .HasMaxLength(256)
+                    .IsRequired(false);
+
+                entity.Property(c => c.Nombre)
+                    .HasMaxLength(150)
+                    .IsRequired();
+
+                entity.HasIndex(c => new { c.TenantId, c.NumeroTelefono })
+                    .IsUnique();
+
+                entity.HasMany(c => c.Visitas)
+                    .WithOne(v => v.Cliente)
+                    .HasForeignKey(v => v.ClienteId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasMany(c => c.Imagenes)
+                    .WithOne(i => i.Cliente)
+                    .HasForeignKey(i => i.ClienteId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<ClienteVisitas>(entity =>
+            {
+                entity.Property(v => v.NumeroTelefono)
+                    .HasMaxLength(50)
+                    .IsRequired();
+
+                entity.HasIndex(v => new { v.TenantId, v.ClienteId, v.FechaVisita });
+            });
+
+            modelBuilder.Entity<ClienteImagenesModel>(entity =>
+            {
+                entity.Property(i => i.NumeroTelefono)
+                    .HasMaxLength(50)
+                    .IsRequired();
+
+                entity.HasIndex(i => new { i.TenantId, i.ClienteId });
             });
 
             modelBuilder.Entity<Servicio>(entity =>
@@ -115,6 +162,11 @@ namespace ProyectoIdentity.Datos
             modelBuilder.Entity<Egreso>(entity =>
             {
                 entity.Property(e => e.Monto).HasColumnType("decimal(18,2)");
+
+                entity.HasOne(e => e.Categoria)
+                    .WithMany()
+                    .HasForeignKey(e => e.CategoriaId)
+                    .OnDelete(DeleteBehavior.Restrict);
             });
 
             modelBuilder.Entity<Producto>(entity =>

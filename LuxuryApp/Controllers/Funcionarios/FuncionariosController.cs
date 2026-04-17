@@ -1,8 +1,10 @@
 ﻿using ClosedXML.Excel;
 using LuxuryApp.Models.Finanzas;
+using System.Security.Claims;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Productos;
 using LuxuryApp.Models.SaaS;
+using LuxuryApp.Services.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,10 +16,12 @@ namespace LuxuryApp.Controllers.Funcionarios
     public class FuncionariosController : Controller
     {
         private readonly ApplicationDbContext _context;
+        private readonly ILogger<FuncionariosController> _logger;
 
-        public FuncionariosController(ApplicationDbContext context)
+        public FuncionariosController(ApplicationDbContext context, ILogger<FuncionariosController> logger)
         {
             _context = context;
+            _logger = logger;
         }
 
         public async Task<IActionResult> Index()
@@ -41,7 +45,8 @@ namespace LuxuryApp.Controllers.Funcionarios
             var funcionario = new Funcionario
             {
                 FechaIngreso = DateTime.Today,
-                Activo = true
+                Activo = true,
+                ColorCalendario = "#000000"
             };
 
             return View(funcionario);
@@ -60,34 +65,24 @@ namespace LuxuryApp.Controllers.Funcionarios
                 nameof(Funcionario.FechaIngreso))]
             Funcionario funcionario)
         {
-            // 🔥 1. Obtener suscripción
-            var suscripcion = HttpContext.Items["Suscripcion"] as Suscripcion;
+            NormalizeFuncionario(funcionario);
 
-            if (suscripcion == null)
+            var plan = await ResolvePlanAsync();
+            if (plan == null && !UserIsPlatformSuperAdmin())
             {
-                TempData["Error"] = "No tienes una suscripción activa.";
+                TempData["Error"] = "No fue posible resolver el acceso comercial del tenant para validar el límite de funcionarios.";
                 return RedirectToAction("Index");
             }
 
-            var plan = suscripcion.Plan;
-            if (plan == null)
-            {
-                TempData["Error"] = "Tu suscripción no tiene un plan válido asociado.";
-                return RedirectToAction("Index");
-            }
-
-            // 🔥 2. Contar funcionarios actuales
             var totalFuncionarios = await _context.Funcionarios.CountAsync();
 
-            // 🔥 3. Validar límite
-            if (plan.MaxFuncionarios.HasValue &&
+            if (plan?.MaxFuncionarios.HasValue == true &&
                 totalFuncionarios >= plan.MaxFuncionarios.Value)
             {
                 TempData["Error"] = $"Has alcanzado el límite de funcionarios de tu plan ({plan.Nombre}).";
                 return RedirectToAction("Index");
             }
 
-            // 🔥 4. Validación existente
             bool nombreExiste = await _context.Funcionarios
                 .AnyAsync(f => f.Nombre == funcionario.Nombre);
 
@@ -111,12 +106,28 @@ namespace LuxuryApp.Controllers.Funcionarios
             }
 
             funcionario.Activo = true;
-            _context.Funcionarios.Add(funcionario);
-            await _context.SaveChangesAsync();
+            try
+            {
+                _context.Funcionarios.Add(funcionario);
+                await _context.SaveChangesAsync();
 
-            TempData["Mensaje"] = "Funcionario creado correctamente.";
-
-            return RedirectToAction(nameof(Index));
+                TempData["Mensaje"] = "Funcionario creado correctamente.";
+                return RedirectToAction(nameof(Index));
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al crear funcionario {Nombre}.", funcionario.Nombre);
+                ModelState.AddModelError(string.Empty, "No fue posible guardar el funcionario. Verifica los datos e inténtalo de nuevo.");
+                await CargarPuestosAsync();
+                return View(funcionario);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Guard bloqueó la creación del funcionario {Nombre}.", funcionario.Nombre);
+                ModelState.AddModelError(string.Empty, "No fue posible guardar el funcionario por una validación de seguridad o consistencia.");
+                await CargarPuestosAsync();
+                return View(funcionario);
+            }
         }
 
         [HttpGet]
@@ -147,6 +158,8 @@ namespace LuxuryApp.Controllers.Funcionarios
                 nameof(Funcionario.FechaIngreso))]
             Funcionario funcionario)
         {
+            NormalizeFuncionario(funcionario);
+
             if (!ModelState.IsValid)
             {
                 await CargarPuestosAsync();
@@ -178,18 +191,32 @@ namespace LuxuryApp.Controllers.Funcionarios
             funcionarioDB.FechaIngreso = funcionario.FechaIngreso;
             funcionarioDB.Activo = funcionario.Activo;
 
-            await _context.SaveChangesAsync();
+            try
+            {
+                await _context.SaveChangesAsync();
 
-            TempData["Mensaje"] = "Funcionario actualizado correctamente.";
+                TempData["Mensaje"] = "Funcionario actualizado correctamente.";
 
-            return RedirectToAction(nameof(Index));
+                return RedirectToAction(nameof(Index));
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al actualizar funcionario {FuncionarioId}.", funcionario.IdFuncionario);
+                ModelState.AddModelError(string.Empty, "No fue posible actualizar el funcionario.");
+                await CargarPuestosAsync();
+                return View(funcionario);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Guard bloqueó la edición del funcionario {FuncionarioId}.", funcionario.IdFuncionario);
+                ModelState.AddModelError(string.Empty, "No fue posible actualizar el funcionario por una validación de seguridad o consistencia.");
+                await CargarPuestosAsync();
+                return View(funcionario);
+            }
         }
 
-        // ============================
-        // ELIMINAR (Soft delete recomendado)
-        // ============================
-
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> Eliminar(int IdFuncionario)
         {
             var funcionario = await _context.Funcionarios
@@ -198,11 +225,28 @@ namespace LuxuryApp.Controllers.Funcionarios
             if (funcionario == null)
                 return NotFound();
 
-            _context.Funcionarios.Remove(funcionario);
+            var tieneCitas = await _context.Citas.AnyAsync(c => c.FuncionarioId == IdFuncionario);
+            var tieneCobros = await _context.Cobros.AnyAsync(c => c.FuncionarioId == IdFuncionario);
+            var tienePagos = await _context.PagosFuncionarios.AnyAsync(p => p.FuncionarioId == IdFuncionario);
 
-            await _context.SaveChangesAsync();
+            if (tieneCitas || tieneCobros || tienePagos)
+            {
+                TempData["Error"] = "No se puede eliminar el funcionario porque tiene citas, cobros o pagos asociados. Puedes dejarlo inactivo si ya no trabaja en el negocio.";
+                return RedirectToAction(nameof(Index));
+            }
 
-            TempData["Mensaje"] = "Funcionario eliminado correctamente.";
+            try
+            {
+                _context.Funcionarios.Remove(funcionario);
+                await _context.SaveChangesAsync();
+
+                TempData["Mensaje"] = "Funcionario eliminado correctamente.";
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al eliminar funcionario {FuncionarioId}.", IdFuncionario);
+                TempData["Error"] = "No fue posible eliminar el funcionario porque tiene relaciones activas.";
+            }
 
             return RedirectToAction(nameof(Index));
         }
@@ -472,6 +516,46 @@ namespace LuxuryApp.Controllers.Funcionarios
                 .Where(p => p.Activo)
                 .OrderBy(p => p.NombrePuesto)
                 .ToListAsync();
+        }
+
+        private async Task<Plan?> ResolvePlanAsync()
+        {
+            if (UserIsPlatformSuperAdmin())
+            {
+                return null;
+            }
+
+            if (HttpContext.Items.TryGetValue("TenantCommercialAccess", out var rawAccess) &&
+                rawAccess is TenantCommercialAccessResult access &&
+                access.EffectivePlanId.HasValue)
+            {
+                return await _context.Planes
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.Id == access.EffectivePlanId.Value);
+            }
+
+            _logger.LogWarning(
+                "No fue posible resolver TenantCommercialAccess para crear funcionario. UserId {UserId}.",
+                User.FindFirstValue(CustomClaimTypes.UserId) ?? User.FindFirstValue(ClaimTypes.NameIdentifier));
+
+            return null;
+        }
+
+        private bool UserIsPlatformSuperAdmin() =>
+            string.Equals(
+                User.FindFirstValue(CustomClaimTypes.PlatformSuperAdmin),
+                bool.TrueString,
+                StringComparison.OrdinalIgnoreCase);
+
+        private static void NormalizeFuncionario(Funcionario funcionario)
+        {
+            funcionario.Nombre = string.IsNullOrWhiteSpace(funcionario.Nombre)
+                ? string.Empty
+                : funcionario.Nombre.Trim();
+
+            funcionario.Telefono = string.IsNullOrWhiteSpace(funcionario.Telefono)
+                ? null
+                : funcionario.Telefono.Trim();
         }
 
 

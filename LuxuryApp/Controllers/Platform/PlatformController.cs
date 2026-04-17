@@ -13,6 +13,7 @@ namespace LuxuryApp.Controllers.Platform
     [Authorize(Policy = PlatformAuthorizationPolicies.PlatformSuperAdmin)]
     public class PlatformController : Controller
     {
+        private const string PromotionalCodeFormPrefix = nameof(PlatformPromotionalCodesPageViewModel.CreateForm);
         private readonly ApplicationDbContext _context;
         private readonly ITenantCommercialAccessResolver _commercialAccessResolver;
         private readonly ITenantCommercialAccessCache _accessCache;
@@ -62,6 +63,7 @@ namespace LuxuryApp.Controllers.Platform
                     ForcedPlanId = tenant.ForcedPlanId,
                     ForcedPlanName = tenant.ForcedPlan?.Nombre,
                     OwnerEmail = ownerEmail,
+                    CommercialNotes = tenant.CommercialNotes,
                     CanAccessApp = access.CanAccessApp,
                     EffectivePlanName = access.EffectivePlanName,
                     Reason = access.Reason
@@ -167,7 +169,7 @@ namespace LuxuryApp.Controllers.Platform
             await _context.SaveChangesAsync(cancellationToken);
             _accessCache.Invalidate(tenant.Id);
 
-            TempData["PlatformSuccess"] = "Configuración comercial del tenant actualizada.";
+            TempData["PlatformSuccess"] = "Configuracion comercial del tenant actualizada.";
             return RedirectToAction(nameof(Index));
         }
 
@@ -181,7 +183,7 @@ namespace LuxuryApp.Controllers.Platform
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> CreatePromotionalCode(
-            PlatformPromotionalCodeCreateViewModel model,
+            [Bind(Prefix = PromotionalCodeFormPrefix)] PlatformPromotionalCodeCreateViewModel model,
             CancellationToken cancellationToken)
         {
             if (!ModelState.IsValid)
@@ -195,7 +197,9 @@ namespace LuxuryApp.Controllers.Platform
 
             if (plan is null)
             {
-                ModelState.AddModelError(nameof(model.PlanId), "Debes seleccionar un plan activo.");
+                ModelState.AddModelError(
+                    $"{PromotionalCodeFormPrefix}.{nameof(model.PlanId)}",
+                    "Debes seleccionar un plan activo.");
                 return View("PromotionalCodes", await BuildPromotionalCodesPageAsync(model, cancellationToken));
             }
 
@@ -221,12 +225,14 @@ namespace LuxuryApp.Controllers.Platform
             try
             {
                 await _context.SaveChangesAsync(cancellationToken);
-                TempData["PlatformSuccess"] = "Código promocional creado correctamente.";
+                TempData["PlatformSuccess"] = "Codigo promocional creado correctamente.";
                 return RedirectToAction(nameof(PromotionalCodes));
             }
             catch (DbUpdateException)
             {
-                ModelState.AddModelError(nameof(model.Codigo), "Ya existe un código con ese valor.");
+                ModelState.AddModelError(
+                    $"{PromotionalCodeFormPrefix}.{nameof(model.Codigo)}",
+                    "Ya existe un codigo con ese valor.");
                 return View("PromotionalCodes", await BuildPromotionalCodesPageAsync(model, cancellationToken));
             }
         }
@@ -246,8 +252,8 @@ namespace LuxuryApp.Controllers.Platform
             await _context.SaveChangesAsync(cancellationToken);
 
             TempData["PlatformSuccess"] = code.Activo
-                ? "Código promocional activado."
-                : "Código promocional desactivado.";
+                ? "Codigo promocional activado."
+                : "Codigo promocional desactivado.";
 
             return RedirectToAction(nameof(PromotionalCodes));
         }

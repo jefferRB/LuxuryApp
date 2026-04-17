@@ -1,10 +1,9 @@
-﻿using LuxuryApp.Models.DataBase;
+using LuxuryApp.Models.DataBase;
 using LuxuryApp.Services.DataBase;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
-
 
 namespace LuxuryApp.Controllers.DataBase
 {
@@ -15,19 +14,29 @@ namespace LuxuryApp.Controllers.DataBase
         private readonly RecordatorioService _recordatorioService;
         private readonly IWebHostEnvironment _webHostEnvironment;
         private readonly EmailService _emailSender;
+        private readonly ILogger<ClientesController> _logger;
 
-        public ClientesController(ApplicationDbContext context, RecordatorioService recordatorioService, IWebHostEnvironment webHostEnvironment, EmailService emailSender)
+        public ClientesController(
+            ApplicationDbContext context,
+            RecordatorioService recordatorioService,
+            IWebHostEnvironment webHostEnvironment,
+            EmailService emailSender,
+            ILogger<ClientesController> logger)
         {
             _context = context;
             _recordatorioService = recordatorioService;
             _webHostEnvironment = webHostEnvironment;
             _emailSender = emailSender;
+            _logger = logger;
         }
+
         public async Task<IActionResult> Index()
         {
             var clientes = await _context.Clientes
+                .AsNoTracking()
                 .Select(c => new ClientesModel
                 {
+                    Id = c.Id,
                     Nombre = c.Nombre,
                     CorreoElectronico = c.CorreoElectronico,
                     NumeroTelefono = c.NumeroTelefono,
@@ -37,25 +46,9 @@ namespace LuxuryApp.Controllers.DataBase
                 })
                 .ToListAsync();
 
-            var hoy = DateTime.Now.Date;
-            var manana = hoy.AddDays(1);
-
-            // FUTURAS (>= mañana)
-            var futuras = clientes
-                .Where(c => c.ProximaVisita.Date >= manana)
-                .OrderBy(c => c.ProximaVisita)
-                .ToList();
-
-            // PASADAS (< mañana)
-            var pasadas = clientes
-                .Where(c => c.ProximaVisita.Date < manana)
-                .OrderBy(c => c.ProximaVisita)
-                .ToList();
-
-            // Unir: primero futuras, luego pasadas
-            var resultado = futuras.Concat(pasadas).ToList();
-
-            return View(resultado);
+            return View(clientes
+    .OrderBy(c => c.Nombre)
+    .ToList());
         }
 
         [HttpGet]
@@ -63,13 +56,13 @@ namespace LuxuryApp.Controllers.DataBase
         {
             var cliente = new ClientesModel
             {
-                FechaUltimaVisita = DateTime.Today
+                FechaUltimaVisita = DateTime.Today,
+                FrecuenciaVisita = 30
             };
 
             return View(cliente);
         }
 
-        // ✅ GUARDAR CLIENTE NUEVO
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(
@@ -82,54 +75,70 @@ namespace LuxuryApp.Controllers.DataBase
                 nameof(ClientesModel.FechaCumpleaños))]
             ClientesModel cliente)
         {
-            bool telefonoExiste = await _context.Clientes
-                .AnyAsync(c => c.NumeroTelefono == cliente.NumeroTelefono);
+            NormalizeCliente(cliente);
 
-            if (telefonoExiste)
+            await ValidateTelefonoDisponibleAsync(cliente.NumeroTelefono);
+
+            if (!ModelState.IsValid)
             {
-                ModelState.AddModelError("NumeroTelefono",
-                    "Este número de teléfono ya se encuentra registrado.");
+                return View(cliente);
             }
-            if (ModelState.IsValid)
-            {
-                var primeraVisita = new ClienteVisitas
-                {
-                    NumeroTelefono = cliente.NumeroTelefono,
-                    FechaVisita = cliente.FechaUltimaVisita
-                };
 
+            try
+            {
                 var executionStrategy = _context.Database.CreateExecutionStrategy();
                 await executionStrategy.ExecuteAsync(async () =>
                 {
                     await using var transaction = await _context.Database.BeginTransactionAsync();
 
                     _context.Clientes.Add(cliente);
-                    _context.ClienteVisitas.Add(primeraVisita);
+                    await _context.SaveChangesAsync();
+
+                    _context.ClienteVisitas.Add(new ClienteVisitas
+                    {
+                        ClienteId = cliente.Id,
+                        NumeroTelefono = cliente.NumeroTelefono,
+                        FechaVisita = cliente.FechaUltimaVisita
+                    });
 
                     await _context.SaveChangesAsync();
                     await transaction.CommitAsync();
                 });
 
-
+                TempData["Mensaje"] = "Cliente creado correctamente.";
                 return RedirectToAction(nameof(Index));
             }
-
-            return View(cliente);
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al crear cliente para telefono {NumeroTelefono}.", cliente.NumeroTelefono);
+                ModelState.AddModelError(string.Empty, "No fue posible guardar el cliente. Revisa los datos e inténtalo de nuevo.");
+                return View(cliente);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Guard bloqueó la creación del cliente {NumeroTelefono}.", cliente.NumeroTelefono);
+                ModelState.AddModelError(string.Empty, "No fue posible guardar el cliente por una validación de seguridad o consistencia.");
+                return View(cliente);
+            }
         }
-        // ✅ BUSCAR CLIENTE POR NÚMERO DE TELÉFONO (GET)
+
         [HttpGet, HttpPost]
-        public IActionResult Buscar(string criterio)
+        public async Task<IActionResult> Buscar(string criterio)
         {
             if (string.IsNullOrWhiteSpace(criterio))
             {
                 return View(new BuscarClienteViewModel());
             }
 
-            var clientes = _context.Clientes
+            criterio = criterio.Trim();
+
+            var clientes = await _context.Clientes
+                .AsNoTracking()
                 .Where(c =>
                     c.NumeroTelefono == criterio ||
                     EF.Functions.Like(c.Nombre, $"%{criterio}%"))
-                .ToList();
+                .OrderBy(c => c.Nombre)
+                .ToListAsync();
 
             if (!clientes.Any())
             {
@@ -142,15 +151,15 @@ namespace LuxuryApp.Controllers.DataBase
                 ClientesEncontrados = clientes
             };
 
-            // 🟢 Si solo hay uno, se selecciona automáticamente
             if (clientes.Count == 1)
             {
-                var cliente = clientes.First();
+                var cliente = clientes[0];
 
-                var historial = _context.ClienteVisitas
-                    .Where(v => v.NumeroTelefono == cliente.NumeroTelefono)
+                var historial = await _context.ClienteVisitas
+                    .AsNoTracking()
+                    .Where(v => v.ClienteId == cliente.Id)
                     .OrderByDescending(v => v.FechaVisita)
-                    .ToList();
+                    .ToListAsync();
 
                 vm.ClienteSeleccionado = cliente;
                 vm.TotalVisitas = historial.Count;
@@ -159,25 +168,32 @@ namespace LuxuryApp.Controllers.DataBase
 
             return View(vm);
         }
-        [HttpGet]
-        public IActionResult Editar(string numeroTelefono)
-        {
-            if (string.IsNullOrEmpty(numeroTelefono))
-                return NotFound();
 
-            var cliente = _context.Clientes.FirstOrDefault(c => c.NumeroTelefono == numeroTelefono);
+        [HttpGet]
+        public async Task<IActionResult> Editar(int id)
+        {
+            if (id <= 0)
+            {
+                return NotFound();
+            }
+
+            var cliente = await _context.Clientes
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == id);
 
             if (cliente == null)
+            {
                 return NotFound();
+            }
 
             return View(cliente);
         }
 
-        // ✅ GUARDAR CAMBIOS DEL CLIENTE
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public IActionResult Editar(
+        public async Task<IActionResult> Editar(
             [Bind(
+                nameof(ClientesModel.Id) + "," +
                 nameof(ClientesModel.NumeroTelefono) + "," +
                 nameof(ClientesModel.CorreoElectronico) + "," +
                 nameof(ClientesModel.Nombre) + "," +
@@ -186,79 +202,130 @@ namespace LuxuryApp.Controllers.DataBase
                 nameof(ClientesModel.FechaCumpleaños))]
             ClientesModel cliente)
         {
+            NormalizeCliente(cliente);
+
+            await ValidateTelefonoDisponibleAsync(cliente.NumeroTelefono, cliente.Id);
+
             if (!ModelState.IsValid)
             {
                 return View(cliente);
             }
 
-            var clienteExistente = _context.Clientes.FirstOrDefault(c => c.NumeroTelefono == cliente.NumeroTelefono);
+            var clienteExistente = await _context.Clientes
+                .FirstOrDefaultAsync(c => c.Id == cliente.Id);
 
             if (clienteExistente == null)
             {
                 return NotFound();
             }
 
-            // 🟡 Detectar si hubo cambio en la fecha de última visita
-            bool cambioFechaVisita = clienteExistente.FechaUltimaVisita != cliente.FechaUltimaVisita;
+            var telefonoAnterior = clienteExistente.NumeroTelefono;
+            var cambioTelefono = !string.Equals(
+                telefonoAnterior,
+                cliente.NumeroTelefono,
+                StringComparison.Ordinal);
+            var cambioFechaVisita = clienteExistente.FechaUltimaVisita != cliente.FechaUltimaVisita;
 
-            // 🔒 No se cambia el número de teléfono
             clienteExistente.Nombre = cliente.Nombre;
+            clienteExistente.NumeroTelefono = cliente.NumeroTelefono;
             clienteExistente.CorreoElectronico = cliente.CorreoElectronico;
             clienteExistente.FechaCumpleaños = cliente.FechaCumpleaños;
             clienteExistente.FrecuenciaVisita = cliente.FrecuenciaVisita;
             clienteExistente.FechaUltimaVisita = cliente.FechaUltimaVisita;
 
-            // 🟢 PASO 2: Registrar visita en historial
-            if (cambioFechaVisita)
+            if (cambioTelefono)
             {
-                var nuevaVisita = new ClienteVisitas
-                {
-                    NumeroTelefono = cliente.NumeroTelefono,
-                    FechaVisita = cliente.FechaUltimaVisita
-                };
+                var visitas = await _context.ClienteVisitas
+                    .Where(v => v.ClienteId == clienteExistente.Id)
+                    .ToListAsync();
 
-                _context.ClienteVisitas.Add(nuevaVisita);
+                foreach (var visita in visitas)
+                {
+                    visita.NumeroTelefono = cliente.NumeroTelefono;
+                }
+
+                var imagenes = await _context.ClienteImagenes
+                    .Where(i => i.ClienteId == clienteExistente.Id)
+                    .ToListAsync();
+
+                foreach (var imagen in imagenes)
+                {
+                    imagen.NumeroTelefono = cliente.NumeroTelefono;
+                }
             }
 
-            _context.SaveChanges();
+            if (cambioFechaVisita)
+            {
+                _context.ClienteVisitas.Add(new ClienteVisitas
+                {
+                    ClienteId = clienteExistente.Id,
+                    NumeroTelefono = cliente.NumeroTelefono,
+                    FechaVisita = cliente.FechaUltimaVisita
+                });
+            }
 
-            // Mensaje de éxito
-            TempData["Mensaje"] = "Cliente editado con éxito.";
-
-            return RedirectToAction("Buscar", new { criterio = cliente.NumeroTelefono });
+            try
+            {
+                await _context.SaveChangesAsync();
+                TempData["Mensaje"] = "Cliente editado con éxito.";
+                return RedirectToAction(nameof(Buscar), new { criterio = clienteExistente.NumeroTelefono });
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al editar cliente {ClienteId}.", cliente.Id);
+                ModelState.AddModelError(string.Empty, "No fue posible guardar los cambios del cliente.");
+                return View(cliente);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Guard bloqueó la edición del cliente {ClienteId}.", cliente.Id);
+                ModelState.AddModelError(string.Empty, "No fue posible guardar los cambios por una validación de seguridad o consistencia.");
+                return View(cliente);
+            }
         }
+
         [HttpPost]
-        public async Task<IActionResult> Eliminar(string numeroTelefono)
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Eliminar(int id)
         {
-            if (string.IsNullOrEmpty(numeroTelefono))
-                return BadRequest("Número de teléfono no válido.");
+            if (id <= 0)
+            {
+                return BadRequest("Cliente no válido.");
+            }
 
             var cliente = await _context.Clientes
-                .FirstOrDefaultAsync(c => c.NumeroTelefono == numeroTelefono);
+                .FirstOrDefaultAsync(c => c.Id == id);
 
             if (cliente == null)
+            {
                 return NotFound();
+            }
 
-            _context.Clientes.Remove(cliente);
-            await _context.SaveChangesAsync();
+            try
+            {
+                _context.Clientes.Remove(cliente);
+                await _context.SaveChangesAsync();
 
-            TempData["Mensaje"] = "Cliente eliminado correctamente.";
-            return RedirectToAction("Buscar");
+                TempData["Mensaje"] = "Cliente eliminado correctamente.";
+                return RedirectToAction(nameof(Buscar));
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al eliminar cliente {ClienteId}.", id);
+                TempData["Error"] = "No fue posible eliminar el cliente porque tiene datos relacionados.";
+                return RedirectToAction(nameof(Buscar), new { criterio = cliente.NumeroTelefono });
+            }
         }
 
         [HttpPost]
-        
         public async Task<IActionResult> EnviarMensaje(string numeroTelefono)
         {
             try
             {
-                //recordatorios
                 var usuarios = await _recordatorioService.ObtenerUsuariosProximos();
                 var ruta = Path.Combine(_webHostEnvironment.WebRootPath, "Plantillas", "MensajeRecordatorio.html");
                 var contenidoHtml = System.IO.File.ReadAllText(ruta);
                 await _emailSender.SendBulkEmailsAsync(usuarios, "Recordatorio", contenidoHtml);
-
-                //cumpleaños
 
                 var cumpleaneros = await _recordatorioService.ObtenerCumpleañerosHoy();
                 var rutaCumple = Path.Combine(_webHostEnvironment.WebRootPath, "Plantillas", "MensajeCumpleaños.html");
@@ -269,81 +336,93 @@ namespace LuxuryApp.Controllers.DataBase
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex);
+                _logger.LogError(ex, "Error al enviar mensajes masivos para clientes.");
                 return Json(new { success = false });
-
             }
         }
-        //registro de imagenes y descripcion de servicios realizados
-        [HttpGet]
-        public IActionResult RegistrarServicios(string numeroTelefono)
-        {
-            if (string.IsNullOrEmpty(numeroTelefono))
-                return NotFound();
 
-            var cliente = _context.Clientes.FirstOrDefault(c => c.NumeroTelefono == numeroTelefono);
-            var imagenes = _context.ClienteImagenes
-                .Where(i => i.NumeroTelefono == numeroTelefono)
-                .ToList();
+        [HttpGet]
+        public async Task<IActionResult> RegistrarServicios(int id)
+        {
+            if (id <= 0)
+            {
+                return NotFound();
+            }
+
+            var cliente = await _context.Clientes
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == id);
+
+            if (cliente == null)
+            {
+                return NotFound();
+            }
+
+            var imagenes = await _context.ClienteImagenes
+                .AsNoTracking()
+                .Where(i => i.ClienteId == id)
+                .OrderByDescending(i => i.Fecha)
+                .ToListAsync();
 
             var model = new ServicioRealizadoViewModel
             {
-                NumeroTelefono = numeroTelefono,
+                ClienteId = cliente.Id,
+                NumeroTelefono = cliente.NumeroTelefono,
                 ImagenesGuardadas = imagenes,
-                DescripcionServicios = cliente?.DescripcionServiciosRealizados // ← AQUI SE CARGA
+                DescripcionServicios = cliente.DescripcionServiciosRealizados
             };
 
             return View(model);
         }
 
         [HttpPost]
-        public IActionResult AgregarVisitaRapida(string numeroTelefono)
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> AgregarVisitaRapida(int id)
         {
-            if (string.IsNullOrEmpty(numeroTelefono))
-                return BadRequest();
-
-            var cliente = _context.Clientes
-                .FirstOrDefault(c => c.NumeroTelefono == numeroTelefono);
-
-            if (cliente == null)
-                return NotFound();
-
-            var hoy = DateTime.Today;
-
-            // 🟢 Actualizar última visita
-            cliente.FechaUltimaVisita = hoy;
-
-            // 🟢 Registrar visita en historial
-            var visita = new ClienteVisitas
+            if (id <= 0)
             {
-                NumeroTelefono = numeroTelefono,
-                FechaVisita = hoy
-            };
+                return BadRequest();
+            }
 
-            _context.ClienteVisitas.Add(visita);
+            var cliente = await _context.Clientes
+                .FirstOrDefaultAsync(c => c.Id == id);
 
-            _context.SaveChanges();
-
-            TempData["Mensaje"] = "Visita registrada correctamente.";
-
-            // 🔁 Volver al cliente
-            return RedirectToAction("Buscar", new { criterio = numeroTelefono });
-        }
-
-
-        [HttpPost]
-        public async Task<IActionResult> RegistrarServicios(ServicioRealizadoViewModel model)
-        {
-            var cliente = _context.Clientes.FirstOrDefault(c => c.NumeroTelefono == model.NumeroTelefono);
             if (cliente == null)
             {
                 return NotFound();
             }
 
-            // Actualizar descripción general del cliente
-            cliente.DescripcionServiciosRealizados = model.DescripcionServicios;
+            var hoy = DateTime.Today;
 
-            // Guardar imágenes si existen
+            cliente.FechaUltimaVisita = hoy;
+
+            _context.ClienteVisitas.Add(new ClienteVisitas
+            {
+                ClienteId = cliente.Id,
+                NumeroTelefono = cliente.NumeroTelefono,
+                FechaVisita = hoy
+            });
+
+            await _context.SaveChangesAsync();
+
+            TempData["Mensaje"] = "Visita registrada correctamente.";
+            return RedirectToAction(nameof(Buscar), new { criterio = cliente.NumeroTelefono });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> RegistrarServicios(ServicioRealizadoViewModel model)
+        {
+            var cliente = await _context.Clientes
+                .FirstOrDefaultAsync(c => c.Id == model.ClienteId);
+
+            if (cliente == null)
+            {
+                return NotFound();
+            }
+
+            cliente.DescripcionServiciosRealizados = NormalizeOptionalString(model.DescripcionServicios);
+
             if (model.Imagenes != null && model.Imagenes.Count > 0)
             {
                 foreach (var img in model.Imagenes)
@@ -351,54 +430,59 @@ namespace LuxuryApp.Controllers.DataBase
                     using var ms = new MemoryStream();
                     await img.CopyToAsync(ms);
 
-                    var registro = new ClienteImagenesModel
+                    _context.ClienteImagenes.Add(new ClienteImagenesModel
                     {
-                        NumeroTelefono = model.NumeroTelefono,
+                        ClienteId = cliente.Id,
+                        NumeroTelefono = cliente.NumeroTelefono,
                         Imagen = ms.ToArray(),
                         Fecha = DateTime.Now
-                    };
-
-                    _context.ClienteImagenes.Add(registro);
+                    });
                 }
             }
 
             await _context.SaveChangesAsync();
 
-
-            return RedirectToAction("Buscar", new { criterio = model.NumeroTelefono });
+            TempData["Mensaje"] = "Registro de servicios actualizado correctamente.";
+            return RedirectToAction(nameof(Buscar), new { criterio = cliente.NumeroTelefono });
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public IActionResult EliminarVisita(string numeroTelefono, DateTime fechaVisita)
+        public async Task<IActionResult> EliminarVisita(int id)
         {
-            var visita = _context.ClienteVisitas.FirstOrDefault(v =>
-                v.NumeroTelefono == numeroTelefono &&
-                v.FechaVisita.Date == fechaVisita.Date);
+            var visita = await _context.ClienteVisitas
+                .Include(v => v.Cliente)
+                .FirstOrDefaultAsync(v => v.Id == id);
 
             if (visita == null)
+            {
                 return NotFound();
+            }
 
             _context.ClienteVisitas.Remove(visita);
-            _context.SaveChanges();
+            await _context.SaveChangesAsync();
 
             TempData["Mensaje"] = "Visita eliminada correctamente.";
-
-            return RedirectToAction("Buscar", new { criterio = numeroTelefono });
+            var criterio = visita.Cliente?.NumeroTelefono ?? visita.NumeroTelefono;
+            return RedirectToAction(nameof(Buscar), new { criterio });
         }
 
         [HttpGet]
         public async Task<IActionResult> Autocompletado(string term)
         {
             if (string.IsNullOrWhiteSpace(term))
+            {
                 return Ok(new List<object>());
+            }
 
             var clientes = await _context.Clientes
+                .AsNoTracking()
                 .Where(c => EF.Functions.Like(c.Nombre, $"%{term}%"))
                 .OrderBy(c => c.Nombre)
                 .Take(10)
                 .Select(c => new
                 {
+                    id = c.Id,
                     nombre = c.Nombre,
                     telefono = c.NumeroTelefono
                 })
@@ -407,5 +491,42 @@ namespace LuxuryApp.Controllers.DataBase
             return Ok(clientes);
         }
 
+        private async Task ValidateTelefonoDisponibleAsync(string numeroTelefono, int? clienteIdActual = null)
+        {
+            var telefono = NormalizeRequiredString(numeroTelefono);
+            if (string.IsNullOrWhiteSpace(telefono))
+            {
+                return;
+            }
+
+            var query = _context.Clientes
+                .AsNoTracking()
+                .Where(c => c.NumeroTelefono == telefono);
+
+            if (clienteIdActual.HasValue)
+            {
+                query = query.Where(c => c.Id != clienteIdActual.Value);
+            }
+
+            if (await query.AnyAsync())
+            {
+                ModelState.AddModelError(
+                    nameof(ClientesModel.NumeroTelefono),
+                    "Este número de teléfono ya se encuentra registrado.");
+            }
+        }
+
+        private static void NormalizeCliente(ClientesModel cliente)
+        {
+            cliente.Nombre = NormalizeRequiredString(cliente.Nombre);
+            cliente.NumeroTelefono = NormalizeRequiredString(cliente.NumeroTelefono);
+            cliente.CorreoElectronico = NormalizeOptionalString(cliente.CorreoElectronico);
+        }
+
+        private static string NormalizeRequiredString(string? value) =>
+            string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+
+        private static string? NormalizeOptionalString(string? value) =>
+            string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 }
