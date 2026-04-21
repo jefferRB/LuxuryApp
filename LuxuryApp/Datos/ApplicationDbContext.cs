@@ -169,6 +169,19 @@ namespace ProyectoIdentity.Datos
                     .OnDelete(DeleteBehavior.Restrict);
             });
 
+            modelBuilder.Entity<Categoria>(entity =>
+            {
+                entity.Property(c => c.Nombre)
+                    .HasMaxLength(150)
+                    .IsRequired();
+
+                entity.Property(c => c.Detalle)
+                    .HasMaxLength(500);
+
+                entity.HasIndex(c => new { c.TenantId, c.Nombre })
+                    .HasDatabaseName("IX_Categorias_TenantId_Nombre");
+            });
+
             modelBuilder.Entity<Producto>(entity =>
             {
                 entity.Property(p => p.PrecioProducto).HasColumnType("decimal(18,2)");
@@ -177,6 +190,64 @@ namespace ProyectoIdentity.Datos
             modelBuilder.Entity<PagoFuncionario>(entity =>
             {
                 entity.Property(p => p.MontoPagado).HasColumnType("decimal(18,2)");
+            });
+
+            modelBuilder.Entity<LiquidacionSemanal>(entity =>
+            {
+                entity.Property(l => l.MontoTotal).HasColumnType("decimal(18,2)");
+                entity.Property(l => l.Estado).HasMaxLength(30).IsRequired();
+                entity.Property(l => l.Observacion).HasMaxLength(500);
+                entity.Property(l => l.CreadoPor).HasMaxLength(450);
+
+                entity.HasIndex(l => new { l.TenantId, l.SemanaInicio, l.SemanaFin, l.FechaPago })
+                    .HasDatabaseName("IX_LiquidacionesSemanales_TenantId_Semana");
+
+                entity.HasIndex(l => l.EgresoId)
+                    .IsUnique();
+
+                entity.HasOne(l => l.Egreso)
+                    .WithMany()
+                    .HasForeignKey(l => l.EgresoId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<LiquidacionSemanalDetalle>(entity =>
+            {
+                entity.Property(d => d.MontoServicios).HasColumnType("decimal(18,2)");
+                entity.Property(d => d.MontoProductos).HasColumnType("decimal(18,2)");
+                entity.Property(d => d.Impuestos).HasColumnType("decimal(18,2)");
+                entity.Property(d => d.MontoNeto).HasColumnType("decimal(18,2)");
+                entity.Property(d => d.MontoPagado).HasColumnType("decimal(18,2)");
+                entity.Property(d => d.Pendiente).HasColumnType("decimal(18,2)");
+
+                entity.HasIndex(d => new { d.TenantId, d.LiquidacionSemanalId, d.FuncionarioId })
+                    .IsUnique();
+
+                entity.HasOne(d => d.LiquidacionSemanal)
+                    .WithMany(l => l.Detalles)
+                    .HasForeignKey(d => d.LiquidacionSemanalId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(d => d.Funcionario)
+                    .WithMany()
+                    .HasForeignKey(d => d.FuncionarioId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<LiquidacionSemanalDistribucionMensual>(entity =>
+            {
+                entity.Property(d => d.MontoAsignado).HasColumnType("decimal(18,2)");
+
+                entity.HasIndex(d => new { d.TenantId, d.Anio, d.Mes })
+                    .HasDatabaseName("IX_LiquidacionesSemanalesDistribucionMensual_TenantId_Anio_Mes");
+
+                entity.HasIndex(d => new { d.TenantId, d.LiquidacionSemanalId, d.Anio, d.Mes })
+                    .IsUnique();
+
+                entity.HasOne(d => d.LiquidacionSemanal)
+                    .WithMany(l => l.DistribucionesMensuales)
+                    .HasForeignKey(d => d.LiquidacionSemanalId)
+                    .OnDelete(DeleteBehavior.Cascade);
             });
 
             modelBuilder.Entity<Tenant>(entity =>
@@ -669,6 +740,9 @@ namespace ProyectoIdentity.Datos
         public DbSet<Funcionario> Funcionarios { get; set; }
         public DbSet<Puesto> Puestos { get; set; }
         public DbSet<PagoFuncionario> PagosFuncionarios { get; set; }
+        public DbSet<LiquidacionSemanal> LiquidacionesSemanales { get; set; }
+        public DbSet<LiquidacionSemanalDetalle> LiquidacionesSemanalesDetalle { get; set; }
+        public DbSet<LiquidacionSemanalDistribucionMensual> LiquidacionesSemanalesDistribucionMensual { get; set; }
         //Saas 
         public DbSet<Plan> Planes { get; set; }
         public DbSet<Tenant> Tenants { get; set; }

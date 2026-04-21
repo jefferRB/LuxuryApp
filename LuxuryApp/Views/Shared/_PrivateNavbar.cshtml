@@ -1,0 +1,83 @@
+@model PrivateNavigationViewModel
+
+@{
+    var currentController = (ViewContext.RouteData.Values["controller"]?.ToString() ?? string.Empty).ToLowerInvariant();
+    var currentAction = (ViewContext.RouteData.Values["action"]?.ToString() ?? string.Empty).ToLowerInvariant();
+
+    string ResolveNavClass(NavigationMenuItemViewModel item)
+    {
+        var isActive =
+            currentController == item.Controller.ToLowerInvariant() &&
+            currentAction == item.Action.ToLowerInvariant();
+
+        return isActive ? "nav-link private-nav-link active" : "nav-link private-nav-link";
+    }
+
+    string ResolveSecondaryClass(NavigationMenuItemViewModel item)
+    {
+        var baseClass = item.Highlight ? "private-pill-link private-pill-link-highlight" : "private-pill-link";
+        var isActive =
+            currentController == item.Controller.ToLowerInvariant() &&
+            currentAction == item.Action.ToLowerInvariant();
+
+        return isActive ? $"{baseClass} active" : baseClass;
+    }
+}
+
+<nav class="navbar navbar-expand-xl navbar-dark private-navbar">
+    <div class="container-fluid">
+        <a class="navbar-brand private-navbar-brand" asp-controller="@Model.HomeController" asp-action="@Model.HomeAction">
+            <span class="private-brand-mark">L</span>
+            <span>
+                <strong>LuxuryApp</strong>
+                <small>Operacion SaaS</small>
+            </span>
+        </a>
+
+        <button class="navbar-toggler private-navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#privateNavbar" aria-controls="privateNavbar" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="privateNavbar">
+            <ul class="navbar-nav me-auto mb-3 mb-xl-0">
+                @foreach (var item in Model.PrimaryItems)
+                {
+                    <li class="nav-item">
+                        <a class="@ResolveNavClass(item)" asp-controller="@item.Controller" asp-action="@item.Action">
+                            <i class="bi @item.Icon"></i>
+                            <span>@item.Text</span>
+                        </a>
+                    </li>
+                }
+            </ul>
+
+            <div class="private-navbar-meta">
+                @if (!string.IsNullOrWhiteSpace(Model.AccessBadgeText))
+                {
+                    <span class="private-access-chip private-access-chip-@Model.AccessBadgeTone">
+                        @Model.AccessBadgeText
+                    </span>
+                }
+
+                @foreach (var item in Model.SecondaryItems)
+                {
+                    <a class="@ResolveSecondaryClass(item)" asp-controller="@item.Controller" asp-action="@item.Action">
+                        <i class="bi @item.Icon"></i>
+                        <span>@item.Text</span>
+                    </a>
+                }
+
+                @if (Model.IsAuthenticated)
+                {
+                    <div class="private-user-block">
+                        <span class="private-user-name">@Model.AccountDisplayName</span>
+                        <form method="post" asp-controller="Accounts" asp-action="SalirAplicacion">
+                            @Html.AntiForgeryToken()
+                            <button type="submit" class="btn private-logout-button">Salir</button>
+                        </form>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</nav>

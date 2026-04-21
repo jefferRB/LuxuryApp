@@ -8,6 +8,131 @@ let calendarConfig = {
     fin: 22,
     intervalo: 15
 };
+const CALENDAR_DEBUG_ENABLED = true;
+
+function calendarDebugLog(message, payload = null) {
+
+    if (!CALENDAR_DEBUG_ENABLED) return;
+
+    if (payload === null) {
+        console.debug(`[CalendarDebug] ${message}`);
+        return;
+    }
+
+    console.debug(`[CalendarDebug] ${message}`, payload);
+}
+
+function describeElement(element) {
+
+    if (!element) return null;
+
+    return {
+        tagName: element.tagName,
+        id: element.id || null,
+        className: element.className || null,
+        dataset: { ...element.dataset }
+    };
+}
+
+function normalizeFuncionarioId(value) {
+
+    if (value === null || value === undefined || value === "")
+        return null;
+
+    const parsed = Number.parseInt(value, 10);
+
+    return Number.isInteger(parsed) && parsed > 0
+        ? String(parsed)
+        : null;
+}
+
+function formatDateOnly(date) {
+
+    const pad = value => String(value).padStart(2, "0");
+
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function getFuncionarioColumn(element) {
+    return element?.closest?.(".funcionario-column[data-funcionario-id]") ?? null;
+}
+
+function getCalendarSlot(element) {
+    return element?.closest?.(".calendar-slot[data-funcionario-id]") ?? null;
+}
+
+function buildSlotContext(slot) {
+
+    if (!slot) return null;
+
+    return {
+        date: slot.dataset.date || null,
+        slotIndex: Number.parseInt(slot.dataset.slotIndex || "0", 10),
+        hour: Number.parseInt(slot.dataset.hour || "0", 10),
+        minute: Number.parseInt(slot.dataset.minute || "0", 10),
+        funcionarioId: normalizeFuncionarioId(slot.dataset.funcionarioId),
+        funcionarioNombre: slot.dataset.funcionarioNombre || "",
+        funcionarioColor: slot.dataset.funcionarioColor || "",
+        clickedElement: describeElement(slot)
+    };
+}
+
+function getSelectionState(container) {
+
+    if (!container._calendarSelectionState) {
+        container._calendarSelectionState = {
+            active: false,
+            pointerId: null,
+            startSlot: null,
+            currentSlot: null,
+            column: null,
+            previewBlock: null
+        };
+    }
+
+    return container._calendarSelectionState;
+}
+
+function removeSelectionPreview(state) {
+
+    if (state.previewBlock?.parentElement) {
+        state.previewBlock.parentElement.removeChild(state.previewBlock);
+    }
+
+    state.previewBlock = null;
+}
+
+function resetSlotSelection(container) {
+
+    const state = getSelectionState(container);
+
+    removeSelectionPreview(state);
+
+    state.active = false;
+    state.pointerId = null;
+    state.startSlot = null;
+    state.currentSlot = null;
+    state.column = null;
+}
+
+function updateSelectionPreview(state, altoSlot) {
+
+    if (!state.previewBlock || !state.startSlot)
+        return;
+
+    const startIndex = Number.parseInt(state.startSlot.dataset.slotIndex || "0", 10);
+    const endIndex = Math.max(
+        startIndex,
+        Number.parseInt((state.currentSlot || state.startSlot).dataset.slotIndex || `${startIndex}`, 10)
+    );
+
+    state.previewBlock.style.top = `${startIndex * altoSlot}px`;
+    state.previewBlock.style.height = `${(endIndex - startIndex + 1) * altoSlot}px`;
+}
+
+function resolveSlotFromPoint(clientX, clientY) {
+    return getCalendarSlot(document.elementFromPoint(clientX, clientY));
+}
 
 
 /* INICIALIZACIÓN */
@@ -563,8 +688,8 @@ async function buildDayGrid(container, date) {
     const fin = calendarConfig.fin;
     const intervalo = calendarConfig.intervalo;
     const altoSlot = 30;
-
     const totalSlots = ((fin - inicio) * 60) / intervalo;
+    const dateStr = formatDateOnly(date);
 
     // ===== GENERAR HORAS =====
 
@@ -586,9 +711,6 @@ async function buildDayGrid(container, date) {
 
     // ===== OBTENER DATOS =====
 
-    const dateStr =
-        `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-
     const [citasRes, funcRes] = await Promise.all([
         fetch(`/Calendar/GetCitasByDay?date=${dateStr}`),
         fetch(`/Funcionarios/GetActivos`)
@@ -603,8 +725,16 @@ async function buildDayGrid(container, date) {
 
         const col = document.createElement("div");
         col.className = "funcionario-column";
-        col.dataset.id = func.id;
-        col.dataset.color = func.colorCalendario;
+        col.dataset.id = String(func.id);
+        col.dataset.color = func.colorCalendario || "";
+        col.dataset.funcionarioId = String(func.id);
+        col.dataset.funcionarioNombre = func.nombre || "";
+        col.dataset.funcionarioColor = func.colorCalendario || "";
+
+        calendarDebugLog("Construyendo columna dinámica", {
+            funcionarioId: func.id,
+            funcionarioNombre: func.nombre || ""
+        });
 
         // 🔥 DROP ZONE
         col.addEventListener("dragover", e => {
@@ -639,14 +769,24 @@ async function buildDayGrid(container, date) {
         // líneas base
         for (let i = 0; i < totalSlots; i++) {
             const line = document.createElement("div");
-            line.className = "slot-line";
+            const hour = inicio + Math.floor((i * intervalo) / 60);
+            const minute = (i * intervalo) % 60;
+
+            line.className = "slot-line calendar-slot";
+            line.dataset.date = dateStr;
+            line.dataset.slotIndex = String(i);
+            line.dataset.hour = String(hour);
+            line.dataset.minute = String(minute);
+            line.dataset.funcionarioId = String(func.id);
+            line.dataset.funcionarioNombre = func.nombre || "";
+            line.dataset.funcionarioColor = func.colorCalendario || "";
             col.appendChild(line);
         }
 
-        enableColumnInteraction(col, date, inicio, altoSlot, intervalo);
-
         funcionariosContainer.appendChild(col);
     });
+
+    bindCalendarSlotDelegation(funcionariosContainer, date, intervalo, altoSlot);
 
     // ===== POSICIONAR CITAS =====
 
@@ -735,76 +875,129 @@ async function buildDayGrid(container, date) {
     });
 }
 
-async function enableColumnInteraction(col, date, inicio, altoSlot, intervalo) {
+function bindCalendarSlotDelegation(funcionariosContainer, date, intervalo, altoSlot) {
 
-    let isSelecting = false;
-    let startY = 0;
-    let previewBlock = null;
+    if (!funcionariosContainer || funcionariosContainer.dataset.slotDelegationBound === "true")
+        return;
 
-    col.addEventListener("mousedown", function (e) {
+    funcionariosContainer.dataset.slotDelegationBound = "true";
 
-        if (e.target.classList.contains("cita-bloque"))
+    funcionariosContainer.addEventListener("pointerdown", function (event) {
+
+        if (event.button !== 0)
             return;
 
-        isSelecting = true;
+        if (event.target.closest(".cita-bloque"))
+            return;
 
-        const rect = col.getBoundingClientRect();
-        startY = e.clientY - rect.top; // 👈 POSICIÓN REAL
+        const slot = getCalendarSlot(event.target);
 
-        previewBlock = document.createElement("div");
-        previewBlock.className = "cita-preview";
+        calendarDebugLog("PointerDown recibido en calendario", {
+            clickedElement: describeElement(event.target),
+            slotEncontrado: buildSlotContext(slot)
+        });
 
-        const snappedTop =
-            Math.floor(startY / altoSlot) * altoSlot;
+        if (!slot)
+            return;
 
-        previewBlock.style.top = snappedTop + "px";
-        previewBlock.style.height = altoSlot + "px";
-        previewBlock.style.backgroundColor = col.dataset.color;
-        previewBlock.style.opacity = "0.5";
+        const column = getFuncionarioColumn(slot);
+        if (!column)
+            return;
 
-        col.appendChild(previewBlock);
+        const state = getSelectionState(funcionariosContainer);
+
+        resetSlotSelection(funcionariosContainer);
+
+        state.active = true;
+        state.pointerId = event.pointerId;
+        state.startSlot = slot;
+        state.currentSlot = slot;
+        state.column = column;
+        state.previewBlock = document.createElement("div");
+        state.previewBlock.className = "cita-preview";
+        state.previewBlock.style.backgroundColor =
+            slot.dataset.funcionarioColor || column.dataset.funcionarioColor || "#004445";
+        state.previewBlock.style.opacity = "0.5";
+
+        column.appendChild(state.previewBlock);
+        updateSelectionPreview(state, altoSlot);
+
+        funcionariosContainer.setPointerCapture?.(event.pointerId);
+        event.preventDefault();
     });
 
-    col.addEventListener("mousemove", function (e) {
+    funcionariosContainer.addEventListener("pointermove", function (event) {
 
-        if (!isSelecting) return;
+        const state = getSelectionState(funcionariosContainer);
 
-        const rect = col.getBoundingClientRect();
-        const currentY = e.clientY - rect.top;
+        if (!state.active || state.pointerId !== event.pointerId)
+            return;
 
-        const diff = currentY - startY;
-        const slots = Math.max(1, Math.ceil(diff / altoSlot));
+        const slot = resolveSlotFromPoint(event.clientX, event.clientY);
 
-        previewBlock.style.height = (slots * altoSlot) + "px";
+        if (!slot || getFuncionarioColumn(slot) !== state.column)
+            return;
+
+        state.currentSlot = slot;
+        updateSelectionPreview(state, altoSlot);
     });
 
-    col.addEventListener("mouseup", function (e) {
+    funcionariosContainer.addEventListener("pointerup", function (event) {
 
-        if (!isSelecting) return;
+        const state = getSelectionState(funcionariosContainer);
 
-        isSelecting = false;
+        if (!state.active || state.pointerId !== event.pointerId)
+            return;
 
-        const rect = col.getBoundingClientRect();
-        const endY = e.clientY - rect.top;
+        const slotFromPoint = resolveSlotFromPoint(event.clientX, event.clientY);
+        if (slotFromPoint && getFuncionarioColumn(slotFromPoint) === state.column) {
+            state.currentSlot = slotFromPoint;
+        }
 
-        const diff = endY - startY;
-        const slots = Math.max(1, Math.ceil(diff / altoSlot));
+        const startContext = buildSlotContext(state.startSlot);
+        const endContext = buildSlotContext(state.currentSlot || state.startSlot);
+        const endIndex = Math.max(startContext?.slotIndex ?? 0, endContext?.slotIndex ?? 0);
+        const duration = ((endIndex - (startContext?.slotIndex ?? 0)) + 1) * intervalo;
+        const slotElement = state.startSlot;
 
-        const snappedStart =
-            Math.floor(startY / altoSlot);
+        calendarDebugLog("Slot resuelto antes de abrir modal", {
+            clickedElement: describeElement(event.target),
+            slotEncontrado: startContext,
+            funcionarioResuelto: startContext
+                ? {
+                    funcionarioId: startContext.funcionarioId,
+                    funcionarioNombre: startContext.funcionarioNombre
+                }
+                : null,
+            valoresModal: startContext
+                ? {
+                    fecha: startContext.date,
+                    hora: startContext.hour,
+                    minuto: startContext.minute,
+                    duracion: duration
+                }
+                : null
+        });
 
-        const minutosDesdeInicio =
-            snappedStart * intervalo;
+        funcionariosContainer.releasePointerCapture?.(event.pointerId);
+        resetSlotSelection(funcionariosContainer);
 
-        const hora = inicio + Math.floor(minutosDesdeInicio / 60);
-        const minuto = minutosDesdeInicio % 60;
-        const duracion = slots * intervalo;
+        if (!startContext || !startContext.funcionarioId)
+            return;
 
-        const funcionarioId = col.dataset.id;
+        abrirModalConDuracion(
+            date,
+            startContext.hour,
+            startContext.minute,
+            duration,
+            startContext.funcionarioId,
+            startContext.funcionarioNombre,
+            slotElement
+        );
+    });
 
-        col.removeChild(previewBlock);
-
-        abrirModalConDuracion(date, hora, minuto, duracion, funcionarioId);
+    funcionariosContainer.addEventListener("pointercancel", function () {
+        resetSlotSelection(funcionariosContainer);
     });
 }
 
@@ -854,31 +1047,21 @@ async function onDayClick(year, month, day) {
 
 function onHourClick(date, hour, minute = 0) {
 
-    const fullDate = new Date(date);
-    fullDate.setHours(hour, minute, 0, 0);
-
-    document.getElementById("appointmentDate").value =
-        formatLocalDateTime(fullDate);
-
-    // 🔹 Cargar combos
-    loadFuncionariosForCita();
-    cargarServicios()
-
-    // 🔧 Cerrar modal del día si existe
     const dayModalEl = document.getElementById("dayModal");
     const dayModal = bootstrap.Modal.getInstance(dayModalEl);
     if (dayModal) dayModal.hide();
 
-    // 🔹 Abrir modal de crear cita
-    const createModal = new bootstrap.Modal(
-        document.getElementById("createCitaModal")
-    );
-    createModal.show();
+    abrirModalConDuracion(date, hour, minute, 30);
 }
 
-function abrirModalConDuracion(date, hour, minute, duracion, funcionarioId = null) {
-
-    cargarServicios();
+async function abrirModalConDuracion(
+    date,
+    hour,
+    minute,
+    duracion,
+    funcionarioId = null,
+    funcionarioNombre = null,
+    clickedElement = null) {
 
     const fullDate = new Date(
         date.getFullYear(),
@@ -901,20 +1084,41 @@ function abrirModalConDuracion(date, hour, minute, duracion, funcionarioId = nul
         inputDuracion.value = duracion;
     }
 
-    // 🔥 Cargar funcionarios
-    loadFuncionariosForCita();
+    const modalElement = document.getElementById("createCitaModal");
+    const normalizedFuncionarioId = normalizeFuncionarioId(funcionarioId);
 
-    // 🔥 Esperar a que carguen y luego seleccionar el correcto
-    if (funcionarioId) {
-        setTimeout(() => {
-            const select = document.getElementById("funcionarioId");
-            if (select) {
-                select.value = funcionarioId;
-            }
-        }, 300); // pequeño delay para asegurar que ya cargó
+    if (modalElement) {
+        modalElement.dataset.funcionarioId = normalizedFuncionarioId || "";
+        modalElement.dataset.funcionarioNombre = funcionarioNombre || "";
     }
 
-    
+    calendarDebugLog("Abriendo modal de nueva cita", {
+        clickedElement: describeElement(clickedElement),
+        slotEncontrado: clickedElement ? buildSlotContext(getCalendarSlot(clickedElement)) : null,
+        funcionarioResuelto: {
+            funcionarioId: normalizedFuncionarioId,
+            funcionarioNombre: funcionarioNombre || ""
+        },
+        valoresModal: {
+            appointmentDate: inputFecha?.value || null,
+            duracion
+        }
+    });
+
+    try {
+        await Promise.all([
+            cargarServicios(),
+            loadFuncionariosForCita(normalizedFuncionarioId, funcionarioNombre)
+        ]);
+    } catch (error) {
+        console.error("Error preparando el modal de cita", error);
+    }
+
+    calendarDebugLog("Valores cargados en modal", {
+        funcionarioSelectValue: document.getElementById("funcionarioId")?.value || null,
+        appointmentDate: document.getElementById("appointmentDate")?.value || null,
+        duracionMinutos: document.getElementById("duracionMinutos")?.value || null
+    });
 
     new bootstrap.Modal(
         document.getElementById("createCitaModal")
@@ -1062,6 +1266,12 @@ async function guardarCita() {
         return;
     }
 
+    const funcionarioId = Number.parseInt(funcionario.value, 10);
+    if (!Number.isInteger(funcionarioId) || funcionarioId <= 0) {
+        alert("Debe seleccionar un funcionario válido");
+        return;
+    }
+
     const esDescanso = document.getElementById("esDescanso").checked;
 
     const data = {
@@ -1073,7 +1283,7 @@ async function guardarCita() {
             : parseInt(servicio.value),
 
         fechaHoraCita: fechaInput.value,
-        funcionarioId: parseInt(funcionario.value),
+        funcionarioId: funcionarioId,
 
         tipo: esDescanso ? "DESCANSO" : "CITA",
 
@@ -1084,6 +1294,14 @@ async function guardarCita() {
         duplicar: duplicar,
         fechasDuplicadas: duplicar ? fechasDuplicadas : []
     };
+
+    calendarDebugLog("Payload enviado al guardar cita", {
+        funcionarioId: data.funcionarioId,
+        funcionarioNombre: funcionario.selectedOptions[0]?.textContent || "",
+        fechaHoraCita: data.fechaHoraCita,
+        tipo: data.tipo,
+        servicioId: data.servicioId
+    });
 
     const res = await fetch("/Calendar/Create", {
         method: "POST",
@@ -1367,20 +1585,48 @@ async function editarCita(id) {
     }, 50);
 }
 
-async function loadFuncionariosForCita() {
+async function loadFuncionariosForCita(selectedId = null, selectedName = null) {
 
     const res = await fetch("/Funcionarios/GetActivos");
+    if (!res.ok)
+        throw new Error("No se pudieron cargar los funcionarios activos");
+
     const funcionarios = await res.json();
 
     const select = document.getElementById("funcionarioId");
+    if (!select)
+        return [];
+
     select.innerHTML = `<option value="">Seleccione funcionario</option>`;
+
+    const normalizedSelectedId = normalizeFuncionarioId(selectedId);
 
     funcionarios.forEach(f => {
         const opt = document.createElement("option");
         opt.value = f.id;
         opt.textContent = f.nombre;
+        opt.dataset.funcionarioNombre = f.nombre || "";
+        opt.dataset.funcionarioColor = f.colorCalendario || "";
+
+        if (normalizedSelectedId === String(f.id)) {
+            opt.selected = true;
+        }
+
         select.appendChild(opt);
     });
+
+    if (normalizedSelectedId) {
+        select.value = normalizedSelectedId;
+    }
+
+    calendarDebugLog("Funcionarios cargados en modal", {
+        selectedRequested: normalizedSelectedId,
+        selectedRequestedName: selectedName || "",
+        selectedApplied: select.value || null,
+        totalFuncionarios: funcionarios.length
+    });
+
+    return funcionarios;
 }
 
 async function loadFuncionariosEdit(selectedId) {

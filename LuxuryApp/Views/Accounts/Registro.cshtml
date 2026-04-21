@@ -1,149 +1,92 @@
-﻿@model LuxuryApp.Models.Identity.RegistroViewModel
+@model LuxuryApp.Models.Identity.RegistroViewModel
 
 @{
     ViewData["Title"] = "Registro";
-    Layout = "~/Views/Shared/_Layout.cshtml";
+    ViewData["PublicBodyClass"] = "public-auth-page";
+    Layout = "_PublicLayout";
+    var returnUrl = ViewData["ReturnUrl"] as string;
+    var selectedPlanName = ViewData["SelectedPlanName"] as string;
 }
 
-<link rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<section class="auth-section">
+    <div class="container">
+        <div class="row align-items-center g-4">
+            <div class="col-lg-5" data-aos="fade-right">
+                <div class="auth-story-card">
+                    <span class="section-kicker">Onboarding comercial</span>
+                    <h1>Crea tu cuenta y deja listo el espacio de trabajo de tu negocio.</h1>
+                    <p>
+                        El registro sigue creando tu tenant y luego el sistema continua con el flujo actual de suscripcion
+                        sin alterar la relacion entre usuario, TenantId y acceso comercial.
+                    </p>
 
-<style>
+                    @if (!string.IsNullOrWhiteSpace(selectedPlanName))
+                    {
+                        <div class="auth-plan-pill">
+                            <i class="bi bi-stars"></i>
+                            <span>Plan elegido: <strong>@selectedPlanName</strong></span>
+                        </div>
+                    }
 
-    body {
-        background: linear-gradient(135deg,#0f2027,#203a43,#2c5364);
-        min-height: 100vh;
-    }
-
-    .auth-wrapper {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        min-height: 85vh;
-    }
-
-    .auth-card {
-        width: 420px;
-        border-radius: 25px;
-        padding: 35px;
-        background: rgba(255,255,255,0.08);
-        backdrop-filter: blur(15px);
-        box-shadow: 0 20px 40px rgba(0,0,0,0.4);
-        color: white;
-    }
-
-    .auth-title {
-        text-align: center;
-        margin-bottom: 25px;
-    }
-
-    .input-group-text {
-        background: #1c1c1c;
-        border: none;
-        color: #ccc;
-    }
-
-    .form-control {
-        background: #1c1c1c;
-        border: none;
-        color: white;
-    }
-
-        .form-control:focus {
-            box-shadow: 0 0 8px rgba(212,175,55,0.6);
-            background: #1c1c1c;
-            color: white;
-        }
-
-    .btn-luxury {
-        border-radius: 30px;
-        padding: 12px;
-        background: linear-gradient(45deg,#d4af37,#f5e27a);
-        border: none;
-        color: black;
-        transition: 0.3s;
-        font-weight: 500;
-    }
-
-        .btn-luxury:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(212,175,55,0.6);
-        }
-
-</style>
-
-<div class="auth-wrapper">
-
-    <div class="auth-card">
-
-        <h3 class="auth-title">
-            <i class="bi bi-person-plus"></i> Crear Cuenta
-        </h3>
-
-        <form asp-controller="Accounts" asp-action="Registro" method="post">
-
-            <div class="text-danger" asp-validation-summary="All"></div>
-
-            <!-- Nombre -->
-            <div class="mb-3 input-group">
-                <span class="input-group-text">
-                    <i class="bi bi-person"></i>
-                </span>
-                <input asp-for="Name" class="form-control" placeholder="Nombre completo" />
+                    <ul class="auth-benefit-list">
+                        <li>Landing, precios y onboarding alineados con el branding del SaaS</li>
+                        <li>Separacion clara entre experiencia comercial y experiencia interna</li>
+                        <li>Continuidad del flujo actual de registro, tenant y suscripcion</li>
+                    </ul>
+                </div>
             </div>
 
-            <!-- Email -->
-            <div class="mb-3 input-group">
-                <span class="input-group-text">
-                    <i class="bi bi-envelope"></i>
-                </span>
-                <input asp-for="Email" class="form-control" placeholder="Correo electrónico" />
+            <div class="col-lg-7 col-xl-6" data-aos="fade-left">
+                <div class="auth-form-card">
+                    <span class="section-kicker">Crear cuenta</span>
+                    <h2>Empieza con una base profesional desde el primer acceso.</h2>
+
+                    <form asp-controller="Accounts" asp-action="Registro" method="post">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="returnurl" value="@returnUrl" />
+                        <input asp-for="SelectedPlanId" type="hidden" />
+
+                        <div class="text-danger auth-validation" asp-validation-summary="All"></div>
+
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label asp-for="Name" class="form-label"></label>
+                                <input asp-for="Name" class="form-control public-form-control" placeholder="Nombre completo" />
+                            </div>
+                            <div class="col-md-6">
+                                <label asp-for="Email" class="form-label"></label>
+                                <input asp-for="Email" class="form-control public-form-control" placeholder="correo@negocio.com" />
+                            </div>
+                            <div class="col-md-6">
+                                <label asp-for="PhoneNumber" class="form-label"></label>
+                                <input asp-for="PhoneNumber" class="form-control public-form-control" placeholder="Telefono" />
+                            </div>
+                            <div class="col-md-6">
+                                <label asp-for="Password" class="form-label"></label>
+                                <input asp-for="Password" type="password" class="form-control public-form-control" placeholder="Contrasena" />
+                            </div>
+                            <div class="col-md-6">
+                                <label asp-for="ConfirmPassword" class="form-label"></label>
+                                <input asp-for="ConfirmPassword" type="password" class="form-control public-form-control" placeholder="Confirmar contrasena" />
+                            </div>
+                            <div class="col-12">
+                                <label asp-for="AccessCode" class="form-label"></label>
+                                <input asp-for="AccessCode" class="form-control public-form-control" placeholder="Opcional si recibiste un codigo promocional" />
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn public-btn public-btn-primary w-100 mt-4">Crear cuenta y continuar</button>
+
+                        <div class="auth-links-row">
+                            <a asp-action="Acceso" asp-route-returnurl="@returnUrl">Ya tengo cuenta</a>
+                            <a asp-action="OlvidoPassword">Olvide mi contrasena</a>
+                        </div>
+                    </form>
+                </div>
             </div>
-
-            <!-- Teléfono -->
-            <div class="mb-3 input-group">
-                <span class="input-group-text">
-                    <i class="bi bi-telephone"></i>
-                </span>
-                <input asp-for="PhoneNumber" class="form-control" placeholder="Número telefónico" />
-            </div>
-
-            <!-- Password -->
-            <div class="mb-3 input-group">
-                <span class="input-group-text">
-                    <i class="bi bi-lock"></i>
-                </span>
-                <input asp-for="Password" type="password" class="form-control" placeholder="Contraseña" />
-            </div>
-
-            <!-- Confirm Password -->
-            <div class="mb-4 input-group">
-                <span class="input-group-text">
-                    <i class="bi bi-shield-lock"></i>
-                </span>
-                <input asp-for="ConfirmPassword" type="password" class="form-control" placeholder="Confirmar contraseña" />
-            </div>
-
-            <div class="mb-4 input-group">
-                <span class="input-group-text">
-                    <i class="bi bi-ticket-perforated"></i>
-                </span>
-                <input asp-for="AccessCode" class="form-control" placeholder="¿Tienes un código de acceso? (opcional)" />
-            </div>
-
-            <button type="submit" class="btn btn-luxury w-100">
-                Registrarse
-            </button>
-
-            <div class="text-center mt-3">
-                <a asp-action="Acceso">¿Ya tienes cuenta? Inicia sesión</a>
-            </div>
-
-        </form>
-
+        </div>
     </div>
-
-</div>
+</section>
 
 @section Scripts {
     @{

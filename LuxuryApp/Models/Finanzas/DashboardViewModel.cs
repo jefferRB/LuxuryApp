@@ -28,13 +28,17 @@
         public decimal TotalImpuestos { get; set; }
 
         public decimal TotalPagadoFuncionarios { get; set; }
+        public decimal TotalPagadoFuncionariosAnalitico { get; set; }
 
         public decimal TotalEgresos { get; set; }
+        public decimal TotalEgresosAnaliticos { get; set; }
 
         public decimal GananciaNegocio => TotalSinImpuestos - TotalEgresos;
+        public decimal ResultadoAnalitico => TotalSinImpuestos - TotalEgresosAnaliticos;
         public decimal IngresosEfectivo { get; set; }
         public decimal IngresosSinpe { get; set; }
         public decimal IngresosTarjeta { get; set; }
         public List<decimal> GananciaPorMes { get; set; } = new();
+        public List<decimal> ResultadoAnaliticoPorMes { get; set; } = new();
     }
 }

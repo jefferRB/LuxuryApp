@@ -427,6 +427,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 null!,
                 null!,
                 null!,
+                null!,
                 userManager,
                 Options.Create(new OpcionesTilopay()),
                 Options.Create(new OpcionesPago()))
@@ -525,6 +526,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var controller = new BillingController(
                 NullLogger<BillingController>.Instance,
                 context,
+                null!,
                 null!,
                 null!,
                 null!,
@@ -635,6 +637,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 null!,
                 null!,
                 null!,
+                null!,
                 userManager,
                 Options.Create(new OpcionesTilopay()),
                 Options.Create(new OpcionesPago()))
@@ -737,6 +740,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 null!,
                 null!,
                 null!,
+                null!,
                 userManager,
                 Options.Create(new OpcionesTilopay()),
                 Options.Create(new OpcionesPago()))
@@ -834,6 +838,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var controller = new BillingController(
                 NullLogger<BillingController>.Instance,
                 context,
+                null!,
                 null!,
                 null!,
                 null!,

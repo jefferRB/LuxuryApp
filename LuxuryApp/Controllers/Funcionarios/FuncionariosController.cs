@@ -4,6 +4,7 @@ using System.Security.Claims;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Productos;
 using LuxuryApp.Models.SaaS;
+using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Services.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -16,11 +17,16 @@ namespace LuxuryApp.Controllers.Funcionarios
     public class FuncionariosController : Controller
     {
         private readonly ApplicationDbContext _context;
+        private readonly ILiquidacionSemanalService _liquidacionSemanalService;
         private readonly ILogger<FuncionariosController> _logger;
 
-        public FuncionariosController(ApplicationDbContext context, ILogger<FuncionariosController> logger)
+        public FuncionariosController(
+            ApplicationDbContext context,
+            ILiquidacionSemanalService liquidacionSemanalService,
+            ILogger<FuncionariosController> logger)
         {
             _context = context;
+            _liquidacionSemanalService = liquidacionSemanalService;
             _logger = logger;
         }
 
@@ -228,10 +234,11 @@ namespace LuxuryApp.Controllers.Funcionarios
             var tieneCitas = await _context.Citas.AnyAsync(c => c.FuncionarioId == IdFuncionario);
             var tieneCobros = await _context.Cobros.AnyAsync(c => c.FuncionarioId == IdFuncionario);
             var tienePagos = await _context.PagosFuncionarios.AnyAsync(p => p.FuncionarioId == IdFuncionario);
+            var tieneLiquidaciones = await _context.LiquidacionesSemanalesDetalle.AnyAsync(d => d.FuncionarioId == IdFuncionario);
 
-            if (tieneCitas || tieneCobros || tienePagos)
+            if (tieneCitas || tieneCobros || tienePagos || tieneLiquidaciones)
             {
-                TempData["Error"] = "No se puede eliminar el funcionario porque tiene citas, cobros o pagos asociados. Puedes dejarlo inactivo si ya no trabaja en el negocio.";
+                TempData["Error"] = "No se puede eliminar el funcionario porque tiene citas, cobros, pagos o liquidaciones asociadas. Puedes dejarlo inactivo si ya no trabaja en el negocio.";
                 return RedirectToAction(nameof(Index));
             }
 
@@ -282,7 +289,8 @@ namespace LuxuryApp.Controllers.Funcionarios
                 .Select(f => new
                 {
                     id = f.IdFuncionario,
-                    nombre = f.Nombre
+                    nombre = f.Nombre,
+                    colorCalendario = f.ColorCalendario
                 })
                 .ToListAsync();
 
@@ -292,220 +300,76 @@ namespace LuxuryApp.Controllers.Funcionarios
 
         public async Task<IActionResult> PagosSemana(DateTime? fecha)
         {
-            var hoy = (fecha ?? DateTime.Today).Date;
+            var resumen = await _liquidacionSemanalService.ObtenerResumenSemanaAsync(
+                fecha ?? DateTime.Today,
+                HttpContext.RequestAborted);
 
-            var diff = (7 + (hoy.DayOfWeek - DayOfWeek.Monday)) % 7;
-            var inicioSemana = hoy.AddDays(-diff).Date;
-            var finSemana = inicioSemana.AddDays(6).Date;
+            ViewBag.TotalGeneradoServicios = resumen.TotalGeneradoServicios;
+            ViewBag.TotalGeneradoProductos = resumen.TotalGeneradoProductos;
+            ViewBag.TotalGeneradoGeneral = resumen.TotalGeneradoGeneral;
+            ViewBag.TotalImpuestosGeneral = resumen.TotalImpuestosGeneral;
+            ViewBag.TotalSinImpuestosGeneral = resumen.TotalSinImpuestosGeneral;
+            ViewBag.TotalPagadoGeneral = resumen.TotalPagadoGeneral;
+            ViewBag.TotalPendienteGeneral = resumen.TotalPendienteGeneral;
+            ViewBag.GananciaNegocio = resumen.GananciaNegocio;
+            ViewBag.InicioSemana = resumen.InicioSemana;
+            ViewBag.FinSemana = resumen.FinSemana;
+            ViewBag.MetodosPago = ObtenerMetodosPago();
 
-            var funcionarios = await _context.Funcionarios
-                .Where(f => f.Activo)
-                .ToListAsync();
-
-            var cobros = await _context.Cobros
-            .Include(c => c.Producto)
-            .Where(c => c.FechaCobro.Date >= inicioSemana && c.FechaCobro.Date <= finSemana)
-            .ToListAsync();
-
-            var pagosSemana = await _context.PagosFuncionarios
-                .Where(p => p.InicioSemana.Date == inicioSemana && p.FinSemana.Date == finSemana)
-                .ToListAsync();
-
-            var pagos = funcionarios.Select(f =>
-            {
-                var serviciosFuncionario = cobros
-                    .Where(c => c.FuncionarioId == f.IdFuncionario)
-                    .ToList();
-
-                var total = serviciosFuncionario.Sum(c => c.Monto);
-
-                var servicios = serviciosFuncionario
-                .Where(c => c.ServicioId != null)
-                .ToList();
-
-                var productos = serviciosFuncionario
-                    .Where(c => c.ProductoId != null)
-                    .ToList();
-
-                var totalServicios = servicios.Sum(c => c.Monto);
-                var totalProductos = productos.Sum(c => c.Monto);
-
-                var impuestos = (totalServicios + totalProductos) * 0.13m;
-
-                var netoServicios = totalServicios - (totalServicios * 0.13m);
-                var netoProductos = totalProductos - (totalProductos * 0.13m);
-
-                var pagoServicios = netoServicios * (f.PorcentajeGanancia / 100);
-                var pagoProductos = netoProductos * (f.PorcentajeProducto / 100);
-
-                var pagoFuncionario = pagoServicios + pagoProductos;
-
-                var neto = total - impuestos;
-
-                var totalPagado = pagosSemana
-                    .Where(p => p.FuncionarioId == f.IdFuncionario)
-                    .Sum(p => p.MontoPagado);
-
-                var pendiente = pagoFuncionario - totalPagado;
-
-                var detalleDias = Enumerable.Range(0, 7)
-                .Select(i =>
-                {
-                    var fechaDia = inicioSemana.AddDays(i).Date;
-
-                    var serviciosDia = servicios
-                        .Where(c => c.FechaCobro.Date == fechaDia)
-                        .ToList();
-
-                    return new DetalleDiaVM
-                    {
-                        Dia = fechaDia.ToString("dddd"),
-                        CantidadServicios = serviciosDia.Count,
-                        Monto = serviciosDia.Sum(s => s.Monto)
-                    };
-                }).ToList();
-
-                var productosVendidos = productos
-                 .Select(p => new ProductoVendidoVM
-                 {
-                     Fecha = p.FechaCobro,
-                     NombreProducto = p.Producto?.NombreProducto ?? "Producto",
-                     Precio = p.Monto,
-                     GananciaFuncionario = (p.Monto - (p.Monto * 0.13m)) * (f.PorcentajeProducto / 100)
-                 })
-                 .OrderByDescending(p => p.Fecha)
-                 .ToList();
-
-
-                return new PagoFuncionarioVM
-                {
-                    FuncionarioId = f.IdFuncionario,
-                    Nombre = f.Nombre,
-
-                    TotalGenerado = total,
-                    Impuestos = impuestos,
-                    TotalNeto = neto,
-
-                    Porcentaje = f.PorcentajeGanancia,
-
-                    PorcentajeProducto = f.PorcentajeProducto,
-
-                    PagoFinal = pagoFuncionario,
-
-                    MontoPagado = totalPagado,
-
-                    MontoPendiente = pendiente,
-
-                    DetalleDias = detalleDias,
-
-                    ProductosVendidos = productosVendidos,
-
-                    HistorialPagos = pagosSemana
-                        .Where(p => p.FuncionarioId == f.IdFuncionario)
-                        .OrderByDescending(p => p.FechaPago)
-                        .ToList()
-                };
-
-            }).ToList();
-
-            var totalGeneradoServicios = cobros
-    .Where(c => c.ServicioId != null)
-    .Sum(c => c.Monto);
-
-            var totalGeneradoProductos = cobros
-                .Where(c => c.ProductoId != null)
-                .Sum(c => c.Monto);
-
-            var totalGeneradoGeneral = totalGeneradoServicios + totalGeneradoProductos;
-
-            var totalImpuestosGeneral = totalGeneradoGeneral * 0.13m;
-
-            var totalSinImpuestosGeneral = totalGeneradoGeneral - totalImpuestosGeneral;
-
-            var totalPagadoGeneral = pagos.Sum(p => p.MontoPagado);
-
-            var totalPendienteGeneral = pagos.Sum(p => p.MontoPendiente);
-
-            // Ganancia del negocio
-            var gananciaNegocio = totalSinImpuestosGeneral - pagos.Sum(p => p.PagoFinal);
-
-            ViewBag.TotalGeneradoServicios = totalGeneradoServicios;
-
-            ViewBag.TotalGeneradoProductos = totalGeneradoProductos;
-
-            ViewBag.TotalGeneradoGeneral = totalGeneradoGeneral;
-
-            ViewBag.TotalImpuestosGeneral = totalImpuestosGeneral;
-
-            ViewBag.TotalSinImpuestosGeneral = totalSinImpuestosGeneral;
-
-            ViewBag.TotalPagadoGeneral = totalPagadoGeneral;
-
-            ViewBag.TotalPendienteGeneral = totalPendienteGeneral;
-
-            ViewBag.GananciaNegocio = gananciaNegocio;
-
-            ViewBag.InicioSemana = inicioSemana;
-            ViewBag.FinSemana = finSemana;
-
-            return View(pagos);
+            return View(resumen.Funcionarios);
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> RegistrarPago(
-    int funcionarioId,
-    decimal monto,
-    DateTime inicioSemana,
-    DateTime finSemana,
-    string? observacion)
+            int funcionarioId,
+            decimal monto,
+            DateTime inicioSemana,
+            DateTime finSemana,
+            string? observacion,
+            string? metodoPago,
+            DateTime? fechaPago)
         {
-            var funcionario = await _context.Funcionarios
-                .FirstOrDefaultAsync(f => f.IdFuncionario == funcionarioId);
-
-            if (funcionario == null)
+            if (monto <= 0)
             {
-                return NotFound();
+                TempData["Error"] = "El monto a pagar debe ser mayor que cero.";
+                return RedirectToAction("PagosSemana", new { fecha = inicioSemana.ToString("yyyy-MM-dd") });
             }
 
-            var categoria = await _context.Categorias
-                .FirstOrDefaultAsync(c => c.Nombre == "Pago Funcionarios");
-
-            var executionStrategy = _context.Database.CreateExecutionStrategy();
-            await executionStrategy.ExecuteAsync(async () =>
+            try
             {
-                await using var transaction = await _context.Database.BeginTransactionAsync();
-
-                var pago = new PagoFuncionario
-                {
-                    FuncionarioId = funcionarioId,
-                    MontoPagado = monto,
-                    InicioSemana = inicioSemana,
-                    FinSemana = finSemana,
-                    FechaPago = DateTime.Now,
-                    Observacion = observacion
-                };
-
-                _context.PagosFuncionarios.Add(pago);
-
-                await _context.SaveChangesAsync();
-
-                if (categoria != null)
-                {
-                    var egreso = new Egreso
+                await _liquidacionSemanalService.RegistrarPagoAsync(
+                    new RegistrarLiquidacionSemanalCommand
                     {
-                        FechaEgreso = DateTime.Now,
-                        CategoriaId = categoria.Id,
-                        Monto = monto,
-                        MetodoPago = "EFECTIVO",
-                        Detalle = $"Pago a {funcionario.Nombre} - Semana {inicioSemana:dd/MM} al {finSemana:dd/MM}"
-                    };
+                        SemanaInicio = inicioSemana,
+                        SemanaFin = finSemana,
+                        FechaPago = fechaPago,
+                        MetodoPago = metodoPago ?? string.Empty,
+                        Observacion = observacion,
+                        CreadoPor = User.FindFirstValue(CustomClaimTypes.UserId) ?? User.FindFirstValue(ClaimTypes.NameIdentifier),
+                        Detalles =
+                        {
+                            new RegistrarLiquidacionSemanalDetalleCommand
+                            {
+                                FuncionarioId = funcionarioId,
+                                MontoPagado = monto
+                            }
+                        }
+                    },
+                    HttpContext.RequestAborted);
 
-                    _context.Egresos.Add(egreso);
-                    await _context.SaveChangesAsync();
-                }
-
-                await transaction.CommitAsync();
-            });
+                TempData["Mensaje"] = "Pago registrado correctamente.";
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning(ex, "Validación de negocio al registrar pago semanal para funcionario {FuncionarioId}.", funcionarioId);
+                TempData["Error"] = ex.Message;
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al registrar pago semanal para funcionario {FuncionarioId}.", funcionarioId);
+                TempData["Error"] = "No fue posible registrar el pago semanal por un error de persistencia.";
+            }
 
             return RedirectToAction("PagosSemana", new { fecha = inicioSemana });
         }
@@ -560,183 +424,107 @@ namespace LuxuryApp.Controllers.Funcionarios
 
 
         [HttpPost]
-        public async Task<IActionResult> PagarTodaLaSemana(DateTime inicioSemana, DateTime finSemana)
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> PagarTodaLaSemana(
+            DateTime inicioSemana,
+            DateTime finSemana,
+            string? metodoPago,
+            DateTime? fechaPago,
+            string? observacion)
         {
-            var funcionarios = await _context.Funcionarios
-                .Where(f => f.Activo)
-                .ToListAsync();
+            var resumen = await _liquidacionSemanalService.ObtenerResumenSemanaAsync(
+                inicioSemana,
+                finSemana,
+                HttpContext.RequestAborted);
 
-            var cobros = await _context.Cobros
-                .Include(c => c.Producto)
-                .Where(c => c.FechaCobro.Date >= inicioSemana && c.FechaCobro.Date <= finSemana)
-                .ToListAsync();
-
-            var categoria = await _context.Categorias
-                .FirstOrDefaultAsync(c => c.Nombre == "Pago Funcionarios");
-
-            foreach (var f in funcionarios)
-            {
-                var cobrosFuncionario = cobros
-                    .Where(c => c.FuncionarioId == f.IdFuncionario)
-                    .ToList();
-
-                var servicios = cobrosFuncionario
-                    .Where(c => c.ServicioId != null)
-                    .ToList();
-
-                var productos = cobrosFuncionario
-                    .Where(c => c.ProductoId != null)
-                    .ToList();
-
-                var totalServicios = servicios.Sum(s => s.Monto);
-                var totalProductos = productos.Sum(p => p.Monto);
-
-                var netoServicios = totalServicios - (totalServicios * 0.13m);
-                var netoProductos = totalProductos - (totalProductos * 0.13m);
-
-                var pagoServicios = netoServicios * (f.PorcentajeGanancia / 100);
-                var pagoProductos = netoProductos * (f.PorcentajeProducto / 100);
-
-                var pagoFinal = pagoServicios + pagoProductos;
-
-                var pagado = await _context.PagosFuncionarios
-                    .Where(p => p.FuncionarioId == f.IdFuncionario &&
-                                p.InicioSemana == inicioSemana &&
-                                p.FinSemana == finSemana)
-                    .SumAsync(p => p.MontoPagado);
-
-                var pendiente = pagoFinal - pagado;
-
-                if (pendiente > 0)
+            var detalles = resumen.Funcionarios
+                .Where(f => f.MontoPendiente > 0)
+                .Select(f => new RegistrarLiquidacionSemanalDetalleCommand
                 {
-                    var pago = new PagoFuncionario
-                    {
-                        FuncionarioId = f.IdFuncionario,
-                        MontoPagado = pendiente,
-                        InicioSemana = inicioSemana,
-                        FinSemana = finSemana,
-                        FechaPago = DateTime.Now,
-                        Observacion = "Pago semanal automático"
-                    };
+                    FuncionarioId = f.FuncionarioId,
+                    MontoPagado = f.MontoPendiente
+                })
+                .ToList();
 
-                    _context.PagosFuncionarios.Add(pago);
-
-                    if (categoria != null)
-                    {
-                        var egreso = new Egreso
-                        {
-                            FechaEgreso = DateTime.Now,
-                            Detalle = $"Pago semanal automático a {f.Nombre} ({inicioSemana:dd/MM} - {finSemana:dd/MM})",
-                            CategoriaId = categoria.Id,
-                            Monto = pendiente,
-                            MetodoPago = "EFECTIVO"
-                        };
-
-                        _context.Egresos.Add(egreso);
-                    }
-                }
+            if (detalles.Count == 0)
+            {
+                TempData["Mensaje"] = "La semana seleccionada no tiene pendientes por liquidar.";
+                return RedirectToAction("PagosSemana", new { fecha = inicioSemana });
             }
 
-            await _context.SaveChangesAsync();
+            try
+            {
+                await _liquidacionSemanalService.RegistrarPagoAsync(
+                    new RegistrarLiquidacionSemanalCommand
+                    {
+                        SemanaInicio = inicioSemana,
+                        SemanaFin = finSemana,
+                        FechaPago = fechaPago,
+                        MetodoPago = metodoPago ?? string.Empty,
+                        Observacion = string.IsNullOrWhiteSpace(observacion)
+                            ? "Pago semanal automático"
+                            : observacion,
+                        CreadoPor = User.FindFirstValue(CustomClaimTypes.UserId) ?? User.FindFirstValue(ClaimTypes.NameIdentifier),
+                        Detalles = detalles
+                    },
+                    HttpContext.RequestAborted);
 
-            TempData["Mensaje"] = "Todos los pagos pendientes de la semana fueron liquidados.";
+                TempData["Mensaje"] = "Todos los pagos pendientes de la semana fueron liquidados.";
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning(ex, "Validación de negocio al liquidar la semana {InicioSemana:yyyy-MM-dd} - {FinSemana:yyyy-MM-dd}.", inicioSemana, finSemana);
+                TempData["Error"] = ex.Message;
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al liquidar pagos semanales para el rango {InicioSemana:yyyy-MM-dd} - {FinSemana:yyyy-MM-dd}.", inicioSemana, finSemana);
+                TempData["Error"] = "No fue posible registrar la liquidación semanal.";
+            }
 
             return RedirectToAction("PagosSemana", new { fecha = inicioSemana });
         }
 
         public async Task<IActionResult> ExportarPagosExcel(DateTime inicioSemana, DateTime finSemana)
         {
-            var funcionarios = await _context.Funcionarios
-                .Where(f => f.Activo)
-                .ToListAsync();
+            var resumen = await _liquidacionSemanalService.ObtenerResumenSemanaAsync(
+                inicioSemana,
+                finSemana,
+                HttpContext.RequestAborted);
 
-            var cobros = await _context.Cobros
-                .Include(c => c.Producto)
-                .Where(c => c.FechaCobro.Date >= inicioSemana.Date && c.FechaCobro.Date <= finSemana.Date)
-                .ToListAsync();
-
-            var pagosRegistrados = await _context.PagosFuncionarios
-                .Where(p => p.InicioSemana.Date == inicioSemana.Date && p.FinSemana.Date == finSemana.Date)
-                .ToListAsync();
-
-            var historialPagos = await _context.PagosFuncionarios
-                .Include(p => p.Funcionario)
-                .Where(p => p.InicioSemana.Date == inicioSemana.Date && p.FinSemana.Date == finSemana.Date)
-                .OrderByDescending(p => p.FechaPago)
-                .ToListAsync();
-
-            var datos = funcionarios.Select(f =>
-            {
-                var cobrosFuncionario = cobros
-                    .Where(c => c.FuncionarioId == f.IdFuncionario)
-                    .ToList();
-
-                var servicios = cobrosFuncionario
-                    .Where(c => c.ServicioId != null)
-                    .ToList();
-
-                var productos = cobrosFuncionario
-                    .Where(c => c.ProductoId != null)
-                    .ToList();
-
-                var totalServicios = servicios.Sum(c => c.Monto);
-                var totalProductos = productos.Sum(c => c.Monto);
-
-                var total = totalServicios + totalProductos;
-
-                var impuestos = total * 0.13m;
-
-                var netoServicios = totalServicios - (totalServicios * 0.13m);
-                var netoProductos = totalProductos - (totalProductos * 0.13m);
-
-                var pagoServicios = netoServicios * (f.PorcentajeGanancia / 100);
-                var pagoProductos = netoProductos * (f.PorcentajeProducto / 100);
-
-                var pagoFinal = pagoServicios + pagoProductos;
-
-                var pagado = pagosRegistrados
-                    .Where(p => p.FuncionarioId == f.IdFuncionario)
-                    .Sum(p => p.MontoPagado);
-
-                var pendiente = pagoFinal - pagado;
-
-                var productosVendidos = productos.Select(p => new
+            var datos = resumen.Funcionarios
+                .Select(f => new
                 {
                     Funcionario = f.Nombre,
-                    Fecha = p.FechaCobro,
-                    Producto = p.Producto?.NombreProducto ?? "Producto",
-                    Precio = p.Monto,
-                    Ganancia = (p.Monto - (p.Monto * 0.13m)) * (f.PorcentajeProducto / 100)
-                }).ToList();
-
-                return new
-                {
-                    Funcionario = f.Nombre,
-                    TotalGenerado = total,
-                    Impuestos = impuestos,
-                    TotalNeto = total - impuestos,
-                    Porcentaje = f.PorcentajeGanancia,
+                    TotalGenerado = f.TotalGenerado,
+                    Impuestos = f.Impuestos,
+                    TotalNeto = f.TotalNeto,
+                    Porcentaje = f.Porcentaje,
                     PorcentajeProducto = f.PorcentajeProducto,
-                    MontoGenerado = pagoFinal,
-                    MontoPagado = pagado,
-                    Pendiente = pendiente,
-                    TotalServicios = totalServicios,
-                    TotalProductos = totalProductos,
-                    ProductosVendidos = productosVendidos
-                };
-            }).ToList();
+                    MontoGenerado = f.PagoFinal,
+                    MontoPagado = f.MontoPagado,
+                    Pendiente = f.MontoPendiente,
+                    TotalServicios = f.TotalGenerado - f.ProductosVendidos.Sum(p => p.Precio),
+                    TotalProductos = f.ProductosVendidos.Sum(p => p.Precio),
+                    ProductosVendidos = f.ProductosVendidos.Select(p => new
+                    {
+                        Funcionario = f.Nombre,
+                        p.Fecha,
+                        Producto = p.NombreProducto,
+                        Precio = p.Precio,
+                        Ganancia = p.GananciaFuncionario
+                    }).ToList()
+                })
+                .ToList();
 
-            var totalGeneradoServicios = datos.Sum(d => d.TotalServicios);
-            var totalGeneradoProductos = datos.Sum(d => d.TotalProductos);
-            var totalGeneradoGeneral = totalGeneradoServicios + totalGeneradoProductos;
-
-            var totalImpuestosGeneral = totalGeneradoGeneral * 0.13m;
-            var totalSinImpuestosGeneral = totalGeneradoGeneral - totalImpuestosGeneral;
-
-            var totalPagadoFuncionarios = datos.Sum(d => d.MontoPagado);
-            var totalPendienteFuncionarios = datos.Sum(d => d.Pendiente);
-
-            var gananciaNegocio = totalSinImpuestosGeneral - datos.Sum(d => d.MontoGenerado);
+            var totalGeneradoServicios = resumen.TotalGeneradoServicios;
+            var totalGeneradoProductos = resumen.TotalGeneradoProductos;
+            var totalGeneradoGeneral = resumen.TotalGeneradoGeneral;
+            var totalImpuestosGeneral = resumen.TotalImpuestosGeneral;
+            var totalSinImpuestosGeneral = resumen.TotalSinImpuestosGeneral;
+            var totalPagadoFuncionarios = resumen.TotalPagadoGeneral;
+            var totalPendienteFuncionarios = resumen.TotalPendienteGeneral;
+            var gananciaNegocio = resumen.GananciaNegocio;
 
             using (var workbook = new XLWorkbook())
             {
@@ -920,6 +708,9 @@ namespace LuxuryApp.Controllers.Funcionarios
                 }
             }
         }
+
+        private static List<string> ObtenerMetodosPago() =>
+            LiquidacionSemanalDefaults.MetodosPagoPermitidos.ToList();
 
 
 

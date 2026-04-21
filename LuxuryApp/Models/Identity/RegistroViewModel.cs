@@ -30,5 +30,7 @@ namespace LuxuryApp.Models.Identity
         [Display(Name = "Código de acceso")]
         [StringLength(100)]
         public string? AccessCode { get; set; }
+
+        public Guid? SelectedPlanId { get; set; }
     }
 }

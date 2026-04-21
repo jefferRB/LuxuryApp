@@ -1,115 +1,70 @@
-﻿@model LuxuryApp.Models.Identity.AccesoViewModel
+@model LuxuryApp.Models.Identity.AccesoViewModel
 
 @{
     ViewData["Title"] = "Acceso";
-    Layout = "~/Views/Shared/_Layout.cshtml";
+    ViewData["PublicBodyClass"] = "public-auth-page";
+    Layout = "_PublicLayout";
+    var returnUrl = ViewData["ReturnUrl"] as string;
 }
 
-<link rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<section class="auth-section">
+    <div class="container">
+        <div class="row align-items-center g-4">
+            <div class="col-lg-5" data-aos="fade-right">
+                <div class="auth-story-card">
+                    <span class="section-kicker">Acceso al SaaS</span>
+                    <h1>Entra a tu espacio y sigue operando desde donde lo dejaste.</h1>
+                    <p>
+                        Si venias desde precios o una activacion pendiente, el sistema conserva tu retorno para que
+                        puedas continuar con el flujo correcto despues del inicio de sesion.
+                    </p>
 
-<style>
-
-    body {
-        background: linear-gradient(135deg,#0f2027,#203a43,#2c5364);
-        min-height: 100vh;
-    }
-
-    .auth-wrapper {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        min-height: 85vh;
-    }
-
-    .auth-card {
-        width: 420px;
-        border-radius: 25px;
-        padding: 35px;
-        background: rgba(255,255,255,0.08);
-        backdrop-filter: blur(15px);
-        box-shadow: 0 20px 40px rgba(0,0,0,0.4);
-        color: white;
-    }
-
-    .auth-title {
-        text-align: center;
-        margin-bottom: 25px;
-    }
-
-    .input-group-text {
-        background: #1c1c1c;
-        border: none;
-        color: #ccc;
-    }
-
-    .form-control {
-        background: #1c1c1c;
-        border: none;
-        color: white;
-    }
-
-    .btn-luxury {
-        border-radius: 30px;
-        padding: 12px;
-        background: linear-gradient(45deg,#d4af37,#f5e27a);
-        border: none;
-        color: black;
-        transition: 0.3s;
-    }
-
-        .btn-luxury:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(212,175,55,0.6);
-        }
-
-</style>
-
-<div class="auth-wrapper">
-
-    <div class="auth-card">
-
-        <h3 class="auth-title">
-            <i class="bi bi-box-arrow-in-right"></i> Iniciar Sesión
-        </h3>
-
-        <form asp-controller="Accounts" asp-action="Acceso" method="post">
-
-            <div class="text-danger" asp-validation-summary="All"></div>
-
-            <div class="mb-3 input-group">
-                <span class="input-group-text">
-                    <i class="bi bi-envelope"></i>
-                </span>
-                <input asp-for="Email" class="form-control" placeholder="Correo electrónico" />
+                    <ul class="auth-benefit-list">
+                        <li>Login conectado con la validacion actual de tenant y estado de cuenta</li>
+                        <li>Separacion visual entre marketing publico y operacion privada</li>
+                        <li>Continuidad para checkout, renovacion y acceso a modulos internos</li>
+                    </ul>
+                </div>
             </div>
 
-            <div class="mb-3 input-group">
-                <span class="input-group-text">
-                    <i class="bi bi-lock"></i>
-                </span>
-                <input asp-for="Password" type="password" class="form-control" placeholder="Contraseña" />
+            <div class="col-lg-7 col-xl-5" data-aos="fade-left">
+                <div class="auth-form-card">
+                    <span class="section-kicker">Iniciar sesion</span>
+                    <h2>Accede a tu cuenta.</h2>
+
+                    <form asp-controller="Accounts" asp-action="Acceso" method="post">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="returnurl" value="@returnUrl" />
+
+                        <div class="text-danger auth-validation" asp-validation-summary="All"></div>
+
+                        <div class="mb-3">
+                            <label asp-for="Email" class="form-label"></label>
+                            <input asp-for="Email" class="form-control public-form-control" placeholder="correo@negocio.com" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label asp-for="Password" class="form-label"></label>
+                            <input asp-for="Password" type="password" class="form-control public-form-control" placeholder="Contrasena" />
+                        </div>
+
+                        <div class="form-check public-check mb-4">
+                            <input asp-for="RememberMe" class="form-check-input" />
+                            <label asp-for="RememberMe" class="form-check-label"></label>
+                        </div>
+
+                        <button type="submit" class="btn public-btn public-btn-primary w-100">Entrar</button>
+
+                        <div class="auth-links-row">
+                            <a asp-action="Registro" asp-route-returnurl="@returnUrl">Crear cuenta</a>
+                            <a asp-action="OlvidoPassword">Olvide mi contrasena</a>
+                        </div>
+                    </form>
+                </div>
             </div>
-
-            <div class="form-check mb-3">
-                <input asp-for="RememberMe" class="form-check-input" />
-                <label asp-for="RememberMe" class="form-check-label"></label>
-            </div>
-
-            <button type="submit" class="btn btn-luxury w-100">
-                Acceder
-            </button>
-
-            <div class="text-center mt-3">
-                <a asp-action="Registro">Crear cuenta</a><br />
-                <a asp-action="OlvidoPassword">¿Olvidaste tu contraseña?</a>
-            </div>
-
-        </form>
-
+        </div>
     </div>
-
-</div>
+</section>
 
 @section Scripts {
     @{

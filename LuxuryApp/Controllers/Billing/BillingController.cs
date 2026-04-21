@@ -1,7 +1,9 @@
 using System.Net;
 using LuxuryApp.Models.Identity;
+using LuxuryApp.Models.Marketing;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Payments;
+using LuxuryApp.Services.PublicSite;
 using LuxuryApp.Services.SaaS;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -23,6 +25,7 @@ namespace LuxuryApp.Controllers
         private readonly SaaSPaymentService _paymentService;
         private readonly IPromotionalCodeService _promotionalCodeService;
         private readonly ITenantCommercialAccessResolver _commercialAccessResolver;
+        private readonly IPublicSiteContentService _publicSiteContentService;
         private readonly PublicCallbackHealthService _publicCallbackHealthService;
         private readonly UserManager<AppUsuario> _userManager;
         private readonly OpcionesTilopay _tilopayOptions;
@@ -34,6 +37,7 @@ namespace LuxuryApp.Controllers
             SaaSPaymentService paymentService,
             IPromotionalCodeService promotionalCodeService,
             ITenantCommercialAccessResolver commercialAccessResolver,
+            IPublicSiteContentService publicSiteContentService,
             PublicCallbackHealthService publicCallbackHealthService,
             UserManager<AppUsuario> userManager,
             IOptions<OpcionesTilopay> tilopayOptions,
@@ -44,18 +48,17 @@ namespace LuxuryApp.Controllers
             _paymentService = paymentService;
             _promotionalCodeService = promotionalCodeService;
             _commercialAccessResolver = commercialAccessResolver;
+            _publicSiteContentService = publicSiteContentService;
             _publicCallbackHealthService = publicCallbackHealthService;
             _userManager = userManager;
             _tilopayOptions = tilopayOptions.Value;
             _paymentOptions = paymentOptions.Value;
         }
 
-        public async Task<IActionResult> Planes(CancellationToken cancellationToken)
+        [AllowAnonymous]
+        public async Task<IActionResult> Planes(Guid? selectedPlanId = null, CancellationToken cancellationToken = default)
         {
-            var planes = await BuildAvailablePlansQuery()
-                .AsNoTracking()
-                .OrderBy(p => p.PrecioMensual)
-                .ToListAsync(cancellationToken);
+            var planCards = await _publicSiteContentService.GetPlanCardsAsync(cancellationToken);
 
             var user = await _userManager.GetUserAsync(User);
             TenantCommercialAccessResult? currentAccess = null;
@@ -70,8 +73,10 @@ namespace LuxuryApp.Controllers
 
             return View(new BillingPlanesViewModel
             {
-                Plans = planes,
-                CurrentAccess = currentAccess
+                PlanCards = planCards,
+                CurrentAccess = currentAccess,
+                IsAuthenticated = user is not null,
+                SelectedPlanId = selectedPlanId
             });
         }
 
@@ -419,9 +424,7 @@ namespace LuxuryApp.Controllers
                     "Tilopay requiere Tilopay:WebhookAccessToken configurado para aceptar webhooks de forma segura.");
             }
 
-            var selectedPlan = await BuildAvailablePlansQuery()
-                .AsNoTracking()
-                .FirstOrDefaultAsync(p => p.Id == planId, cancellationToken);
+            var selectedPlan = await _publicSiteContentService.FindAvailablePlanAsync(planId, cancellationToken);
 
             if (selectedPlan is null)
             {
@@ -476,11 +479,6 @@ namespace LuxuryApp.Controllers
         private string BuildCancelUrl() => BuildAbsoluteUrl(nameof(Cancelado));
 
         private string BuildPublicCallbackHealthUrl() => BuildAbsolutePath("api/health/public-callback");
-
-        private IQueryable<Plan> BuildAvailablePlansQuery() =>
-            _context.Planes.Where(plan =>
-                plan.Activo &&
-                (!plan.EsPlanValidacion || _paymentOptions.EnableValidationPlans));
 
         private string BuildWebhookUrl()
         {

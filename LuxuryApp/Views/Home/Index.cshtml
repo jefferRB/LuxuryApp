@@ -1,8 +1,150 @@
-﻿@{
-    ViewData["Title"] = "Home Page";
+@model PublicHomeViewModel
+
+@{
+    Layout = "_PublicLayout";
+    ViewData["Title"] = "LuxuryApp";
+    ViewData["PublicBodyClass"] = "public-home-page";
 }
 
-<div class="text-center">
-    <h1 class="display-4">Luxury App desarrollada por Jeff</h1>
-    <p>Learn about <a href="https://learn.microsoft.com/aspnet/core">building Web apps with ASP.NET Core</a>.</p>
-</div>
+<section class="hero-section">
+    <div class="container">
+        <div class="row align-items-center g-5">
+            <div class="col-lg-6" data-aos="fade-right">
+                <span class="hero-kicker">SaaS premium para salones, barberias y negocios de servicios</span>
+                <h1 class="hero-title">Dirige tu negocio con una plataforma que convierte operacion diaria en crecimiento medible.</h1>
+                <p class="hero-copy">
+                    LuxuryApp unifica agenda, clientes, equipo, ingresos, egresos, productos e informacion financiera
+                    en una experiencia moderna, elegante y lista para operar con TenantId y suscripcion sin romper tu flujo actual.
+                </p>
+
+                <div class="hero-actions">
+                    <a class="btn public-btn public-btn-primary" asp-controller="Billing" asp-action="Planes">Ver precios</a>
+                    <a class="btn public-btn public-btn-secondary" asp-controller="Accounts" asp-action="Registro">Crear cuenta</a>
+                    <a class="btn public-btn public-btn-ghost" asp-controller="Accounts" asp-action="Acceso">Iniciar sesion</a>
+                </div>
+            </div>
+
+            <div class="col-lg-6" data-aos="fade-left">
+                <div class="hero-preview-card">
+                    <div class="hero-preview-topbar">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+
+                    <div class="hero-preview-body">
+                        <div class="hero-preview-panel">
+                            <small>Panel ejecutivo</small>
+                            <strong>Todo el negocio bajo una misma lectura</strong>
+                            <p>Agenda, caja, equipo y clientes conectados para decidir mejor cada dia.</p>
+                        </div>
+
+                        <div class="hero-preview-grid">
+                            @foreach (var metric in Model.HeroMetrics)
+                            {
+                                <div class="hero-preview-stat">
+                                    <strong>@metric.Value</strong>
+                                    <span>@metric.Label</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="hero-metrics-strip">
+    <div class="container">
+        <div class="row g-3">
+            @foreach (var metric in Model.HeroMetrics)
+            {
+                <div class="col-md-4" data-aos="fade-up">
+                    <div class="metric-strip-card">
+                        <strong>@metric.Value</strong>
+                        <span>@metric.Label</span>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</section>
+
+<section class="marketing-section" id="modulos">
+    <div class="container">
+        <div class="section-heading text-center" data-aos="fade-up">
+            <span class="section-kicker">Modulos pensados para operar mejor</span>
+            <h2>Una experiencia comercial seria para negocios que viven entre agenda, caja y equipo.</h2>
+            <p>
+                Cada bloque esta diseñado para resolver un problema concreto del dia a dia y ayudarte a crecer con mas orden.
+            </p>
+        </div>
+
+        <div class="marketing-module-list">
+            @foreach (var module in Model.Modules)
+            {
+                <partial name="_MarketingModuleSection" model="module" />
+            }
+        </div>
+    </div>
+</section>
+
+<section class="pricing-preview-section" id="precios">
+    <div class="container">
+        <div class="section-heading text-center" data-aos="fade-up">
+            <span class="section-kicker">Precios claros antes del registro</span>
+            <h2>Explora los planes publicamente y paga cuando estes listo.</h2>
+            
+        </div>
+
+        <div class="row g-4 justify-content-center">
+            @foreach (var plan in Model.Plans)
+            {
+                <div class="col-lg-4 col-md-6" data-aos="fade-up">
+                    <article class="pricing-preview-card @(plan.IsFeatured ? "pricing-preview-card-featured" : string.Empty)">
+                        @if (!string.IsNullOrWhiteSpace(plan.BadgeText))
+                        {
+                            <span class="pricing-badge">@plan.BadgeText</span>
+                        }
+
+                        <h3>@plan.Name</h3>
+                        <div class="pricing-amount">
+                            <strong>@plan.CurrencyCode @plan.MonthlyPrice.ToString("N0")</strong>
+                            <span>@plan.BillingLabel</span>
+                        </div>
+                        <p class="pricing-summary">@plan.Summary</p>
+
+                        <ul class="pricing-highlight-list">
+                            @foreach (var highlight in plan.Highlights.Take(3))
+                            {
+                                <li>@highlight</li>
+                            }
+                        </ul>
+
+                        <a class="btn public-btn public-btn-primary w-100" asp-controller="Billing" asp-action="Planes" asp-route-selectedPlanId="@plan.Id">
+                            Ver plan
+                        </a>
+                    </article>
+                </div>
+            }
+        </div>
+    </div>
+</section>
+
+<section class="cta-banner-section">
+    <div class="container">
+        <div class="cta-banner" data-aos="zoom-in">
+            <div>
+                <span class="section-kicker">Listo para vender con mas control</span>
+                <h2>Convierte tu operacion en una experiencia ordenada, premium y escalable.</h2>
+                <p>Empieza con precios visibles, crea tu cuenta y deja el resto del flujo de tenant y suscripcion trabajando como ya lo hace hoy.</p>
+            </div>
+
+            <div class="cta-banner-actions">
+                <a class="btn public-btn public-btn-primary" asp-controller="Accounts" asp-action="Registro">Registrarse ahora</a>
+                <a class="btn public-btn public-btn-secondary" asp-controller="Billing" asp-action="Planes">Comparar planes</a>
+            </div>
+        </div>
+    </div>
+</section>

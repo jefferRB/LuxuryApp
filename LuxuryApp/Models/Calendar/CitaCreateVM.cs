@@ -11,6 +11,8 @@ namespace LuxuryApp.Models.Calendar
 
         [Required]
         public DateTime FechaHoraCita { get; set; }
+
+        [Range(1, int.MaxValue, ErrorMessage = "Debe seleccionar un funcionario válido.")]
         public int FuncionarioId { get; set; }
         public string Tipo { get; set; } = "CITA";
         public int? DuracionMinutos { get; set; }

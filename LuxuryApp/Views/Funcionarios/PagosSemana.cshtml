@@ -3,6 +3,8 @@
 @{
     var inicio = (DateTime)ViewBag.InicioSemana;
     var fin = (DateTime)ViewBag.FinSemana;
+    var ahora = DateTime.Now;
+    var metodosPago = (IEnumerable<string>?)ViewBag.MetodosPago ?? Array.Empty<string>();
 
     var semanaAnterior = inicio.AddDays(-7);
     var semanaSiguiente = inicio.AddDays(7);
@@ -64,10 +66,36 @@
             </form>
 
             <!-- Botón pagar semana (derecha) -->
-            <form method="post" asp-action="PagarTodaLaSemana">
+            <form method="post" asp-action="PagarTodaLaSemana" class="d-flex align-items-end gap-2 flex-wrap">
 
                 <input type="hidden" name="inicioSemana" value="@inicio.ToString("yyyy-MM-dd")" />
                 <input type="hidden" name="finSemana" value="@fin.ToString("yyyy-MM-dd")" />
+
+                <div>
+                    <label class="form-label mb-1">Método</label>
+                    <select name="metodoPago" class="form-select">
+                        @foreach (var metodo in metodosPago)
+                        {
+                            <option value="@metodo">@metodo</option>
+                        }
+                    </select>
+                </div>
+
+                <div>
+                    <label class="form-label mb-1">Fecha pago</label>
+                    <input type="datetime-local"
+                           name="fechaPago"
+                           class="form-control"
+                           value="@ahora.ToString("yyyy-MM-ddTHH:mm")" />
+                </div>
+
+                <div>
+                    <label class="form-label mb-1">Observación</label>
+                    <input type="text"
+                           name="observacion"
+                           class="form-control"
+                           placeholder="Opcional" />
+                </div>
 
                 <button class="btn btn-success mt-4">
                     <i class="fas fa-coins me-2"></i>
@@ -496,8 +524,8 @@
                 <div class="modal-body">
 
                     <input type="hidden" name="funcionarioId" id="funcionarioId" />
-                    <input type="hidden" name="inicioSemana" value="@inicio" />
-                    <input type="hidden" name="finSemana" value="@fin" />
+                    <input type="hidden" name="inicioSemana" value="@inicio.ToString("yyyy-MM-dd")" />
+                    <input type="hidden" name="finSemana" value="@fin.ToString("yyyy-MM-dd")" />
 
                     <!-- FUNCIONARIO -->
 
@@ -526,6 +554,24 @@
                             Puedes registrar pagos completos o parciales.
                         </div>
 
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Método de pago</label>
+                        <select name="metodoPago" class="form-select" required>
+                            @foreach (var metodo in metodosPago)
+                            {
+                                <option value="@metodo">@metodo</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Fecha real del pago</label>
+                        <input type="datetime-local"
+                               name="fechaPago"
+                               class="form-control"
+                               value="@ahora.ToString("yyyy-MM-ddTHH:mm")" />
                     </div>
 
                     <!-- OBSERVACIONES -->

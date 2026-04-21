@@ -33,6 +33,9 @@ namespace LuxuryApp.Controllers.Calendar
             if (vm == null)
                 return BadRequest("Datos inválidos");
 
+            if (!ModelState.IsValid)
+                return BadRequest(GetValidationMessage());
+
             var inicio = vm.FechaHoraCita;
 
             int duracion = 30;
@@ -63,18 +66,10 @@ namespace LuxuryApp.Controllers.Calendar
             var fin = inicio.AddMinutes(duracion);
 
             // 2️⃣ Traer funcionario UNA sola vez
-            var funcionarioData = await _context.Funcionarios
-                .Where(f => f.IdFuncionario == vm.FuncionarioId && f.Activo)
-                .Select(f => new
-                {
-                    f.IdFuncionario,
-                    f.Nombre,
-                    f.ColorCalendario
-                })
-                .FirstOrDefaultAsync();
+            var funcionarioData = await FindActiveFuncionarioAsync(vm.FuncionarioId);
 
             if (funcionarioData == null)
-                return BadRequest("Funcionario inválido");
+                return BadRequest("El funcionario seleccionado no existe, está inactivo o no pertenece al tenant actual.");
 
             // 3️⃣ Validar choque optimizado
             var citasExistentes = await _context.Citas
@@ -271,6 +266,12 @@ namespace LuxuryApp.Controllers.Calendar
         [HttpPut("Calendar/Edit/{id}")]
         public async Task<IActionResult> Edit(int id, [FromBody] CitaCreateVM vm)
         {
+            if (vm == null)
+                return BadRequest("Datos inválidos");
+
+            if (!ModelState.IsValid)
+                return BadRequest(GetValidationMessage());
+
             var cita = await _context.Citas
             .Include(c => c.Servicio)
             .Include(c => c.Funcionario)
@@ -300,10 +301,14 @@ namespace LuxuryApp.Controllers.Calendar
             var inicio = vm.FechaHoraCita;
             var fin = inicio.AddMinutes(duracion);
 
+            var funcionarioData = await FindActiveFuncionarioAsync(vm.FuncionarioId);
+            if (funcionarioData == null)
+                return BadRequest("El funcionario seleccionado no existe, está inactivo o no pertenece al tenant actual.");
+
             // validar choques
             var citasExistentes = await _context.Citas
                 .Include(c => c.Servicio)
-                .Where(c => c.FuncionarioId == vm.FuncionarioId && c.Id != id)
+                .Where(c => c.FuncionarioId == funcionarioData.IdFuncionario && c.Id != id)
                 .ToListAsync();
 
             foreach (var c in citasExistentes)
@@ -326,16 +331,11 @@ namespace LuxuryApp.Controllers.Calendar
             cita.TelefonoCliente = vm.TelefonoCliente;
             cita.ServicioId = vm.Tipo == "DESCANSO" ? null : servicio!.Id;
             cita.FechaHoraCita = inicio;
-            cita.FuncionarioId = vm.FuncionarioId;
+            cita.FuncionarioId = funcionarioData.IdFuncionario;
             cita.Tipo = vm.Tipo;
             cita.DuracionMinutos = vm.Tipo == "DESCANSO" ? vm.DuracionMinutos : null;
 
             await _context.SaveChangesAsync();
-
-            var funcionario = await _context.Funcionarios
-    .Where(f => f.IdFuncionario == cita.FuncionarioId)
-    .Select(f => f.ColorCalendario)
-    .FirstOrDefaultAsync();
 
             return Ok(new
             {
@@ -347,7 +347,7 @@ namespace LuxuryApp.Controllers.Calendar
                 funcionarioId = cita.FuncionarioId,
                 tipo = cita.Tipo,
                 servicioNombre = servicio?.Nombre,
-                colorCalendario = funcionario
+                colorCalendario = funcionarioData.ColorCalendario
             });
         }
 
@@ -470,6 +470,12 @@ namespace LuxuryApp.Controllers.Calendar
         [HttpPut("Calendar/Move/{id}")]
         public async Task<IActionResult> Move(int id, [FromBody] MoveCitaVM vm)
         {
+            if (vm == null)
+                return BadRequest("Datos inválidos");
+
+            if (vm.FuncionarioId.HasValue && vm.FuncionarioId.Value <= 0)
+                return BadRequest("Debe seleccionar un funcionario válido.");
+
             var cita = await _context.Citas
                 .Include(c => c.Servicio)
                 .FirstOrDefaultAsync(c => c.Id == id);
@@ -480,6 +486,9 @@ namespace LuxuryApp.Controllers.Calendar
             DateTime nuevaFecha = vm.FechaHoraCita;
 
             int funcionarioId = vm.FuncionarioId ?? cita.FuncionarioId;
+            var funcionarioData = await FindActiveFuncionarioAsync(funcionarioId);
+            if (funcionarioData == null)
+                return BadRequest("El funcionario seleccionado no existe, está inactivo o no pertenece al tenant actual.");
 
             int duracion =
                 cita.Tipo == "DESCANSO"
@@ -490,7 +499,7 @@ namespace LuxuryApp.Controllers.Calendar
 
             var citasExistentes = await _context.Citas
                 .Include(c => c.Servicio)
-                .Where(c => c.FuncionarioId == funcionarioId && c.Id != id)
+                .Where(c => c.FuncionarioId == funcionarioData.IdFuncionario && c.Id != id)
                 .ToListAsync();
 
             foreach (var c in citasExistentes)
@@ -509,11 +518,44 @@ namespace LuxuryApp.Controllers.Calendar
             }
 
             cita.FechaHoraCita = nuevaFecha;
-            cita.FuncionarioId = funcionarioId;
+            cita.FuncionarioId = funcionarioData.IdFuncionario;
 
             await _context.SaveChangesAsync();
 
             return Ok();
+        }
+
+        private async Task<FuncionarioCalendarLookup?> FindActiveFuncionarioAsync(int funcionarioId) =>
+            await _context.Funcionarios
+                .Where(f => f.IdFuncionario == funcionarioId && f.Activo)
+                .Select(f => new FuncionarioCalendarLookup
+                {
+                    IdFuncionario = f.IdFuncionario,
+                    Nombre = f.Nombre,
+                    ColorCalendario = f.ColorCalendario
+                })
+                .FirstOrDefaultAsync();
+
+        private string GetValidationMessage()
+        {
+            var errors = ModelState.Values
+                .SelectMany(value => value.Errors)
+                .Select(error => string.IsNullOrWhiteSpace(error.ErrorMessage)
+                    ? "Datos inválidos."
+                    : error.ErrorMessage)
+                .Distinct()
+                .ToList();
+
+            return errors.Count == 0
+                ? "Datos inválidos."
+                : string.Join(" ", errors);
+        }
+
+        private sealed class FuncionarioCalendarLookup
+        {
+            public int IdFuncionario { get; init; }
+            public string Nombre { get; init; } = string.Empty;
+            public string ColorCalendario { get; init; } = string.Empty;
         }
 
     }

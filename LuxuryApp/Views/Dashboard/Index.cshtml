@@ -168,12 +168,12 @@
                 </div>
             </div>
 
-            <!-- PAGOS FUNCIONARIOS -->
+           @*  <!-- PAGOS FUNCIONARIOS -->
             <div class="col-xl-3 col-md-6">
                 <div class="kpi-card bg-soft-red">
                     <div class="d-flex justify-content-between">
                         <div>
-                            <div class="kpi-label">Pagado Funcionarios</div>
+                            <div class="kpi-label">Pago Funcionarios Caja</div>
                             <div class="kpi-value text-danger">
                                 ₡ @Model.TotalPagadoFuncionarios.ToString("N2")
                             </div>
@@ -190,7 +190,7 @@
                 <div class="kpi-card bg-soft-red">
                     <div class="d-flex justify-content-between">
                         <div>
-                            <div class="kpi-label">Total Egresos</div>
+                            <div class="kpi-label">Total Egresos Caja</div>
                             <div class="kpi-value text-danger">
                                 ₡ @Model.TotalEgresos.ToString("N2")
                             </div>
@@ -207,13 +207,61 @@
                 <div class="kpi-card bg-soft-blue">
                     <div class="d-flex justify-content-between">
                         <div>
-                            <div class="kpi-label">Ganancia del Negocio</div>
+                            <div class="kpi-label">Resultado Caja</div>
                             <div class="kpi-value text-primary">
                                 ₡ @Model.GananciaNegocio.ToString("N2")
                             </div>
                         </div>
                         <div class="kpi-icon icon-blue">
                             <i class="bi bi-bar-chart-line"></i>
+                        </div>
+                    </div>
+                </div>
+            </div> *@
+
+            <div class="col-xl-3 col-md-6">
+                <div class="kpi-card bg-soft-yellow">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <div class="kpi-label">Pago a Funcionarios</div>
+                            <div class="kpi-value text-warning">
+                                ₡ @Model.TotalPagadoFuncionariosAnalitico.ToString("N2")
+                            </div>
+                        </div>
+                        <div class="kpi-icon icon-yellow">
+                            <i class="bi bi-calendar-week"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-xl-3 col-md-6">
+                <div class="kpi-card bg-soft-dark">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <div class="kpi-label">Total Egresos </div>
+                            <div class="kpi-value text-dark">
+                                ₡ @Model.TotalEgresosAnaliticos.ToString("N2")
+                            </div>
+                        </div>
+                        <div class="kpi-icon icon-dark">
+                            <i class="bi bi-journal-text"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-xl-3 col-md-12">
+                <div class="kpi-card bg-soft-green">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <div class="kpi-label">Gnancia del Mes</div>
+                            <div class="kpi-value text-success">
+                                ₡ @Model.ResultadoAnalitico.ToString("N2")
+                            </div>
+                        </div>
+                        <div class="kpi-icon icon-green">
+                            <i class="bi bi-bar-chart-steps"></i>
                         </div>
                     </div>
                 </div>
@@ -235,7 +283,7 @@
 
             <div class="col-lg-6">
                 <div class="kpi-card">
-                    <h6 class="mb-3">Ganancia del Negocio por Mes</h6>
+                    <h6 class="mb-3">Resultado Caja vs Analítico por Mes</h6>
                     <canvas id="gananciaMesChart"></canvas>
                 </div>
             </div>
@@ -284,8 +332,8 @@
         'Jul','Ago','Sep','Oct','Nov','Dic'
         ],
         datasets: [{
-        label: 'Ganancia',
-        data: @Html.Raw(Json.Serialize(Model.GananciaPorMes)),
+        label: 'Ganancias',
+        data: @Html.Raw(Json.Serialize(Model.ResultadoAnaliticoPorMes)),
         backgroundColor:'#0d6efd'
         }]
         }

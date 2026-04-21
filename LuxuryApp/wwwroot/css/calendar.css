@@ -140,6 +140,12 @@
     border-bottom: 1px dashed rgba(0, 0, 0, 0.20);
 }
 
+.calendar-slot {
+    cursor: pointer;
+    position: relative;
+    user-select: none;
+}
+
 /* BLOQUE DE CITA */
 .cita-bloque {
     position: absolute;

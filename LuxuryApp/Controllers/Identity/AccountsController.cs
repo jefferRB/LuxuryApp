@@ -1,4 +1,5 @@
 using LuxuryApp.Models.Identity;
+using LuxuryApp.Services.PublicSite;
 using LuxuryApp.Services.Tenant;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -14,6 +15,7 @@ namespace LuxuryApp.Controllers.Identity
         private readonly SignInManager<AppUsuario> _signInManager;
         private readonly ApplicationDbContext _context;
         private readonly TenantProvisioningService _tenantProvisioningService;
+        private readonly IPublicSiteContentService _publicSiteContentService;
         private readonly ILogger<AccountsController> _logger;
 
         public AccountsController(
@@ -21,12 +23,14 @@ namespace LuxuryApp.Controllers.Identity
             SignInManager<AppUsuario> signInManager,
             ApplicationDbContext context,
             TenantProvisioningService tenantProvisioningService,
+            IPublicSiteContentService publicSiteContentService,
             ILogger<AccountsController> logger)
         {
             _userManager = userManager;
             _signInManager = signInManager;
             _context = context;
             _tenantProvisioningService = tenantProvisioningService;
+            _publicSiteContentService = publicSiteContentService;
             _logger = logger;
         }
 
@@ -36,10 +40,18 @@ namespace LuxuryApp.Controllers.Identity
 
         [HttpGet]
         [AllowAnonymous]
-        public IActionResult Registro(string? returnurl = null)
+        public async Task<IActionResult> Registro(
+            string? returnurl = null,
+            Guid? selectedPlanId = null,
+            CancellationToken cancellationToken = default)
         {
             ViewData["ReturnUrl"] = returnurl;
-            return View(new RegistroViewModel());
+            ViewData["SelectedPlanName"] = await _publicSiteContentService.GetPlanNameAsync(selectedPlanId, cancellationToken);
+
+            return View(new RegistroViewModel
+            {
+                SelectedPlanId = selectedPlanId
+            });
         }
 
         [HttpPost]
@@ -51,6 +63,7 @@ namespace LuxuryApp.Controllers.Identity
             CancellationToken cancellationToken = default)
         {
             ViewData["ReturnUrl"] = returnurl;
+            ViewData["SelectedPlanName"] = await _publicSiteContentService.GetPlanNameAsync(model.SelectedPlanId, cancellationToken);
             var safeReturnUrl = Url.IsLocalUrl(returnurl)
                 ? returnurl!
                 : Url.Content("~/") ?? "/";
@@ -87,7 +100,7 @@ namespace LuxuryApp.Controllers.Identity
 
                 if (provisioning.RequiresPlanSelection)
                 {
-                    return RedirectToAction("Planes", "Billing");
+                    return RedirectToAction("Planes", "Billing", new { selectedPlanId = model.SelectedPlanId });
                 }
 
                 return LocalRedirect(safeReturnUrl);

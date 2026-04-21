@@ -206,15 +206,100 @@ namespace LuxuryApp.Tests.TenantIsolation
             var redirect = Assert.IsType<RedirectToActionResult>(result);
             Assert.Equal(nameof(FuncionariosController.Index), redirect.ActionName);
             Assert.Equal(
-                "No se puede eliminar el funcionario porque tiene citas, cobros o pagos asociados. Puedes dejarlo inactivo si ya no trabaja en el negocio.",
+                "No se puede eliminar el funcionario porque tiene citas, cobros, pagos o liquidaciones asociadas. Puedes dejarlo inactivo si ya no trabaja en el negocio.",
                 controller.TempData["Error"]);
             Assert.Single(await context.Funcionarios.ToListAsync());
+        }
+
+        [Fact]
+        public async Task Eliminar_ShouldBlockDeletion_WhenFuncionarioHasLiquidacionDetalle()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            context.Categorias.Add(new LuxuryApp.Models.Finanzas.Categoria
+            {
+                Nombre = LiquidacionSemanalDefaults.CategoriaPagoFuncionarios,
+                Detalle = "Auto"
+            });
+            context.Puestos.Add(new Puesto
+            {
+                NombrePuesto = "Barbero",
+                Detalle = "General"
+            });
+            await context.SaveChangesAsync();
+
+            var puesto = await context.Puestos.SingleAsync();
+            var categoria = await context.Categorias.SingleAsync();
+
+            var funcionario = new Funcionario
+            {
+                Nombre = "David",
+                IdPuesto = puesto.IdPuesto,
+                ColorCalendario = "#000000",
+                PorcentajeGanancia = 40,
+                PorcentajeProducto = 10,
+                FechaIngreso = new DateTime(2026, 4, 13),
+                Activo = true
+            };
+            context.Funcionarios.Add(funcionario);
+            await context.SaveChangesAsync();
+
+            context.Egresos.Add(new LuxuryApp.Models.Finanzas.Egreso
+            {
+                FechaEgreso = new DateTime(2026, 4, 19),
+                CategoriaId = categoria.Id,
+                Monto = 120,
+                MetodoPago = "EFECTIVO",
+                Detalle = "Pago semanal"
+            });
+            await context.SaveChangesAsync();
+
+            var egreso = await context.Egresos.SingleAsync();
+            context.LiquidacionesSemanales.Add(new LiquidacionSemanal
+            {
+                SemanaInicio = new DateTime(2026, 4, 13),
+                SemanaFin = new DateTime(2026, 4, 19),
+                FechaPago = new DateTime(2026, 4, 19),
+                MontoTotal = 120,
+                Estado = LiquidacionSemanalDefaults.EstadoPagada,
+                EgresoId = egreso.IdEgreso,
+                FechaCreacion = new DateTime(2026, 4, 19)
+            });
+            await context.SaveChangesAsync();
+
+            var liquidacion = await context.LiquidacionesSemanales.SingleAsync();
+            context.LiquidacionesSemanalesDetalle.Add(new LiquidacionSemanalDetalle
+            {
+                LiquidacionSemanalId = liquidacion.Id,
+                FuncionarioId = funcionario.IdFuncionario,
+                MontoServicios = 300,
+                MontoProductos = 0,
+                Impuestos = 39,
+                MontoNeto = 261,
+                MontoPagado = 120,
+                Pendiente = 0
+            });
+            await context.SaveChangesAsync();
+
+            var controller = CreateController(context, tenantId);
+            var result = await controller.Eliminar(funcionario.IdFuncionario);
+
+            var redirect = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal(nameof(FuncionariosController.Index), redirect.ActionName);
+            Assert.Equal(
+                "No se puede eliminar el funcionario porque tiene citas, cobros, pagos o liquidaciones asociadas. Puedes dejarlo inactivo si ya no trabaja en el negocio.",
+                controller.TempData["Error"]);
         }
 
         private static FuncionariosController CreateController(ProyectoIdentity.Datos.ApplicationDbContext context, Guid tenantId)
         {
             var controller = new FuncionariosController(
                 context,
+                ControllerTestSupport.CreateLiquidacionSemanalService(context),
                 NullLogger<FuncionariosController>.Instance);
 
             ControllerTestSupport.AttachHttpContext(

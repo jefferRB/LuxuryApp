@@ -249,6 +249,17 @@ namespace LuxuryApp.Controllers.Finanzas
                     case "dia":
                         query = query.Where(e => e.FechaEgreso.Date == hoy);
                         break;
+                    case "semana":
+                        {
+                            var diff = hoy.DayOfWeek == DayOfWeek.Sunday ? 6 : ((int)hoy.DayOfWeek - 1);
+                            var inicioSemana = hoy.AddDays(-diff).Date;
+                            var finSemana = inicioSemana.AddDays(7);
+
+                            query = query.Where(e =>
+                                e.FechaEgreso >= inicioSemana &&
+                                e.FechaEgreso < finSemana);
+                            break;
+                        }
 
                     case "mes":
                         query = query.Where(e =>

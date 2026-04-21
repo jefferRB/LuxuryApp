@@ -1,87 +1,46 @@
-﻿<!DOCTYPE html>
-<html lang="en">
+@inject LuxuryApp.Services.Layout.IPrivateNavigationService NavigationService
+
+@{
+    var navigation = await NavigationService.BuildAsync(User);
+}
+
+<!DOCTYPE html>
+<html lang="es">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"] - LuxuryApp</title>
     <script type="importmap"></script>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" />
-    <link rel="stylesheet" href="https://code.jquery.com/ui/1.14.1/themes/base/jquery-ui.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+    <link rel="stylesheet" href="https://code.jquery.com/ui/1.14.1/themes/base/jquery-ui.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" />
     <link rel="stylesheet" href="~/css/calendar.css" />
     <link rel="stylesheet" href="~/css/mensajes.css" />
     <link rel="stylesheet" href="~/css/Dashboard.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/private-layout.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/LuxuryApp.styles.css" asp-append-version="true" />
     @await RenderSectionAsync("Styles", required: false)
 </head>
-<body class="layout-background @(ViewData["FullScreen"] as string)">
-    <header>
-        <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-dark bg-dark border-bottom box-shadow mb-3">
-            <div class="container-fluid ">
-                <a class="navbar-brand" asp-area="" asp-controller="Home" asp-action="Index">LuxuryApp</a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
-                        aria-expanded="false" aria-label="Toggle navigation">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
-                <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
-                    <ul class="navbar-nav flex-grow-1">
-                        
-                        <li class="nav-item">
-                            <a class="nav-link text-white" asp-area="" asp-controller="Clientes" asp-action="Index">Clientes</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-white" asp-controller="Funcionarios" asp-action="Index"> Funcionarios</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-white" asp-controller="Productos" asp-action="Index"> Productos</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-white" asp-area="" asp-controller="Calendar" asp-action="Index">Calendario</a>
-                        </li>
-                        
-                        <li class="nav-item">
-                            <a class="nav-link text-white" asp-area="" asp-controller="Cobros" asp-action="Index">Ingresos</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-white" asp-area="" asp-controller="Egresos" asp-action="Index">Egresos</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-white" asp-controller="Dashboard" asp-action="Index"> Dashboard</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-white" asp-controller="Informacion" asp-action="Index"> Informacion</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-white" asp-controller="Mensajes"  asp-action="Index"> Mensajes</a>
-                        </li>
-                        @if (User.HasClaim("platform_super_admin", "True"))
-                        {
-                            <li class="nav-item">
-                                <a class="nav-link text-warning" asp-controller="Platform" asp-action="Index">Plataforma</a>
-                            </li>
-                        }
-                        
-                    </ul>
-                    <!--Vista parcial para acceso y registro-->
-                    <partial name="_loginRegistroVistaParcial"
-                             model="@(ViewData["ReturnUrl"] as string)" />
-                </div>
-            </div>
-        </nav>
+<body class="layout-background private-shell @(ViewData["FullScreen"] as string)">
+    <header class="private-header">
+        <partial name="_PrivateNavbar" model="navigation" />
     </header>
+
     <div class="container">
-        <main role="main" class="pb-3">
+        <main role="main" class="pb-4 private-main">
             @RenderBody()
         </main>
     </div>
 
-    <footer class="border-top footer text-muted">
-        <div class="container">
-            &copy; 2026 - LuxuryApp - <a asp-area="" asp-controller="Home" asp-action="Privacy">Privacy</a>
+    <footer class="footer private-footer text-muted">
+        <div class="container d-flex flex-column flex-md-row justify-content-between gap-2">
+            <span>&copy; 2026 - LuxuryApp</span>
+            <a asp-controller="Home" asp-action="Privacy">Privacidad</a>
         </div>
     </footer>
+
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
@@ -89,21 +48,18 @@
     <script src="~/js/categorias.js"></script>
     <script src="~/js/mensajes.js"></script>
     <script src="~/js/puestos.js"></script>
- 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-
-    <!--Js para jquery ur datapicker-->
     <script src="https://code.jquery.com/ui/1.14.1/jquery-ui.js"></script>
     <script>
-        $(function(){
-           $("#datepicker").datepicker({
-               changeMonth:true,
-               changeYear:true,
-               yearRange: '1930:2030',
-               dateFormat: 'yy-mm-dd'
-           })
-        })
+        $(function () {
+            $("#datepicker").datepicker({
+                changeMonth: true,
+                changeYear: true,
+                yearRange: "1930:2030",
+                dateFormat: "yy-mm-dd"
+            });
+        });
     </script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>

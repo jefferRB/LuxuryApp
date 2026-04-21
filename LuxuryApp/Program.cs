@@ -4,8 +4,11 @@ using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services;
 using LuxuryApp.Services.DataBase;
+using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Services.Identity;
+using LuxuryApp.Services.Layout;
 using LuxuryApp.Services.Payments;
+using LuxuryApp.Services.PublicSite;
 using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Services.Tilopay;
@@ -106,6 +109,9 @@ builder.Services.Configure<ResendClientOptions>(options =>
 builder.Services.AddTransient<IResend, ResendClient>();
 
 builder.Services.AddScoped<WhatsAppService>();
+builder.Services.AddScoped<ILiquidacionSemanalService, LiquidacionSemanalService>();
+builder.Services.AddScoped<IPrivateNavigationService, PrivateNavigationService>();
+builder.Services.AddScoped<IPublicSiteContentService, PublicSiteContentService>();
 builder.Services.AddHostedService<ReminderWorker>();
 builder.Services.AddScoped<VisitasAutomaticasService>();
 builder.Services.AddHostedService<VisitasBackgroundService>();

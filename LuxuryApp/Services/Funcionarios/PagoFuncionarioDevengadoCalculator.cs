@@ -1,0 +1,114 @@
+using LuxuryApp.Models.Finanzas;
+using LuxuryApp.Models.Funcionarios;
+
+namespace LuxuryApp.Services.Funcionarios
+{
+    public static class PagoFuncionarioDevengadoCalculator
+    {
+        public const decimal TasaImpuesto = 0.13m;
+
+        public static decimal CalcularMontoDevengado(Cobro cobro, Funcionario funcionario)
+        {
+            var porcentaje = cobro.ProductoId != null
+                ? funcionario.PorcentajeProducto
+                : funcionario.PorcentajeGanancia;
+
+            var montoNeto = cobro.Monto - (cobro.Monto * TasaImpuesto);
+            return montoNeto * (porcentaje / 100m);
+        }
+
+        public static decimal CalcularPagoColaboradores(IEnumerable<Cobro> cobros)
+        {
+            decimal total = 0;
+
+            foreach (var cobro in cobros)
+            {
+                if (cobro.Funcionario == null)
+                {
+                    continue;
+                }
+
+                total += CalcularMontoDevengado(cobro, cobro.Funcionario);
+            }
+
+            return total;
+        }
+
+        public static IReadOnlyList<PagoFuncionarioDistribucionMensual> DistribuirMontoPagadoPorMes(
+            IEnumerable<Cobro> cobros,
+            Funcionario funcionario,
+            decimal montoPagado)
+        {
+            var baseMensual = cobros
+                .Select(cobro => new
+                {
+                    Cobro = cobro,
+                    MontoDevengado = CalcularMontoDevengado(cobro, funcionario)
+                })
+                .Where(x => x.MontoDevengado > 0)
+                .GroupBy(
+                    x => new { x.Cobro.FechaCobro.Year, x.Cobro.FechaCobro.Month },
+                    x => x)
+                .Select(group => new PagoFuncionarioDistribucionMensual
+                {
+                    Anio = group.Key.Year,
+                    Mes = group.Key.Month,
+                    MontoAsignado = group.Sum(x => x.MontoDevengado),
+                    DiasAplicados = group
+                        .Select(x => x.Cobro.FechaCobro.Date)
+                        .Distinct()
+                        .Count()
+                })
+                .OrderBy(x => x.Anio)
+                .ThenBy(x => x.Mes)
+                .ToList();
+
+            if (baseMensual.Count == 0 || montoPagado <= 0)
+            {
+                return Array.Empty<PagoFuncionarioDistribucionMensual>();
+            }
+
+            var totalBase = baseMensual.Sum(x => x.MontoAsignado);
+            if (totalBase <= 0)
+            {
+                return Array.Empty<PagoFuncionarioDistribucionMensual>();
+            }
+
+            var distribucionFinal = new List<PagoFuncionarioDistribucionMensual>(baseMensual.Count);
+            decimal montoAcumulado = 0;
+
+            for (var index = 0; index < baseMensual.Count; index++)
+            {
+                var actual = baseMensual[index];
+                var esUltimo = index == baseMensual.Count - 1;
+
+                var montoAsignado = esUltimo
+                    ? montoPagado - montoAcumulado
+                    : Math.Round(
+                        montoPagado * actual.MontoAsignado / totalBase,
+                        2,
+                        MidpointRounding.AwayFromZero);
+
+                montoAcumulado += montoAsignado;
+
+                distribucionFinal.Add(new PagoFuncionarioDistribucionMensual
+                {
+                    Anio = actual.Anio,
+                    Mes = actual.Mes,
+                    MontoAsignado = montoAsignado,
+                    DiasAplicados = actual.DiasAplicados
+                });
+            }
+
+            return distribucionFinal;
+        }
+    }
+
+    public sealed class PagoFuncionarioDistribucionMensual
+    {
+        public int Anio { get; init; }
+        public int Mes { get; init; }
+        public decimal MontoAsignado { get; init; }
+        public int DiasAplicados { get; init; }
+    }
+}

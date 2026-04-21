@@ -199,6 +199,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var controller = new FuncionariosController(
                 context,
+                ControllerTestSupport.CreateLiquidacionSemanalService(context),
                 NullLogger<FuncionariosController>.Instance);
             var result = await controller.GetActivos();
 

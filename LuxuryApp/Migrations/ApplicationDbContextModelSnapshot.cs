@@ -213,11 +213,13 @@ namespace LuxuryApp.Migrations
 
                     b.Property<string>("Detalle")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<string>("Nombre")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");
@@ -225,6 +227,9 @@ namespace LuxuryApp.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Nombre")
+                        .HasDatabaseName("IX_Categorias_TenantId_Nombre");
 
                     b.ToTable("Categorias");
                 });
@@ -431,6 +436,152 @@ namespace LuxuryApp.Migrations
                     b.HasIndex("TenantId");
 
                     b.ToTable("Funcionarios");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Funcionarios.LiquidacionSemanal", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CreadoPor")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int?>("EgresoId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Estado")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<DateTime>("FechaCreacion")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("FechaPago")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("MontoTotal")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Observacion")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime>("SemanaFin")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("SemanaInicio")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EgresoId")
+                        .IsUnique()
+                        .HasFilter("[EgresoId] IS NOT NULL");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "SemanaInicio", "SemanaFin", "FechaPago")
+                        .HasDatabaseName("IX_LiquidacionesSemanales_TenantId_Semana");
+
+                    b.ToTable("LiquidacionesSemanales");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Funcionarios.LiquidacionSemanalDetalle", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("FuncionarioId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("Impuestos")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("LiquidacionSemanalId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("MontoNeto")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("MontoPagado")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("MontoProductos")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("MontoServicios")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("Pendiente")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FuncionarioId");
+
+                    b.HasIndex("LiquidacionSemanalId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "LiquidacionSemanalId", "FuncionarioId")
+                        .IsUnique();
+
+                    b.ToTable("LiquidacionesSemanalesDetalle");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Funcionarios.LiquidacionSemanalDistribucionMensual", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("Anio")
+                        .HasColumnType("int");
+
+                    b.Property<int>("DiasAplicados")
+                        .HasColumnType("int");
+
+                    b.Property<int>("LiquidacionSemanalId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Mes")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("MontoAsignado")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LiquidacionSemanalId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Anio", "Mes")
+                        .HasDatabaseName("IX_LiquidacionesSemanalesDistribucionMensual_TenantId_Anio_Mes");
+
+                    b.HasIndex("TenantId", "LiquidacionSemanalId", "Anio", "Mes")
+                        .IsUnique();
+
+                    b.ToTable("LiquidacionesSemanalesDistribucionMensual");
                 });
 
             modelBuilder.Entity("LuxuryApp.Models.Funcionarios.PagoFuncionario", b =>
@@ -1532,6 +1683,46 @@ namespace LuxuryApp.Migrations
                     b.Navigation("Puesto");
                 });
 
+            modelBuilder.Entity("LuxuryApp.Models.Funcionarios.LiquidacionSemanal", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Finanzas.Egreso", "Egreso")
+                        .WithMany()
+                        .HasForeignKey("EgresoId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Egreso");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Funcionarios.LiquidacionSemanalDetalle", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Funcionarios.Funcionario", "Funcionario")
+                        .WithMany()
+                        .HasForeignKey("FuncionarioId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("LuxuryApp.Models.Funcionarios.LiquidacionSemanal", "LiquidacionSemanal")
+                        .WithMany("Detalles")
+                        .HasForeignKey("LiquidacionSemanalId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Funcionario");
+
+                    b.Navigation("LiquidacionSemanal");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Funcionarios.LiquidacionSemanalDistribucionMensual", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Funcionarios.LiquidacionSemanal", "LiquidacionSemanal")
+                        .WithMany("DistribucionesMensuales")
+                        .HasForeignKey("LiquidacionSemanalId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("LiquidacionSemanal");
+                });
+
             modelBuilder.Entity("LuxuryApp.Models.Funcionarios.PagoFuncionario", b =>
                 {
                     b.HasOne("LuxuryApp.Models.Funcionarios.Funcionario", "Funcionario")
@@ -1782,6 +1973,13 @@ namespace LuxuryApp.Migrations
             modelBuilder.Entity("LuxuryApp.Models.Finanzas.Cobro", b =>
                 {
                     b.Navigation("ProductosVendidos");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Funcionarios.LiquidacionSemanal", b =>
+                {
+                    b.Navigation("Detalles");
+
+                    b.Navigation("DistribucionesMensuales");
                 });
 
             modelBuilder.Entity("LuxuryApp.Models.Funcionarios.Puesto", b =>

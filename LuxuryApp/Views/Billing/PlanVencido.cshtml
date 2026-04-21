@@ -1,4 +1,29 @@
-﻿<h1>⚠️ Plan vencido</h1>
-<p>Tu suscripción no está activa o tiene pagos pendientes.</p>
+@{
+    Layout = "_PublicLayout";
+    ViewData["Title"] = "Plan vencido";
+    ViewData["PublicBodyClass"] = "public-status-page";
+}
 
-<a href="/Billing/Planes">Renovar plan</a>
+<section class="status-section">
+    <div class="container">
+        <div class="status-card status-card-warning" data-aos="zoom-in">
+            <span class="status-kicker">Renovacion requerida</span>
+            <h1>Tu acceso comercial ya tuvo actividad, pero hoy no tiene una suscripcion vigente.</h1>
+            <p>
+                Renueva el plan para volver a mostrar los modulos privados del SaaS y recuperar el acceso operativo
+                segun la misma logica de autorizacion que ya protege la aplicacion.
+            </p>
+
+            <div class="status-benefits">
+                <span>Recupera agenda, clientes y dashboard</span>
+                <span>Retoma el control financiero del tenant</span>
+                <span>Vuelve a operar con la experiencia completa</span>
+            </div>
+
+            <div class="status-actions">
+                <a class="btn public-btn public-btn-primary" asp-controller="Billing" asp-action="Planes">Renovar plan</a>
+                <a class="btn public-btn public-btn-secondary" asp-controller="Billing" asp-action="Planes">Ver opciones</a>
+            </div>
+        </div>
+    </div>
+</section>

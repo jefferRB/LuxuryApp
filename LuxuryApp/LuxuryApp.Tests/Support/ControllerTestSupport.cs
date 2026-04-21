@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using LuxuryApp.Models.DataBase;
 using LuxuryApp.Services.DataBase;
+using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Services.Identity;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -58,6 +59,9 @@ namespace LuxuryApp.Tests.Support
 
             return new RecordatorioService(configuration);
         }
+
+        public static ILiquidacionSemanalService CreateLiquidacionSemanalService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
+            new LiquidacionSemanalService(context, Microsoft.Extensions.Logging.Abstractions.NullLogger<LiquidacionSemanalService>.Instance);
     }
 
     internal sealed class TestTempDataProvider : ITempDataProvider

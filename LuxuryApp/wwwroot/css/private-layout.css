@@ -1,0 +1,198 @@
+.private-shell {
+    color: #0f172a;
+}
+
+.private-header {
+    position: sticky;
+    top: 0;
+    z-index: 1030;
+    padding: 1rem 0 0;
+}
+
+.private-navbar {
+    margin: 0 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    border-radius: 24px;
+    background: rgba(9, 15, 37, 0.78);
+    backdrop-filter: blur(18px);
+    box-shadow: 0 20px 60px rgba(15, 23, 42, 0.18);
+}
+
+.private-navbar-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.9rem;
+    color: #f8fafc;
+    font-weight: 700;
+}
+
+.private-navbar-brand:hover {
+    color: #f8fafc;
+}
+
+.private-navbar-brand small {
+    display: block;
+    color: rgba(226, 232, 240, 0.75);
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.private-brand-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.95rem;
+    background: linear-gradient(135deg, #60a5fa, #7c3aed);
+    color: #ffffff;
+    box-shadow: 0 12px 28px rgba(124, 58, 237, 0.35);
+}
+
+.private-navbar-toggler {
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.private-nav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.8rem 0.95rem !important;
+    color: rgba(226, 232, 240, 0.8) !important;
+    border-radius: 999px;
+    transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.private-nav-link:hover,
+.private-nav-link.active {
+    color: #ffffff !important;
+    background: rgba(96, 165, 250, 0.16);
+    transform: translateY(-1px);
+}
+
+.private-navbar-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+}
+
+.private-access-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.55rem 0.85rem;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+}
+
+.private-access-chip-success {
+    background: rgba(34, 197, 94, 0.15);
+    color: #bbf7d0;
+}
+
+.private-access-chip-warning {
+    background: rgba(250, 204, 21, 0.15);
+    color: #fde68a;
+}
+
+.private-access-chip-danger {
+    background: rgba(248, 113, 113, 0.16);
+    color: #fecaca;
+}
+
+.private-access-chip-info {
+    background: rgba(96, 165, 250, 0.18);
+    color: #bfdbfe;
+}
+
+.private-pill-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.65rem 0.95rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+    text-decoration: none;
+    transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.private-pill-link:hover,
+.private-pill-link.active {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.14);
+    transform: translateY(-1px);
+}
+
+.private-pill-link-highlight {
+    background: linear-gradient(135deg, rgba(96, 165, 250, 0.2), rgba(124, 58, 237, 0.32));
+}
+
+.private-user-block {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.4rem 0.45rem 0.4rem 0.95rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.private-user-name {
+    color: #f8fafc;
+    font-weight: 600;
+}
+
+.private-logout-button {
+    padding: 0.5rem 0.95rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(15, 23, 42, 0.4);
+    color: #ffffff;
+}
+
+.private-logout-button:hover {
+    background: rgba(15, 23, 42, 0.65);
+    color: #ffffff;
+}
+
+.private-main {
+    padding-top: 1.5rem;
+}
+
+.private-footer {
+    border-top: 1px solid rgba(148, 163, 184, 0.15);
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(12px);
+}
+
+.private-footer a {
+    color: #334155;
+    text-decoration: none;
+}
+
+@media (max-width: 1199.98px) {
+    .private-navbar {
+        margin-inline: 0.75rem;
+    }
+
+    .private-navbar-meta {
+        justify-content: flex-start;
+        padding-top: 1rem;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .private-header {
+        padding-top: 0.75rem;
+    }
+
+    .private-navbar {
+        margin-inline: 0.5rem;
+        border-radius: 20px;
+    }
+}

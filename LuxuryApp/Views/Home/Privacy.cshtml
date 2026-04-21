@@ -1,6 +1,19 @@
-﻿@{
-    ViewData["Title"] = "Privacy Policy";
+@{
+    Layout = "_PublicLayout";
+    ViewData["Title"] = "Privacidad";
+    ViewData["PublicBodyClass"] = "public-static-page";
 }
-<h1>@ViewData["Title"]</h1>
 
-<p>Use this page to detail your site's privacy policy.</p>
+<section class="status-section">
+    <div class="container">
+        <div class="status-card" data-aos="fade-up">
+            <span class="status-kicker">Privacidad</span>
+            <h1>Protegemos la informacion comercial y operativa de cada tenant.</h1>
+            <p>
+                LuxuryApp utiliza autenticacion, separacion por tenant y controles de acceso para mantener la informacion
+                del negocio dentro del contexto correcto. Si necesitas una politica extendida, esta vista puede evolucionar
+                a una pagina legal completa sin afectar la arquitectura publica o privada.
+            </p>
+        </div>
+    </div>
+</section>

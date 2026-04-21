@@ -2,6 +2,7 @@
 using DocumentFormat.OpenXml.Spreadsheet;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Productos;
+using LuxuryApp.Services.Funcionarios;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
@@ -42,44 +43,10 @@ namespace LuxuryApp.Controllers.Finanzas
 
             var totalGenerado = totalServicios + totalProductos;
 
-            var totalImpuestos = totalGenerado * 0.13m;
+            var totalImpuestos = totalGenerado * PagoFuncionarioDevengadoCalculator.TasaImpuesto;
 
             var totalSinImpuestos = totalGenerado - totalImpuestos;
-
-
-            // PAGO FUNCIONARIOS
-
-            var funcionarios = await _context.Funcionarios
-    .Where(f => f.Activo)
-    .ToListAsync();
-
-            decimal pagoColaboradores = 0;
-
-            foreach (var f in funcionarios)
-            {
-                var cobrosFuncionario = cobros
-                    .Where(c => c.FuncionarioId == f.IdFuncionario)
-                    .ToList();
-
-                var servicios = cobrosFuncionario
-                    .Where(c => c.ServicioId != null)
-                    .ToList();
-
-                var productos = cobrosFuncionario
-                    .Where(c => c.ProductoId != null)
-                    .ToList();
-
-                var totalServiciosFuncionario = servicios.Sum(s => s.Monto);
-                var totalProductosFuncionario = productos.Sum(p => p.Monto);
-
-                var netoServicios = totalServiciosFuncionario - (totalServiciosFuncionario * 0.13m);
-                var netoProductos = totalProductosFuncionario - (totalProductosFuncionario * 0.13m);
-
-                var pagoServicios = netoServicios * (f.PorcentajeGanancia / 100);
-                var pagoProductos = netoProductos * (f.PorcentajeProducto / 100);
-
-                pagoColaboradores += pagoServicios + pagoProductos;
-            }
+            var pagoColaboradores = PagoFuncionarioDevengadoCalculator.CalcularPagoColaboradores(cobros);
 
 
             var gananciaNegocio = totalSinImpuestos - pagoColaboradores;
@@ -125,7 +92,7 @@ namespace LuxuryApp.Controllers.Finanzas
                 GananciaSinpe = gananciaSinpe,
 
                 Funcionarios = await _context.Funcionarios
-                    .Where(f => f.Activo)
+                    .OrderBy(f => f.Nombre)
                     .Select(f => new SelectListItem
                     {
                         Value = f.IdFuncionario.ToString(),
@@ -373,31 +340,9 @@ namespace LuxuryApp.Controllers.Finanzas
             var totalProductos = cobros.Where(c => c.ProductoId != null).Sum(c => c.Monto);
 
             var totalGenerado = totalServicios + totalProductos;
-            var totalImpuestos = totalGenerado * 0.13m;
+            var totalImpuestos = totalGenerado * PagoFuncionarioDevengadoCalculator.TasaImpuesto;
             var totalSinImpuestos = totalGenerado - totalImpuestos;
-
-            var funcionarios = await _context.Funcionarios.Where(f => f.Activo).ToListAsync();
-
-            decimal pagoColaboradores = 0;
-
-            foreach (var f in funcionarios)
-            {
-                var cobrosFuncionario = cobros.Where(c => c.FuncionarioId == f.IdFuncionario).ToList();
-
-                var servicios = cobrosFuncionario.Where(c => c.ServicioId != null).ToList();
-                var productos = cobrosFuncionario.Where(c => c.ProductoId != null).ToList();
-
-                var totalServiciosFuncionario = servicios.Sum(s => s.Monto);
-                var totalProductosFuncionario = productos.Sum(p => p.Monto);
-
-                var netoServicios = totalServiciosFuncionario - (totalServiciosFuncionario * 0.13m);
-                var netoProductos = totalProductosFuncionario - (totalProductosFuncionario * 0.13m);
-
-                var pagoServicios = netoServicios * (f.PorcentajeGanancia / 100);
-                var pagoProductos = netoProductos * (f.PorcentajeProducto / 100);
-
-                pagoColaboradores += pagoServicios + pagoProductos;
-            }
+            var pagoColaboradores = PagoFuncionarioDevengadoCalculator.CalcularPagoColaboradores(cobros);
 
             var gananciaNegocio = totalSinImpuestos - pagoColaboradores;
 
