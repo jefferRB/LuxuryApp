@@ -45,6 +45,7 @@
                         @Html.AntiForgeryToken()
                         <input type="hidden" name="returnurl" value="@returnUrl" />
                         <input asp-for="SelectedPlanId" type="hidden" />
+                        <input asp-for="CurrentContractDocumentId" type="hidden" />
 
                         <div class="text-danger auth-validation" asp-validation-summary="All"></div>
 
@@ -75,7 +76,47 @@
                             </div>
                         </div>
 
-                        <button type="submit" class="btn public-btn public-btn-primary w-100 mt-4">Crear cuenta y continuar</button>
+                        @if (Model.HasCurrentContract)
+                        {
+                            <div class="contract-consent-card mt-4">
+                                <div class="contract-consent-copy">
+                                    <span class="section-kicker">Contrato vigente</span>
+                                    <h3>@Model.CurrentContractTitle</h3>
+                                    <p>
+                                        Version @Model.CurrentContractVersion
+                                        @if (Model.CurrentContractEffectiveFromUtc.HasValue)
+                                        {
+                                            <span>. Vigente desde @Model.CurrentContractEffectiveFromUtc.Value.ToString("yyyy-MM-dd") UTC.</span>
+                                        }
+                                    </p>
+                                </div>
+
+                                <div class="form-check contract-check">
+                                    <input asp-for="AcceptCurrentContract" class="form-check-input" required />
+                                    <label asp-for="AcceptCurrentContract" class="form-check-label">
+                                        He leido y acepto el Contrato de Uso del Servicio.
+                                    </label>
+                                </div>
+                                <span asp-validation-for="AcceptCurrentContract" class="text-danger d-block mt-2"></span>
+
+                                <div class="contract-consent-links">
+                                    <span>Incluye terminos, privacidad, pagos y consentimiento de datos.</span>
+                                    <a asp-controller="Contract" asp-action="Index" target="_blank" rel="noopener">Leer contrato completo</a>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="contract-consent-card contract-consent-card-warning mt-4">
+                                <div class="contract-consent-copy">
+                                    <span class="section-kicker">Contrato no disponible</span>
+                                    <h3>No hay una version vigente configurada.</h3>
+                                    <p>No podemos completar el registro mientras no exista un contrato activo publicado en base de datos.</p>
+                                </div>
+                            </div>
+                        }
+
+                        <button type="submit" class="btn public-btn public-btn-primary w-100 mt-4" disabled="@(!Model.HasCurrentContract ? "disabled" : null)">Crear cuenta y continuar</button>
 
                         <div class="auth-links-row">
                             <a asp-action="Acceso" asp-route-returnurl="@returnUrl">Ya tengo cuenta</a>

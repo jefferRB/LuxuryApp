@@ -32,5 +32,19 @@ namespace LuxuryApp.Models.Identity
         public string? AccessCode { get; set; }
 
         public Guid? SelectedPlanId { get; set; }
+
+        public Guid? CurrentContractDocumentId { get; set; }
+
+        public string CurrentContractTitle { get; set; } = string.Empty;
+
+        public string CurrentContractVersion { get; set; } = string.Empty;
+
+        public DateTime? CurrentContractEffectiveFromUtc { get; set; }
+
+        [Display(Name = "He leido y acepto el Contrato de Uso del Servicio")]
+        [Range(typeof(bool), "true", "true", ErrorMessage = "Debes aceptar el contrato para crear tu cuenta.")]
+        public bool AcceptCurrentContract { get; set; }
+
+        public bool HasCurrentContract => CurrentContractDocumentId.HasValue && CurrentContractDocumentId.Value != Guid.Empty;
     }
 }

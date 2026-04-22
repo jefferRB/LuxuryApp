@@ -317,30 +317,7 @@ namespace LuxuryApp.Controllers.DataBase
             }
         }
 
-        [HttpPost]
-        public async Task<IActionResult> EnviarMensaje(string numeroTelefono)
-        {
-            try
-            {
-                var usuarios = await _recordatorioService.ObtenerUsuariosProximos();
-                var ruta = Path.Combine(_webHostEnvironment.WebRootPath, "Plantillas", "MensajeRecordatorio.html");
-                var contenidoHtml = System.IO.File.ReadAllText(ruta);
-                await _emailSender.SendBulkEmailsAsync(usuarios, "Recordatorio", contenidoHtml);
-
-                var cumpleaneros = await _recordatorioService.ObtenerCumpleañerosHoy();
-                var rutaCumple = Path.Combine(_webHostEnvironment.WebRootPath, "Plantillas", "MensajeCumpleaños.html");
-                var contenidoHtmlCumple = System.IO.File.ReadAllText(rutaCumple);
-                await _emailSender.SendBulkEmailsAsync(cumpleaneros, "Feliz cumpleaños", contenidoHtmlCumple);
-
-                return Json(new { success = true, message = "Mensajes enviados correctamente." });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error al enviar mensajes masivos para clientes.");
-                return Json(new { success = false });
-            }
-        }
-
+     
         [HttpGet]
         public async Task<IActionResult> RegistrarServicios(int id)
         {

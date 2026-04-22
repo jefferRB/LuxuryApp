@@ -5,6 +5,7 @@ using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Identity;
+using LuxuryApp.Models.Legal;
 using LuxuryApp.Models.Productos;
 using LuxuryApp.Models.Saas;
 using LuxuryApp.Models.SaaS;
@@ -341,6 +342,42 @@ namespace ProyectoIdentity.Datos
             {
                 entity.HasIndex(e => new { e.Proveedor, e.ProveedorEventId }).IsUnique();
                 entity.HasIndex(e => new { e.Proveedor, e.ReferenciaExterna });
+            });
+
+            modelBuilder.Entity<ContractDocument>(entity =>
+            {
+                entity.Property(document => document.Title).HasMaxLength(200).IsRequired();
+                entity.Property(document => document.VersionNumber).HasMaxLength(50).IsRequired();
+                entity.Property(document => document.ContentHash).HasMaxLength(64).IsRequired();
+
+                entity.HasIndex(document => document.VersionNumber).IsUnique();
+                entity.HasIndex(document => document.IsActive)
+                    .IsUnique()
+                    .HasFilter("IsActive = 1");
+
+                entity.HasData(ContractDocumentSeedData.CreateInitialDocument());
+            });
+
+            modelBuilder.Entity<ContractAcceptanceRecord>(entity =>
+            {
+                entity.Property(record => record.UserId).HasMaxLength(450).IsRequired();
+                entity.Property(record => record.ContractVersion).HasMaxLength(50).IsRequired();
+                entity.Property(record => record.AcceptedContentHash).HasMaxLength(64).IsRequired();
+                entity.Property(record => record.AcceptanceSource).HasMaxLength(40).IsRequired();
+                entity.Property(record => record.IpAddress).HasMaxLength(64);
+                entity.Property(record => record.UserAgent).HasMaxLength(2048);
+
+                entity.HasIndex(record => new { record.UserId, record.ContractDocumentId, record.AcceptedAtUtc });
+
+                entity.HasOne(record => record.ContractDocument)
+                    .WithMany(document => document.Acceptances)
+                    .HasForeignKey(record => record.ContractDocumentId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(record => record.User)
+                    .WithMany()
+                    .HasForeignKey(record => record.UserId)
+                    .OnDelete(DeleteBehavior.Restrict);
             });
 
             modelBuilder.Entity<HistorialSuscripcion>()
@@ -756,6 +793,8 @@ namespace ProyectoIdentity.Datos
         public DbSet<TenantCommercialAccessGrant> TenantCommercialAccessGrants { get; set; }
         public DbSet<PromotionalCode> PromotionalCodes { get; set; }
         public DbSet<PromotionalCodeRedemption> PromotionalCodeRedemptions { get; set; }
+        public DbSet<ContractDocument> ContractDocuments { get; set; }
+        public DbSet<ContractAcceptanceRecord> ContractAcceptanceRecords { get; set; }
 
 
 

@@ -6,7 +6,7 @@
     position: sticky;
     top: 0;
     z-index: 1030;
-    padding: 1rem 0 0;
+    padding: 0;
 }
 
 .private-navbar {
@@ -166,7 +166,7 @@
 
 .private-footer {
     border-top: 1px solid rgba(148, 163, 184, 0.15);
-    background: rgba(255, 255, 255, 0.55);
+    background: transparent;
     backdrop-filter: blur(12px);
 }
 
@@ -188,7 +188,7 @@
 
 @media (max-width: 767.98px) {
     .private-header {
-        padding-top: 0.75rem;
+        padding-top: 0;
     }
 
     .private-navbar {

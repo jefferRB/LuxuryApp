@@ -1,4 +1,5 @@
 using LuxuryApp.Models.Identity;
+using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.PublicSite;
 using LuxuryApp.Services.Tenant;
 using Microsoft.AspNetCore.Authorization;
@@ -15,6 +16,7 @@ namespace LuxuryApp.Controllers.Identity
         private readonly SignInManager<AppUsuario> _signInManager;
         private readonly ApplicationDbContext _context;
         private readonly TenantProvisioningService _tenantProvisioningService;
+        private readonly IContractService _contractService;
         private readonly IPublicSiteContentService _publicSiteContentService;
         private readonly ILogger<AccountsController> _logger;
 
@@ -23,6 +25,7 @@ namespace LuxuryApp.Controllers.Identity
             SignInManager<AppUsuario> signInManager,
             ApplicationDbContext context,
             TenantProvisioningService tenantProvisioningService,
+            IContractService contractService,
             IPublicSiteContentService publicSiteContentService,
             ILogger<AccountsController> logger)
         {
@@ -30,6 +33,7 @@ namespace LuxuryApp.Controllers.Identity
             _signInManager = signInManager;
             _context = context;
             _tenantProvisioningService = tenantProvisioningService;
+            _contractService = contractService;
             _publicSiteContentService = publicSiteContentService;
             _logger = logger;
         }
@@ -47,11 +51,13 @@ namespace LuxuryApp.Controllers.Identity
         {
             ViewData["ReturnUrl"] = returnurl;
             ViewData["SelectedPlanName"] = await _publicSiteContentService.GetPlanNameAsync(selectedPlanId, cancellationToken);
-
-            return View(new RegistroViewModel
+            var model = new RegistroViewModel
             {
                 SelectedPlanId = selectedPlanId
-            });
+            };
+
+            await PopulateCurrentContractAsync(model, cancellationToken);
+            return View(model);
         }
 
         [HttpPost]
@@ -64,9 +70,16 @@ namespace LuxuryApp.Controllers.Identity
         {
             ViewData["ReturnUrl"] = returnurl;
             ViewData["SelectedPlanName"] = await _publicSiteContentService.GetPlanNameAsync(model.SelectedPlanId, cancellationToken);
+            var submittedContractDocumentId = model.CurrentContractDocumentId;
+            await PopulateCurrentContractAsync(model, cancellationToken);
             var safeReturnUrl = Url.IsLocalUrl(returnurl)
                 ? returnurl!
                 : Url.Content("~/") ?? "/";
+
+            if (!model.HasCurrentContract)
+            {
+                ModelState.AddModelError(string.Empty, "No hay un contrato vigente configurado en este momento. Contacta soporte.");
+            }
 
             if (!ModelState.IsValid)
             {
@@ -82,7 +95,11 @@ namespace LuxuryApp.Controllers.Identity
                         Password = model.Password,
                         Name = model.Name,
                         PhoneNumber = model.PhoneNumber,
-                        AccessCode = model.AccessCode
+                        AccessCode = model.AccessCode,
+                        AcceptCurrentContract = model.AcceptCurrentContract,
+                        SubmittedContractDocumentId = submittedContractDocumentId,
+                        ContractIpAddress = ContractRequestMetadataResolver.ResolveClientIp(HttpContext),
+                        ContractUserAgent = ContractRequestMetadataResolver.ResolveUserAgent(HttpContext)
                     },
                     cancellationToken);
 
@@ -194,6 +211,13 @@ namespace LuxuryApp.Controllers.Identity
                 }
 
                 await _signInManager.SignInAsync(usuario, model.RememberMe);
+
+                var contractStatus = await _contractService.GetAcceptanceStatusAsync(usuario.Id);
+                if (contractStatus.BlocksApplicationAccess)
+                {
+                    return RedirectToAction("Reaccept", "Contract", new { returnurl = safeReturnUrl });
+                }
+
                 return LocalRedirect(safeReturnUrl);
             }
 
@@ -220,5 +244,27 @@ namespace LuxuryApp.Controllers.Identity
 
         [AllowAnonymous]
         public IActionResult Bloqueado() => View();
+
+        private async Task PopulateCurrentContractAsync(
+            RegistroViewModel model,
+            CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(model);
+
+            var activeContract = await _contractService.GetActiveContractAsync(cancellationToken);
+            if (activeContract is null)
+            {
+                model.CurrentContractDocumentId = null;
+                model.CurrentContractTitle = string.Empty;
+                model.CurrentContractVersion = string.Empty;
+                model.CurrentContractEffectiveFromUtc = null;
+                return;
+            }
+
+            model.CurrentContractDocumentId = activeContract.Id;
+            model.CurrentContractTitle = activeContract.Title;
+            model.CurrentContractVersion = activeContract.VersionNumber;
+            model.CurrentContractEffectiveFromUtc = activeContract.EffectiveFromUtc;
+        }
     }
 }

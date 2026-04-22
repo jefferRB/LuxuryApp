@@ -19,8 +19,7 @@ namespace LuxuryApp.Services.Layout
             new() { Text = "Calendario", Controller = "Calendar", Action = "Index", Icon = "bi-calendar3" },
             new() { Text = "Ingresos", Controller = "Cobros", Action = "Index", Icon = "bi-cash-coin" },
             new() { Text = "Egresos", Controller = "Egresos", Action = "Index", Icon = "bi-receipt" },
-            new() { Text = "Informacion", Controller = "Informacion", Action = "Index", Icon = "bi-bar-chart-line" },
-            new() { Text = "Mensajes", Controller = "Mensajes", Action = "Index", Icon = "bi-chat-dots" }
+            new() { Text = "Informacion", Controller = "Informacion", Action = "Index", Icon = "bi-bar-chart-line" }
         ];
 
         private readonly UserManager<AppUsuario> _userManager;

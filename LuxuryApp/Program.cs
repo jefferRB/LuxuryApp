@@ -2,7 +2,9 @@ using LuxuryApp.Datos;
 using LuxuryApp.Emails;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.SaaS;
+using LuxuryApp.Middleware;
 using LuxuryApp.Services;
+using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.DataBase;
 using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Services.Identity;
@@ -110,6 +112,7 @@ builder.Services.AddTransient<IResend, ResendClient>();
 
 builder.Services.AddScoped<WhatsAppService>();
 builder.Services.AddScoped<ILiquidacionSemanalService, LiquidacionSemanalService>();
+builder.Services.AddScoped<IContractService, ContractService>();
 builder.Services.AddScoped<IPrivateNavigationService, PrivateNavigationService>();
 builder.Services.AddScoped<IPublicSiteContentService, PublicSiteContentService>();
 builder.Services.AddHostedService<ReminderWorker>();
@@ -156,6 +159,7 @@ app.UseStaticFiles();
 app.UseRouting();
 
 app.UseAuthentication();
+app.UseMiddleware<ContractAcceptanceMiddleware>();
 app.UseMiddleware<SuscripcionMiddleware>();
 app.UseAuthorization();
 

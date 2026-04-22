@@ -1,5 +1,7 @@
 using LuxuryApp.Models.Identity;
+using LuxuryApp.Models.Legal;
 using LuxuryApp.Models.SaaS;
+using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.SaaS;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +16,7 @@ namespace LuxuryApp.Services.Tenant
         private readonly UserManager<AppUsuario> _userManager;
         private readonly RoleManager<IdentityRole> _roleManager;
         private readonly OpcionesOnboardingTenant _options;
+        private readonly IContractService _contractService;
         private readonly IPromotionalCodeService _promotionalCodeService;
         private readonly ITenantCommercialAccessResolver _commercialAccessResolver;
         private readonly ILogger<TenantProvisioningService> _logger;
@@ -22,6 +25,7 @@ namespace LuxuryApp.Services.Tenant
             ApplicationDbContext context,
             UserManager<AppUsuario> userManager,
             RoleManager<IdentityRole> roleManager,
+            IContractService contractService,
             IPromotionalCodeService promotionalCodeService,
             ITenantCommercialAccessResolver commercialAccessResolver,
             IOptions<OpcionesOnboardingTenant> options,
@@ -30,6 +34,7 @@ namespace LuxuryApp.Services.Tenant
             _context = context;
             _userManager = userManager;
             _roleManager = roleManager;
+            _contractService = contractService;
             _promotionalCodeService = promotionalCodeService;
             _commercialAccessResolver = commercialAccessResolver;
             _options = options.Value;
@@ -46,6 +51,16 @@ namespace LuxuryApp.Services.Tenant
             var name = request.Name.Trim();
             var phoneNumber = request.PhoneNumber?.Trim();
             var accessCode = request.AccessCode?.Trim();
+
+            if (!request.AcceptCurrentContract)
+            {
+                return TenantProvisioningResult.Failure("Debes aceptar el contrato para crear tu cuenta.");
+            }
+
+            if (!request.SubmittedContractDocumentId.HasValue || request.SubmittedContractDocumentId.Value == Guid.Empty)
+            {
+                return TenantProvisioningResult.Failure("No se recibio una version valida del contrato para completar el registro.");
+            }
 
             var existingUser = await _userManager.FindByEmailAsync(email);
             if (existingUser is not null)
@@ -109,6 +124,24 @@ namespace LuxuryApp.Services.Tenant
                             await transaction.RollbackAsync(cancellationToken);
                             return;
                         }
+                    }
+
+                    try
+                    {
+                        // Registration and contract evidence are committed atomically.
+                        await _contractService.RegisterAcceptanceAsync(
+                            usuario.Id,
+                            request.SubmittedContractDocumentId.Value,
+                            ContractAcceptanceSources.Register,
+                            request.ContractIpAddress,
+                            request.ContractUserAgent,
+                            cancellationToken);
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        provisioningResult = TenantProvisioningResult.Failure(ex.Message);
+                        await transaction.RollbackAsync(cancellationToken);
+                        return;
                     }
 
                     if (!string.IsNullOrWhiteSpace(accessCode))
