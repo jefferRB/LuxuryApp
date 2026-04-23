@@ -1,14 +1,10 @@
 using System.Security.Claims;
-using LuxuryApp.Models.DataBase;
-using LuxuryApp.Services.DataBase;
+using LuxuryApp.Services.Finanzas;
 using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Services.Identity;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.FileProviders;
 
 namespace LuxuryApp.Tests.Support
 {
@@ -48,20 +44,20 @@ namespace LuxuryApp.Tests.Support
             return new ClaimsPrincipal(new ClaimsIdentity(claims, authenticationType: "TestAuth"));
         }
 
-        public static RecordatorioService CreateRecordatorioService()
-        {
-            var configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string?>
-                {
-                    ["ConnectionStrings:ConexionSql"] = "Server=(localdb)\\MSSQLLocalDB;Database=LuxuryAppTests;Trusted_Connection=True;"
-                })
-                .Build();
-
-            return new RecordatorioService(configuration);
-        }
-
         public static ILiquidacionSemanalService CreateLiquidacionSemanalService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
             new LiquidacionSemanalService(context, Microsoft.Extensions.Logging.Abstractions.NullLogger<LiquidacionSemanalService>.Instance);
+
+        public static ICobroService CreateCobroService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
+            new CobroService(context, Microsoft.Extensions.Logging.Abstractions.NullLogger<CobroService>.Instance);
+
+        public static ICobroQueryService CreateCobroQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
+            new CobroQueryService(context);
+
+        public static IEgresoService CreateEgresoService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
+            new EgresoService(context, Microsoft.Extensions.Logging.Abstractions.NullLogger<EgresoService>.Instance);
+
+        public static IEgresoQueryService CreateEgresoQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
+            new EgresoQueryService(context);
     }
 
     internal sealed class TestTempDataProvider : ITempDataProvider
@@ -75,21 +71,5 @@ namespace LuxuryApp.Tests.Support
         {
             _values = values.ToDictionary(pair => pair.Key, pair => pair.Value);
         }
-    }
-
-    internal sealed class FakeEmailService : EmailService
-    {
-        public Task SendBulkEmailsAsync(List<ClientesModel> users, string subject, string template) =>
-            Task.CompletedTask;
-    }
-
-    internal sealed class FakeWebHostEnvironment : IWebHostEnvironment
-    {
-        public string EnvironmentName { get; set; } = "Development";
-        public string ApplicationName { get; set; } = "LuxuryApp.Tests";
-        public string WebRootPath { get; set; } = AppContext.BaseDirectory;
-        public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
-        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
-        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 }

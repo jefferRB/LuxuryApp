@@ -263,19 +263,20 @@ function initAutocomplete() {
     const nombreInput = document.getElementById("nombreCliente");
     const telefonoInput = document.getElementById("telefonoCliente");
     const sugerenciasDiv = document.getElementById("sugerenciasClientes");
+    const minAutocompleteLength = 2;
 
     if (!nombreInput) return;
 
     nombreInput.addEventListener("input", async function () {
 
-        const term = this.value;
+        const term = this.value.trim();
 
-        if (term.length < 2) {
+        if (term.length < minAutocompleteLength) {
             sugerenciasDiv.innerHTML = "";
             return;
         }
 
-        const response = await fetch(`/Clientes/Autocompletado?term=${term}`);
+        const response = await fetch(`/Clientes/Autocompletado?term=${encodeURIComponent(term)}`);
         const clientes = await response.json();
 
         sugerenciasDiv.innerHTML = "";

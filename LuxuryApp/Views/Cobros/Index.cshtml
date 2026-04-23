@@ -268,20 +268,20 @@
                                 </td>
 
                                 <td>
-                                    @cobro.Funcionario?.Nombre
+                                    @cobro.FuncionarioNombre
                                 </td>
 
                                 <td>
 
-                                    @if (cobro.ServicioId != null)
+                                    @if (cobro.EsServicio)
                                     {
                                         <span class="badge bg-primary me-2">Servicio</span>
-                                        <span>@cobro.Servicio?.Nombre</span>
+                                        <span>@cobro.Detalle</span>
                                     }
-                                    else if (cobro.ProductoId != null)
+                                    else
                                     {
                                         <span class="badge bg-warning text-dark me-2">Producto</span>
-                                        <span>@cobro.Producto?.NombreProducto</span>
+                                        <span>@cobro.Detalle</span>
                                     }
 
                                 </td>

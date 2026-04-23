@@ -3,6 +3,7 @@
 <form id="formServicio">
 
     @Html.AntiForgeryToken()
+    <input asp-for="Id" type="hidden" />
 
     <div class="mb-2">
         <label class="form-label">Nombre del servicio</label>
@@ -23,19 +24,18 @@
         </div>
 
         <span asp-validation-for="Precio" class="text-danger"></span>
+    </div>
 
-        <div class="mb-2">
-            <label class="form-label">Duración (minutos)</label>
+    <div class="mb-2">
+        <label class="form-label">Duración (minutos)</label>
 
-            <input asp-for="DuracionMinutos"
-                   class="form-control"
-                   type="number"
-                   min="1"
-                   placeholder="Ej: 45" />
+        <input asp-for="DuracionMinutos"
+               class="form-control"
+               type="number"
+               min="1"
+               placeholder="Ej: 45" />
 
-            <span asp-validation-for="DuracionMinutos" class="text-danger"></span>
-        </div>
-
+        <span asp-validation-for="DuracionMinutos" class="text-danger"></span>
     </div>
 
     <button type="button"

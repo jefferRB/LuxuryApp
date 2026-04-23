@@ -4,7 +4,7 @@ namespace LuxuryApp.Models.Finanzas
 {
     public class EgresoIndexViewModel
     {
-        public List<Egreso> Egresos { get; set; } = new();
+        public List<EgresoIndexItemViewModel> Egresos { get; set; } = new();
 
         public EgresoFiltroViewModel Filtros { get; set; } = new();
 

@@ -24,8 +24,15 @@ namespace LuxuryApp.Models.Funcionarios
 
         public decimal MontoPendiente { get; set; }
 
+        public decimal TotalServicios { get; set; }
+
+        public decimal TotalProductos { get; set; }
+
         public List<DetalleDiaVM> DetalleDias { get; set; } = new();
-        public List<PagoFuncionario> HistorialPagos { get; set; } = new();
+
+        // PagoFuncionario queda como fuente legacy solo para lectura historica.
+        // Las nuevas escrituras salen de LiquidacionSemanal + Detalles.
+        public List<HistorialPagoFuncionarioViewModel> HistorialPagos { get; set; } = new();
 
         public List<ProductoVendidoVM> ProductosVendidos { get; set; } = new();
 

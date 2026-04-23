@@ -1,5 +1,5 @@
+using System.Linq.Expressions;
 using LuxuryApp.Models.DataBase;
-using LuxuryApp.Services.DataBase;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -10,45 +10,67 @@ namespace LuxuryApp.Controllers.DataBase
     [Authorize(Roles = "Administrador")]
     public class ClientesController : Controller
     {
+        private const int DefaultPageSize = 20;
+        private const int MaxPageSize = 100;
+        private const int BuscarNombreMaxResults = 50;
+        private const int AutocompleteMinLength = 2;
+        private const int AutocompleteMaxResults = 10;
+
+        private static readonly Expression<Func<ClientesModel, ClienteSummaryViewModel>> ClienteSummaryProjection = cliente =>
+            new ClienteSummaryViewModel
+            {
+                Id = cliente.Id,
+                Nombre = cliente.Nombre,
+                CorreoElectronico = cliente.CorreoElectronico,
+                NumeroTelefono = cliente.NumeroTelefono,
+                FechaCumpleanos = cliente.FechaCumpleaños,
+                FrecuenciaVisita = cliente.FrecuenciaVisita,
+                FechaUltimaVisita = cliente.FechaUltimaVisita
+            };
+
+        private static readonly Expression<Func<ClienteVisitas, ClienteVisitaItemViewModel>> ClienteVisitaProjection = visita =>
+            new ClienteVisitaItemViewModel
+            {
+                Id = visita.Id,
+                FechaVisita = visita.FechaVisita
+            };
+
         private readonly ApplicationDbContext _context;
-        private readonly RecordatorioService _recordatorioService;
-        private readonly IWebHostEnvironment _webHostEnvironment;
-        private readonly EmailService _emailSender;
         private readonly ILogger<ClientesController> _logger;
 
         public ClientesController(
             ApplicationDbContext context,
-            RecordatorioService recordatorioService,
-            IWebHostEnvironment webHostEnvironment,
-            EmailService emailSender,
             ILogger<ClientesController> logger)
         {
             _context = context;
-            _recordatorioService = recordatorioService;
-            _webHostEnvironment = webHostEnvironment;
-            _emailSender = emailSender;
             _logger = logger;
         }
 
-        public async Task<IActionResult> Index()
+        public async Task<IActionResult> Index(int pageNumber = 1, int pageSize = DefaultPageSize)
         {
-            var clientes = await _context.Clientes
-                .AsNoTracking()
-                .Select(c => new ClientesModel
-                {
-                    Id = c.Id,
-                    Nombre = c.Nombre,
-                    CorreoElectronico = c.CorreoElectronico,
-                    NumeroTelefono = c.NumeroTelefono,
-                    FechaCumpleaños = c.FechaCumpleaños,
-                    FrecuenciaVisita = c.FrecuenciaVisita,
-                    FechaUltimaVisita = c.FechaUltimaVisita
-                })
-                .ToListAsync();
+            var normalizedPageSize = NormalizePageSize(pageSize);
+            var clientesQuery = _context.Clientes.AsNoTracking();
+            var totalCount = await clientesQuery.CountAsync();
+            var totalPages = CalculateTotalPages(totalCount, normalizedPageSize);
+            var normalizedPageNumber = NormalizePageNumber(pageNumber, totalPages);
 
-            return View(clientes
-    .OrderBy(c => c.Nombre)
-    .ToList());
+            IReadOnlyList<ClienteSummaryViewModel> clientes = totalCount == 0
+                ? Array.Empty<ClienteSummaryViewModel>()
+                : await clientesQuery
+                    .OrderBy(c => c.Nombre)
+                    .ThenBy(c => c.Id)
+                    .Skip((normalizedPageNumber - 1) * normalizedPageSize)
+                    .Take(normalizedPageSize)
+                    .Select(ClienteSummaryProjection)
+                    .ToListAsync();
+
+            return View(new ClientesIndexViewModel
+            {
+                Clientes = clientes,
+                PageNumber = normalizedPageNumber,
+                PageSize = normalizedPageSize,
+                TotalCount = totalCount
+            });
         }
 
         [HttpGet]
@@ -111,13 +133,13 @@ namespace LuxuryApp.Controllers.DataBase
             catch (DbUpdateException ex)
             {
                 _logger.LogError(ex, "Error al crear cliente para telefono {NumeroTelefono}.", cliente.NumeroTelefono);
-                ModelState.AddModelError(string.Empty, "No fue posible guardar el cliente. Revisa los datos e inténtalo de nuevo.");
+                ModelState.AddModelError(string.Empty, "No fue posible guardar el cliente. Revisa los datos e intentalo de nuevo.");
                 return View(cliente);
             }
             catch (InvalidOperationException ex)
             {
-                _logger.LogError(ex, "Guard bloqueó la creación del cliente {NumeroTelefono}.", cliente.NumeroTelefono);
-                ModelState.AddModelError(string.Empty, "No fue posible guardar el cliente por una validación de seguridad o consistencia.");
+                _logger.LogError(ex, "Guard bloqueo la creacion del cliente {NumeroTelefono}.", cliente.NumeroTelefono);
+                ModelState.AddModelError(string.Empty, "No fue posible guardar el cliente por una validacion de seguridad o consistencia.");
                 return View(cliente);
             }
         }
@@ -131,23 +153,55 @@ namespace LuxuryApp.Controllers.DataBase
             }
 
             criterio = criterio.Trim();
+            var esBusquedaTelefonica = LooksLikePhoneForSearch(criterio);
+            var clientesQuery = _context.Clientes.AsNoTracking();
 
-            var clientes = await _context.Clientes
-                .AsNoTracking()
-                .Where(c =>
-                    c.NumeroTelefono == criterio ||
-                    EF.Functions.Like(c.Nombre, $"%{criterio}%"))
-                .OrderBy(c => c.Nombre)
-                .ToListAsync();
+            List<ClienteSummaryViewModel> clientes;
+            string? mensaje = null;
+            var resultadosLimitados = false;
 
-            if (!clientes.Any())
+            if (esBusquedaTelefonica)
             {
-                ViewBag.Mensaje = $"No se encontraron clientes con el criterio: {criterio}.";
-                return View(new BuscarClienteViewModel());
+                clientes = await ApplyExactPhoneSearch(clientesQuery, criterio)
+                    .OrderBy(c => c.Nombre)
+                    .ThenBy(c => c.Id)
+                    .Select(ClienteSummaryProjection)
+                    .ToListAsync();
+            }
+            else
+            {
+                clientes = await clientesQuery
+                    .Where(c => EF.Functions.Like(c.Nombre, $"%{criterio}%"))
+                    .OrderBy(c => c.Nombre)
+                    .ThenBy(c => c.Id)
+                    .Take(BuscarNombreMaxResults + 1)
+                    .Select(ClienteSummaryProjection)
+                    .ToListAsync();
+
+                if (clientes.Count > BuscarNombreMaxResults)
+                {
+                    clientes = clientes.Take(BuscarNombreMaxResults).ToList();
+                    resultadosLimitados = true;
+                    mensaje = $"Se encontraron muchos clientes. Mostrando los primeros {BuscarNombreMaxResults}; refina la búsqueda.";
+                }
             }
 
-            var vm = new BuscarClienteViewModel
+            if (clientes.Count == 0)
             {
+                return View(new BuscarClienteViewModel
+                {
+                    Criterio = criterio,
+                    EsBusquedaTelefonica = esBusquedaTelefonica,
+                    Mensaje = $"No se encontraron clientes con el criterio: {criterio}."
+                });
+            }
+
+            var model = new BuscarClienteViewModel
+            {
+                Criterio = criterio,
+                EsBusquedaTelefonica = esBusquedaTelefonica,
+                ResultadosLimitados = resultadosLimitados,
+                Mensaje = mensaje,
                 ClientesEncontrados = clientes
             };
 
@@ -159,14 +213,15 @@ namespace LuxuryApp.Controllers.DataBase
                     .AsNoTracking()
                     .Where(v => v.ClienteId == cliente.Id)
                     .OrderByDescending(v => v.FechaVisita)
+                    .Select(ClienteVisitaProjection)
                     .ToListAsync();
 
-                vm.ClienteSeleccionado = cliente;
-                vm.TotalVisitas = historial.Count;
-                ViewBag.HistorialVisitas = historial;
+                model.ClienteSeleccionado = cliente;
+                model.TotalVisitas = historial.Count;
+                model.HistorialVisitas = historial;
             }
 
-            return View(vm);
+            return View(model);
         }
 
         [HttpGet]
@@ -179,7 +234,18 @@ namespace LuxuryApp.Controllers.DataBase
 
             var cliente = await _context.Clientes
                 .AsNoTracking()
-                .FirstOrDefaultAsync(c => c.Id == id);
+                .Where(c => c.Id == id)
+                .Select(c => new ClientesModel
+                {
+                    Id = c.Id,
+                    Nombre = c.Nombre,
+                    NumeroTelefono = c.NumeroTelefono,
+                    CorreoElectronico = c.CorreoElectronico,
+                    FechaCumpleaños = c.FechaCumpleaños,
+                    FrecuenciaVisita = c.FrecuenciaVisita,
+                    FechaUltimaVisita = c.FechaUltimaVisita
+                })
+                .FirstOrDefaultAsync();
 
             if (cliente == null)
             {
@@ -211,63 +277,65 @@ namespace LuxuryApp.Controllers.DataBase
                 return View(cliente);
             }
 
-            var clienteExistente = await _context.Clientes
-                .FirstOrDefaultAsync(c => c.Id == cliente.Id);
-
-            if (clienteExistente == null)
-            {
-                return NotFound();
-            }
-
-            var telefonoAnterior = clienteExistente.NumeroTelefono;
-            var cambioTelefono = !string.Equals(
-                telefonoAnterior,
-                cliente.NumeroTelefono,
-                StringComparison.Ordinal);
-            var cambioFechaVisita = clienteExistente.FechaUltimaVisita != cliente.FechaUltimaVisita;
-
-            clienteExistente.Nombre = cliente.Nombre;
-            clienteExistente.NumeroTelefono = cliente.NumeroTelefono;
-            clienteExistente.CorreoElectronico = cliente.CorreoElectronico;
-            clienteExistente.FechaCumpleaños = cliente.FechaCumpleaños;
-            clienteExistente.FrecuenciaVisita = cliente.FrecuenciaVisita;
-            clienteExistente.FechaUltimaVisita = cliente.FechaUltimaVisita;
-
-            if (cambioTelefono)
-            {
-                var visitas = await _context.ClienteVisitas
-                    .Where(v => v.ClienteId == clienteExistente.Id)
-                    .ToListAsync();
-
-                foreach (var visita in visitas)
-                {
-                    visita.NumeroTelefono = cliente.NumeroTelefono;
-                }
-
-                var imagenes = await _context.ClienteImagenes
-                    .Where(i => i.ClienteId == clienteExistente.Id)
-                    .ToListAsync();
-
-                foreach (var imagen in imagenes)
-                {
-                    imagen.NumeroTelefono = cliente.NumeroTelefono;
-                }
-            }
-
-            if (cambioFechaVisita)
-            {
-                _context.ClienteVisitas.Add(new ClienteVisitas
-                {
-                    ClienteId = clienteExistente.Id,
-                    NumeroTelefono = cliente.NumeroTelefono,
-                    FechaVisita = cliente.FechaUltimaVisita
-                });
-            }
+            ClientesModel? clienteExistente = null;
 
             try
             {
-                await _context.SaveChangesAsync();
-                TempData["Mensaje"] = "Cliente editado con éxito.";
+                var executionStrategy = _context.Database.CreateExecutionStrategy();
+                await executionStrategy.ExecuteAsync(async () =>
+                {
+                    await using var transaction = await _context.Database.BeginTransactionAsync();
+
+                    clienteExistente = await _context.Clientes
+                        .FirstOrDefaultAsync(c => c.Id == cliente.Id);
+
+                    if (clienteExistente == null)
+                    {
+                        return;
+                    }
+
+                    var telefonoAnterior = clienteExistente.NumeroTelefono;
+                    var cambioTelefono = !string.Equals(
+                        telefonoAnterior,
+                        cliente.NumeroTelefono,
+                        StringComparison.Ordinal);
+                    var cambioFechaVisita = clienteExistente.FechaUltimaVisita != cliente.FechaUltimaVisita;
+
+                    clienteExistente.Nombre = cliente.Nombre;
+                    clienteExistente.NumeroTelefono = cliente.NumeroTelefono;
+                    clienteExistente.CorreoElectronico = cliente.CorreoElectronico;
+                    clienteExistente.FechaCumpleaños = cliente.FechaCumpleaños;
+                    clienteExistente.FrecuenciaVisita = cliente.FrecuenciaVisita;
+                    clienteExistente.FechaUltimaVisita = cliente.FechaUltimaVisita;
+
+                    if (cambioTelefono)
+                    {
+                        await _context.ClienteVisitas
+                            .Where(v => v.ClienteId == clienteExistente.Id)
+                            .ExecuteUpdateAsync(setters => setters
+                                .SetProperty(v => v.NumeroTelefono, cliente.NumeroTelefono));
+                    }
+
+                    if (cambioFechaVisita)
+                    {
+                        _context.ClienteVisitas.Add(new ClienteVisitas
+                        {
+                            ClienteId = clienteExistente.Id,
+                            NumeroTelefono = cliente.NumeroTelefono,
+                            FechaVisita = cliente.FechaUltimaVisita
+                        });
+                    }
+
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                });
+
+                if (clienteExistente == null)
+                {
+                    return NotFound();
+                }
+
+                TempData["Mensaje"] = "Cliente editado con exito.";
                 return RedirectToAction(nameof(Buscar), new { criterio = clienteExistente.NumeroTelefono });
             }
             catch (DbUpdateException ex)
@@ -278,8 +346,8 @@ namespace LuxuryApp.Controllers.DataBase
             }
             catch (InvalidOperationException ex)
             {
-                _logger.LogError(ex, "Guard bloqueó la edición del cliente {ClienteId}.", cliente.Id);
-                ModelState.AddModelError(string.Empty, "No fue posible guardar los cambios por una validación de seguridad o consistencia.");
+                _logger.LogError(ex, "Guard bloqueo la edicion del cliente {ClienteId}.", cliente.Id);
+                ModelState.AddModelError(string.Empty, "No fue posible guardar los cambios por una validacion de seguridad o consistencia.");
                 return View(cliente);
             }
         }
@@ -290,7 +358,7 @@ namespace LuxuryApp.Controllers.DataBase
         {
             if (id <= 0)
             {
-                return BadRequest("Cliente no válido.");
+                return BadRequest("Cliente no valido.");
             }
 
             var cliente = await _context.Clientes
@@ -317,7 +385,6 @@ namespace LuxuryApp.Controllers.DataBase
             }
         }
 
-     
         [HttpGet]
         public async Task<IActionResult> RegistrarServicios(int id)
         {
@@ -326,28 +393,11 @@ namespace LuxuryApp.Controllers.DataBase
                 return NotFound();
             }
 
-            var cliente = await _context.Clientes
-                .AsNoTracking()
-                .FirstOrDefaultAsync(c => c.Id == id);
-
-            if (cliente == null)
+            var model = await BuildRegistrarServiciosViewModelAsync(id);
+            if (model == null)
             {
                 return NotFound();
             }
-
-            var imagenes = await _context.ClienteImagenes
-                .AsNoTracking()
-                .Where(i => i.ClienteId == id)
-                .OrderByDescending(i => i.Fecha)
-                .ToListAsync();
-
-            var model = new ServicioRealizadoViewModel
-            {
-                ClienteId = cliente.Id,
-                NumeroTelefono = cliente.NumeroTelefono,
-                ImagenesGuardadas = imagenes,
-                DescripcionServicios = cliente.DescripcionServiciosRealizados
-            };
 
             return View(model);
         }
@@ -361,35 +411,80 @@ namespace LuxuryApp.Controllers.DataBase
                 return BadRequest();
             }
 
-            var cliente = await _context.Clientes
-                .FirstOrDefaultAsync(c => c.Id == id);
+            ClientesModel? cliente = null;
 
-            if (cliente == null)
+            try
             {
-                return NotFound();
+                var executionStrategy = _context.Database.CreateExecutionStrategy();
+                await executionStrategy.ExecuteAsync(async () =>
+                {
+                    await using var transaction = await _context.Database.BeginTransactionAsync();
+
+                    cliente = await _context.Clientes
+                        .FirstOrDefaultAsync(c => c.Id == id);
+
+                    if (cliente == null)
+                    {
+                        return;
+                    }
+
+                    var hoy = DateTime.Today;
+                    cliente.FechaUltimaVisita = hoy;
+
+                    _context.ClienteVisitas.Add(new ClienteVisitas
+                    {
+                        ClienteId = cliente.Id,
+                        NumeroTelefono = cliente.NumeroTelefono,
+                        FechaVisita = hoy
+                    });
+
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                });
+
+                if (cliente == null)
+                {
+                    return NotFound();
+                }
+
+                TempData["Mensaje"] = "Visita registrada correctamente.";
+                return RedirectToAction(nameof(Buscar), new { criterio = cliente.NumeroTelefono });
             }
-
-            var hoy = DateTime.Today;
-
-            cliente.FechaUltimaVisita = hoy;
-
-            _context.ClienteVisitas.Add(new ClienteVisitas
+            catch (DbUpdateException ex)
             {
-                ClienteId = cliente.Id,
-                NumeroTelefono = cliente.NumeroTelefono,
-                FechaVisita = hoy
-            });
-
-            await _context.SaveChangesAsync();
-
-            TempData["Mensaje"] = "Visita registrada correctamente.";
-            return RedirectToAction(nameof(Buscar), new { criterio = cliente.NumeroTelefono });
+                _logger.LogError(ex, "Error al agregar visita rapida para cliente {ClienteId}.", id);
+                TempData["Error"] = "No fue posible registrar la visita.";
+                return RedirectToAction(nameof(Buscar), new { criterio = cliente?.NumeroTelefono });
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Guard bloqueo la visita rapida del cliente {ClienteId}.", id);
+                TempData["Error"] = "No fue posible registrar la visita por una validacion de seguridad o consistencia.";
+                return RedirectToAction(nameof(Buscar), new { criterio = cliente?.NumeroTelefono });
+            }
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> RegistrarServicios(ServicioRealizadoViewModel model)
+        [Consumes("application/x-www-form-urlencoded")]
+        public async Task<IActionResult> RegistrarServicios(
+            [Bind(
+                nameof(ServicioRealizadoViewModel.ClienteId) + "," +
+                nameof(ServicioRealizadoViewModel.DescripcionServicios))]
+            ServicioRealizadoViewModel model)
         {
+            if (!ModelState.IsValid)
+            {
+                var invalidModel = await BuildRegistrarServiciosViewModelAsync(model.ClienteId);
+                if (invalidModel == null)
+                {
+                    return NotFound();
+                }
+
+                invalidModel.DescripcionServicios = model.DescripcionServicios;
+                return View(invalidModel);
+            }
+
             var cliente = await _context.Clientes
                 .FirstOrDefaultAsync(c => c.Id == model.ClienteId);
 
@@ -398,37 +493,45 @@ namespace LuxuryApp.Controllers.DataBase
                 return NotFound();
             }
 
-            cliente.DescripcionServiciosRealizados = NormalizeOptionalString(model.DescripcionServicios);
-
-            if (model.Imagenes != null && model.Imagenes.Count > 0)
+            try
             {
-                foreach (var img in model.Imagenes)
-                {
-                    using var ms = new MemoryStream();
-                    await img.CopyToAsync(ms);
+                cliente.DescripcionServiciosRealizados = NormalizeOptionalString(model.DescripcionServicios);
+                await _context.SaveChangesAsync();
 
-                    _context.ClienteImagenes.Add(new ClienteImagenesModel
-                    {
-                        ClienteId = cliente.Id,
-                        NumeroTelefono = cliente.NumeroTelefono,
-                        Imagen = ms.ToArray(),
-                        Fecha = DateTime.Now
-                    });
-                }
+                TempData["Mensaje"] = "Registro de servicios actualizado correctamente.";
+                return RedirectToAction(nameof(Buscar), new { criterio = cliente.NumeroTelefono });
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al actualizar servicios del cliente {ClienteId}.", model.ClienteId);
+                ModelState.AddModelError(string.Empty, "No fue posible actualizar el registro de servicios.");
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Guard bloqueo el registro de servicios del cliente {ClienteId}.", model.ClienteId);
+                ModelState.AddModelError(string.Empty, "No fue posible actualizar el registro por una validacion de seguridad o consistencia.");
             }
 
-            await _context.SaveChangesAsync();
+            var reloadModel = await BuildRegistrarServiciosViewModelAsync(model.ClienteId);
+            if (reloadModel == null)
+            {
+                return NotFound();
+            }
 
-            TempData["Mensaje"] = "Registro de servicios actualizado correctamente.";
-            return RedirectToAction(nameof(Buscar), new { criterio = cliente.NumeroTelefono });
+            reloadModel.DescripcionServicios = model.DescripcionServicios;
+            return View(reloadModel);
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> EliminarVisita(int id)
         {
+            if (id <= 0)
+            {
+                return BadRequest();
+            }
+
             var visita = await _context.ClienteVisitas
-                .Include(v => v.Cliente)
                 .FirstOrDefaultAsync(v => v.Id == id);
 
             if (visita == null)
@@ -436,12 +539,26 @@ namespace LuxuryApp.Controllers.DataBase
                 return NotFound();
             }
 
-            _context.ClienteVisitas.Remove(visita);
-            await _context.SaveChangesAsync();
+            try
+            {
+                _context.ClienteVisitas.Remove(visita);
+                await _context.SaveChangesAsync();
 
-            TempData["Mensaje"] = "Visita eliminada correctamente.";
-            var criterio = visita.Cliente?.NumeroTelefono ?? visita.NumeroTelefono;
-            return RedirectToAction(nameof(Buscar), new { criterio });
+                TempData["Mensaje"] = "Visita eliminada correctamente.";
+                return RedirectToAction(nameof(Buscar), new { criterio = visita.NumeroTelefono });
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al eliminar visita {VisitaId}.", id);
+                TempData["Error"] = "No fue posible eliminar la visita.";
+                return RedirectToAction(nameof(Buscar), new { criterio = visita.NumeroTelefono });
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Guard bloqueo la eliminacion de la visita {VisitaId}.", id);
+                TempData["Error"] = "No fue posible eliminar la visita por una validacion de seguridad o consistencia.";
+                return RedirectToAction(nameof(Buscar), new { criterio = visita.NumeroTelefono });
+            }
         }
 
         [HttpGet]
@@ -449,14 +566,39 @@ namespace LuxuryApp.Controllers.DataBase
         {
             if (string.IsNullOrWhiteSpace(term))
             {
-                return Ok(new List<object>());
+                return Ok(Array.Empty<object>());
             }
 
-            var clientes = await _context.Clientes
-                .AsNoTracking()
-                .Where(c => EF.Functions.Like(c.Nombre, $"%{term}%"))
-                .OrderBy(c => c.Nombre)
-                .Take(10)
+            term = term.Trim();
+
+            if (term.Length < AutocompleteMinLength)
+            {
+                return Ok(Array.Empty<object>());
+            }
+
+            var esBusquedaTelefonica = LooksLikePhoneFragment(term);
+            var clientesQuery = _context.Clientes.AsNoTracking();
+            var normalizedPhoneTerm = NormalizePhoneForComparison(term);
+
+            clientesQuery = esBusquedaTelefonica
+                ? ApplyPhoneAutocompleteSearch(clientesQuery, term)
+                    .OrderByDescending(c => c.NumeroTelefono
+                        .Replace(" ", string.Empty)
+                        .Replace("-", string.Empty)
+                        .Replace("(", string.Empty)
+                        .Replace(")", string.Empty)
+                        .Replace("+", string.Empty)
+                        .Replace(".", string.Empty)
+                        .Replace("/", string.Empty) == normalizedPhoneTerm)
+                    .ThenBy(c => c.Nombre)
+                    .ThenBy(c => c.Id)
+                : clientesQuery
+                    .Where(c => EF.Functions.Like(c.Nombre, $"%{term}%"))
+                    .OrderBy(c => c.Nombre)
+                    .ThenBy(c => c.Id);
+
+            var clientes = await clientesQuery
+                .Take(AutocompleteMaxResults)
                 .Select(c => new
                 {
                     id = c.Id,
@@ -489,8 +631,61 @@ namespace LuxuryApp.Controllers.DataBase
             {
                 ModelState.AddModelError(
                     nameof(ClientesModel.NumeroTelefono),
-                    "Este número de teléfono ya se encuentra registrado.");
+                    "Este numero de telefono ya se encuentra registrado.");
             }
+        }
+
+        private async Task<ServicioRealizadoViewModel?> BuildRegistrarServiciosViewModelAsync(int clienteId)
+        {
+            return await _context.Clientes
+                .AsNoTracking()
+                .Where(c => c.Id == clienteId)
+                .Select(c => new ServicioRealizadoViewModel
+                {
+                    ClienteId = c.Id,
+                    NumeroTelefono = c.NumeroTelefono,
+                    NombreCliente = c.Nombre,
+                    DescripcionServicios = c.DescripcionServiciosRealizados
+                })
+                .FirstOrDefaultAsync();
+        }
+
+        private static IQueryable<ClientesModel> ApplyExactPhoneSearch(
+            IQueryable<ClientesModel> query,
+            string criterio)
+        {
+            var normalizedPhone = NormalizePhoneForComparison(criterio);
+
+            return query.Where(c =>
+                c.NumeroTelefono == criterio ||
+                c.NumeroTelefono
+                    .Replace(" ", string.Empty)
+                    .Replace("-", string.Empty)
+                    .Replace("(", string.Empty)
+                    .Replace(")", string.Empty)
+                    .Replace("+", string.Empty)
+                    .Replace(".", string.Empty)
+                    .Replace("/", string.Empty) == normalizedPhone);
+        }
+
+        private static IQueryable<ClientesModel> ApplyPhoneAutocompleteSearch(
+            IQueryable<ClientesModel> query,
+            string term)
+        {
+            var normalizedPhone = NormalizePhoneForComparison(term);
+
+            return query.Where(c =>
+                EF.Functions.Like(c.NumeroTelefono, $"{term}%") ||
+                EF.Functions.Like(
+                    c.NumeroTelefono
+                        .Replace(" ", string.Empty)
+                        .Replace("-", string.Empty)
+                        .Replace("(", string.Empty)
+                        .Replace(")", string.Empty)
+                        .Replace("+", string.Empty)
+                        .Replace(".", string.Empty)
+                        .Replace("/", string.Empty),
+                    $"{normalizedPhone}%"));
         }
 
         private static void NormalizeCliente(ClientesModel cliente)
@@ -499,6 +694,91 @@ namespace LuxuryApp.Controllers.DataBase
             cliente.NumeroTelefono = NormalizeRequiredString(cliente.NumeroTelefono);
             cliente.CorreoElectronico = NormalizeOptionalString(cliente.CorreoElectronico);
         }
+
+        private static int NormalizePageNumber(int pageNumber, int totalPages)
+        {
+            if (pageNumber < 1)
+            {
+                return 1;
+            }
+
+            return Math.Min(pageNumber, totalPages);
+        }
+
+        private static int NormalizePageSize(int pageSize)
+        {
+            if (pageSize <= 0)
+            {
+                return DefaultPageSize;
+            }
+
+            return Math.Min(pageSize, MaxPageSize);
+        }
+
+        private static int CalculateTotalPages(int totalCount, int pageSize) =>
+            totalCount == 0
+                ? 1
+                : (int)Math.Ceiling(totalCount / (double)pageSize);
+
+        private static bool LooksLikePhoneForSearch(string criterio)
+        {
+            var digitCount = 0;
+
+            foreach (var character in criterio)
+            {
+                if (char.IsDigit(character))
+                {
+                    digitCount++;
+                    continue;
+                }
+
+                if (char.IsWhiteSpace(character) ||
+                    character is '+' or '-' or '(' or ')' or '.' or '/')
+                {
+                    continue;
+                }
+
+                return false;
+            }
+
+            return digitCount >= 4;
+        }
+
+        private static bool LooksLikePhoneFragment(string criterio)
+        {
+            var digitCount = 0;
+
+            foreach (var character in criterio)
+            {
+                if (char.IsDigit(character))
+                {
+                    digitCount++;
+                    continue;
+                }
+
+                if (char.IsWhiteSpace(character) ||
+                    character is '+' or '-' or '(' or ')' or '.' or '/')
+                {
+                    continue;
+                }
+
+                return false;
+            }
+
+            return digitCount >= AutocompleteMinLength;
+        }
+
+        private static string NormalizePhoneForComparison(string? value) =>
+            string.IsNullOrWhiteSpace(value)
+                ? string.Empty
+                : value
+                    .Replace(" ", string.Empty, StringComparison.Ordinal)
+                    .Replace("-", string.Empty, StringComparison.Ordinal)
+                    .Replace("(", string.Empty, StringComparison.Ordinal)
+                    .Replace(")", string.Empty, StringComparison.Ordinal)
+                    .Replace("+", string.Empty, StringComparison.Ordinal)
+                    .Replace(".", string.Empty, StringComparison.Ordinal)
+                    .Replace("/", string.Empty, StringComparison.Ordinal);
 
         private static string NormalizeRequiredString(string? value) =>
             string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();

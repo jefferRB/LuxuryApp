@@ -4,7 +4,7 @@ namespace LuxuryApp.Models.Finanzas
 {
     public class CobroIndexViewModel
     {
-        public List<Cobro> Cobros { get; set; } = new();
+        public List<CobroIndexItemViewModel> Cobros { get; set; } = new();
 
         public CobroFiltroViewModel Filtros { get; set; } = new();
 

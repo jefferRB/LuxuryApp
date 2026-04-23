@@ -1,23 +1,36 @@
-﻿function cargarServicios() {
+function obtenerServicioAntiForgeryToken() {
 
-    $("#contenedorServicios").load("/Servicios/ModalServicios"); //aca redirige al controller no a la view a la view desde el controller 
+    return $("#serviciosAntiForgeryForm input[name='__RequestVerificationToken']").val()
+        || $("#formServicio input[name='__RequestVerificationToken']").val();
+}
 
+function cargarServicios() {
+
+    $("#contenedorServicios").load("/Servicios/ModalServicios");
 }
 
 function toggleServicio(id) {
 
-    $.post("/Servicios/ToggleActivo", { id: id })
+    $.ajax({
+        url: "/Servicios/ToggleActivo",
+        type: "POST",
+        data: { id: id },
+        headers: {
+            "RequestVerificationToken": obtenerServicioAntiForgeryToken()
+        }
+    })
         .done(function () {
             cargarServicios();
+        })
+        .fail(function (response) {
+            alert(response.responseText || "No fue posible actualizar el estado del servicio.");
         });
-
 }
 
 function mostrarFormularioServicio() {
 
     $("#formServicioContainer")
         .load("/Servicios/FormServicio");
-
 }
 
 function guardarServicio() {
@@ -25,24 +38,28 @@ function guardarServicio() {
     var form = $("#formServicio");
 
     $.ajax({
-        url: "/Servicios/Create",
+        url: "/Servicios/Save",
         type: "POST",
         data: form.serialize(),
         headers: {
-            "RequestVerificationToken":
-                $('input[name="__RequestVerificationToken"]').val(),
+            "RequestVerificationToken": obtenerServicioAntiForgeryToken(),
             "X-Requested-With": "XMLHttpRequest"
         },
-        success: function () {
+        success: function (response, status, xhr) {
+
+            const contentType = xhr.getResponseHeader("content-type") || "";
+
+            if (contentType.includes("text/html")) {
+                $("#formServicioContainer").html(response);
+                return;
+            }
 
             $("#formServicioContainer").html("");
             cargarServicios();
-
         },
         error: function (response) {
 
             $("#formServicioContainer").html(response.responseText);
-
         }
     });
 }
@@ -53,7 +70,10 @@ function eliminarServicio(id) {
         return;
 
     fetch(`/Servicios/Eliminar/${id}`, {
-        method: "POST"
+        method: "POST",
+        headers: {
+            "RequestVerificationToken": obtenerServicioAntiForgeryToken()
+        }
     })
         .then(async res => {
 
@@ -70,4 +90,3 @@ function eliminarServicio(id) {
             alert("Error inesperado al eliminar.");
         });
 }
-

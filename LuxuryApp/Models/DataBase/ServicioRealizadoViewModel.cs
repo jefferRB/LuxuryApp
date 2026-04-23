@@ -1,14 +1,14 @@
-﻿namespace LuxuryApp.Models.DataBase
+using System.ComponentModel.DataAnnotations;
+
+namespace LuxuryApp.Models.DataBase
 {
-    public class ServicioRealizadoViewModel
+    public sealed class ServicioRealizadoViewModel
     {
         public int ClienteId { get; set; }
-        public string NumeroTelefono { get; set; } = null!;
+        public string NumeroTelefono { get; set; } = string.Empty;
+        public string NombreCliente { get; set; } = string.Empty;
 
-        public List<IFormFile> Imagenes { get; set; } = new List<IFormFile>();
-        public List<ClienteImagenesModel> ImagenesGuardadas { get; set; } = new();
-
-        public string? DescripcionServicios { get; set; } // NUEVO
-        public DateTime Fecha { get; set; } = DateTime.Now;
+        [StringLength(2000)]
+        public string? DescripcionServicios { get; set; }
     }
 }

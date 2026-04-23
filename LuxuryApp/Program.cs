@@ -6,6 +6,7 @@ using LuxuryApp.Middleware;
 using LuxuryApp.Services;
 using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.DataBase;
+using LuxuryApp.Services.Finanzas;
 using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Services.Identity;
 using LuxuryApp.Services.Layout;
@@ -111,6 +112,10 @@ builder.Services.Configure<ResendClientOptions>(options =>
 builder.Services.AddTransient<IResend, ResendClient>();
 
 builder.Services.AddScoped<WhatsAppService>();
+builder.Services.AddScoped<ICobroService, CobroService>();
+builder.Services.AddScoped<ICobroQueryService, CobroQueryService>();
+builder.Services.AddScoped<IEgresoService, EgresoService>();
+builder.Services.AddScoped<IEgresoQueryService, EgresoQueryService>();
 builder.Services.AddScoped<ILiquidacionSemanalService, LiquidacionSemanalService>();
 builder.Services.AddScoped<IContractService, ContractService>();
 builder.Services.AddScoped<IPrivateNavigationService, PrivateNavigationService>();

@@ -10,157 +10,196 @@ namespace LuxuryApp.Controllers.Finanzas
     public class ServiciosController : Controller
     {
         private readonly ApplicationDbContext _context;
+        private readonly ILogger<ServiciosController> _logger;
 
-        public ServiciosController(ApplicationDbContext context)
+        public ServiciosController(
+            ApplicationDbContext context,
+            ILogger<ServiciosController> logger)
         {
             _context = context;
+            _logger = logger;
         }
 
-        public async Task<IActionResult> Index()
-        {
-            var servicios = await _context.Servicios
-                .OrderBy(s => s.Nombre)
-                .ToListAsync();
+        public Task<IActionResult> Index() => ModalServicios();
 
-            return View(servicios);
-        }
-
-        public IActionResult Create()
-        {
-            return View();
-        }
+        public Task<IActionResult> Create() => FormServicio();
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create(
-            [Bind(nameof(Servicio.Nombre) + "," + nameof(Servicio.Precio) + "," + nameof(Servicio.DuracionMinutos))]
+        public Task<IActionResult> Create(
+            [Bind(nameof(Servicio.Id) + "," + nameof(Servicio.Nombre) + "," + nameof(Servicio.Precio) + "," + nameof(Servicio.DuracionMinutos))]
+            Servicio servicio) =>
+            Save(servicio);
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Save(
+            [Bind(nameof(Servicio.Id) + "," + nameof(Servicio.Nombre) + "," + nameof(Servicio.Precio) + "," + nameof(Servicio.DuracionMinutos))]
             Servicio servicio)
         {
-            if (ModelState.IsValid)
-            {
-                servicio.Activo = true;
+            NormalizeServicio(servicio);
+            await ValidateServicioAsync(servicio);
 
-                _context.Add(servicio);
-                await _context.SaveChangesAsync();
-
-                if (Request.Headers["X-Requested-With"] == "XMLHttpRequest")
-                {
-                    return Ok();
-                }
-
-                return RedirectToAction(nameof(Index));
-            }
-
-            if (Request.Headers["X-Requested-With"] == "XMLHttpRequest")
+            if (!ModelState.IsValid)
             {
                 return PartialView("_FormServicio", servicio);
             }
 
-            return View(servicio);
+            try
+            {
+                if (servicio.Id == 0)
+                {
+                    servicio.Activo = true;
+                    _context.Servicios.Add(servicio);
+                }
+                else
+                {
+                    var servicioDb = await _context.Servicios
+                        .FirstOrDefaultAsync(s => s.Id == servicio.Id);
+
+                    if (servicioDb == null)
+                    {
+                        return NotFound();
+                    }
+
+                    servicioDb.Nombre = servicio.Nombre;
+                    servicioDb.Precio = servicio.Precio;
+                    servicioDb.DuracionMinutos = servicio.DuracionMinutos;
+                }
+
+                await _context.SaveChangesAsync();
+                return Ok();
+            }
+            catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+            {
+                _logger.LogWarning(ex, "Intento de duplicar servicio {ServicioNombre}.", servicio.Nombre);
+                ModelState.AddModelError(nameof(Servicio.Nombre), "Ya existe un servicio con ese nombre.");
+                return PartialView("_FormServicio", servicio);
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al guardar servicio {ServicioId}.", servicio.Id);
+                ModelState.AddModelError(string.Empty, "No fue posible guardar el servicio.");
+                return PartialView("_FormServicio", servicio);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Guard bloqueo la operacion sobre servicio {ServicioId}.", servicio.Id);
+                return BadRequest("No fue posible guardar el servicio por una validacion de seguridad o consistencia.");
+            }
         }
 
-        public async Task<IActionResult> Edit(int id)
-        {
-            var servicio = await _context.Servicios
-                .FirstOrDefaultAsync(s => s.Id == id);
-
-            if (servicio == null)
-                return NotFound();
-
-            return View(servicio);
-        }
+        public Task<IActionResult> Edit(int id) => FormServicio(id);
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(
+        public Task<IActionResult> Edit(
             int id,
             [Bind(nameof(Servicio.Id) + "," + nameof(Servicio.Nombre) + "," + nameof(Servicio.Precio) + "," + nameof(Servicio.DuracionMinutos))]
             Servicio servicio)
         {
             if (id != servicio.Id)
-                return NotFound();
-
-            if (ModelState.IsValid)
             {
-                try
-                {
-                    var servicioDb = await _context.Servicios
-                        .FirstOrDefaultAsync(s => s.Id == id);
-
-                    if (servicioDb == null)
-                        return NotFound();
-
-                    servicioDb.Nombre = servicio.Nombre;
-                    servicioDb.Precio = servicio.Precio;
-                    servicioDb.DuracionMinutos = servicio.DuracionMinutos;
-
-                    await _context.SaveChangesAsync();
-                }
-                catch (DbUpdateConcurrencyException)
-                {
-                    if (!_context.Servicios.Any(s => s.Id == servicio.Id))
-                        return NotFound();
-
-                    throw;
-                }
-
-                return RedirectToAction(nameof(Index));
+                return Task.FromResult<IActionResult>(NotFound());
             }
 
-            return View(servicio);
+            return Save(servicio);
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> ToggleActivo(int id)
         {
-            var servicio = await _context.Servicios
-                .FirstOrDefaultAsync(s => s.Id == id);
+            try
+            {
+                var servicio = await _context.Servicios
+                    .FirstOrDefaultAsync(s => s.Id == id);
 
-            if (servicio == null)
-                return NotFound();
+                if (servicio == null)
+                {
+                    return NotFound();
+                }
 
-            servicio.Activo = !servicio.Activo;
+                servicio.Activo = !servicio.Activo;
+                await _context.SaveChangesAsync();
 
-            await _context.SaveChangesAsync();
-
-            return Ok();
+                return Ok();
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al alternar estado del servicio {ServicioId}.", id);
+                return BadRequest("No fue posible actualizar el estado del servicio.");
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Guard bloqueo el cambio de estado del servicio {ServicioId}.", id);
+                return BadRequest("No fue posible actualizar el estado del servicio por una validacion de seguridad.");
+            }
         }
 
         [HttpGet]
         public async Task<JsonResult> ObtenerPrecio(int id)
         {
-            var servicio = await _context.Servicios
-                .Where(s => s.Id == id)
-                .Select(s => new { s.Precio })
-                .FirstOrDefaultAsync();
+            var precio = await _context.Servicios
+                .AsNoTracking()
+                .Where(s => s.Id == id && s.Activo)
+                .Select(s => (decimal?)s.Precio)
+                .SingleOrDefaultAsync();
 
-            return Json(servicio);
+            return Json(precio.HasValue ? new { precio = precio.Value } : null);
         }
 
-        public IActionResult ModalServicios()
+        public async Task<IActionResult> ModalServicios()
         {
-            var servicios = _context.Servicios
+            var servicios = await _context.Servicios
+                .AsNoTracking()
                 .OrderBy(s => s.Nombre)
-                .ToList();
+                .Select(s => new ServicioListItemViewModel
+                {
+                    Id = s.Id,
+                    Nombre = s.Nombre,
+                    Precio = s.Precio,
+                    DuracionMinutos = s.DuracionMinutos,
+                    Activo = s.Activo
+                })
+                .ToListAsync();
 
             return PartialView("_ServiciosModal", servicios);
         }
 
-        public IActionResult FormServicio()
+        public async Task<IActionResult> FormServicio(int? id = null)
         {
-            return PartialView("~/Views/Servicios/_FormServicio.cshtml", new Servicio());
+            if (!id.HasValue || id.Value <= 0)
+            {
+                return PartialView("~/Views/Servicios/_FormServicio.cshtml", new Servicio());
+            }
+
+            var servicio = await _context.Servicios
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Id == id.Value);
+
+            if (servicio == null)
+            {
+                return NotFound();
+            }
+
+            return PartialView("~/Views/Servicios/_FormServicio.cshtml", servicio);
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> Eliminar(int id)
         {
             var servicio = await _context.Servicios
                 .FirstOrDefaultAsync(s => s.Id == id);
 
             if (servicio == null)
+            {
                 return NotFound();
+            }
 
             var tieneCobros = await _context.Cobros
+                .AsNoTracking()
                 .AnyAsync(c => c.ServicioId == id);
 
             if (tieneCobros)
@@ -169,6 +208,7 @@ namespace LuxuryApp.Controllers.Finanzas
             }
 
             var tieneCitas = await _context.Citas
+                .AsNoTracking()
                 .AnyAsync(c => c.ServicioId == id);
 
             if (tieneCitas)
@@ -176,10 +216,73 @@ namespace LuxuryApp.Controllers.Finanzas
                 return BadRequest("No se puede eliminar este servicio porque tiene citas asociadas.");
             }
 
-            _context.Servicios.Remove(servicio);
-            await _context.SaveChangesAsync();
+            try
+            {
+                _context.Servicios.Remove(servicio);
+                await _context.SaveChangesAsync();
+                return Ok();
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al eliminar servicio {ServicioId}.", id);
+                return BadRequest("No fue posible eliminar el servicio porque tiene relaciones activas.");
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Guard bloqueo la eliminacion del servicio {ServicioId}.", id);
+                return BadRequest("No fue posible eliminar el servicio por una validacion de seguridad.");
+            }
+        }
 
-            return Ok();
+        private async Task ValidateServicioAsync(Servicio servicio)
+        {
+            if (string.IsNullOrWhiteSpace(servicio.Nombre))
+            {
+                ModelState.AddModelError(nameof(Servicio.Nombre), "Debe indicar el nombre del servicio.");
+            }
+
+            if (servicio.DuracionMinutos.HasValue && servicio.DuracionMinutos.Value <= 0)
+            {
+                ModelState.AddModelError(nameof(Servicio.DuracionMinutos), "La duracion debe ser mayor a cero.");
+            }
+
+            var existeDuplicado = await _context.Servicios
+                .AsNoTracking()
+                .AnyAsync(s => s.Id != servicio.Id && s.Nombre == servicio.Nombre);
+
+            if (existeDuplicado)
+            {
+                ModelState.AddModelError(nameof(Servicio.Nombre), "Ya existe un servicio con ese nombre.");
+            }
+        }
+
+        private static void NormalizeServicio(Servicio servicio)
+        {
+            servicio.Nombre = CollapseWhitespace(servicio.Nombre);
+            servicio.Precio = Math.Round(servicio.Precio, 2, MidpointRounding.AwayFromZero);
+            servicio.DuracionMinutos = servicio.DuracionMinutos.HasValue
+                ? servicio.DuracionMinutos.Value
+                : null;
+        }
+
+        private static string CollapseWhitespace(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            return string.Join(
+                ' ',
+                value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        }
+
+        private static bool IsUniqueConstraintViolation(DbUpdateException exception)
+        {
+            var message = exception.InnerException?.Message ?? exception.Message;
+            return message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("duplicate", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("IX_Servicios_TenantId_Nombre", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

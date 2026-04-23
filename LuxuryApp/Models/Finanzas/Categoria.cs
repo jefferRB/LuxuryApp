@@ -11,11 +11,12 @@ namespace LuxuryApp.Models.Finanzas
 
         [Required]
         [Display(Name = "Nombre categoria")]
+        [StringLength(150)]
         public string? Nombre { get; set; }
 
         [Required]
         [Display(Name = "Detalle")]
-        
+        [StringLength(500)]
         public string? Detalle { get; set; }
 
         public bool Activo { get; set; } = true;

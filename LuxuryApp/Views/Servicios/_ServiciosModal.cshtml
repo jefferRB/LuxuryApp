@@ -1,5 +1,9 @@
 ﻿@using LuxuryApp.Models.Finanzas
-@model List<Servicio>
+@model IReadOnlyList<ServicioListItemViewModel>
+
+<form id="serviciosAntiForgeryForm">
+    @Html.AntiForgeryToken()
+</form>
 
 <div class="mb-3">
 
@@ -29,7 +33,7 @@
         {
             <tr>
                 <td>@item.Nombre</td>
-                <td>₡@item.Precio</td>
+                <td>₡@item.Precio.ToString("N2")</td>
 
                 <td>
                     @(item.DuracionMinutos.HasValue

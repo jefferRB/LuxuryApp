@@ -1,4 +1,8 @@
-﻿@model LuxuryApp.Models.Finanzas.CobroViewModel
+@model LuxuryApp.Models.Finanzas.CobroViewModel
+
+@{
+    var esProducto = Model.Cobro.ProductoId.HasValue && !Model.Cobro.ServicioId.HasValue;
+}
 
 <div class="card border-0 shadow-lg">
     <div class="card-header bg-dark text-white py-3">
@@ -11,20 +15,17 @@
         <form asp-action="Create" method="post">
             <div asp-validation-summary="All" class="text-danger"></div>
 
-            <!-- Fecha -->
             <div class="mb-3">
                 <label asp-for="Cobro.FechaCobro" class="form-label"></label>
                 <input asp-for="Cobro.FechaCobro" class="form-control" type="datetime-local" step="60" />
             </div>
 
-            <!-- Nombre Cliente -->
             <div class="mb-3">
                 <label asp-for="Cobro.NombreCliente" class="form-label"></label>
                 <input asp-for="Cobro.NombreCliente" class="form-control" placeholder="Nombre del cliente" />
                 <span asp-validation-for="Cobro.NombreCliente" class="text-danger"></span>
             </div>
 
-            <!-- Funcionario -->
             <div class="mb-3">
                 <label asp-for="Cobro.FuncionarioId" class="form-label"></label>
                 <select asp-for="Cobro.FuncionarioId" class="form-select" asp-items="Model.Funcionarios">
@@ -32,38 +33,36 @@
                 </select>
             </div>
 
-            <!-- Tipo Item -->
             <div class="mb-3">
                 <label class="form-label">Tipo</label>
                 <select id="TipoItem" name="TipoItem" class="form-select">
-                    <option value="servicio" selected>Servicio</option>
-                    <option value="producto">Producto</option>
+                    <option value="servicio" selected="@(esProducto ? null : "selected")">Servicio</option>
+                    <option value="producto" selected="@(esProducto ? "selected" : null)">Producto</option>
                 </select>
             </div>
 
-            <!-- Servicio -->
-            <div class="mb-3" id="ServicioContainer">
+            <div class="mb-3 @(esProducto ? "d-none" : string.Empty)" id="ServicioContainer">
                 <label asp-for="Cobro.ServicioId" class="form-label"></label>
                 <select asp-for="Cobro.ServicioId"
                         class="form-select"
                         asp-items="Model.Servicios"
-                        id="ServicioId">
+                        id="ServicioId"
+                        disabled="@(esProducto ? "disabled" : null)">
                     <option value="">Seleccione servicio</option>
                 </select>
             </div>
 
-            <!-- Producto -->
-            <div class="mb-3 d-none" id="ProductoContainer">
+            <div class="mb-3 @(esProducto ? string.Empty : "d-none")" id="ProductoContainer">
                 <label class="form-label">Producto</label>
                 <select asp-for="Cobro.ProductoId"
                         class="form-select"
                         asp-items="Model.Productos"
-                        id="ProductoId">
+                        id="ProductoId"
+                        disabled="@(esProducto ? null : "disabled")">
                     <option value="">Seleccione producto</option>
                 </select>
             </div>
 
-            <!-- Monto -->
             <div class="mb-3">
                 <label asp-for="Cobro.Monto" class="form-label"></label>
                 <div class="input-group">
@@ -77,15 +76,12 @@
                 </div>
             </div>
 
-            <!-- Metodo Pago -->
             <div class="mb-3">
                 <label asp-for="Cobro.MetodoPago" class="form-label"></label>
                 <select asp-for="Cobro.MetodoPago" class="form-select" asp-items="Model.MetodosPago">
                     <option value="">Seleccione método de pago</option>
                 </select>
             </div>
-
-            
 
             <button type="submit" class="btn btn-dark">
                 <i class="fas fa-save me-1"></i>Guardar Cobro
@@ -94,8 +90,6 @@
             <a asp-action="Index" class="btn btn-secondary">
                 <i class="fas fa-arrow-left me-1"></i>Volver
             </a>
-
         </form>
     </div>
 </div>
-

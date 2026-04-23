@@ -83,7 +83,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             tenantProvider.TenantId = tenantA;
             context.ChangeTracker.Clear();
 
-            var controller = new ServiciosController(context);
+            var controller = new ServiciosController(context, NullLogger<ServiciosController>.Instance);
             var result = await controller.ObtenerPrecio(foreignServiceId);
 
             Assert.IsType<JsonResult>(result);
@@ -127,9 +127,6 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var controller = new ClientesController(
                 context,
-                ControllerTestSupport.CreateRecordatorioService(),
-                new FakeWebHostEnvironment(),
-                new FakeEmailService(),
                 NullLogger<ClientesController>.Instance);
             var result = await controller.Autocompletado("Cliente");
 
@@ -139,6 +136,56 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             Assert.Contains("Cliente Publico", serialized, StringComparison.Ordinal);
             Assert.DoesNotContain("Cliente Privado", serialized, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public async Task ClientesAutocomplete_ByPhoneFragment_ShouldOnlyReturnCurrentTenantMatches()
+        {
+            var tenantProvider = new TestTenantProvider();
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var tenantA = Guid.NewGuid();
+            var tenantB = Guid.NewGuid();
+
+            tenantProvider.TenantId = tenantB;
+            context.Clientes.Add(new ClientesModel
+            {
+                Nombre = "Cliente Privado Telefono",
+                NumeroTelefono = "55119999",
+                CorreoElectronico = "private-phone@test.local",
+                FechaUltimaVisita = DateTime.UtcNow,
+                FrecuenciaVisita = 30
+            });
+            await context.SaveChangesAsync();
+
+            tenantProvider.TenantId = tenantA;
+            context.Clientes.Add(new ClientesModel
+            {
+                Nombre = "Cliente Visible Telefono",
+                NumeroTelefono = "55110000",
+                CorreoElectronico = "public-phone@test.local",
+                FechaUltimaVisita = DateTime.UtcNow,
+                FrecuenciaVisita = 30
+            });
+            await context.SaveChangesAsync();
+
+            context.ChangeTracker.Clear();
+
+            var controller = new ClientesController(
+                context,
+                NullLogger<ClientesController>.Instance);
+            var result = await controller.Autocompletado("5511");
+
+            var ok = Assert.IsType<OkObjectResult>(result);
+            var payload = Assert.IsAssignableFrom<IEnumerable<object>>(ok.Value);
+            var serialized = System.Text.Json.JsonSerializer.Serialize(payload);
+
+            Assert.Contains("Cliente Visible Telefono", serialized, StringComparison.Ordinal);
+            Assert.DoesNotContain("Cliente Privado Telefono", serialized, StringComparison.Ordinal);
+            Assert.Contains("55110000", serialized, StringComparison.Ordinal);
+            Assert.DoesNotContain("55119999", serialized, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -288,7 +335,9 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             context.ChangeTracker.Clear();
 
-            var controller = new CobrosController(context);
+            var controller = new CobrosController(
+                ControllerTestSupport.CreateCobroService(context),
+                ControllerTestSupport.CreateCobroQueryService(context));
             var result = await controller.ExportarExcel(new CobroFiltroViewModel { VistaTiempo = "todo" });
 
             var file = Assert.IsType<FileContentResult>(result);
@@ -355,7 +404,9 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             context.ChangeTracker.Clear();
 
-            var controller = new EgresosController(context);
+            var controller = new EgresosController(
+                ControllerTestSupport.CreateEgresoService(context),
+                ControllerTestSupport.CreateEgresoQueryService(context));
             var result = await controller.ExportarExcel(new EgresoFiltroViewModel { VistaTiempo = "dia" });
 
             var file = Assert.IsType<FileContentResult>(result);

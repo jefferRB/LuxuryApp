@@ -80,46 +80,6 @@ namespace LuxuryApp.Migrations
                     b.ToTable("Citas");
                 });
 
-            modelBuilder.Entity("LuxuryApp.Models.DataBase.ClienteImagenesModel", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("ClienteId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Descripcion")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTime>("Fecha")
-                        .HasColumnType("datetime2");
-
-                    b.Property<byte[]>("Imagen")
-                        .IsRequired()
-                        .HasColumnType("varbinary(max)");
-
-                    b.Property<string>("NumeroTelefono")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ClienteId");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "ClienteId");
-
-                    b.ToTable("ClienteImagenes");
-                });
-
             modelBuilder.Entity("LuxuryApp.Models.DataBase.ClienteVisitas", b =>
                 {
                     b.Property<int>("Id")
@@ -148,7 +108,9 @@ namespace LuxuryApp.Migrations
 
                     b.HasIndex("TenantId");
 
-                    b.HasIndex("TenantId", "ClienteId", "FechaVisita");
+                    b.HasIndex("TenantId", "ClienteId", "FechaVisita")
+                        .IsDescending(false, false, true)
+                        .HasDatabaseName("IX_ClienteVisitas_TenantId_ClienteId_FechaVisita");
 
                     b.ToTable("ClienteVisitas");
                 });
@@ -194,6 +156,9 @@ namespace LuxuryApp.Migrations
 
                     b.HasIndex("TenantId");
 
+                    b.HasIndex("TenantId", "Nombre")
+                        .HasDatabaseName("IX_Clientes_TenantId_Nombre");
+
                     b.HasIndex("TenantId", "NumeroTelefono")
                         .IsUnique();
 
@@ -229,6 +194,7 @@ namespace LuxuryApp.Migrations
                     b.HasIndex("TenantId");
 
                     b.HasIndex("TenantId", "Nombre")
+                        .IsUnique()
                         .HasDatabaseName("IX_Categorias_TenantId_Nombre");
 
                     b.ToTable("Categorias");
@@ -281,6 +247,12 @@ namespace LuxuryApp.Migrations
 
                     b.HasIndex("TenantId");
 
+                    b.HasIndex("TenantId", "FechaCobro")
+                        .HasDatabaseName("IX_Cobros_TenantId_FechaCobro");
+
+                    b.HasIndex("TenantId", "FuncionarioId", "FechaCobro")
+                        .HasDatabaseName("IX_Cobros_TenantId_FuncionarioId_FechaCobro");
+
                     b.ToTable("Cobros");
                 });
 
@@ -317,6 +289,9 @@ namespace LuxuryApp.Migrations
                     b.HasIndex("ProductoId");
 
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "CobroId")
+                        .HasDatabaseName("IX_DetalleCobroProductos_TenantId_CobroId");
 
                     b.ToTable("DetalleCobroProductos");
                 });
@@ -356,6 +331,12 @@ namespace LuxuryApp.Migrations
 
                     b.HasIndex("TenantId");
 
+                    b.HasIndex("TenantId", "FechaEgreso")
+                        .HasDatabaseName("IX_Egresos_TenantId_FechaEgreso");
+
+                    b.HasIndex("TenantId", "CategoriaId", "FechaEgreso")
+                        .HasDatabaseName("IX_Egresos_TenantId_CategoriaId_FechaEgreso");
+
                     b.ToTable("Egresos");
                 });
 
@@ -375,7 +356,8 @@ namespace LuxuryApp.Migrations
 
                     b.Property<string>("Nombre")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<decimal>("Precio")
                         .HasColumnType("decimal(18,2)");
@@ -386,6 +368,10 @@ namespace LuxuryApp.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Nombre")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Servicios_TenantId_Nombre");
 
                     b.ToTable("Servicios");
                 });
@@ -434,6 +420,9 @@ namespace LuxuryApp.Migrations
                     b.HasIndex("IdPuesto");
 
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Nombre")
+                        .HasDatabaseName("IX_Funcionarios_TenantId_Nombre");
 
                     b.ToTable("Funcionarios");
                 });
@@ -619,6 +608,9 @@ namespace LuxuryApp.Migrations
 
                     b.HasIndex("TenantId");
 
+                    b.HasIndex("TenantId", "InicioSemana", "FinSemana", "FuncionarioId")
+                        .HasDatabaseName("IX_PagosFuncionarios_TenantId_Semana_Funcionario");
+
                     b.ToTable("PagosFuncionarios");
                 });
 
@@ -648,6 +640,10 @@ namespace LuxuryApp.Migrations
                     b.HasKey("IdPuesto");
 
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "NombrePuesto")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Puestos_TenantId_NombrePuesto");
 
                     b.ToTable("Puestos");
                 });
@@ -1709,17 +1705,6 @@ namespace LuxuryApp.Migrations
                     b.Navigation("Servicio");
                 });
 
-            modelBuilder.Entity("LuxuryApp.Models.DataBase.ClienteImagenesModel", b =>
-                {
-                    b.HasOne("LuxuryApp.Models.DataBase.ClientesModel", "Cliente")
-                        .WithMany("Imagenes")
-                        .HasForeignKey("ClienteId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Cliente");
-                });
-
             modelBuilder.Entity("LuxuryApp.Models.DataBase.ClienteVisitas", b =>
                 {
                     b.HasOne("LuxuryApp.Models.DataBase.ClientesModel", "Cliente")
@@ -2096,8 +2081,6 @@ namespace LuxuryApp.Migrations
 
             modelBuilder.Entity("LuxuryApp.Models.DataBase.ClientesModel", b =>
                 {
-                    b.Navigation("Imagenes");
-
                     b.Navigation("Visitas");
                 });
 

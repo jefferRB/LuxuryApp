@@ -270,13 +270,130 @@ namespace LuxuryApp.Tests.TenantIsolation
             funcionario.Activo = false;
             await context.SaveChangesAsync();
 
-            var controller = new CobrosController(context);
+            var controller = new CobrosController(
+                ControllerTestSupport.CreateCobroService(context),
+                ControllerTestSupport.CreateCobroQueryService(context));
             var result = await controller.Index(new CobroFiltroViewModel { VistaTiempo = "todo" });
 
             var view = Assert.IsType<ViewResult>(result);
             var model = Assert.IsType<CobroIndexViewModel>(view.Model);
 
             Assert.Equal(43.50m, model.PagoColaboradores);
+        }
+
+        [Fact]
+        public async Task ObtenerResumenSemanaAsync_ShouldCombineLegacyAndLiquidationPayments_WithoutDoubleCounting()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Ana", 50m, 0m);
+            await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 14), 200m);
+
+            context.PagosFuncionarios.Add(new PagoFuncionario
+            {
+                FuncionarioId = funcionario.IdFuncionario,
+                MontoPagado = 20m,
+                FechaPago = new DateTime(2026, 4, 18, 8, 0, 0),
+                InicioSemana = new DateTime(2026, 4, 13),
+                FinSemana = new DateTime(2026, 4, 19),
+                Observacion = "Pago legacy"
+            });
+
+            context.Categorias.Add(new Categoria
+            {
+                Nombre = LiquidacionSemanalDefaults.CategoriaPagoFuncionarios,
+                Detalle = "Auto"
+            });
+            await context.SaveChangesAsync();
+
+            var categoria = await context.Categorias.SingleAsync();
+            context.Egresos.Add(new Egreso
+            {
+                FechaEgreso = new DateTime(2026, 4, 19, 9, 0, 0),
+                CategoriaId = categoria.Id,
+                Monto = 30m,
+                MetodoPago = "SINPE",
+                Detalle = "Pago semanal"
+            });
+            await context.SaveChangesAsync();
+
+            var egreso = await context.Egresos.SingleAsync();
+            context.LiquidacionesSemanales.Add(new LiquidacionSemanal
+            {
+                SemanaInicio = new DateTime(2026, 4, 13),
+                SemanaFin = new DateTime(2026, 4, 19),
+                FechaPago = new DateTime(2026, 4, 19, 9, 0, 0),
+                MontoTotal = 30m,
+                Estado = LiquidacionSemanalDefaults.EstadoPagada,
+                Observacion = "Liquidacion nueva",
+                EgresoId = egreso.IdEgreso,
+                FechaCreacion = new DateTime(2026, 4, 19, 9, 0, 0)
+            });
+            await context.SaveChangesAsync();
+
+            var liquidacion = await context.LiquidacionesSemanales.SingleAsync();
+            context.LiquidacionesSemanalesDetalle.Add(new LiquidacionSemanalDetalle
+            {
+                LiquidacionSemanalId = liquidacion.Id,
+                FuncionarioId = funcionario.IdFuncionario,
+                MontoServicios = 200m,
+                MontoProductos = 0m,
+                Impuestos = 26m,
+                MontoNeto = 174m,
+                MontoPagado = 30m,
+                Pendiente = 37m
+            });
+            await context.SaveChangesAsync();
+
+            var service = CreateService(context);
+            var resumen = await service.ObtenerResumenSemanaAsync(
+                new DateTime(2026, 4, 13),
+                new DateTime(2026, 4, 19));
+
+            var pago = Assert.Single(resumen.Funcionarios);
+            Assert.Equal(87m, pago.PagoFinal);
+            Assert.Equal(50m, pago.MontoPagado);
+            Assert.Equal(37m, pago.MontoPendiente);
+            Assert.Equal(2, pago.HistorialPagos.Count);
+            Assert.Contains(pago.HistorialPagos, p => p.OrigenRegistro == "LEGACY");
+            Assert.Contains(pago.HistorialPagos, p => p.OrigenRegistro == "LIQUIDACION");
+        }
+
+        [Fact]
+        public async Task ObtenerResumenSemanaAsync_ShouldRespectTenantIsolation()
+        {
+            var tenantA = Guid.NewGuid();
+            var tenantB = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantA };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionarioA = await SeedFuncionarioAsync(context, "Ana", 50m, 0m);
+            await SeedCobroServicioAsync(context, funcionarioA.IdFuncionario, new DateTime(2026, 4, 14), 100m);
+
+            context.ChangeTracker.Clear();
+            tenantProvider.TenantId = tenantB;
+
+            var funcionarioB = await SeedFuncionarioAsync(context, "Beto", 50m, 0m);
+            await SeedCobroServicioAsync(context, funcionarioB.IdFuncionario, new DateTime(2026, 4, 14), 300m);
+
+            context.ChangeTracker.Clear();
+            tenantProvider.TenantId = tenantA;
+
+            var service = CreateService(context);
+            var resumen = await service.ObtenerResumenSemanaAsync(
+                new DateTime(2026, 4, 13),
+                new DateTime(2026, 4, 19));
+
+            var pago = Assert.Single(resumen.Funcionarios);
+            Assert.Equal("Ana", pago.Nombre);
+            Assert.Equal(100m, resumen.TotalGeneradoServicios);
+            Assert.Equal(100m, resumen.TotalGeneradoGeneral);
         }
 
         private static LiquidacionSemanalService CreateService(ProyectoIdentity.Datos.ApplicationDbContext context) =>

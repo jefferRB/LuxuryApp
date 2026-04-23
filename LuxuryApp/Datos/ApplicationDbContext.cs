@@ -102,6 +102,16 @@ namespace ProyectoIdentity.Datos
 
                 entity.Property(f => f.PorcentajeGanancia).HasColumnType("decimal(18,2)");
                 entity.Property(f => f.PorcentajeProducto).HasColumnType("decimal(18,2)");
+
+                entity.HasIndex(f => new { f.TenantId, f.Nombre })
+                    .HasDatabaseName("IX_Funcionarios_TenantId_Nombre");
+            });
+
+            modelBuilder.Entity<Puesto>(entity =>
+            {
+                entity.HasIndex(p => new { p.TenantId, p.NombrePuesto })
+                    .IsUnique()
+                    .HasDatabaseName("IX_Puestos_TenantId_NombrePuesto");
             });
 
             modelBuilder.Entity<ClientesModel>(entity =>
@@ -121,14 +131,12 @@ namespace ProyectoIdentity.Datos
                 entity.HasIndex(c => new { c.TenantId, c.NumeroTelefono })
                     .IsUnique();
 
+                entity.HasIndex(c => new { c.TenantId, c.Nombre })
+                    .HasDatabaseName("IX_Clientes_TenantId_Nombre");
+
                 entity.HasMany(c => c.Visitas)
                     .WithOne(v => v.Cliente)
                     .HasForeignKey(v => v.ClienteId)
-                    .OnDelete(DeleteBehavior.Cascade);
-
-                entity.HasMany(c => c.Imagenes)
-                    .WithOne(i => i.Cliente)
-                    .HasForeignKey(i => i.ClienteId)
                     .OnDelete(DeleteBehavior.Cascade);
             });
 
@@ -138,31 +146,44 @@ namespace ProyectoIdentity.Datos
                     .HasMaxLength(50)
                     .IsRequired();
 
-                entity.HasIndex(v => new { v.TenantId, v.ClienteId, v.FechaVisita });
-            });
-
-            modelBuilder.Entity<ClienteImagenesModel>(entity =>
-            {
-                entity.Property(i => i.NumeroTelefono)
-                    .HasMaxLength(50)
-                    .IsRequired();
-
-                entity.HasIndex(i => new { i.TenantId, i.ClienteId });
+                entity.HasIndex(v => new { v.TenantId, v.ClienteId, v.FechaVisita })
+                    .IsDescending(false, false, true)
+                    .HasDatabaseName("IX_ClienteVisitas_TenantId_ClienteId_FechaVisita");
             });
 
             modelBuilder.Entity<Servicio>(entity =>
             {
+                entity.Property(s => s.Nombre)
+                    .HasMaxLength(450)
+                    .IsRequired();
+
                 entity.Property(s => s.Precio).HasColumnType("decimal(18,2)");
+
+                entity.HasIndex(s => new { s.TenantId, s.Nombre })
+                    .IsUnique()
+                    .HasDatabaseName("IX_Servicios_TenantId_Nombre");
             });
 
             modelBuilder.Entity<Cobro>(entity =>
             {
                 entity.Property(c => c.Monto).HasColumnType("decimal(18,2)");
+
+                entity.HasIndex(c => new { c.TenantId, c.FechaCobro })
+                    .HasDatabaseName("IX_Cobros_TenantId_FechaCobro");
+
+                entity.HasIndex(c => new { c.TenantId, c.FuncionarioId, c.FechaCobro })
+                    .HasDatabaseName("IX_Cobros_TenantId_FuncionarioId_FechaCobro");
             });
 
             modelBuilder.Entity<Egreso>(entity =>
             {
                 entity.Property(e => e.Monto).HasColumnType("decimal(18,2)");
+
+                entity.HasIndex(e => new { e.TenantId, e.FechaEgreso })
+                    .HasDatabaseName("IX_Egresos_TenantId_FechaEgreso");
+
+                entity.HasIndex(e => new { e.TenantId, e.CategoriaId, e.FechaEgreso })
+                    .HasDatabaseName("IX_Egresos_TenantId_CategoriaId_FechaEgreso");
 
                 entity.HasOne(e => e.Categoria)
                     .WithMany()
@@ -180,6 +201,7 @@ namespace ProyectoIdentity.Datos
                     .HasMaxLength(500);
 
                 entity.HasIndex(c => new { c.TenantId, c.Nombre })
+                    .IsUnique()
                     .HasDatabaseName("IX_Categorias_TenantId_Nombre");
             });
 
@@ -188,9 +210,18 @@ namespace ProyectoIdentity.Datos
                 entity.Property(p => p.PrecioProducto).HasColumnType("decimal(18,2)");
             });
 
+            modelBuilder.Entity<DetalleCobroProducto>(entity =>
+            {
+                entity.HasIndex(d => new { d.TenantId, d.CobroId })
+                    .HasDatabaseName("IX_DetalleCobroProductos_TenantId_CobroId");
+            });
+
             modelBuilder.Entity<PagoFuncionario>(entity =>
             {
                 entity.Property(p => p.MontoPagado).HasColumnType("decimal(18,2)");
+
+                entity.HasIndex(p => new { p.TenantId, p.InicioSemana, p.FinSemana, p.FuncionarioId })
+                    .HasDatabaseName("IX_PagosFuncionarios_TenantId_Semana_Funcionario");
             });
 
             modelBuilder.Entity<LiquidacionSemanal>(entity =>
@@ -761,7 +792,6 @@ namespace ProyectoIdentity.Datos
         //DataBase
         public DbSet<ClientesModel> Clientes { get; set; }
         public DbSet<ClienteVisitas> ClienteVisitas { get; set; }
-        public DbSet<ClienteImagenesModel> ClienteImagenes { get; set; }
         //Calendar
         public DbSet<Cita> Citas { get; set; }
         //Finanzas

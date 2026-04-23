@@ -14,6 +14,8 @@ using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.SaaS;
+using LuxuryApp.Services.Finanzas;
+using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Services.Identity;
 using LuxuryApp.Services.Payments;
 using LuxuryApp.Services.SaaS;
@@ -23,6 +25,7 @@ using Microsoft.Data.SqlClient;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
@@ -118,6 +121,11 @@ static ServiceProvider BuildServices(IConfiguration configuration, StaticTenantP
     services.AddScoped<SuscripcionService>();
     services.AddScoped<SaaSPaymentService>();
     services.AddScoped<PaymentProviderResolver>();
+    services.AddScoped<ICobroService, CobroService>();
+    services.AddScoped<ICobroQueryService, CobroQueryService>();
+    services.AddScoped<IEgresoService, EgresoService>();
+    services.AddScoped<IEgresoQueryService, EgresoQueryService>();
+    services.AddScoped<ILiquidacionSemanalService, LiquidacionSemanalService>();
     services.AddHttpClient<PublicCallbackHealthService>(client => client.Timeout = TimeSpan.FromSeconds(10));
     services.AddSingleton<IOptions<OpcionesPago>>(Options.Create(new OpcionesPago
     {
@@ -700,8 +708,12 @@ static async Task RunExportIsolationAsync(IServiceProvider services, StaticTenan
         tenantProvider.TenantId = validation.TenantId;
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-        var cobrosController = new CobrosController(db);
-        var egresosController = new EgresosController(db);
+        var cobrosController = new CobrosController(
+            scope.ServiceProvider.GetRequiredService<ICobroService>(),
+            scope.ServiceProvider.GetRequiredService<ICobroQueryService>());
+        var egresosController = new EgresosController(
+            scope.ServiceProvider.GetRequiredService<IEgresoService>(),
+            scope.ServiceProvider.GetRequiredService<IEgresoQueryService>());
 
         var cobroResult = await cobrosController.ExportarExcel(new CobroFiltroViewModel { VistaTiempo = "todo" });
         var egresoResult = await egresosController.ExportarExcel(new EgresoFiltroViewModel { VistaTiempo = "dia" });
@@ -745,9 +757,12 @@ static async Task RunSecondaryEndpointIsolationAsync(IServiceProvider services, 
         tenantProvider.TenantId = validation.TenantId;
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-        var clientesController = new ClientesController(db, null!, null!, null!);
-        var funcionariosController = new FuncionariosController(db);
-        var serviciosController = new ServiciosController(db);
+        var clientesController = new ClientesController(db, NullLogger<ClientesController>.Instance);
+        var funcionariosController = new FuncionariosController(
+            db,
+            scope.ServiceProvider.GetRequiredService<ILiquidacionSemanalService>(),
+            NullLogger<FuncionariosController>.Instance);
+        var serviciosController = new ServiciosController(db, NullLogger<ServiciosController>.Instance);
 
         var clientesResult = await clientesController.Autocompletado("VAL-CLIENT");
         var funcionariosResult = await funcionariosController.GetActivos();
@@ -971,7 +986,6 @@ static async Task CleanupTenantOperationalDataAsync(IServiceProvider services, p
         await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM Puestos WHERE TenantId = {tenantId}");
         await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM Servicios WHERE TenantId = {tenantId}");
         await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM Categorias WHERE TenantId = {tenantId}");
-        await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM ClienteImagenes WHERE TenantId = {tenantId}");
         await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM ClienteVisitas WHERE TenantId = {tenantId}");
         await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM Clientes WHERE TenantId = {tenantId}");
     }

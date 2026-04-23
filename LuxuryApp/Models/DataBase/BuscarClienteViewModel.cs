@@ -1,9 +1,14 @@
-﻿namespace LuxuryApp.Models.DataBase
+namespace LuxuryApp.Models.DataBase
 {
-    public class BuscarClienteViewModel
+    public sealed class BuscarClienteViewModel
     {
-        public ClientesModel? ClienteSeleccionado { get; set; }
-        public List<ClientesModel> ClientesEncontrados { get; set; } = new();
+        public string? Criterio { get; set; }
+        public string? Mensaje { get; set; }
+        public bool EsBusquedaTelefonica { get; set; }
+        public bool ResultadosLimitados { get; set; }
+        public ClienteSummaryViewModel? ClienteSeleccionado { get; set; }
+        public IReadOnlyList<ClienteSummaryViewModel> ClientesEncontrados { get; set; } = Array.Empty<ClienteSummaryViewModel>();
+        public IReadOnlyList<ClienteVisitaItemViewModel> HistorialVisitas { get; set; } = Array.Empty<ClienteVisitaItemViewModel>();
         public int TotalVisitas { get; set; }
     }
 }

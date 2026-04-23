@@ -42,159 +42,138 @@ namespace LuxuryApp.Services.Funcionarios
 
             if (finSemana < inicioSemana)
             {
-                throw new InvalidOperationException("La semana indicada no es válida.");
+                throw new InvalidOperationException("La semana indicada no es valida.");
             }
 
-            var cobros = await _context.Cobros
-                .Include(c => c.Producto)
-                .Where(c => c.FechaCobro >= inicioSemana && c.FechaCobro < finSemana.AddDays(1))
-                .ToListAsync(cancellationToken);
+            var finSemanaExclusive = finSemana.AddDays(1);
 
-            var pagosHistoricos = await _context.PagosFuncionarios
-                .Where(p => p.InicioSemana.Date == inicioSemana && p.FinSemana.Date == finSemana)
-                .ToListAsync(cancellationToken);
+            var serviciosPorDia = await LoadServiceDayAggregatesAsync(
+                inicioSemana,
+                finSemanaExclusive,
+                cancellationToken);
 
-            var liquidacionesSemana = await _context.LiquidacionesSemanales
-                .Include(l => l.Detalles)
-                .Where(l => l.SemanaInicio.Date == inicioSemana && l.SemanaFin.Date == finSemana)
-                .ToListAsync(cancellationToken);
+            var productosVendidos = await LoadProductSalesAsync(
+                inicioSemana,
+                finSemanaExclusive,
+                cancellationToken);
 
-            var detalleLiquidaciones = liquidacionesSemana
-                .SelectMany(l => l.Detalles.Select(d => new
-                {
-                    LiquidacionId = l.Id,
-                    l.FechaPago,
-                    l.Observacion,
-                    d.FuncionarioId,
-                    d.MontoPagado
-                }))
-                .ToList();
+            var pagosLegacySemana = await LoadLegacyPaymentHistoryAsync(
+                inicioSemana,
+                finSemana,
+                cancellationToken);
 
-            var funcionarioIdsInvolucrados = cobros
-                .Select(c => c.FuncionarioId)
-                .Concat(pagosHistoricos.Select(p => p.FuncionarioId))
-                .Concat(detalleLiquidaciones.Select(d => d.FuncionarioId))
+            var pagosLiquidacionSemana = await LoadLiquidationPaymentHistoryAsync(
+                inicioSemana,
+                finSemana,
+                cancellationToken);
+
+            var funcionarioIdsInvolucrados = serviciosPorDia
+                .Select(s => s.FuncionarioId)
+                .Concat(productosVendidos.Select(p => p.FuncionarioId))
+                .Concat(pagosLegacySemana.Select(p => p.FuncionarioId))
+                .Concat(pagosLiquidacionSemana.Select(p => p.FuncionarioId))
                 .Distinct()
                 .ToList();
 
-            var funcionarios = await _context.Funcionarios
-                .Where(f => f.Activo || funcionarioIdsInvolucrados.Contains(f.IdFuncionario))
-                .OrderBy(f => f.Nombre)
-                .ToListAsync(cancellationToken);
+            var funcionarios = await LoadFuncionariosSemanaAsync(
+                funcionarioIdsInvolucrados,
+                cancellationToken);
 
-            var pagos = funcionarios.Select(f =>
+            var serviciosPorFuncionario = serviciosPorDia
+                .GroupBy(s => s.FuncionarioId)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Sum(item => item.Monto));
+
+            var detalleServiciosPorFuncionario = serviciosPorDia
+                .GroupBy(s => s.FuncionarioId)
+                .ToDictionary(
+                    group => group.Key,
+                    group => (IReadOnlyDictionary<DateTime, ServicioDiaAggregate>)group.ToDictionary(
+                        item => item.Fecha,
+                        item => item));
+
+            var productosPorFuncionario = productosVendidos
+                .GroupBy(p => p.FuncionarioId)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.OrderByDescending(item => item.Fecha).ToList());
+
+            var totalProductosPorFuncionario = productosPorFuncionario
+                .ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value.Sum(item => item.Precio));
+
+            var historialPagosPorFuncionario = pagosLegacySemana
+                .Concat(pagosLiquidacionSemana)
+                .GroupBy(p => p.FuncionarioId)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group
+                        .OrderByDescending(item => item.FechaPago)
+                        .ThenByDescending(item => item.ReferenciaId)
+                        .ToList());
+
+            var totalPagadoPorFuncionario = historialPagosPorFuncionario
+                .ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value.Sum(item => item.MontoPagado));
+
+            var pagos = new List<PagoFuncionarioVM>(funcionarios.Count);
+            foreach (var funcionario in funcionarios)
             {
-                var cobrosFuncionario = cobros
-                    .Where(c => c.FuncionarioId == f.IdFuncionario)
-                    .ToList();
+                var totalServicios = GetAmount(serviciosPorFuncionario, funcionario.IdFuncionario);
+                var totalProductos = GetAmount(totalProductosPorFuncionario, funcionario.IdFuncionario);
+                var totalGenerado = totalServicios + totalProductos;
+                var impuestos = totalGenerado * PagoFuncionarioDevengadoCalculator.TasaImpuesto;
+                var totalNeto = totalGenerado - impuestos;
 
-                var servicios = cobrosFuncionario
-                    .Where(c => c.ServicioId != null)
-                    .ToList();
-
-                var productos = cobrosFuncionario
-                    .Where(c => c.ProductoId != null)
-                    .ToList();
-
-                var totalServicios = servicios.Sum(c => c.Monto);
-                var totalProductos = productos.Sum(c => c.Monto);
-                var total = totalServicios + totalProductos;
-                var impuestos = (totalServicios + totalProductos) * PagoFuncionarioDevengadoCalculator.TasaImpuesto;
                 var netoServicios = totalServicios - (totalServicios * PagoFuncionarioDevengadoCalculator.TasaImpuesto);
                 var netoProductos = totalProductos - (totalProductos * PagoFuncionarioDevengadoCalculator.TasaImpuesto);
-                var pagoServicios = netoServicios * (f.PorcentajeGanancia / 100);
-                var pagoProductos = netoProductos * (f.PorcentajeProducto / 100);
-                var pagoFuncionario = pagoServicios + pagoProductos;
-                var totalPagadoLegacy = pagosHistoricos
-                    .Where(p => p.FuncionarioId == f.IdFuncionario)
-                    .Sum(p => p.MontoPagado);
-                var totalPagadoLiquidaciones = detalleLiquidaciones
-                    .Where(d => d.FuncionarioId == f.IdFuncionario)
-                    .Sum(d => d.MontoPagado);
-                var totalPagado = totalPagadoLegacy + totalPagadoLiquidaciones;
-                var pendiente = pagoFuncionario - totalPagado;
+                var pagoServicios = netoServicios * (funcionario.PorcentajeGanancia / 100m);
+                var pagoProductos = netoProductos * (funcionario.PorcentajeProducto / 100m);
+                var pagoFinal = pagoServicios + pagoProductos;
+                var montoPagado = GetAmount(totalPagadoPorFuncionario, funcionario.IdFuncionario);
+                var montoPendiente = pagoFinal - montoPagado;
 
-                var detalleDias = Enumerable.Range(0, (finSemana - inicioSemana).Days + 1)
-                    .Select(i =>
+                detalleServiciosPorFuncionario.TryGetValue(funcionario.IdFuncionario, out var serviciosDiarios);
+                productosPorFuncionario.TryGetValue(funcionario.IdFuncionario, out var productosFuncionarioRows);
+                historialPagosPorFuncionario.TryGetValue(funcionario.IdFuncionario, out var historialPagos);
+
+                var productosFuncionario = (productosFuncionarioRows ?? [])
+                    .Select(producto => new ProductoVendidoVM
                     {
-                        var fechaDia = inicioSemana.AddDays(i).Date;
-                        var serviciosDia = servicios
-                            .Where(c => c.FechaCobro.Date == fechaDia)
-                            .ToList();
-
-                        return new DetalleDiaVM
-                        {
-                            Dia = fechaDia.ToString("dddd"),
-                            CantidadServicios = serviciosDia.Count,
-                            Monto = serviciosDia.Sum(s => s.Monto)
-                        };
+                        Fecha = producto.Fecha,
+                        NombreProducto = producto.NombreProducto,
+                        Precio = producto.Precio,
+                        GananciaFuncionario =
+                            (producto.Precio - (producto.Precio * PagoFuncionarioDevengadoCalculator.TasaImpuesto)) *
+                            (funcionario.PorcentajeProducto / 100m)
                     })
                     .ToList();
 
-                var productosVendidos = productos
-                    .Select(p => new ProductoVendidoVM
-                    {
-                        Fecha = p.FechaCobro,
-                        NombreProducto = p.Producto?.NombreProducto ?? "Producto",
-                        Precio = p.Monto,
-                        GananciaFuncionario = (p.Monto - (p.Monto * PagoFuncionarioDevengadoCalculator.TasaImpuesto)) * (f.PorcentajeProducto / 100)
-                    })
-                    .OrderByDescending(p => p.Fecha)
-                    .ToList();
-
-                var historialPagos = pagosHistoricos
-                    .Where(p => p.FuncionarioId == f.IdFuncionario)
-                    .Select(p => new PagoFuncionario
-                    {
-                        IdPago = p.IdPago,
-                        FuncionarioId = p.FuncionarioId,
-                        MontoPagado = p.MontoPagado,
-                        FechaPago = p.FechaPago,
-                        InicioSemana = p.InicioSemana,
-                        FinSemana = p.FinSemana,
-                        Observacion = p.Observacion
-                    })
-                    .Concat(detalleLiquidaciones
-                        .Where(d => d.FuncionarioId == f.IdFuncionario)
-                        .Select(d => new PagoFuncionario
-                        {
-                            IdPago = d.LiquidacionId,
-                            FuncionarioId = d.FuncionarioId,
-                            MontoPagado = d.MontoPagado,
-                            FechaPago = d.FechaPago,
-                            InicioSemana = inicioSemana,
-                            FinSemana = finSemana,
-                            Observacion = d.Observacion
-                        }))
-                    .OrderByDescending(p => p.FechaPago)
-                    .ToList();
-
-                return new PagoFuncionarioVM
+                pagos.Add(new PagoFuncionarioVM
                 {
-                    FuncionarioId = f.IdFuncionario,
-                    Nombre = f.Nombre,
-                    TotalGenerado = total,
+                    FuncionarioId = funcionario.IdFuncionario,
+                    Nombre = funcionario.Nombre,
+                    TotalGenerado = totalGenerado,
                     Impuestos = impuestos,
-                    TotalNeto = total - impuestos,
-                    Porcentaje = f.PorcentajeGanancia,
-                    PorcentajeProducto = f.PorcentajeProducto,
-                    PagoFinal = pagoFuncionario,
-                    MontoPagado = totalPagado,
-                    MontoPendiente = pendiente,
-                    DetalleDias = detalleDias,
-                    ProductosVendidos = productosVendidos,
-                    HistorialPagos = historialPagos
-                };
-            }).ToList();
+                    TotalNeto = totalNeto,
+                    Porcentaje = funcionario.PorcentajeGanancia,
+                    PorcentajeProducto = funcionario.PorcentajeProducto,
+                    PagoFinal = pagoFinal,
+                    MontoPagado = montoPagado,
+                    MontoPendiente = montoPendiente,
+                    TotalServicios = totalServicios,
+                    TotalProductos = totalProductos,
+                    DetalleDias = BuildDetalleDias(inicioSemana, finSemana, serviciosDiarios),
+                    ProductosVendidos = productosFuncionario,
+                    HistorialPagos = historialPagos ?? new List<HistorialPagoFuncionarioViewModel>()
+                });
+            }
 
-            var totalGeneradoServicios = cobros
-                .Where(c => c.ServicioId != null)
-                .Sum(c => c.Monto);
-
-            var totalGeneradoProductos = cobros
-                .Where(c => c.ProductoId != null)
-                .Sum(c => c.Monto);
-
+            var totalGeneradoServicios = serviciosPorFuncionario.Values.Sum();
+            var totalGeneradoProductos = totalProductosPorFuncionario.Values.Sum();
             var totalGeneradoGeneral = totalGeneradoServicios + totalGeneradoProductos;
             var totalImpuestosGeneral = totalGeneradoGeneral * PagoFuncionarioDevengadoCalculator.TasaImpuesto;
             var totalSinImpuestosGeneral = totalGeneradoGeneral - totalImpuestosGeneral;
@@ -224,7 +203,7 @@ namespace LuxuryApp.Services.Funcionarios
         {
             if (command == null)
             {
-                throw new InvalidOperationException("La liquidación solicitada no es válida.");
+                throw new InvalidOperationException("La liquidacion solicitada no es valida.");
             }
 
             command.SemanaInicio = command.SemanaInicio.Date;
@@ -232,7 +211,7 @@ namespace LuxuryApp.Services.Funcionarios
 
             if (command.SemanaFin < command.SemanaInicio)
             {
-                throw new InvalidOperationException("La semana indicada no es válida.");
+                throw new InvalidOperationException("La semana indicada no es valida.");
             }
 
             command.MetodoPago = NormalizeMetodoPago(command.MetodoPago);
@@ -242,16 +221,16 @@ namespace LuxuryApp.Services.Funcionarios
             var detallesSolicitados = command.Detalles
                 .Where(d => d.MontoPagado > 0)
                 .GroupBy(d => d.FuncionarioId)
-                .Select(g => new RegistrarLiquidacionSemanalDetalleCommand
+                .Select(group => new RegistrarLiquidacionSemanalDetalleCommand
                 {
-                    FuncionarioId = g.Key,
-                    MontoPagado = g.Sum(x => x.MontoPagado)
+                    FuncionarioId = group.Key,
+                    MontoPagado = group.Sum(item => item.MontoPagado)
                 })
                 .ToList();
 
             if (detallesSolicitados.Count == 0)
             {
-                throw new InvalidOperationException("No hay montos válidos para registrar en la liquidación.");
+                throw new InvalidOperationException("No hay montos validos para registrar en la liquidacion.");
             }
 
             var executionStrategy = _context.Database.CreateExecutionStrategy();
@@ -288,8 +267,9 @@ namespace LuxuryApp.Services.Funcionarios
                 }
 
                 var categoria = await EnsureCategoriaPagoFuncionariosAsync(cancellationToken);
-                var fechaPago = NormalizeFechaPago(command.FechaPago);
-                var montoTotal = detallesValidados.Sum(x => x.MontoPagado);
+                var now = DateTime.Now;
+                var fechaPago = NormalizeFechaPago(command.FechaPago, now);
+                var montoTotal = detallesValidados.Sum(item => item.MontoPagado);
 
                 var egreso = new Egreso
                 {
@@ -298,7 +278,7 @@ namespace LuxuryApp.Services.Funcionarios
                     Monto = montoTotal,
                     MetodoPago = command.MetodoPago,
                     Detalle = BuildDetalleEgreso(
-                        detallesValidados.Select(x => x.Resumen.Nombre).ToList(),
+                        detallesValidados.Select(item => item.Resumen.Nombre).ToList(),
                         command.SemanaInicio,
                         command.SemanaFin)
                 };
@@ -315,7 +295,7 @@ namespace LuxuryApp.Services.Funcionarios
                     Estado = LiquidacionSemanalDefaults.EstadoPagada,
                     Observacion = command.Observacion,
                     CreadoPor = command.CreadoPor,
-                    FechaCreacion = DateTime.Now,
+                    FechaCreacion = now,
                     EgresoId = egreso.IdEgreso
                 };
 
@@ -328,8 +308,8 @@ namespace LuxuryApp.Services.Funcionarios
                     {
                         LiquidacionSemanalId = liquidacion.Id,
                         FuncionarioId = detalle.Resumen.FuncionarioId,
-                        MontoServicios = detalle.Resumen.TotalGenerado - detalle.Resumen.ProductosVendidos.Sum(p => p.Precio),
-                        MontoProductos = detalle.Resumen.ProductosVendidos.Sum(p => p.Precio),
+                        MontoServicios = detalle.Resumen.TotalServicios,
+                        MontoProductos = detalle.Resumen.TotalProductos,
                         Impuestos = detalle.Resumen.Impuestos,
                         MontoNeto = detalle.Resumen.TotalNeto,
                         MontoPagado = detalle.MontoPagado,
@@ -351,7 +331,7 @@ namespace LuxuryApp.Services.Funcionarios
                 await transaction.CommitAsync(cancellationToken);
 
                 _logger.LogInformation(
-                    "Liquidación semanal {LiquidacionId} registrada. Semana {SemanaInicio:yyyy-MM-dd} a {SemanaFin:yyyy-MM-dd}. Monto {MontoTotal}.",
+                    "Liquidacion semanal {LiquidacionId} registrada. Semana {SemanaInicio:yyyy-MM-dd} a {SemanaFin:yyyy-MM-dd}. Monto {MontoTotal}.",
                     liquidacion.Id,
                     command.SemanaInicio,
                     command.SemanaFin,
@@ -380,7 +360,7 @@ namespace LuxuryApp.Services.Funcionarios
             categoria = new Categoria
             {
                 Nombre = LiquidacionSemanalDefaults.CategoriaPagoFuncionarios,
-                Detalle = "Categoría generada automáticamente para registrar pagos reales a funcionarios.",
+                Detalle = "Categoria generada automaticamente para registrar pagos reales a funcionarios.",
                 Activo = true
             };
 
@@ -393,7 +373,7 @@ namespace LuxuryApp.Services.Funcionarios
             }
             catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
             {
-                _logger.LogWarning(ex, "La categoría de Pago Funcionarios fue creada concurrentemente por otra solicitud.");
+                _logger.LogWarning(ex, "La categoria de Pago Funcionarios fue creada concurrentemente por otra solicitud.");
                 _context.Entry(categoria).State = EntityState.Detached;
 
                 var existente = await _context.Categorias
@@ -432,28 +412,56 @@ namespace LuxuryApp.Services.Funcionarios
             }
 
             var funcionarios = await _context.Funcionarios
+                .AsNoTracking()
                 .Where(f => funcionarioIds.Contains(f.IdFuncionario))
+                .Select(f => new Funcionario
+                {
+                    IdFuncionario = f.IdFuncionario,
+                    Nombre = f.Nombre,
+                    PorcentajeGanancia = f.PorcentajeGanancia,
+                    PorcentajeProducto = f.PorcentajeProducto
+                })
                 .ToDictionaryAsync(f => f.IdFuncionario, cancellationToken);
 
             var cobrosSemana = await _context.Cobros
+                .AsNoTracking()
                 .Where(c => funcionarioIds.Contains(c.FuncionarioId) &&
                             c.FechaCobro >= semanaInicio.Date &&
                             c.FechaCobro < semanaFin.Date.AddDays(1))
+                .Select(c => new Cobro
+                {
+                    FuncionarioId = c.FuncionarioId,
+                    FechaCobro = c.FechaCobro,
+                    Monto = c.Monto,
+                    ProductoId = c.ProductoId
+                })
                 .ToListAsync(cancellationToken);
 
-            var distribuciones = new List<LiquidacionSemanalDistribucionMensual>();
-            var diasPorMes = new Dictionary<(int Anio, int Mes), HashSet<DateTime>>();
+            var cobrosPorFuncionario = cobrosSemana
+                .GroupBy(c => c.FuncionarioId)
+                .ToDictionary(group => group.Key, group => group.ToList());
+
+            var diasPorMes = cobrosSemana
+                .GroupBy(c => (c.FechaCobro.Year, c.FechaCobro.Month))
+                .ToDictionary(
+                    group => group.Key,
+                    group => group
+                        .Select(c => c.FechaCobro.Date)
+                        .Distinct()
+                        .Count());
+
+            var distribucionesPorMes = new Dictionary<(int Anio, int Mes), LiquidacionSemanalDistribucionMensual>();
             foreach (var detalle in detallesValidados)
             {
                 if (!funcionarios.TryGetValue(detalle.Resumen.FuncionarioId, out var funcionario))
                 {
                     throw new InvalidOperationException(
-                        $"No se pudo resolver el funcionario {detalle.Resumen.FuncionarioId} para construir la distribución analítica.");
+                        $"No se pudo resolver el funcionario {detalle.Resumen.FuncionarioId} para construir la distribucion analitica.");
                 }
 
-                var cobrosFuncionario = cobrosSemana
-                    .Where(c => c.FuncionarioId == detalle.Resumen.FuncionarioId)
-                    .ToList();
+                var cobrosFuncionario = cobrosPorFuncionario.TryGetValue(detalle.Resumen.FuncionarioId, out var listaCobros)
+                    ? listaCobros
+                    : new List<Cobro>();
 
                 var distribucionFuncionario = PagoFuncionarioDevengadoCalculator.DistribuirMontoPagadoPorMes(
                     cobrosFuncionario,
@@ -463,60 +471,181 @@ namespace LuxuryApp.Services.Funcionarios
                 if (distribucionFuncionario.Count == 0 && detalle.MontoPagado > 0)
                 {
                     throw new InvalidOperationException(
-                        $"No se encontró producción devengada para distribuir analíticamente el pago del funcionario {funcionario.Nombre} en la semana seleccionada.");
+                        $"No se encontro produccion devengada para distribuir analiticamente el pago del funcionario {funcionario.Nombre} en la semana seleccionada.");
                 }
 
                 foreach (var distribucionMes in distribucionFuncionario)
                 {
                     var claveMes = (distribucionMes.Anio, distribucionMes.Mes);
-                    if (!diasPorMes.TryGetValue(claveMes, out var fechasMes))
+                    if (!distribucionesPorMes.TryGetValue(claveMes, out var acumulado))
                     {
-                        fechasMes = cobrosFuncionario
-                            .Where(c => c.FechaCobro.Year == distribucionMes.Anio &&
-                                        c.FechaCobro.Month == distribucionMes.Mes)
-                            .Select(c => c.FechaCobro.Date)
-                            .ToHashSet();
-
-                        diasPorMes[claveMes] = fechasMes;
-                    }
-                    else
-                    {
-                        foreach (var fecha in cobrosFuncionario
-                                     .Where(c => c.FechaCobro.Year == distribucionMes.Anio &&
-                                                 c.FechaCobro.Month == distribucionMes.Mes)
-                                     .Select(c => c.FechaCobro.Date))
-                        {
-                            fechasMes.Add(fecha);
-                        }
-                    }
-
-                    var existente = distribuciones.FirstOrDefault(d =>
-                        d.Anio == distribucionMes.Anio &&
-                        d.Mes == distribucionMes.Mes);
-
-                    if (existente == null)
-                    {
-                        distribuciones.Add(new LiquidacionSemanalDistribucionMensual
+                        distribucionesPorMes[claveMes] = new LiquidacionSemanalDistribucionMensual
                         {
                             LiquidacionSemanalId = liquidacionId,
                             Anio = distribucionMes.Anio,
                             Mes = distribucionMes.Mes,
                             MontoAsignado = distribucionMes.MontoAsignado,
-                            DiasAplicados = fechasMes.Count
-                        });
+                            DiasAplicados = diasPorMes.GetValueOrDefault(claveMes)
+                        };
                         continue;
                     }
 
-                    existente.MontoAsignado += distribucionMes.MontoAsignado;
-                    existente.DiasAplicados = fechasMes.Count;
+                    acumulado.MontoAsignado += distribucionMes.MontoAsignado;
                 }
             }
 
-            AjustarRedondeoDistribucion(distribuciones, detallesValidados.Sum(d => d.MontoPagado));
-            return distribuciones
+            var distribuciones = distribucionesPorMes.Values
                 .OrderBy(d => d.Anio)
                 .ThenBy(d => d.Mes)
                 .ToList();
+
+            AjustarRedondeoDistribucion(distribuciones, detallesValidados.Sum(d => d.MontoPagado));
+            return distribuciones;
+        }
+
+        private static List<DetalleDiaVM> BuildDetalleDias(
+            DateTime inicioSemana,
+            DateTime finSemana,
+            IReadOnlyDictionary<DateTime, ServicioDiaAggregate>? detalleServicios)
+        {
+            var totalDias = (finSemana - inicioSemana).Days + 1;
+            var detalle = new List<DetalleDiaVM>(totalDias);
+
+            for (var index = 0; index < totalDias; index++)
+            {
+                var fechaDia = inicioSemana.AddDays(index).Date;
+                ServicioDiaAggregate? resumenDia = null;
+                if (detalleServicios != null)
+                {
+                    detalleServicios.TryGetValue(fechaDia, out resumenDia);
+                }
+
+                detalle.Add(new DetalleDiaVM
+                {
+                    Dia = fechaDia.ToString("dddd"),
+                    CantidadServicios = resumenDia?.CantidadServicios ?? 0,
+                    Monto = resumenDia?.Monto ?? 0m
+                });
+            }
+
+            return detalle;
+        }
+
+        private async Task<List<ServicioDiaAggregate>> LoadServiceDayAggregatesAsync(
+            DateTime inicioSemana,
+            DateTime finSemanaExclusive,
+            CancellationToken cancellationToken)
+        {
+            return await _context.Cobros
+                .AsNoTracking()
+                .Where(c => c.ServicioId != null &&
+                            c.FechaCobro >= inicioSemana &&
+                            c.FechaCobro < finSemanaExclusive)
+                .GroupBy(c => new { c.FuncionarioId, Fecha = c.FechaCobro.Date })
+                .Select(group => new ServicioDiaAggregate
+                {
+                    FuncionarioId = group.Key.FuncionarioId,
+                    Fecha = group.Key.Fecha,
+                    CantidadServicios = group.Count(),
+                    Monto = group.Sum(item => item.Monto)
+                })
+                .ToListAsync(cancellationToken);
+        }
+
+        private async Task<List<ProductoVentaAggregate>> LoadProductSalesAsync(
+            DateTime inicioSemana,
+            DateTime finSemanaExclusive,
+            CancellationToken cancellationToken)
+        {
+            return await _context.Cobros
+                .AsNoTracking()
+                .Where(c => c.ProductoId != null &&
+                            c.FechaCobro >= inicioSemana &&
+                            c.FechaCobro < finSemanaExclusive)
+                .OrderByDescending(c => c.FechaCobro)
+                .Select(c => new ProductoVentaAggregate
+                {
+                    FuncionarioId = c.FuncionarioId,
+                    Fecha = c.FechaCobro,
+                    NombreProducto = c.Producto != null ? c.Producto.NombreProducto : "Producto",
+                    Precio = c.Monto
+                })
+                .ToListAsync(cancellationToken);
+        }
+
+        private async Task<List<HistorialPagoFuncionarioViewModel>> LoadLegacyPaymentHistoryAsync(
+            DateTime inicioSemana,
+            DateTime finSemana,
+            CancellationToken cancellationToken)
+        {
+            var inicioSemanaExclusive = inicioSemana.AddDays(1);
+            var finSemanaExclusive = finSemana.AddDays(1);
+
+            return await _context.PagosFuncionarios
+                .AsNoTracking()
+                .Where(p => p.InicioSemana >= inicioSemana &&
+                            p.InicioSemana < inicioSemanaExclusive &&
+                            p.FinSemana >= finSemana &&
+                            p.FinSemana < finSemanaExclusive)
+                .Select(p => new HistorialPagoFuncionarioViewModel
+                {
+                    ReferenciaId = p.IdPago,
+                    FuncionarioId = p.FuncionarioId,
+                    MontoPagado = p.MontoPagado,
+                    FechaPago = p.FechaPago,
+                    InicioSemana = p.InicioSemana,
+                    FinSemana = p.FinSemana,
+                    Observacion = p.Observacion,
+                    OrigenRegistro = "LEGACY"
+                })
+                .ToListAsync(cancellationToken);
+        }
+
+        private async Task<List<HistorialPagoFuncionarioViewModel>> LoadLiquidationPaymentHistoryAsync(
+            DateTime inicioSemana,
+            DateTime finSemana,
+            CancellationToken cancellationToken)
+        {
+            var inicioSemanaExclusive = inicioSemana.AddDays(1);
+            var finSemanaExclusive = finSemana.AddDays(1);
+
+            return await _context.LiquidacionesSemanalesDetalle
+                .AsNoTracking()
+                .Where(d => d.LiquidacionSemanal != null &&
+                            d.LiquidacionSemanal.SemanaInicio >= inicioSemana &&
+                            d.LiquidacionSemanal.SemanaInicio < inicioSemanaExclusive &&
+                            d.LiquidacionSemanal.SemanaFin >= finSemana &&
+                            d.LiquidacionSemanal.SemanaFin < finSemanaExclusive)
+                .Select(d => new HistorialPagoFuncionarioViewModel
+                {
+                    ReferenciaId = d.LiquidacionSemanalId,
+                    FuncionarioId = d.FuncionarioId,
+                    MontoPagado = d.MontoPagado,
+                    FechaPago = d.LiquidacionSemanal!.FechaPago,
+                    InicioSemana = d.LiquidacionSemanal.SemanaInicio,
+                    FinSemana = d.LiquidacionSemanal.SemanaFin,
+                    Observacion = d.LiquidacionSemanal.Observacion,
+                    OrigenRegistro = "LIQUIDACION"
+                })
+                .ToListAsync(cancellationToken);
+        }
+
+        private async Task<List<FuncionarioResumenData>> LoadFuncionariosSemanaAsync(
+            IReadOnlyCollection<int> funcionarioIdsInvolucrados,
+            CancellationToken cancellationToken)
+        {
+            return await _context.Funcionarios
+                .AsNoTracking()
+                .Where(f => f.Activo || funcionarioIdsInvolucrados.Contains(f.IdFuncionario))
+                .OrderBy(f => f.Nombre)
+                .Select(f => new FuncionarioResumenData
+                {
+                    IdFuncionario = f.IdFuncionario,
+                    Nombre = f.Nombre,
+                    PorcentajeGanancia = f.PorcentajeGanancia,
+                    PorcentajeProducto = f.PorcentajeProducto
+                })
+                .ToListAsync(cancellationToken);
         }
 
         private static void AjustarRedondeoDistribucion(
@@ -533,9 +662,9 @@ namespace LuxuryApp.Services.Funcionarios
             distribuciones[^1].MontoAsignado += diferencia;
         }
 
-        private static DateTime NormalizeFechaPago(DateTime? fechaPago)
+        private static DateTime NormalizeFechaPago(DateTime? fechaPago, DateTime defaultNow)
         {
-            var baseDate = fechaPago ?? DateTime.Now;
+            var baseDate = fechaPago ?? defaultNow;
             return new DateTime(
                 baseDate.Year,
                 baseDate.Month,
@@ -553,7 +682,7 @@ namespace LuxuryApp.Services.Funcionarios
 
             if (!LiquidacionSemanalDefaults.MetodosPagoPermitidos.Contains(normalized))
             {
-                throw new InvalidOperationException("El método de pago indicado no es válido.");
+                throw new InvalidOperationException("El metodo de pago indicado no es valido.");
             }
 
             return normalized;
@@ -577,13 +706,20 @@ namespace LuxuryApp.Services.Funcionarios
             DateTime semanaInicio,
             DateTime semanaFin)
         {
-            string detalle = nombresFuncionarios.Count == 1
+            var detalle = nombresFuncionarios.Count == 1
                 ? $"Pago a {nombresFuncionarios.Single()} - Semana {semanaInicio:dd/MM} al {semanaFin:dd/MM}"
-                : $"Liquidación semanal de funcionarios - Semana {semanaInicio:dd/MM} al {semanaFin:dd/MM}";
+                : $"Liquidacion semanal de funcionarios - Semana {semanaInicio:dd/MM} al {semanaFin:dd/MM}";
 
             return detalle.Length <= 200
                 ? detalle
                 : detalle[..200];
+        }
+
+        private static decimal GetAmount(IReadOnlyDictionary<int, decimal> amounts, int funcionarioId)
+        {
+            return amounts.TryGetValue(funcionarioId, out var amount)
+                ? amount
+                : 0m;
         }
 
         private static bool IsUniqueConstraintViolation(DbUpdateException ex)
@@ -592,6 +728,30 @@ namespace LuxuryApp.Services.Funcionarios
             return message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase) ||
                    message.Contains("duplicate", StringComparison.OrdinalIgnoreCase) ||
                    message.Contains("PagoFuncionarios", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private sealed class FuncionarioResumenData
+        {
+            public int IdFuncionario { get; init; }
+            public string Nombre { get; init; } = string.Empty;
+            public decimal PorcentajeGanancia { get; init; }
+            public decimal PorcentajeProducto { get; init; }
+        }
+
+        private sealed class ServicioDiaAggregate
+        {
+            public int FuncionarioId { get; init; }
+            public DateTime Fecha { get; init; }
+            public int CantidadServicios { get; init; }
+            public decimal Monto { get; init; }
+        }
+
+        private sealed class ProductoVentaAggregate
+        {
+            public int FuncionarioId { get; init; }
+            public DateTime Fecha { get; init; }
+            public string NombreProducto { get; init; } = string.Empty;
+            public decimal Precio { get; init; }
         }
     }
 }

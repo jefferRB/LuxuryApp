@@ -1,4 +1,6 @@
+using ClosedXML.Excel;
 using LuxuryApp.Controllers.Funcionarios;
+using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Tests.Support;
@@ -20,33 +22,10 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var disposableContext = context;
             using var disposableConnection = connection;
 
-            context.Planes.Add(new Plan
-            {
-                Id = planId,
-                Nombre = "Full",
-                PrecioMensual = 99,
-                Moneda = "CRC",
-                Activo = true,
-                MaxFuncionarios = 5
-            });
+            await SeedPlanAsync(context, planId, maxFuncionarios: 5);
+            var puesto = await SeedPuestoAsync(context, "Estilista", "Atencion general");
 
-            context.Puestos.Add(new Puesto
-            {
-                NombrePuesto = "Estilista",
-                Detalle = "Atención general"
-            });
-
-            await context.SaveChangesAsync();
-
-            var puesto = await context.Puestos.SingleAsync();
-            var controller = CreateController(context, tenantId);
-            controller.HttpContext.Items["TenantCommercialAccess"] = new TenantCommercialAccessResult
-            {
-                CanAccessApp = true,
-                TenantId = tenantId,
-                EffectivePlanId = planId,
-                EffectivePlanName = "Full"
-            };
+            var controller = CreateController(context, tenantId, planId);
 
             var result = await controller.Create(new Funcionario
             {
@@ -65,6 +44,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var funcionario = await context.Funcionarios.SingleAsync();
             Assert.Equal("Ana", funcionario.Nombre);
             Assert.Equal(puesto.IdPuesto, funcionario.IdPuesto);
+            Assert.True(funcionario.Activo);
         }
 
         [Fact]
@@ -76,14 +56,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var disposableContext = context;
             using var disposableConnection = connection;
 
-            context.Puestos.Add(new Puesto
-            {
-                NombrePuesto = "Recepción",
-                Detalle = "Front desk"
-            });
-            await context.SaveChangesAsync();
-
-            var puesto = await context.Puestos.SingleAsync();
+            var puesto = await SeedPuestoAsync(context, "Recepcion", "Front desk");
             var controller = CreateController(context, tenantId);
 
             var result = await controller.Create(new Funcionario
@@ -99,48 +72,45 @@ namespace LuxuryApp.Tests.TenantIsolation
             var redirect = Assert.IsType<RedirectToActionResult>(result);
             Assert.Equal(nameof(FuncionariosController.Index), redirect.ActionName);
             Assert.Equal(
-                "No fue posible resolver el acceso comercial del tenant para validar el límite de funcionarios.",
+                "No fue posible resolver el acceso comercial del tenant para validar el limite de funcionarios.",
                 controller.TempData["Error"]);
 
             Assert.Empty(await context.Funcionarios.ToListAsync());
         }
 
         [Fact]
-        public async Task Create_ShouldReturnViewWithModelError_WhenPuestoIsInvalid()
+        public async Task Create_ShouldRejectCrossTenantPuesto()
         {
             var tenantId = Guid.NewGuid();
+            var otherTenantId = Guid.NewGuid();
             var planId = Guid.NewGuid();
-            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var tenantProvider = new TestTenantProvider { TenantId = otherTenantId };
             var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
             using var disposableContext = context;
             using var disposableConnection = connection;
 
-            context.Planes.Add(new Plan
+            context.Puestos.Add(new Puesto
             {
-                Id = planId,
-                Nombre = "Full",
-                PrecioMensual = 99,
-                Moneda = "CRC",
-                Activo = true,
-                MaxFuncionarios = 5
+                NombrePuesto = "Puesto Externo",
+                Detalle = "Otro tenant"
             });
-
             await context.SaveChangesAsync();
 
-            var controller = CreateController(context, tenantId);
-            controller.HttpContext.Items["TenantCommercialAccess"] = new TenantCommercialAccessResult
-            {
-                CanAccessApp = true,
-                TenantId = tenantId,
-                EffectivePlanId = planId,
-                EffectivePlanName = "Full"
-            };
+            var foreignPuestoId = await context.Puestos
+                .Select(p => p.IdPuesto)
+                .SingleAsync();
+
+            context.ChangeTracker.Clear();
+            tenantProvider.TenantId = tenantId;
+
+            await SeedPlanAsync(context, planId, maxFuncionarios: 5);
+            var controller = CreateController(context, tenantId, planId);
 
             var result = await controller.Create(new Funcionario
             {
                 Nombre = "Paola",
                 Telefono = "8888-4444",
-                IdPuesto = 999,
+                IdPuesto = foreignPuestoId,
                 ColorCalendario = "#333333",
                 PorcentajeGanancia = 35,
                 PorcentajeProducto = 10,
@@ -157,6 +127,235 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
+        public async Task Create_ShouldCountOnlyActiveFuncionariosAgainstPlanLimit()
+        {
+            var tenantId = Guid.NewGuid();
+            var planId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            await SeedPlanAsync(context, planId, maxFuncionarios: 1);
+            var puesto = await SeedPuestoAsync(context, "Colorista", "Cabello");
+
+            context.Funcionarios.Add(new Funcionario
+            {
+                Nombre = "Inactiva",
+                IdPuesto = puesto.IdPuesto,
+                ColorCalendario = "#101010",
+                PorcentajeGanancia = 40,
+                PorcentajeProducto = 10,
+                FechaIngreso = new DateTime(2026, 4, 1),
+                Activo = false
+            });
+            await context.SaveChangesAsync();
+
+            var controller = CreateController(context, tenantId, planId);
+
+            var result = await controller.Create(new Funcionario
+            {
+                Nombre = "Nueva",
+                IdPuesto = puesto.IdPuesto,
+                ColorCalendario = "#202020",
+                PorcentajeGanancia = 35,
+                PorcentajeProducto = 8,
+                FechaIngreso = new DateTime(2026, 4, 13)
+            });
+
+            var redirect = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal(nameof(FuncionariosController.Index), redirect.ActionName);
+
+            var funcionarios = await context.Funcionarios
+                .OrderBy(f => f.Nombre)
+                .ToListAsync();
+
+            Assert.Equal(2, funcionarios.Count);
+            Assert.Single(funcionarios, f => f.Activo);
+            Assert.Contains(funcionarios, f => f.Nombre == "Nueva" && f.Activo);
+        }
+
+        [Fact]
+        public async Task Edit_ShouldPreserveActivoState_WhenStateIsManagedExternally()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var puesto = await SeedPuestoAsync(context, "Barbero", "Cabina 1");
+            var funcionario = new Funcionario
+            {
+                Nombre = "Luis",
+                IdPuesto = puesto.IdPuesto,
+                ColorCalendario = "#444444",
+                PorcentajeGanancia = 35,
+                PorcentajeProducto = 5,
+                FechaIngreso = new DateTime(2026, 4, 13),
+                Activo = true
+            };
+            context.Funcionarios.Add(funcionario);
+            await context.SaveChangesAsync();
+
+            var controller = CreateController(context, tenantId);
+            var result = await controller.Edit(new Funcionario
+            {
+                IdFuncionario = funcionario.IdFuncionario,
+                Nombre = "Luis Actualizado",
+                IdPuesto = puesto.IdPuesto,
+                ColorCalendario = "#555555",
+                PorcentajeGanancia = 35,
+                PorcentajeProducto = 5,
+                FechaIngreso = funcionario.FechaIngreso
+            });
+
+            var redirect = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal(nameof(FuncionariosController.Index), redirect.ActionName);
+
+            var persisted = await context.Funcionarios.SingleAsync();
+            Assert.True(persisted.Activo);
+            Assert.Equal("Luis Actualizado", persisted.Nombre);
+        }
+
+        [Fact]
+        public async Task Activar_ShouldBlock_WhenActivePlanLimitIsReached()
+        {
+            var tenantId = Guid.NewGuid();
+            var planId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            await SeedPlanAsync(context, planId, maxFuncionarios: 1);
+            var puesto = await SeedPuestoAsync(context, "Masajista", "Spa");
+
+            context.Funcionarios.AddRange(
+                new Funcionario
+                {
+                    Nombre = "Activa",
+                    IdPuesto = puesto.IdPuesto,
+                    ColorCalendario = "#111111",
+                    PorcentajeGanancia = 40,
+                    PorcentajeProducto = 10,
+                    FechaIngreso = new DateTime(2026, 4, 1),
+                    Activo = true
+                },
+                new Funcionario
+                {
+                    Nombre = "Pendiente",
+                    IdPuesto = puesto.IdPuesto,
+                    ColorCalendario = "#222222",
+                    PorcentajeGanancia = 40,
+                    PorcentajeProducto = 10,
+                    FechaIngreso = new DateTime(2026, 4, 1),
+                    Activo = false
+                });
+            await context.SaveChangesAsync();
+
+            var inactivo = await context.Funcionarios
+                .OrderBy(f => f.Nombre)
+                .LastAsync();
+
+            var controller = CreateController(context, tenantId, planId);
+            var result = await controller.Activar(inactivo.IdFuncionario);
+
+            var redirect = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal(nameof(FuncionariosController.Index), redirect.ActionName);
+            Assert.Equal(
+                "Has alcanzado el limite de funcionarios activos de tu plan (Full).",
+                controller.TempData["Error"]);
+
+            var persisted = await context.Funcionarios
+                .SingleAsync(f => f.IdFuncionario == inactivo.IdFuncionario);
+            Assert.False(persisted.Activo);
+        }
+
+        [Fact]
+        public async Task PagosSemana_ShouldReturnTypedViewModel_WithWeekKpis()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var puesto = await SeedPuestoAsync(context, "Estilista", "General");
+            var funcionario = new Funcionario
+            {
+                Nombre = "Ana",
+                IdPuesto = puesto.IdPuesto,
+                ColorCalendario = "#111111",
+                PorcentajeGanancia = 50,
+                PorcentajeProducto = 10,
+                FechaIngreso = new DateTime(2026, 4, 13),
+                Activo = true
+            };
+            context.Funcionarios.Add(funcionario);
+            await context.SaveChangesAsync();
+
+            await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 14), 200m);
+
+            var controller = CreateController(context, tenantId);
+            var result = await controller.PagosSemana(new DateTime(2026, 4, 13));
+
+            var view = Assert.IsType<ViewResult>(result);
+            var model = Assert.IsType<PagosSemanaPageViewModel>(view.Model);
+
+            Assert.Equal(new DateTime(2026, 4, 13), model.InicioSemana);
+            Assert.Equal(new DateTime(2026, 4, 19), model.FinSemana);
+            Assert.Equal(200m, model.TotalGeneradoServicios);
+            Assert.Equal(200m, model.TotalGeneradoGeneral);
+            Assert.Single(model.Funcionarios);
+            Assert.Equal(3, model.MetodosPago.Count);
+        }
+
+        [Fact]
+        public async Task ExportarPagosExcel_ShouldReturnWorkbook_WithSummarySheet()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var puesto = await SeedPuestoAsync(context, "Estilista", "General");
+            var funcionario = new Funcionario
+            {
+                Nombre = "Ana",
+                IdPuesto = puesto.IdPuesto,
+                ColorCalendario = "#111111",
+                PorcentajeGanancia = 50,
+                PorcentajeProducto = 10,
+                FechaIngreso = new DateTime(2026, 4, 13),
+                Activo = true
+            };
+            context.Funcionarios.Add(funcionario);
+            await context.SaveChangesAsync();
+
+            await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 14), 200m);
+
+            var controller = CreateController(context, tenantId);
+            var result = await controller.ExportarPagosExcel(
+                new DateTime(2026, 4, 13),
+                new DateTime(2026, 4, 19));
+
+            var file = Assert.IsType<FileContentResult>(result);
+            Assert.Equal(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                file.ContentType);
+            Assert.StartsWith("LuxePagosFuncionarios_", file.FileDownloadName, StringComparison.Ordinal);
+
+            using var workbook = new XLWorkbook(new MemoryStream(file.FileContents));
+            var worksheet = workbook.Worksheet("Pagos Funcionarios");
+
+            Assert.Equal("LUXE CENTRO DE BELLEZA", worksheet.Cell("A1").GetString());
+            Assert.Equal("Ana", worksheet.Cell(6, 1).GetString());
+            Assert.Equal(200m, worksheet.Cell(6, 2).GetValue<decimal>());
+        }
+
+        [Fact]
         public async Task Eliminar_ShouldBlockDeletion_WhenFuncionarioHasRelatedPayments()
         {
             var tenantId = Guid.NewGuid();
@@ -165,14 +364,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var disposableContext = context;
             using var disposableConnection = connection;
 
-            context.Puestos.Add(new Puesto
-            {
-                NombrePuesto = "Masajista",
-                Detalle = "Spa"
-            });
-            await context.SaveChangesAsync();
-
-            var puesto = await context.Puestos.SingleAsync();
+            var puesto = await SeedPuestoAsync(context, "Masajista", "Spa");
             var funcionario = new Funcionario
             {
                 Nombre = "Andrea",
@@ -200,7 +392,6 @@ namespace LuxuryApp.Tests.TenantIsolation
             await context.SaveChangesAsync();
 
             var controller = CreateController(context, tenantId);
-
             var result = await controller.Eliminar(funcionario.IdFuncionario);
 
             var redirect = Assert.IsType<RedirectToActionResult>(result);
@@ -220,21 +411,15 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var disposableContext = context;
             using var disposableConnection = connection;
 
-            context.Categorias.Add(new LuxuryApp.Models.Finanzas.Categoria
+            context.Categorias.Add(new Categoria
             {
                 Nombre = LiquidacionSemanalDefaults.CategoriaPagoFuncionarios,
                 Detalle = "Auto"
             });
-            context.Puestos.Add(new Puesto
-            {
-                NombrePuesto = "Barbero",
-                Detalle = "General"
-            });
+            var puesto = await SeedPuestoAsync(context, "Barbero", "General");
             await context.SaveChangesAsync();
 
-            var puesto = await context.Puestos.SingleAsync();
             var categoria = await context.Categorias.SingleAsync();
-
             var funcionario = new Funcionario
             {
                 Nombre = "David",
@@ -248,7 +433,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             context.Funcionarios.Add(funcionario);
             await context.SaveChangesAsync();
 
-            context.Egresos.Add(new LuxuryApp.Models.Finanzas.Egreso
+            context.Egresos.Add(new Egreso
             {
                 FechaEgreso = new DateTime(2026, 4, 19),
                 CategoriaId = categoria.Id,
@@ -295,7 +480,10 @@ namespace LuxuryApp.Tests.TenantIsolation
                 controller.TempData["Error"]);
         }
 
-        private static FuncionariosController CreateController(ProyectoIdentity.Datos.ApplicationDbContext context, Guid tenantId)
+        private static FuncionariosController CreateController(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            Guid tenantId,
+            Guid? planId = null)
         {
             var controller = new FuncionariosController(
                 context,
@@ -306,7 +494,81 @@ namespace LuxuryApp.Tests.TenantIsolation
                 controller,
                 ControllerTestSupport.BuildTenantPrincipal("user-funcionarios", tenantId));
 
+            if (planId.HasValue)
+            {
+                controller.HttpContext.Items["TenantCommercialAccess"] = new TenantCommercialAccessResult
+                {
+                    CanAccessApp = true,
+                    TenantId = tenantId,
+                    EffectivePlanId = planId.Value,
+                    EffectivePlanName = "Full"
+                };
+            }
+
             return controller;
+        }
+
+        private static async Task SeedPlanAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            Guid planId,
+            int maxFuncionarios)
+        {
+            context.Planes.Add(new Plan
+            {
+                Id = planId,
+                Nombre = "Full",
+                PrecioMensual = 99,
+                Moneda = "CRC",
+                Activo = true,
+                MaxFuncionarios = maxFuncionarios
+            });
+
+            await context.SaveChangesAsync();
+        }
+
+        private static async Task<Puesto> SeedPuestoAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            string nombre,
+            string detalle)
+        {
+            context.Puestos.Add(new Puesto
+            {
+                NombrePuesto = nombre,
+                Detalle = detalle,
+                Activo = true
+            });
+
+            await context.SaveChangesAsync();
+            return await context.Puestos.SingleAsync(p => p.NombrePuesto == nombre);
+        }
+
+        private static async Task SeedCobroServicioAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            int funcionarioId,
+            DateTime fecha,
+            decimal monto)
+        {
+            var servicio = new Servicio
+            {
+                Nombre = $"Servicio {fecha:yyyyMMddHHmmss}",
+                Precio = monto,
+                DuracionMinutos = 60,
+                Activo = true
+            };
+            context.Servicios.Add(servicio);
+            await context.SaveChangesAsync();
+
+            context.Cobros.Add(new Cobro
+            {
+                NombreCliente = "Cliente Test",
+                FuncionarioId = funcionarioId,
+                FechaCobro = fecha,
+                Monto = monto,
+                MetodoPago = "EFECTIVO",
+                ServicioId = servicio.Id
+            });
+
+            await context.SaveChangesAsync();
         }
     }
 }

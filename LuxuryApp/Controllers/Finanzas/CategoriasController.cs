@@ -18,28 +18,16 @@ namespace LuxuryApp.Controllers.Finanzas
             _logger = logger;
         }
 
-        public async Task<IActionResult> Index()
-        {
-            var categorias = await _context.Categorias
-                .OrderBy(c => c.Nombre)
-                .ToListAsync();
+        public Task<IActionResult> Index() => ModalCategorias();
 
-            return View(categorias);
-        }
-
-        public IActionResult Create()
-        {
-            return View();
-        }
+        public Task<IActionResult> Create() => FormCategoria();
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create(
+        public Task<IActionResult> Create(
             [Bind(nameof(Categoria.Id) + "," + nameof(Categoria.Nombre) + "," + nameof(Categoria.Detalle))]
-            Categoria categoria)
-        {
-            return await Save(categoria);
-        }
+            Categoria categoria) =>
+            Save(categoria);
 
         [HttpPost]
         [ValidateAntiForgeryToken]
@@ -48,14 +36,7 @@ namespace LuxuryApp.Controllers.Finanzas
             Categoria categoria)
         {
             NormalizeCategoria(categoria);
-
-            bool existe = await _context.Categorias
-                .AnyAsync(c => c.Nombre == categoria.Nombre && c.Id != categoria.Id);
-
-            if (existe)
-            {
-                ModelState.AddModelError(nameof(Categoria.Nombre), "Ya existe una categoría con ese nombre.");
-            }
+            await ValidateCategoriaAsync(categoria);
 
             if (!ModelState.IsValid)
             {
@@ -86,84 +67,70 @@ namespace LuxuryApp.Controllers.Finanzas
                 await _context.SaveChangesAsync();
                 return Ok();
             }
+            catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+            {
+                _logger.LogWarning(ex, "Intento de duplicar categoria {CategoriaNombre}.", categoria.Nombre);
+                ModelState.AddModelError(nameof(Categoria.Nombre), "Ya existe una categoria con ese nombre.");
+                return PartialView("_FormCategoria", categoria);
+            }
             catch (DbUpdateException ex)
             {
-                _logger.LogError(ex, "Error al guardar categoría {CategoriaId}.", categoria.Id);
-                ModelState.AddModelError(string.Empty, "No fue posible guardar la categoría.");
+                _logger.LogError(ex, "Error al guardar categoria {CategoriaId}.", categoria.Id);
+                ModelState.AddModelError(string.Empty, "No fue posible guardar la categoria.");
                 return PartialView("_FormCategoria", categoria);
             }
             catch (InvalidOperationException ex)
             {
-                _logger.LogError(ex, "Guard bloqueó la operación sobre categoría {CategoriaId}.", categoria.Id);
-                return BadRequest("No fue posible guardar la categoría por una validación de seguridad o consistencia.");
+                _logger.LogError(ex, "Guard bloqueo la operacion sobre categoria {CategoriaId}.", categoria.Id);
+                return BadRequest("No fue posible guardar la categoria por una validacion de seguridad o consistencia.");
             }
         }
 
-        public async Task<IActionResult> Edit(int id)
-        {
-            var categoria = await _context.Categorias
-                .FirstOrDefaultAsync(c => c.Id == id);
-
-            if (categoria == null)
-                return NotFound();
-
-            return View(categoria);
-        }
+        public Task<IActionResult> Edit(int id) => FormCategoria(id);
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(
+        public Task<IActionResult> Edit(
             int id,
             [Bind(nameof(Categoria.Id) + "," + nameof(Categoria.Nombre) + "," + nameof(Categoria.Detalle))]
             Categoria categoria)
         {
             if (id != categoria.Id)
-                return NotFound();
-
-            if (ModelState.IsValid)
             {
-                try
-                {
-                    var categoriaDb = await _context.Categorias
-                        .FirstOrDefaultAsync(c => c.Id == id);
-
-                    if (categoriaDb == null)
-                        return NotFound();
-
-                    categoriaDb.Nombre = categoria.Nombre;
-                    categoriaDb.Detalle = categoria.Detalle;
-
-                    await _context.SaveChangesAsync();
-                }
-                catch (DbUpdateConcurrencyException)
-                {
-                    if (!_context.Categorias.Any(c => c.Id == categoria.Id))
-                        return NotFound();
-
-                    throw;
-                }
-
-                return RedirectToAction(nameof(Index));
+                return Task.FromResult<IActionResult>(NotFound());
             }
 
-            return View(categoria);
+            return Save(categoria);
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> ToggleActivo(int id)
         {
-            var categoria = await _context.Categorias
-                .FirstOrDefaultAsync(c => c.Id == id);
+            try
+            {
+                var categoria = await _context.Categorias
+                    .FirstOrDefaultAsync(c => c.Id == id);
 
-            if (categoria == null)
-                return NotFound();
+                if (categoria == null)
+                {
+                    return NotFound();
+                }
 
-            categoria.Activo = !categoria.Activo;
-
-            await _context.SaveChangesAsync();
-
-            return Ok();
+                categoria.Activo = !categoria.Activo;
+                await _context.SaveChangesAsync();
+                return Ok();
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al alternar el estado de la categoria {CategoriaId}.", id);
+                return BadRequest("No fue posible actualizar el estado de la categoria.");
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Guard bloqueo el cambio de estado de la categoria {CategoriaId}.", id);
+                return BadRequest("No fue posible actualizar el estado de la categoria por una validacion de seguridad.");
+            }
         }
 
         [HttpPost]
@@ -178,12 +145,13 @@ namespace LuxuryApp.Controllers.Finanzas
                 return NotFound();
             }
 
-            bool estaEnUso = await _context.Egresos
+            var estaEnUso = await _context.Egresos
+                .AsNoTracking()
                 .AnyAsync(e => e.CategoriaId == id);
 
             if (estaEnUso)
             {
-                return BadRequest("No se puede eliminar la categoría porque ya está siendo usada en egresos.");
+                return BadRequest("No se puede eliminar la categoria porque ya esta siendo usada en egresos.");
             }
 
             try
@@ -194,21 +162,27 @@ namespace LuxuryApp.Controllers.Finanzas
             }
             catch (DbUpdateException ex)
             {
-                _logger.LogError(ex, "Error al eliminar categoría {CategoriaId}.", id);
-                return BadRequest("No fue posible eliminar la categoría porque tiene relaciones activas.");
+                _logger.LogError(ex, "Error al eliminar categoria {CategoriaId}.", id);
+                return BadRequest("No fue posible eliminar la categoria porque tiene relaciones activas.");
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Guard bloqueo la eliminacion de la categoria {CategoriaId}.", id);
+                return BadRequest("No fue posible eliminar la categoria por una validacion de seguridad.");
             }
         }
 
-        public IActionResult ModalCategorias()
+        public async Task<IActionResult> ModalCategorias()
         {
-            var categorias = _context.Categorias
+            var categorias = await _context.Categorias
+                .AsNoTracking()
                 .OrderBy(c => c.Nombre)
-                .ToList();
+                .ToListAsync();
 
             return PartialView("_CategoriasModal", categorias);
         }
 
-        public async Task<IActionResult> FormCategoria(int? id)
+        public async Task<IActionResult> FormCategoria(int? id = null)
         {
             if (!id.HasValue || id.Value <= 0)
             {
@@ -227,15 +201,56 @@ namespace LuxuryApp.Controllers.Finanzas
             return PartialView("~/Views/Categorias/_FormCategoria.cshtml", categoria);
         }
 
+        private async Task ValidateCategoriaAsync(Categoria categoria)
+        {
+            if (string.IsNullOrWhiteSpace(categoria.Nombre))
+            {
+                ModelState.AddModelError(nameof(Categoria.Nombre), "Debe indicar el nombre de la categoria.");
+            }
+
+            if (string.IsNullOrWhiteSpace(categoria.Detalle))
+            {
+                ModelState.AddModelError(nameof(Categoria.Detalle), "Debe indicar el detalle de la categoria.");
+            }
+
+            var nombreNormalizado = (categoria.Nombre ?? string.Empty).ToUpperInvariant();
+            var existe = await _context.Categorias
+                .AsNoTracking()
+                .Where(c => c.Id != categoria.Id && c.Nombre != null)
+                .AnyAsync(c => c.Nombre!.ToUpper() == nombreNormalizado);
+
+            if (existe)
+            {
+                ModelState.AddModelError(nameof(Categoria.Nombre), "Ya existe una categoria con ese nombre.");
+            }
+        }
+
         private static void NormalizeCategoria(Categoria categoria)
         {
-            categoria.Nombre = string.IsNullOrWhiteSpace(categoria.Nombre)
-                ? string.Empty
-                : categoria.Nombre.Trim();
-
+            categoria.Nombre = CollapseWhitespace(categoria.Nombre);
             categoria.Detalle = string.IsNullOrWhiteSpace(categoria.Detalle)
                 ? null
-                : categoria.Detalle.Trim();
+                : CollapseWhitespace(categoria.Detalle);
+        }
+
+        private static string CollapseWhitespace(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            return string.Join(
+                ' ',
+                value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        }
+
+        private static bool IsUniqueConstraintViolation(DbUpdateException exception)
+        {
+            var message = exception.InnerException?.Message ?? exception.Message;
+            return message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("duplicate", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("IX_Categorias_TenantId_Nombre", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

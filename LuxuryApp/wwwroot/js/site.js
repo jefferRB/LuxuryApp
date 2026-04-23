@@ -1,75 +1,54 @@
-﻿// Please see documentation at https://learn.microsoft.com/aspnet/core/client-side/bundling-and-minification
+// Please see documentation at https://learn.microsoft.com/aspnet/core/client-side/bundling-and-minification
 // for details on configuring this project to bundle and minify static web assets.
 
 // Write your JavaScript code.
-// ===== CAMBIO TIPO ITEM
-document.getElementById("TipoItem").addEventListener("change", function () {
-
-
-
-    const tipo = this.value;
-
+(function () {
+    const tipoItem = document.getElementById("TipoItem");
     const servicioContainer = document.getElementById("ServicioContainer");
     const productoContainer = document.getElementById("ProductoContainer");
-
     const servicioSelect = document.getElementById("ServicioId");
     const productoSelect = document.getElementById("ProductoId");
+    const montoInput = document.getElementById("Monto");
 
-    if (tipo === "servicio") {
-
-        servicioContainer.classList.remove("d-none");
-        productoContainer.classList.add("d-none");
-
-        servicioSelect.disabled = false;
-        productoSelect.disabled = true;
-
-    } else {
-
-        servicioContainer.classList.add("d-none");
-        productoContainer.classList.remove("d-none");
-
-        servicioSelect.disabled = true;
-        productoSelect.disabled = false;
+    if (!tipoItem || !servicioContainer || !productoContainer || !servicioSelect || !productoSelect || !montoInput) {
+        return;
     }
-});
 
-// ===== AUTOCOMPLETAR SERVICIO
-document.getElementById("ServicioId").addEventListener("change", function () {
+    function syncCobroTypeUi() {
+        const isServicio = tipoItem.value !== "producto";
 
-    let servicioId = this.value;
+        servicioContainer.classList.toggle("d-none", !isServicio);
+        productoContainer.classList.toggle("d-none", isServicio);
 
-    if (!servicioId) return;
+        servicioSelect.disabled = !isServicio;
+        productoSelect.disabled = isServicio;
+    }
 
-    fetch(`/Cobros/ObtenerPrecioServicio?id=${servicioId}`)
-        .then(res => res.json())
-        .then(data => {
+    async function cargarPrecio(endpoint, id) {
+        if (!id) {
+            montoInput.value = "";
+            return;
+        }
 
-            if (data) {
-                document.getElementById("Monto").value = data.precio;
-            }
+        const response = await fetch(`${endpoint}?id=${encodeURIComponent(id)}`);
+        const data = await response.json();
 
-        });
+        if (data && data.precio !== undefined && data.precio !== null) {
+            montoInput.value = data.precio;
+        }
+    }
 
-});
+    tipoItem.addEventListener("change", syncCobroTypeUi);
+    servicioSelect.addEventListener("change", function () {
+        cargarPrecio("/Cobros/ObtenerPrecioServicio", this.value);
+    });
+    productoSelect.addEventListener("change", function () {
+        cargarPrecio("/Cobros/ObtenerPrecioProducto", this.value);
+    });
 
-// ===== AUTOCOMPLETAR PRODUCTO
-document.getElementById("ProductoId").addEventListener("change", function () {
+    syncCobroTypeUi();
+})();
 
-    let productoId = this.value;
-
-    if (!productoId) return;
-
-    fetch(`/Cobros/ObtenerPrecioProducto?id=${productoId}`)
-        .then(res => res.json())
-        .then(data => {
-
-            if (data) {
-                document.getElementById("Monto").value = data.precio;
-            }
-
-        });
-
-});
 function toggleProducto(id) {
 
     $.post("/Productos/ToggleActivo", { id: id })
@@ -77,4 +56,3 @@ function toggleProducto(id) {
             location.reload();
         });
 }
-

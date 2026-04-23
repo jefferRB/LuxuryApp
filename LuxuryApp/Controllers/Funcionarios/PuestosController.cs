@@ -1,4 +1,4 @@
-﻿using LuxuryApp.Models.Funcionarios;
+using LuxuryApp.Models.Funcionarios;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -18,37 +18,17 @@ namespace LuxuryApp.Controllers.Funcionarios
             _logger = logger;
         }
 
-        // ========================================
-        // LISTAR
-        // ========================================
-        public async Task<IActionResult> Index()
-        {
-            var puestos = await _context.Puestos
-                .OrderBy(p => p.NombrePuesto)
-                .ToListAsync();
+        public Task<IActionResult> Index() => ModalPuestos();
 
-            return View(puestos);
-        }
+        [HttpGet]
+        public Task<IActionResult> Create() => FormPuesto(null);
 
-        // ========================================
-        // CREAR (GET)
-        // ========================================
-        public IActionResult Create()
-        {
-            return View();
-        }
-
-        // ========================================
-        // CREAR (POST)
-        // ========================================
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create(
+        public Task<IActionResult> Create(
             [Bind(nameof(Puesto.IdPuesto) + "," + nameof(Puesto.NombrePuesto) + "," + nameof(Puesto.Detalle))]
-            Puesto puesto)
-        {
-            return await Save(puesto);
-        }
+            Puesto puesto) =>
+            Save(puesto);
 
         [HttpPost]
         [ValidateAntiForgeryToken]
@@ -57,14 +37,7 @@ namespace LuxuryApp.Controllers.Funcionarios
             Puesto puesto)
         {
             NormalizePuesto(puesto);
-
-            bool existe = await _context.Puestos
-                .AnyAsync(p => p.NombrePuesto == puesto.NombrePuesto && p.IdPuesto != puesto.IdPuesto);
-
-            if (existe)
-            {
-                ModelState.AddModelError(nameof(Puesto.NombrePuesto), "Ya existe un puesto con ese nombre.");
-            }
+            await ValidatePuestoAsync(puesto);
 
             if (!ModelState.IsValid)
             {
@@ -95,6 +68,12 @@ namespace LuxuryApp.Controllers.Funcionarios
                 await _context.SaveChangesAsync();
                 return Ok();
             }
+            catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+            {
+                _logger.LogWarning(ex, "Intento duplicado al guardar puesto {NombrePuesto}.", puesto.NombrePuesto);
+                ModelState.AddModelError(nameof(Puesto.NombrePuesto), "Ya existe un puesto con ese nombre.");
+                return PartialView("_FormPuesto", puesto);
+            }
             catch (DbUpdateException ex)
             {
                 _logger.LogError(ex, "Error al guardar puesto {PuestoId}.", puesto.IdPuesto);
@@ -103,28 +82,14 @@ namespace LuxuryApp.Controllers.Funcionarios
             }
             catch (InvalidOperationException ex)
             {
-                _logger.LogError(ex, "Guard bloqueó la operación sobre puesto {PuestoId}.", puesto.IdPuesto);
-                return BadRequest("No fue posible guardar el puesto por una validación de seguridad o consistencia.");
+                _logger.LogError(ex, "Guard bloqueo la operacion sobre puesto {PuestoId}.", puesto.IdPuesto);
+                return BadRequest("No fue posible guardar el puesto por una validacion de seguridad o consistencia.");
             }
         }
 
-        // ========================================
-        // EDITAR (GET)
-        // ========================================
-        public async Task<IActionResult> Edit(int id)
-        {
-            var puesto = await _context.Puestos
-                .FirstOrDefaultAsync(p => p.IdPuesto == id);
+        [HttpGet]
+        public Task<IActionResult> Edit(int id) => FormPuesto(id);
 
-            if (puesto == null)
-                return NotFound();
-
-            return View(puesto);
-        }
-
-        // ========================================
-        // EDITAR (POST)
-        // ========================================
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(
@@ -133,40 +98,53 @@ namespace LuxuryApp.Controllers.Funcionarios
             Puesto puesto)
         {
             if (id != puesto.IdPuesto)
-                return NotFound();
-
-            if (ModelState.IsValid)
             {
-                try
-                {
-                    var puestoDb = await _context.Puestos
-                        .FirstOrDefaultAsync(p => p.IdPuesto == id);
-
-                    if (puestoDb == null)
-                        return NotFound();
-
-                    puestoDb.NombrePuesto = puesto.NombrePuesto;
-                    puestoDb.Detalle = puesto.Detalle;
-
-                    await _context.SaveChangesAsync();
-                }
-                catch (DbUpdateConcurrencyException)
-                {
-                    if (!_context.Puestos.Any(p => p.IdPuesto == puesto.IdPuesto))
-                        return NotFound();
-                    else
-                        throw;
-                }
-
-                return RedirectToAction(nameof(Index));
+                return NotFound();
             }
 
-            return View(puesto);
+            NormalizePuesto(puesto);
+            await ValidatePuestoAsync(puesto);
+
+            if (!ModelState.IsValid)
+            {
+                return PartialView("_FormPuesto", puesto);
+            }
+
+            try
+            {
+                var puestoDb = await _context.Puestos
+                    .FirstOrDefaultAsync(p => p.IdPuesto == id);
+
+                if (puestoDb == null)
+                {
+                    return NotFound();
+                }
+
+                puestoDb.NombrePuesto = puesto.NombrePuesto;
+                puestoDb.Detalle = puesto.Detalle;
+
+                await _context.SaveChangesAsync();
+                return RedirectToAction(nameof(Index));
+            }
+            catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+            {
+                _logger.LogWarning(ex, "Intento duplicado al editar puesto {PuestoId}.", puesto.IdPuesto);
+                ModelState.AddModelError(nameof(Puesto.NombrePuesto), "Ya existe un puesto con ese nombre.");
+                return PartialView("_FormPuesto", puesto);
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al editar puesto {PuestoId}.", puesto.IdPuesto);
+                ModelState.AddModelError(string.Empty, "No fue posible guardar el puesto.");
+                return PartialView("_FormPuesto", puesto);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Guard bloqueo la edicion del puesto {PuestoId}.", puesto.IdPuesto);
+                return BadRequest("No fue posible guardar el puesto por una validacion de seguridad o consistencia.");
+            }
         }
 
-        // ========================================
-        // ACTIVAR / DESACTIVAR
-        // ========================================
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> ToggleActivo(int id)
@@ -175,23 +153,38 @@ namespace LuxuryApp.Controllers.Funcionarios
                 .FirstOrDefaultAsync(p => p.IdPuesto == id);
 
             if (puesto == null)
+            {
                 return NotFound();
+            }
 
-            // Validar si está en uso antes de desactivar
             if (puesto.Activo)
             {
-                bool estaEnUso = await _context.Funcionarios
-                    .AnyAsync(f => f.IdPuesto == id);
+                var tieneFuncionariosActivos = await _context.Funcionarios
+                    .AnyAsync(f => f.IdPuesto == id && f.Activo);
 
-                if (estaEnUso)
-                    return BadRequest("No se puede desactivar porque está asignado a funcionarios.");
+                if (tieneFuncionariosActivos)
+                {
+                    return BadRequest("No se puede desactivar porque esta asignado a funcionarios activos.");
+                }
             }
 
             puesto.Activo = !puesto.Activo;
 
-            await _context.SaveChangesAsync();
-
-            return Ok();
+            try
+            {
+                await _context.SaveChangesAsync();
+                return Ok();
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al cambiar el estado del puesto {PuestoId}.", id);
+                return BadRequest("No fue posible actualizar el estado del puesto.");
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Guard bloqueo el cambio de estado del puesto {PuestoId}.", id);
+                return BadRequest("No fue posible actualizar el estado del puesto por una validacion de seguridad o consistencia.");
+            }
         }
 
         [HttpPost]
@@ -206,7 +199,7 @@ namespace LuxuryApp.Controllers.Funcionarios
                 return NotFound();
             }
 
-            bool estaEnUso = await _context.Funcionarios
+            var estaEnUso = await _context.Funcionarios
                 .AnyAsync(f => f.IdPuesto == id);
 
             if (estaEnUso)
@@ -227,22 +220,16 @@ namespace LuxuryApp.Controllers.Funcionarios
             }
         }
 
-        // ========================================
-        // MODAL LISTADO
-        // ========================================
-        public IActionResult ModalPuestos()
+        public async Task<IActionResult> ModalPuestos()
         {
-            var puestos = _context.Puestos
-                
+            var puestos = await _context.Puestos
+                .AsNoTracking()
                 .OrderBy(p => p.NombrePuesto)
-                .ToList();
+                .ToListAsync();
 
             return PartialView("_PuestosModal", puestos);
         }
 
-        // ========================================
-        // FORMULARIO PARTIAL
-        // ========================================
         public async Task<IActionResult> FormPuesto(int? id)
         {
             if (!id.HasValue || id.Value <= 0)
@@ -262,15 +249,51 @@ namespace LuxuryApp.Controllers.Funcionarios
             return PartialView("~/Views/Puestos/_FormPuesto.cshtml", puesto);
         }
 
+        private async Task ValidatePuestoAsync(Puesto puesto)
+        {
+            if (string.IsNullOrWhiteSpace(puesto.NombrePuesto))
+            {
+                return;
+            }
+
+            var existe = await _context.Puestos
+                .AsNoTracking()
+                .AnyAsync(p => p.NombrePuesto == puesto.NombrePuesto && p.IdPuesto != puesto.IdPuesto);
+
+            if (existe)
+            {
+                ModelState.AddModelError(nameof(Puesto.NombrePuesto), "Ya existe un puesto con ese nombre.");
+            }
+        }
+
         private static void NormalizePuesto(Puesto puesto)
         {
-            puesto.NombrePuesto = string.IsNullOrWhiteSpace(puesto.NombrePuesto)
-                ? string.Empty
-                : puesto.NombrePuesto.Trim();
+            puesto.NombrePuesto = NormalizeRequiredText(puesto.NombrePuesto);
+            puesto.Detalle = NormalizeOptionalText(puesto.Detalle);
+        }
 
-            puesto.Detalle = string.IsNullOrWhiteSpace(puesto.Detalle)
+        private static string NormalizeRequiredText(string? value) =>
+            string.IsNullOrWhiteSpace(value)
+                ? string.Empty
+                : CollapseWhitespace(value);
+
+        private static string? NormalizeOptionalText(string? value) =>
+            string.IsNullOrWhiteSpace(value)
                 ? null
-                : puesto.Detalle.Trim();
+                : CollapseWhitespace(value);
+
+        private static string CollapseWhitespace(string value) =>
+            string.Join(
+                " ",
+                value.Trim()
+                    .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+        private static bool IsUniqueConstraintViolation(DbUpdateException ex)
+        {
+            var message = ex.InnerException?.Message ?? ex.Message;
+            return message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase) ||
+                   message.Contains("duplicate", StringComparison.OrdinalIgnoreCase) ||
+                   message.Contains("IX_Puestos_TenantId_NombrePuesto", StringComparison.OrdinalIgnoreCase);
         }
     }
 }
