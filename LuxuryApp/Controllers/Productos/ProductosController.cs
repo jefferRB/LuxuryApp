@@ -1,39 +1,33 @@
 ﻿using LuxuryApp.Models.Productos;
+using LuxuryApp.Services.Productos;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Controllers.Productos
 {
     [Authorize(Roles = "Administrador")]
-
     public class ProductosController : Controller
     {
-        private readonly ApplicationDbContext _context;
+        private readonly IProductoService _productoService;
+        private readonly IProductoQueryService _productoQueryService;
+        private readonly ILogger<ProductosController> _logger;
 
-        public ProductosController(ApplicationDbContext context)
+        public ProductosController(
+            IProductoService productoService,
+            IProductoQueryService productoQueryService,
+            ILogger<ProductosController> logger)
         {
-            _context = context;
+            _productoService = productoService;
+            _productoQueryService = productoQueryService;
+            _logger = logger;
         }
 
         // =========================
         // INDEX
         // =========================
-        public async Task<IActionResult> Index()
+        public async Task<IActionResult> Index(CancellationToken cancellationToken)
         {
-            var productos = await _context.Productos
-                .OrderBy(p => p.NombreProducto)
-                .ToListAsync();
-
-            var vm = new ProductoIndexViewModel
-            {
-                Productos = productos,
-                TotalProductos = productos.Count,
-                ProductosBajoStock = productos.Count(p => p.CantidadProducto <= p.StockMinimo),
-                ValorInventario = productos.Sum(p => p.CantidadProducto * p.PrecioProducto)
-            };
-
+            var vm = await _productoQueryService.BuildIndexViewModelAsync(cancellationToken);
             return View(vm);
         }
 
@@ -42,10 +36,7 @@ namespace LuxuryApp.Controllers.Productos
         // =========================
         public IActionResult Create()
         {
-            return View(new ProductoViewModel
-            {
-                Producto = new Producto()
-            });
+            return View(_productoQueryService.BuildFormViewModel());
         }
 
         // =========================
@@ -61,40 +52,44 @@ namespace LuxuryApp.Controllers.Productos
                 nameof(Producto.CantidadProducto),
                 nameof(Producto.StockMinimo),
                 Prefix = "Producto")]
-            Producto producto)
+            Producto producto,
+            CancellationToken cancellationToken)
         {
-            var vm = new ProductoViewModel
+            if (!ModelState.IsValid)
             {
-                Producto = producto
-            };
-
-            if (ModelState.IsValid)
-            {
-                producto.Activo = true;
-                _context.Productos.Add(producto);
-                await _context.SaveChangesAsync();
-
-                return RedirectToAction(nameof(Index));
+                return View(_productoQueryService.BuildFormViewModel(producto));
             }
 
-            return View(vm);
+            try
+            {
+                await _productoService.RegistrarAsync(MapRequest(producto), cancellationToken);
+                return RedirectToAction(nameof(Index));
+            }
+            catch (ProductoValidationException ex)
+            {
+                ModelState.AddModelError(ex.ModelStateKey ?? string.Empty, ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                ModelState.AddModelError(string.Empty, ex.Message);
+            }
+
+            return View(_productoQueryService.BuildFormViewModel(producto));
         }
 
         // =========================
         // EDIT GET
         // =========================
-        public async Task<IActionResult> Edit(int id)
+        public async Task<IActionResult> Edit(int id, CancellationToken cancellationToken)
         {
-            var producto = await _context.Productos
-                .FirstOrDefaultAsync(p => p.IdProducto == id);
+            var vm = await _productoQueryService.BuildEditViewModelAsync(id, cancellationToken);
 
-            if (producto == null)
-                return NotFound();
-
-            return View(new ProductoViewModel
+            if (vm is null)
             {
-                Producto = producto
-            });
+                return NotFound();
+            }
+
+            return View(vm);
         }
 
         // =========================
@@ -112,55 +107,71 @@ namespace LuxuryApp.Controllers.Productos
                 nameof(Producto.CantidadProducto),
                 nameof(Producto.StockMinimo),
                 Prefix = "Producto")]
-            Producto producto)
+            Producto producto,
+            CancellationToken cancellationToken)
         {
-            var vm = new ProductoViewModel
-            {
-                Producto = producto
-            };
-
             if (id != producto.IdProducto)
-                return NotFound();
-
-            if (ModelState.IsValid)
             {
-                var productoDb = await _context.Productos
-                    .FirstOrDefaultAsync(p => p.IdProducto == id);
-
-                if (productoDb == null)
-                    return NotFound();
-
-                productoDb.NombreProducto = producto.NombreProducto;
-                productoDb.DetalleProducto = producto.DetalleProducto;
-                productoDb.PrecioProducto = producto.PrecioProducto;
-                productoDb.CantidadProducto = producto.CantidadProducto;
-                productoDb.StockMinimo = producto.StockMinimo;
-
-                await _context.SaveChangesAsync();
-
-                return RedirectToAction(nameof(Index));
+                return NotFound();
             }
 
-            return View(vm);
+            if (!ModelState.IsValid)
+            {
+                return View(_productoQueryService.BuildFormViewModel(producto));
+            }
+
+            try
+            {
+                await _productoService.ActualizarAsync(id, MapRequest(producto), cancellationToken);
+                return RedirectToAction(nameof(Index));
+            }
+            catch (ProductoValidationException ex)
+            {
+                ModelState.AddModelError(ex.ModelStateKey ?? string.Empty, ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                ModelState.AddModelError(string.Empty, ex.Message);
+            }
+
+            return View(_productoQueryService.BuildFormViewModel(producto));
         }
 
         // =========================
         // ACTIVAR / DESACTIVAR
         // =========================
         [HttpPost]
-        public async Task<IActionResult> ToggleActivo(int id)
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ToggleActivo(int id, CancellationToken cancellationToken)
         {
-            var producto = await _context.Productos
-                .FirstOrDefaultAsync(p => p.IdProducto == id);
+            try
+            {
+                var toggled = await _productoService.ToggleActivoAsync(id, cancellationToken);
 
-            if (producto == null)
-                return NotFound();
+                if (!toggled)
+                {
+                    return NotFound();
+                }
 
-            producto.Activo = !producto.Activo;
+                return Ok();
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Error al cambiar el estado del producto {ProductoId}.", id);
+                return BadRequest(new { message = ex.Message });
+            }
+        }
 
-            await _context.SaveChangesAsync();
-
-            return Ok();
+        private static ProductoWriteRequest MapRequest(Producto producto)
+        {
+            return new ProductoWriteRequest
+            {
+                NombreProducto = producto.NombreProducto,
+                DetalleProducto = producto.DetalleProducto,
+                PrecioProducto = producto.PrecioProducto,
+                CantidadProducto = producto.CantidadProducto,
+                StockMinimo = producto.StockMinimo
+            };
         }
     }
 }
