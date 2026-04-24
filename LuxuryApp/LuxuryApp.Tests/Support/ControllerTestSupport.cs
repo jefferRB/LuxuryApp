@@ -2,6 +2,8 @@ using System.Security.Claims;
 using LuxuryApp.Services.Finanzas;
 using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Services.Identity;
+using LuxuryApp.Services.Informacion;
+using LuxuryApp.Services.Productos;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
@@ -53,11 +55,23 @@ namespace LuxuryApp.Tests.Support
         public static ICobroQueryService CreateCobroQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
             new CobroQueryService(context);
 
+        public static IDashboardFinancieroQueryService CreateDashboardFinancieroQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
+            new DashboardFinancieroQueryService(context);
+
         public static IEgresoService CreateEgresoService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
             new EgresoService(context, Microsoft.Extensions.Logging.Abstractions.NullLogger<EgresoService>.Instance);
 
         public static IEgresoQueryService CreateEgresoQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
             new EgresoQueryService(context);
+
+        public static IInformacionNegocioQueryService CreateInformacionNegocioQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
+            new InformacionNegocioQueryService(context);
+
+        public static IProductoService CreateProductoService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
+            new ProductoService(context, Microsoft.Extensions.Logging.Abstractions.NullLogger<ProductoService>.Instance);
+
+        public static IProductoQueryService CreateProductoQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
+            new ProductoQueryService(context);
     }
 
     internal sealed class TestTempDataProvider : ITempDataProvider

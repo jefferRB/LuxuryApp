@@ -17,7 +17,9 @@ using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Finanzas;
 using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Services.Identity;
+using LuxuryApp.Services.Informacion;
 using LuxuryApp.Services.Payments;
+using LuxuryApp.Services.Productos;
 using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Services.Tilopay;
@@ -123,9 +125,13 @@ static ServiceProvider BuildServices(IConfiguration configuration, StaticTenantP
     services.AddScoped<PaymentProviderResolver>();
     services.AddScoped<ICobroService, CobroService>();
     services.AddScoped<ICobroQueryService, CobroQueryService>();
+    services.AddScoped<IDashboardFinancieroQueryService, DashboardFinancieroQueryService>();
     services.AddScoped<IEgresoService, EgresoService>();
     services.AddScoped<IEgresoQueryService, EgresoQueryService>();
+    services.AddScoped<IInformacionNegocioQueryService, InformacionNegocioQueryService>();
     services.AddScoped<ILiquidacionSemanalService, LiquidacionSemanalService>();
+    services.AddScoped<IProductoService, ProductoService>();
+    services.AddScoped<IProductoQueryService, ProductoQueryService>();
     services.AddHttpClient<PublicCallbackHealthService>(client => client.Timeout = TimeSpan.FromSeconds(10));
     services.AddSingleton<IOptions<OpcionesPago>>(Options.Create(new OpcionesPago
     {

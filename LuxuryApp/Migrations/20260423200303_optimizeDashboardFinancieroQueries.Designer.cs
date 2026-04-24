@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ProyectoIdentity.Datos;
 
@@ -11,9 +12,11 @@ using ProyectoIdentity.Datos;
 namespace LuxuryApp.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260423200303_optimizeDashboardFinancieroQueries")]
+    partial class optimizeDashboardFinancieroQueries
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -882,9 +885,6 @@ namespace LuxuryApp.Migrations
 
                     b.HasIndex("TenantId");
 
-                    b.HasIndex("TenantId", "ProductoId", "FechaMovimiento")
-                        .HasDatabaseName("IX_MovimientosInventario_TenantId_ProductoId_FechaMovimiento");
-
                     b.ToTable("MovimientosInventario");
                 });
 
@@ -911,8 +911,7 @@ namespace LuxuryApp.Migrations
 
                     b.Property<string>("NombreProducto")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("nvarchar(150)");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<decimal>("PrecioProducto")
                         .HasColumnType("decimal(18,2)");
@@ -926,13 +925,6 @@ namespace LuxuryApp.Migrations
                     b.HasKey("IdProducto");
 
                     b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "NombreProducto")
-                        .IsUnique()
-                        .HasDatabaseName("IX_Productos_TenantId_NombreProducto");
-
-                    b.HasIndex("TenantId", "Activo", "NombreProducto")
-                        .HasDatabaseName("IX_Productos_TenantId_Activo_NombreProducto");
 
                     b.ToTable("Productos");
                 });
@@ -1880,7 +1872,7 @@ namespace LuxuryApp.Migrations
                     b.HasOne("LuxuryApp.Models.Productos.Producto", "Producto")
                         .WithMany()
                         .HasForeignKey("ProductoId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.Navigation("Producto");

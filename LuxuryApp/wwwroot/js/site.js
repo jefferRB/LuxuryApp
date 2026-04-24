@@ -50,9 +50,25 @@
 })();
 
 function toggleProducto(id) {
+    const tokenField = document.querySelector("#productos-antiforgery input[name='__RequestVerificationToken']")
+        || document.querySelector("input[name='__RequestVerificationToken']");
+    const headers = tokenField && tokenField.value
+        ? { RequestVerificationToken: tokenField.value }
+        : {};
 
-    $.post("/Productos/ToggleActivo", { id: id })
+    $.ajax({
+        url: "/Productos/ToggleActivo",
+        type: "POST",
+        data: { id: id },
+        headers: headers
+    })
         .done(function () {
             location.reload();
+        })
+        .fail(function (xhr) {
+            const message = xhr.responseJSON && xhr.responseJSON.message
+                ? xhr.responseJSON.message
+                : "No fue posible cambiar el estado del producto.";
+            alert(message);
         });
 }

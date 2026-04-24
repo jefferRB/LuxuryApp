@@ -210,7 +210,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 }
             });
 
-            var controller = new DashboardController(context);
+            var controller = new DashboardController(
+                ControllerTestSupport.CreateDashboardFinancieroQueryService(context));
             var result = await controller.Index(4, 2026);
 
             var view = Assert.IsType<ViewResult>(result);
@@ -246,7 +247,8 @@ namespace LuxuryApp.Tests.TenantIsolation
             });
             await context.SaveChangesAsync();
 
-            var controller = new DashboardController(context);
+            var controller = new DashboardController(
+                ControllerTestSupport.CreateDashboardFinancieroQueryService(context));
             var result = await controller.Index(4, 2026);
 
             var view = Assert.IsType<ViewResult>(result);

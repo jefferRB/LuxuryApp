@@ -1,4 +1,10 @@
-﻿document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", () => {
+    function formatLocalDate(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
+    }
 
     if (!window.dashboardData) {
         console.error("No hay datos del dashboard");
@@ -15,9 +21,6 @@
         serviciosData
     } = window.dashboardData;
 
-    // =========================
-    // CHART MES
-    // =========================
     const chartMesEl = document.getElementById("chartMes");
     if (chartMesEl) {
         new Chart(chartMesEl, {
@@ -32,17 +35,14 @@
         });
     }
 
-    // =========================
-    // CHART SEMANA
-    // =========================
     let fechaSemana = new Date();
 
     const dia = fechaSemana.getDay();
-    const diff = (dia === 0 ? -6 : 1 - dia);
+    const diff = dia === 0 ? -6 : 1 - dia;
     fechaSemana.setDate(fechaSemana.getDate() + diff);
+    fechaSemana.setHours(0, 0, 0, 0);
 
     const ctxSemanaEl = document.getElementById("chartSemana");
-
     let chartSemana = null;
 
     if (ctxSemanaEl) {
@@ -66,17 +66,15 @@
         });
     }
 
-    // =========================
-    // FUNCION GLOBAL
-    // =========================
     window.cambiarSemana = async function (dias) {
-
-        if (!chartSemana) return;
+        if (!chartSemana) {
+            return;
+        }
 
         fechaSemana.setDate(fechaSemana.getDate() + dias);
+        fechaSemana.setHours(0, 0, 0, 0);
 
-        const fecha = fechaSemana.toISOString().split("T")[0];
-
+        const fecha = formatLocalDate(fechaSemana);
         const response = await fetch(`/Informacion/ObtenerCitasSemana?semana=${fecha}`);
         const data = await response.json();
 
@@ -88,9 +86,6 @@
             `Semana ${data.inicio} - ${data.fin}`;
     };
 
-    // =========================
-    // FUNCIONARIOS
-    // =========================
     const chartFuncEl = document.getElementById("chartFuncionarios");
     if (chartFuncEl) {
         new Chart(chartFuncEl, {
@@ -104,11 +99,7 @@
         });
     }
 
-    // =========================
-    // SERVICIOS
-    // =========================
     const chartServEl = document.getElementById("chartServicios");
-
     if (chartServEl) {
         const ctx = chartServEl.getContext("2d");
 
@@ -126,9 +117,8 @@
                 }]
             },
             options: {
-                indexAxis: 'y'
+                indexAxis: "y"
             }
         });
     }
-
 });

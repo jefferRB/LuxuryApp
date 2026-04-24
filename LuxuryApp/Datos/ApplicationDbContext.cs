@@ -107,6 +107,12 @@ namespace ProyectoIdentity.Datos
                     .HasDatabaseName("IX_Funcionarios_TenantId_Nombre");
             });
 
+            modelBuilder.Entity<Cita>(entity =>
+            {
+                entity.HasIndex(c => new { c.TenantId, c.FechaHoraCita })
+                    .HasDatabaseName("IX_Citas_TenantId_FechaHoraCita");
+            });
+
             modelBuilder.Entity<Puesto>(entity =>
             {
                 entity.HasIndex(p => new { p.TenantId, p.NombrePuesto })
@@ -207,7 +213,33 @@ namespace ProyectoIdentity.Datos
 
             modelBuilder.Entity<Producto>(entity =>
             {
-                entity.Property(p => p.PrecioProducto).HasColumnType("decimal(18,2)");
+                entity.Property(p => p.NombreProducto)
+                    .HasMaxLength(150)
+                    .IsRequired();
+
+                entity.Property(p => p.DetalleProducto)
+                    .HasMaxLength(300);
+
+                entity.Property(p => p.PrecioProducto)
+                    .HasColumnType("decimal(18,2)");
+
+                entity.HasIndex(p => new { p.TenantId, p.NombreProducto })
+                    .IsUnique()
+                    .HasDatabaseName("IX_Productos_TenantId_NombreProducto");
+
+                entity.HasIndex(p => new { p.TenantId, p.Activo, p.NombreProducto })
+                    .HasDatabaseName("IX_Productos_TenantId_Activo_NombreProducto");
+            });
+
+            modelBuilder.Entity<MovimientoInventario>(entity =>
+            {
+                entity.HasIndex(m => new { m.TenantId, m.ProductoId, m.FechaMovimiento })
+                    .HasDatabaseName("IX_MovimientosInventario_TenantId_ProductoId_FechaMovimiento");
+
+                entity.HasOne(m => m.Producto)
+                    .WithMany()
+                    .HasForeignKey(m => m.ProductoId)
+                    .OnDelete(DeleteBehavior.Restrict);
             });
 
             modelBuilder.Entity<DetalleCobroProducto>(entity =>

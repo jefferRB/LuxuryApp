@@ -1,6 +1,9 @@
-﻿@model LuxuryApp.Models.Productos.ProductoIndexViewModel
+@model LuxuryApp.Models.Productos.ProductoIndexViewModel
 
 <div class="card border-0 shadow-lg">
+    <div id="productos-antiforgery" class="d-none">
+        @Html.AntiForgeryToken()
+    </div>
 
     <div class="card-header bg-dark text-white py-3">
         <h5 class="m-0">
@@ -16,7 +19,6 @@
 
     </div>
 
-    <!-- KPIs -->
     <div class="row mx-3 mb-3">
 
         <div class="col-md-4">
@@ -50,7 +52,6 @@
 
     </div>
 
-    <!-- TABLA -->
     <div class="card-body p-0">
 
         <div class="table-responsive">
