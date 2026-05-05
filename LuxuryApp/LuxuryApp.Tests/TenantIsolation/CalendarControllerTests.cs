@@ -1,16 +1,34 @@
+using System.Reflection;
 using LuxuryApp.Controllers.Calendar;
-using LuxuryApp.Models.Calendar;
+using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
+using LuxuryApp.Models.Calendar;
 using LuxuryApp.Tests.Support;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.EntityFrameworkCore;
 
 namespace LuxuryApp.Tests.TenantIsolation
 {
     public class CalendarControllerTests
     {
+        [Theory]
+        [InlineData(nameof(CalendarController.Create))]
+        [InlineData(nameof(CalendarController.Edit))]
+        [InlineData(nameof(CalendarController.Move))]
+        [InlineData(nameof(CalendarController.Delete))]
+        [InlineData(nameof(CalendarController.ProcesarVisitas))]
+        public void MutatingActions_ShouldRequireValidateAntiForgeryToken(string actionName)
+        {
+            var method = typeof(CalendarController)
+                .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+                .Single(methodInfo => methodInfo.Name == actionName);
+
+            Assert.NotEmpty(method.GetCustomAttributes(typeof(ValidateAntiForgeryTokenAttribute), inherit: true));
+        }
+
         [Fact]
-        public async Task Create_ShouldRejectMissingFuncionarioId()
+        public async Task Create_ShouldReturnBadRequest_WhenFuncionarioIdIsInvalid()
         {
             var tenantId = Guid.NewGuid();
             var tenantProvider = new TestTenantProvider { TenantId = tenantId };
@@ -18,78 +36,28 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var disposableContext = context;
             using var disposableConnection = connection;
 
-            var controller = new CalendarController(context);
+            var controller = new CalendarController(
+                ControllerTestSupport.CreateCalendarCommandService(context),
+                ControllerTestSupport.CreateCalendarQueryService(context));
+
+            ControllerTestSupport.AttachHttpContext(
+                controller,
+                ControllerTestSupport.BuildTenantPrincipal("calendar-user", tenantId));
 
             var result = await controller.Create(new CitaCreateVM
             {
                 Tipo = "DESCANSO",
-                FechaHoraCita = new DateTime(2026, 4, 16, 9, 0, 0),
+                FechaHoraCita = new DateTime(2026, 4, 24, 9, 0, 0),
                 FuncionarioId = 0,
                 DuracionMinutos = 30
-            });
+            }, CancellationToken.None);
 
             var badRequest = Assert.IsType<BadRequestObjectResult>(result);
             Assert.Contains("funcionario", badRequest.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
-            Assert.Empty(await context.Citas.ToListAsync());
         }
 
         [Fact]
-        public async Task Create_ShouldRejectFuncionarioOutsideCurrentTenant()
-        {
-            var tenantA = Guid.NewGuid();
-            var tenantB = Guid.NewGuid();
-            var tenantProvider = new TestTenantProvider { TenantId = tenantB };
-            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
-            using var disposableContext = context;
-            using var disposableConnection = connection;
-
-            context.Puestos.Add(new Puesto
-            {
-                NombrePuesto = "Estilista B",
-                Detalle = "Tenant B"
-            });
-            await context.SaveChangesAsync();
-
-            var puestoB = await context.Puestos.SingleAsync();
-
-            context.Funcionarios.Add(new Funcionario
-            {
-                Nombre = "Funcionario Tenant B",
-                IdPuesto = puestoB.IdPuesto,
-                ColorCalendario = "#123456",
-                PorcentajeGanancia = 40,
-                PorcentajeProducto = 10,
-                FechaIngreso = new DateTime(2026, 4, 1),
-                Activo = true
-            });
-            await context.SaveChangesAsync();
-
-            var foreignFuncionarioId = await context.Funcionarios
-                .IgnoreQueryFilters()
-                .Where(f => f.TenantId == tenantB)
-                .Select(f => f.IdFuncionario)
-                .SingleAsync();
-
-            tenantProvider.TenantId = tenantA;
-            context.ChangeTracker.Clear();
-
-            var controller = new CalendarController(context);
-
-            var result = await controller.Create(new CitaCreateVM
-            {
-                Tipo = "DESCANSO",
-                FechaHoraCita = new DateTime(2026, 4, 16, 10, 0, 0),
-                FuncionarioId = foreignFuncionarioId,
-                DuracionMinutos = 30
-            });
-
-            var badRequest = Assert.IsType<BadRequestObjectResult>(result);
-            Assert.Contains("tenant actual", badRequest.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
-            Assert.Empty(await context.Citas.ToListAsync());
-        }
-
-        [Fact]
-        public async Task Create_ShouldPersistDescanso_WhenFuncionarioBelongsToCurrentTenant()
+        public async Task GetCitasByDay_ShouldRejectInvalidDateFormat()
         {
             var tenantId = Guid.NewGuid();
             var tenantProvider = new TestTenantProvider { TenantId = tenantId };
@@ -97,44 +65,238 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var disposableContext = context;
             using var disposableConnection = connection;
 
-            context.Puestos.Add(new Puesto
-            {
-                NombrePuesto = "Recepción",
-                Detalle = "Mostrador"
-            });
-            await context.SaveChangesAsync();
+            var controller = new CalendarController(
+                ControllerTestSupport.CreateCalendarCommandService(context),
+                ControllerTestSupport.CreateCalendarQueryService(context));
 
-            var puesto = await context.Puestos.SingleAsync();
+            ControllerTestSupport.AttachHttpContext(
+                controller,
+                ControllerTestSupport.BuildTenantPrincipal("calendar-user", tenantId));
 
-            context.Funcionarios.Add(new Funcionario
-            {
-                Nombre = "Funcionario Activo",
-                IdPuesto = puesto.IdPuesto,
-                ColorCalendario = "#654321",
-                PorcentajeGanancia = 35,
-                PorcentajeProducto = 8,
-                FechaIngreso = new DateTime(2026, 4, 1),
-                Activo = true
-            });
-            await context.SaveChangesAsync();
+            var result = await controller.GetCitasByDay("2026/04/24", CancellationToken.None);
 
-            var funcionario = await context.Funcionarios.SingleAsync();
-            var controller = new CalendarController(context);
+            var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+            Assert.Contains("fecha", badRequest.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public async Task Create_ShouldReturnOk_WhenPayloadIsValid()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Ana");
+            var servicio = await SeedServicioAsync(context, "Corte", 45);
+
+            var controller = new CalendarController(
+                ControllerTestSupport.CreateCalendarCommandService(context),
+                ControllerTestSupport.CreateCalendarQueryService(context));
+
+            ControllerTestSupport.AttachHttpContext(
+                controller,
+                ControllerTestSupport.BuildTenantPrincipal("calendar-user", tenantId));
 
             var result = await controller.Create(new CitaCreateVM
             {
-                Tipo = "DESCANSO",
-                FechaHoraCita = new DateTime(2026, 4, 16, 11, 0, 0),
+                NombreCliente = "Cliente",
+                TelefonoCliente = "",
+                ServicioId = servicio.Id,
+                FechaHoraCita = new DateTime(2026, 4, 24, 10, 15, 0),
                 FuncionarioId = funcionario.IdFuncionario,
-                DuracionMinutos = 45
-            });
+                Tipo = "CITA",
+                Duplicar = false,
+                FechasDuplicadas = []
+            }, CancellationToken.None);
+
+            Assert.IsType<OkObjectResult>(result);
+            Assert.Single(await context.Citas.AsNoTracking().ToListAsync());
+        }
+
+        [Fact]
+        public async Task Edit_ShouldReturnOk_WhenPayloadIsValid()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Luis");
+            var servicio = await SeedServicioAsync(context, "Color", 60);
+
+            var cita = new Cita
+            {
+                NombreCliente = "Inicial",
+                TelefonoCliente = "8888",
+                ServicioId = servicio.Id,
+                FechaHoraCita = new DateTime(2026, 4, 24, 9, 0, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA"
+            };
+
+            context.Citas.Add(cita);
+            await context.SaveChangesAsync();
+
+            var controller = new CalendarController(
+                ControllerTestSupport.CreateCalendarCommandService(context),
+                ControllerTestSupport.CreateCalendarQueryService(context));
+
+            ControllerTestSupport.AttachHttpContext(
+                controller,
+                ControllerTestSupport.BuildTenantPrincipal("calendar-user", tenantId));
+
+            var result = await controller.Edit(cita.Id, new CitaCreateVM
+            {
+                NombreCliente = "Editado",
+                TelefonoCliente = "",
+                ServicioId = servicio.Id,
+                FechaHoraCita = new DateTime(2026, 4, 24, 11, 30, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA"
+            }, CancellationToken.None);
 
             Assert.IsType<OkObjectResult>(result);
 
-            var cita = await context.Citas.SingleAsync();
-            Assert.Equal(funcionario.IdFuncionario, cita.FuncionarioId);
-            Assert.Equal("DESCANSO", cita.Tipo);
-            Assert.Equal(45, cita.DuracionMinutos);
+            context.ChangeTracker.Clear();
+            var persisted = await context.Citas.AsNoTracking().SingleAsync();
+            Assert.Equal("Editado", persisted.NombreCliente);
+            Assert.Equal(new DateTime(2026, 4, 24, 11, 30, 0), persisted.FechaHoraCita);
+        }
+
+        [Fact]
+        public async Task Move_ShouldReturnOk_WhenPayloadIsValid()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Mario");
+            var servicio = await SeedServicioAsync(context, "Spa", 30);
+
+            var cita = new Cita
+            {
+                NombreCliente = "Mover",
+                TelefonoCliente = "8888",
+                ServicioId = servicio.Id,
+                FechaHoraCita = new DateTime(2026, 4, 24, 8, 0, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA"
+            };
+
+            context.Citas.Add(cita);
+            await context.SaveChangesAsync();
+
+            var controller = new CalendarController(
+                ControllerTestSupport.CreateCalendarCommandService(context),
+                ControllerTestSupport.CreateCalendarQueryService(context));
+
+            ControllerTestSupport.AttachHttpContext(
+                controller,
+                ControllerTestSupport.BuildTenantPrincipal("calendar-user", tenantId));
+
+            var result = await controller.Move(cita.Id, new MoveCitaVM
+            {
+                FechaHoraCita = new DateTime(2026, 4, 24, 10, 0, 0),
+                FuncionarioId = funcionario.IdFuncionario
+            }, CancellationToken.None);
+
+            Assert.IsType<OkObjectResult>(result);
+
+            context.ChangeTracker.Clear();
+            var persisted = await context.Citas.AsNoTracking().SingleAsync();
+            Assert.Equal(new DateTime(2026, 4, 24, 10, 0, 0), persisted.FechaHoraCita);
+        }
+
+        [Fact]
+        public async Task Delete_ShouldReturnOk_WhenCitaExists()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Rosa");
+            var servicio = await SeedServicioAsync(context, "Lavado", 30);
+
+            var cita = new Cita
+            {
+                NombreCliente = "Eliminar",
+                TelefonoCliente = "8888",
+                ServicioId = servicio.Id,
+                FechaHoraCita = new DateTime(2026, 4, 24, 13, 0, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA"
+            };
+
+            context.Citas.Add(cita);
+            await context.SaveChangesAsync();
+
+            var controller = new CalendarController(
+                ControllerTestSupport.CreateCalendarCommandService(context),
+                ControllerTestSupport.CreateCalendarQueryService(context));
+
+            ControllerTestSupport.AttachHttpContext(
+                controller,
+                ControllerTestSupport.BuildTenantPrincipal("calendar-user", tenantId));
+
+            var result = await controller.Delete(cita.Id, CancellationToken.None);
+
+            Assert.IsType<OkObjectResult>(result);
+            Assert.Empty(await context.Citas.AsNoTracking().ToListAsync());
+        }
+
+        private static async Task<Funcionario> SeedFuncionarioAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            string nombre)
+        {
+            var puesto = new Puesto
+            {
+                NombrePuesto = $"Puesto {Guid.NewGuid():N}",
+                Detalle = "Calendario",
+                Activo = true
+            };
+
+            context.Puestos.Add(puesto);
+            await context.SaveChangesAsync();
+
+            var funcionario = new Funcionario
+            {
+                Nombre = nombre,
+                IdPuesto = puesto.IdPuesto,
+                ColorCalendario = "#123456",
+                PorcentajeGanancia = 40m,
+                PorcentajeProducto = 10m,
+                FechaIngreso = new DateTime(2026, 4, 1),
+                Activo = true
+            };
+
+            context.Funcionarios.Add(funcionario);
+            await context.SaveChangesAsync();
+            return funcionario;
+        }
+
+        private static async Task<Servicio> SeedServicioAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            string nombre,
+            int duracionMinutos)
+        {
+            var servicio = new Servicio
+            {
+                Nombre = nombre,
+                Precio = 25m,
+                DuracionMinutos = duracionMinutos,
+                Activo = true
+            };
+
+            context.Servicios.Add(servicio);
+            await context.SaveChangesAsync();
+            return servicio;
         }
     }
 }

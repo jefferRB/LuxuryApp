@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using LuxuryApp.Services;
+using LuxuryApp.Services.Calendar;
 using LuxuryApp.Services.Finanzas;
 using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Services.Identity;
@@ -67,6 +69,18 @@ namespace LuxuryApp.Tests.Support
         public static IInformacionNegocioQueryService CreateInformacionNegocioQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
             new InformacionNegocioQueryService(context);
 
+        public static ICalendarCommandService CreateCalendarCommandService(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            ICalendarNotificationService? notificationService = null) =>
+            new CalendarCommandService(
+                context,
+                notificationService ?? new NoOpCalendarNotificationService(),
+                new VisitasAutomaticasService(context),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<CalendarCommandService>.Instance);
+
+        public static ICalendarQueryService CreateCalendarQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
+            new CalendarQueryService(context);
+
         public static IProductoService CreateProductoService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
             new ProductoService(context, Microsoft.Extensions.Logging.Abstractions.NullLogger<ProductoService>.Instance);
 
@@ -85,5 +99,17 @@ namespace LuxuryApp.Tests.Support
         {
             _values = values.ToDictionary(pair => pair.Key, pair => pair.Value);
         }
+    }
+
+    internal sealed class NoOpCalendarNotificationService : ICalendarNotificationService
+    {
+        public Task<bool> TrySendConfirmationAsync(
+            string telefonoCliente,
+            string nombreCliente,
+            DateTime fechaHoraCita,
+            string servicioNombre,
+            string funcionarioNombre,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
     }
 }

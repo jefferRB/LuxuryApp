@@ -4,6 +4,7 @@ using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Middleware;
 using LuxuryApp.Services;
+using LuxuryApp.Services.Calendar;
 using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.DataBase;
 using LuxuryApp.Services.Finanzas;
@@ -97,6 +98,11 @@ builder.Services.AddControllersWithViews(options =>
     options.Filters.Add(new Microsoft.AspNetCore.Mvc.Authorization.AuthorizeFilter(policy));
 });
 
+builder.Services.AddAntiforgery(options =>
+{
+    options.HeaderName = "RequestVerificationToken";
+});
+
 builder.Services.AddMemoryCache();
 
 builder.Services.Configure<OpcionesPago>(builder.Configuration.GetSection("Payments"));
@@ -114,6 +120,9 @@ builder.Services.Configure<ResendClientOptions>(options =>
 builder.Services.AddTransient<IResend, ResendClient>();
 
 builder.Services.AddScoped<WhatsAppService>();
+builder.Services.AddScoped<ICalendarNotificationService, CalendarNotificationService>();
+builder.Services.AddScoped<ICalendarCommandService, CalendarCommandService>();
+builder.Services.AddScoped<ICalendarQueryService, CalendarQueryService>();
 builder.Services.AddScoped<ICobroService, CobroService>();
 builder.Services.AddScoped<ICobroQueryService, CobroQueryService>();
 builder.Services.AddScoped<IDashboardFinancieroQueryService, DashboardFinancieroQueryService>();

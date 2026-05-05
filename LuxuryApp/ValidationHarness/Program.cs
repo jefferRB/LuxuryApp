@@ -20,6 +20,7 @@ using LuxuryApp.Services.Identity;
 using LuxuryApp.Services.Informacion;
 using LuxuryApp.Services.Payments;
 using LuxuryApp.Services.Productos;
+using LuxuryApp.Services.Calendar;
 using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Services.Tilopay;
@@ -123,6 +124,9 @@ static ServiceProvider BuildServices(IConfiguration configuration, StaticTenantP
     services.AddScoped<SuscripcionService>();
     services.AddScoped<SaaSPaymentService>();
     services.AddScoped<PaymentProviderResolver>();
+    services.AddScoped<ICalendarNotificationService, CalendarNotificationService>();
+    services.AddScoped<ICalendarCommandService, CalendarCommandService>();
+    services.AddScoped<ICalendarQueryService, CalendarQueryService>();
     services.AddScoped<ICobroService, CobroService>();
     services.AddScoped<ICobroQueryService, CobroQueryService>();
     services.AddScoped<IDashboardFinancieroQueryService, DashboardFinancieroQueryService>();

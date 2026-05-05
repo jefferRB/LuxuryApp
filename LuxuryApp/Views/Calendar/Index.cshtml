@@ -2,6 +2,10 @@
     ViewData["Title"] = "Agenda";
 }
 
+<div id="calendar-antiforgery" class="d-none">
+    @Html.AntiForgeryToken()
+</div>
+
 <div class="container-fluid mt-3">
     <div class="row">
 

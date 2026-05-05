@@ -111,6 +111,9 @@ namespace ProyectoIdentity.Datos
             {
                 entity.HasIndex(c => new { c.TenantId, c.FechaHoraCita })
                     .HasDatabaseName("IX_Citas_TenantId_FechaHoraCita");
+
+                entity.HasIndex(c => new { c.TenantId, c.FuncionarioId, c.FechaHoraCita })
+                    .HasDatabaseName("IX_Citas_TenantId_FuncionarioId_FechaHoraCita");
             });
 
             modelBuilder.Entity<Puesto>(entity =>
