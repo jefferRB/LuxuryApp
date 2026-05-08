@@ -21,7 +21,7 @@ namespace LuxuryApp.Models.Productos
 
         [Required]
         [Display(Name = "Precio")]
-        [Range(typeof(decimal), "0,01", "999999", ErrorMessage = "Debe indicar un precio mayor a cero y dentro del rango permitido.")]
+        [Range(typeof(decimal), "0.01", "999999", ErrorMessage = "Debe indicar un precio mayor a cero y dentro del rango permitido.")]
         public decimal PrecioProducto { get; set; }
 
         [Required]

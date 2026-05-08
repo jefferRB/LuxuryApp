@@ -26,8 +26,26 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ProyectoIdentity.Datos;
 using Resend;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.DataProtection;
 
 var builder = WebApplication.CreateBuilder(args);
+
+//Builders para host en linux nginx 
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders =
+        ForwardedHeaders.XForwardedFor |
+        ForwardedHeaders.XForwardedProto;
+
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo("/var/lib/luxury/dataprotection-keys"))
+    .SetApplicationName("Luxury");
+//Fin builders para host en linux nginx
 
 builder.Services.AddScoped<TenantSessionConnectionInterceptor>();
 
@@ -172,6 +190,8 @@ if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Home/Error");
     app.UseHsts();
 }
+//linux nginx
+app.UseForwardedHeaders();
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();
