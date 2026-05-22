@@ -10,6 +10,19 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"] - LuxuryApp</title>
+    <script>
+        (function () {
+            try {
+                var storedTheme = localStorage.getItem("luxury-theme");
+                var theme = storedTheme === "futuristic" || storedTheme === "marble"
+                    ? storedTheme
+                    : "marble";
+                document.documentElement.setAttribute("data-luxury-theme", theme);
+            } catch (error) {
+                document.documentElement.setAttribute("data-luxury-theme", "marble");
+            }
+        })();
+    </script>
     <script type="importmap"></script>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
@@ -23,23 +36,80 @@
     <link rel="stylesheet" href="~/LuxuryApp.styles.css" asp-append-version="true" />
     @await RenderSectionAsync("Styles", required: false)
 </head>
-<body class="layout-background private-shell @(ViewData["FullScreen"] as string)">
-    <header class="private-header">
-        <partial name="_PrivateNavbar" model="navigation" />
-    </header>
+<body class="layout-background private-shell theme-marble @(ViewData["FullScreen"] as string)">
+    <div class="private-layout-frame">
+        <header class="private-header">
+            <partial name="_PrivateNavbar" model="navigation" />
 
-    <div class="container">
-        <main role="main" class="pb-4 private-main">
-            @RenderBody()
-        </main>
+        
+        </header>
+
+        <div class="container private-content-shell">
+            <main role="main" class="pb-4 private-main">
+                @RenderBody()
+            </main>
+        </div>
+
+        <footer class="private-footer text-muted">
+            <div class="container d-flex flex-column flex-md-row justify-content-between gap-2">
+                <span>&copy; 2026 - LuxuryApp</span>
+                <a asp-controller="Home" asp-action="Privacy">Privacidad</a>
+            </div>
+        </footer>
     </div>
 
-    <footer class="footer private-footer text-muted">
-        <div class="container d-flex flex-column flex-md-row justify-content-between gap-2">
-            <span>&copy; 2026 - LuxuryApp</span>
-            <a asp-controller="Home" asp-action="Privacy">Privacidad</a>
+    @if (navigation.IsAuthenticated)
+    {
+        <div class="modal fade theme-style-modal" id="themeStyleModal" tabindex="-1" aria-labelledby="themeStyleModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content private-theme-modal">
+                    <div class="modal-header private-theme-modal-header">
+                        <div>
+                            <span class="private-theme-modal-kicker">Personalizacion visual</span>
+                            <h5 class="modal-title private-theme-modal-title" id="themeStyleModalLabel">Estilo del espacio de trabajo</h5>
+                        </div>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+
+                    <div class="modal-body private-theme-modal-body">
+                        <p class="private-theme-modal-copy">
+                            Elige el fondo principal del SaaS. El cambio se aplica de inmediato y se conserva en este navegador.
+                        </p>
+
+                        <div class="private-theme-grid">
+                            <button type="button"
+                                    class="private-theme-card"
+                                    data-luxury-theme-option="marble"
+                                    aria-pressed="false">
+                                <span class="private-theme-card-preview private-theme-card-preview-marble" aria-hidden="true"></span>
+                                <span class="private-theme-card-body">
+                                    <span class="private-theme-card-title">Marmol clasico</span>
+                                    <span class="private-theme-card-copy">Mantiene el fondo actual de marmol blanco.</span>
+                                </span>
+                                <span class="private-theme-card-state">
+                                    <i class="bi bi-check-circle-fill d-none" data-luxury-theme-check aria-hidden="true"></i>
+                                </span>
+                            </button>
+
+                            <button type="button"
+                                    class="private-theme-card"
+                                    data-luxury-theme-option="futuristic"
+                                    aria-pressed="false">
+                                <span class="private-theme-card-preview private-theme-card-preview-futuristic" aria-hidden="true"></span>
+                                <span class="private-theme-card-body">
+                                    <span class="private-theme-card-title">Futurista azul/morado</span>
+                                    <span class="private-theme-card-copy">Aplica un fondo sobrio inspirado en la landing publica.</span>
+                                </span>
+                                <span class="private-theme-card-state">
+                                    <i class="bi bi-check-circle-fill d-none" data-luxury-theme-check aria-hidden="true"></i>
+                                </span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
-    </footer>
+    }
 
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
