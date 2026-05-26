@@ -1,5 +1,6 @@
 using System.Data;
 using LuxuryApp.Models.Productos;
+using LuxuryApp.Services.BusinessTime;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
@@ -10,11 +11,16 @@ namespace LuxuryApp.Services.Productos
         private const int MaxNombreLength = 150;
         private const int MaxDetalleLength = 300;
         private readonly ApplicationDbContext _context;
+        private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ILogger<ProductoService> _logger;
 
-        public ProductoService(ApplicationDbContext context, ILogger<ProductoService> logger)
+        public ProductoService(
+            ApplicationDbContext context,
+            IBusinessDateTimeProvider businessDateTimeProvider,
+            ILogger<ProductoService> logger)
         {
             _context = context;
+            _businessDateTimeProvider = businessDateTimeProvider;
             _logger = logger;
         }
 
@@ -34,7 +40,7 @@ namespace LuxuryApp.Services.Productos
 
                     await EnsureNombreDisponibleAsync(normalizedRequest.NombreProducto, productoIdToExclude: null, cancellationToken);
 
-                    var timestamp = NormalizeTimestamp(DateTime.Now);
+                    var timestamp = NormalizeTimestamp(_businessDateTimeProvider.Now());
                     var producto = new Producto
                     {
                         NombreProducto = normalizedRequest.NombreProducto,
@@ -119,7 +125,7 @@ namespace LuxuryApp.Services.Productos
                         _context.MovimientosInventario.Add(new MovimientoInventario
                         {
                             ProductoId = producto.IdProducto,
-                            FechaMovimiento = NormalizeTimestamp(DateTime.Now),
+                            FechaMovimiento = NormalizeTimestamp(_businessDateTimeProvider.Now()),
                             TipoMovimiento = "AJUSTE",
                             Cantidad = Math.Abs(normalizedRequest.CantidadProducto - stockAnterior),
                             StockAnterior = stockAnterior,

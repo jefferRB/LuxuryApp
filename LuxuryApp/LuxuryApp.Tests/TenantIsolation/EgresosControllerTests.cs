@@ -76,7 +76,8 @@ namespace LuxuryApp.Tests.TenantIsolation
         {
             var controller = new EgresosController(
                 ControllerTestSupport.CreateEgresoService(context),
-                ControllerTestSupport.CreateEgresoQueryService(context));
+                ControllerTestSupport.CreateEgresoQueryService(context),
+                ControllerTestSupport.BusinessDateTimeProvider);
 
             ControllerTestSupport.AttachHttpContext(
                 controller,

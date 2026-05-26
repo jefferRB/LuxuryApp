@@ -15,7 +15,7 @@ namespace LuxuryApp.Models.Finanzas
 
         [Required]
         [Display(Name = "Precio")]
-        [Range(0, 999999)]
+        [DecimalRange(0.01, 999999, ErrorMessage = "Debe indicar un precio mayor a cero y dentro del rango permitido.")]
         public decimal Precio { get; set; }
 
         public bool Activo { get; set; } = true;

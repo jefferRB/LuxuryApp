@@ -488,6 +488,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var controller = new FuncionariosController(
                 context,
                 ControllerTestSupport.CreateLiquidacionSemanalService(context),
+                ControllerTestSupport.BusinessDateTimeProvider,
                 NullLogger<FuncionariosController>.Instance);
 
             ControllerTestSupport.AttachHttpContext(

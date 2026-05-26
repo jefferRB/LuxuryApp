@@ -122,6 +122,7 @@
                         <th>Detalle</th>
                         <th>Monto</th>
                         <th>Método Pago</th>
+                        <th class="text-end pe-4">Acciones</th>
                     </tr>
                 </thead>
 
@@ -151,13 +152,33 @@
                                 <td>
                                     @egreso.MetodoPago
                                 </td>
+
+                                <td class="text-end pe-4">
+                                    <div class="d-inline-flex gap-2">
+                                        <a asp-action="Edit"
+                                           asp-route-id="@egreso.IdEgreso"
+                                           class="btn btn-sm btn-outline-dark">
+                                            <i class="fas fa-edit me-1"></i>Editar
+                                        </a>
+
+                                        <form asp-action="Delete"
+                                              asp-route-id="@egreso.IdEgreso"
+                                              method="post"
+                                              onsubmit="return confirm('¿Eliminar este egreso? Esta accion actualizara los KPIs y dashboards.');">
+                                            @Html.AntiForgeryToken()
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                <i class="fas fa-trash me-1"></i>Eliminar
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
                             </tr>
                         }
                     }
                     else
                     {
                         <tr>
-                            <td colspan="5" class="text-center py-4 text-muted">
+                            <td colspan="6" class="text-center py-4 text-muted">
                                 No hay egresos registrados
                             </td>
                         </tr>

@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using LuxuryApp.Models.DataBase;
+using LuxuryApp.Services.BusinessTime;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -36,13 +37,16 @@ namespace LuxuryApp.Controllers.DataBase
             };
 
         private readonly ApplicationDbContext _context;
+        private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ILogger<ClientesController> _logger;
 
         public ClientesController(
             ApplicationDbContext context,
+            IBusinessDateTimeProvider businessDateTimeProvider,
             ILogger<ClientesController> logger)
         {
             _context = context;
+            _businessDateTimeProvider = businessDateTimeProvider;
             _logger = logger;
         }
 
@@ -78,7 +82,7 @@ namespace LuxuryApp.Controllers.DataBase
         {
             var cliente = new ClientesModel
             {
-                FechaUltimaVisita = DateTime.Today,
+                FechaUltimaVisita = _businessDateTimeProvider.Today(),
                 FrecuenciaVisita = 30
             };
 
@@ -428,7 +432,7 @@ namespace LuxuryApp.Controllers.DataBase
                         return;
                     }
 
-                    var hoy = DateTime.Today;
+                    var hoy = _businessDateTimeProvider.Today();
                     cliente.FechaUltimaVisita = hoy;
 
                     _context.ClienteVisitas.Add(new ClienteVisitas

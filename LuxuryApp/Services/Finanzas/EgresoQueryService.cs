@@ -1,4 +1,5 @@
 using LuxuryApp.Models.Finanzas;
+using LuxuryApp.Services.BusinessTime;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
@@ -8,10 +9,14 @@ namespace LuxuryApp.Services.Finanzas
     public sealed class EgresoQueryService : IEgresoQueryService
     {
         private readonly ApplicationDbContext _context;
+        private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
 
-        public EgresoQueryService(ApplicationDbContext context)
+        public EgresoQueryService(
+            ApplicationDbContext context,
+            IBusinessDateTimeProvider businessDateTimeProvider)
         {
             _context = context;
+            _businessDateTimeProvider = businessDateTimeProvider;
         }
 
         public async Task<EgresoIndexViewModel> BuildIndexViewModelAsync(
@@ -61,22 +66,62 @@ namespace LuxuryApp.Services.Finanzas
             Egreso? egreso = null,
             CancellationToken cancellationToken = default)
         {
-            var currentEgreso = egreso ?? new Egreso
-            {
-                FechaEgreso = NormalizeEgresoDateTime(DateTime.Now)
-            };
+            var currentEgreso = egreso ?? new Egreso();
 
             if (currentEgreso.FechaEgreso == default)
             {
-                currentEgreso.FechaEgreso = NormalizeEgresoDateTime(DateTime.Now);
+                currentEgreso.FechaEgreso = NormalizeEgresoDateTime(_businessDateTimeProvider.Now());
             }
+
+            return await BuildFormViewModelAsync(currentEgreso, cancellationToken: cancellationToken);
+        }
+
+        public async Task<EgresoViewModel?> BuildEditViewModelAsync(
+            int id,
+            Egreso? egreso = null,
+            CancellationToken cancellationToken = default)
+        {
+            var persistedEgreso = await _context.Egresos
+                .AsNoTracking()
+                .Where(e => e.IdEgreso == id)
+                .Select(e => new Egreso
+                {
+                    IdEgreso = e.IdEgreso,
+                    FechaEgreso = e.FechaEgreso,
+                    Detalle = e.Detalle,
+                    Monto = e.Monto,
+                    MetodoPago = e.MetodoPago,
+                    CategoriaId = e.CategoriaId
+                })
+                .SingleOrDefaultAsync(cancellationToken);
+
+            if (persistedEgreso is null)
+            {
+                return null;
+            }
+
+            var currentEgreso = egreso ?? persistedEgreso;
+            currentEgreso.IdEgreso = persistedEgreso.IdEgreso;
+
+            return await BuildFormViewModelAsync(
+                currentEgreso,
+                selectedCategoriaId: persistedEgreso.CategoriaId,
+                cancellationToken);
+        }
+
+        private async Task<EgresoViewModel> BuildFormViewModelAsync(
+            Egreso currentEgreso,
+            int? selectedCategoriaId = null,
+            CancellationToken cancellationToken = default)
+        {
+            selectedCategoriaId ??= currentEgreso.CategoriaId > 0 ? currentEgreso.CategoriaId : null;
 
             return new EgresoViewModel
             {
                 Egreso = currentEgreso,
                 Categorias = await _context.Categorias
                     .AsNoTracking()
-                    .Where(c => c.Activo)
+                    .Where(c => c.Activo || (selectedCategoriaId.HasValue && c.Id == selectedCategoriaId.Value))
                     .OrderBy(c => c.Nombre)
                     .Select(c => new SelectListItem
                     {
@@ -143,13 +188,13 @@ namespace LuxuryApp.Services.Finanzas
                 })
                 .ToListAsync(cancellationToken);
 
-        private static (DateTime? FechaInicio, DateTime? FechaFinExclusiva) ResolveDateRange(EgresoFiltroViewModel filtros)
+        private (DateTime? FechaInicio, DateTime? FechaFinExclusiva) ResolveDateRange(EgresoFiltroViewModel filtros)
         {
             var vistaTiempo = string.IsNullOrWhiteSpace(filtros.VistaTiempo)
                 ? "dia"
                 : filtros.VistaTiempo.Trim().ToLowerInvariant();
 
-            var today = DateTime.Today;
+            var today = _businessDateTimeProvider.Today();
 
             return vistaTiempo switch
             {

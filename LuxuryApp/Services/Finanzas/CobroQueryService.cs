@@ -1,5 +1,6 @@
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Services.Funcionarios;
+using LuxuryApp.Services.BusinessTime;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
@@ -9,10 +10,14 @@ namespace LuxuryApp.Services.Finanzas
     public sealed class CobroQueryService : ICobroQueryService
     {
         private readonly ApplicationDbContext _context;
+        private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
 
-        public CobroQueryService(ApplicationDbContext context)
+        public CobroQueryService(
+            ApplicationDbContext context,
+            IBusinessDateTimeProvider businessDateTimeProvider)
         {
             _context = context;
+            _businessDateTimeProvider = businessDateTimeProvider;
         }
 
         public async Task<CobroIndexViewModel> BuildIndexViewModelAsync(
@@ -79,22 +84,77 @@ namespace LuxuryApp.Services.Finanzas
             Cobro? cobro = null,
             CancellationToken cancellationToken = default)
         {
-            var currentCobro = cobro ?? new Cobro
-            {
-                FechaCobro = NormalizeCobroDateTime(DateTime.Now)
-            };
+            var currentCobro = cobro ?? new Cobro();
 
             if (currentCobro.FechaCobro == default)
             {
-                currentCobro.FechaCobro = NormalizeCobroDateTime(DateTime.Now);
+                currentCobro.FechaCobro = NormalizeCobroDateTime(_businessDateTimeProvider.Now());
             }
+
+            return await BuildFormViewModelAsync(currentCobro, cancellationToken: cancellationToken);
+        }
+
+        public async Task<CobroViewModel?> BuildEditViewModelAsync(
+            int id,
+            Cobro? cobro = null,
+            CancellationToken cancellationToken = default)
+        {
+            var persistedCobro = await _context.Cobros
+                .AsNoTracking()
+                .Where(c => c.IdCobro == id)
+                .Select(c => new Cobro
+                {
+                    IdCobro = c.IdCobro,
+                    FechaCobro = c.FechaCobro,
+                    NombreCliente = c.NombreCliente,
+                    FuncionarioId = c.FuncionarioId,
+                    ServicioId = c.ServicioId,
+                    ProductoId = c.ProductoId,
+                    Monto = c.Monto,
+                    MetodoPago = c.MetodoPago,
+                    Observaciones = c.Observaciones
+                })
+                .SingleOrDefaultAsync(cancellationToken);
+
+            if (persistedCobro is null)
+            {
+                return null;
+            }
+
+            var currentCobro = cobro ?? persistedCobro;
+            currentCobro.IdCobro = persistedCobro.IdCobro;
+
+            if (persistedCobro.ProductoId.HasValue)
+            {
+                currentCobro.ProductoId = persistedCobro.ProductoId;
+                currentCobro.ServicioId = null;
+            }
+
+            return await BuildFormViewModelAsync(
+                currentCobro,
+                selectedFuncionarioId: persistedCobro.FuncionarioId,
+                selectedServicioId: persistedCobro.ServicioId,
+                selectedProductoId: persistedCobro.ProductoId,
+                cancellationToken);
+        }
+
+        private async Task<CobroViewModel> BuildFormViewModelAsync(
+            Cobro currentCobro,
+            int? selectedFuncionarioId = null,
+            int? selectedServicioId = null,
+            int? selectedProductoId = null,
+            CancellationToken cancellationToken = default)
+        {
+            selectedFuncionarioId ??= currentCobro.FuncionarioId > 0 ? currentCobro.FuncionarioId : null;
+            selectedServicioId ??= currentCobro.ServicioId;
+            selectedProductoId ??= currentCobro.ProductoId;
 
             return new CobroViewModel
             {
                 Cobro = currentCobro,
                 Funcionarios = await _context.Funcionarios
                     .AsNoTracking()
-                    .Where(f => f.Activo)
+                    .Where(f => f.Activo || (selectedFuncionarioId.HasValue && f.IdFuncionario == selectedFuncionarioId.Value))
                     .OrderBy(f => f.Nombre)
                     .Select(f => new SelectListItem
                     {
@@ -104,7 +164,7 @@ namespace LuxuryApp.Services.Finanzas
                     .ToListAsync(cancellationToken),
                 Servicios = await _context.Servicios
                     .AsNoTracking()
-                    .Where(s => s.Activo)
+                    .Where(s => s.Activo || (selectedServicioId.HasValue && s.Id == selectedServicioId.Value))
                     .OrderBy(s => s.Nombre)
                     .Select(s => new SelectListItem
                     {
@@ -114,7 +174,9 @@ namespace LuxuryApp.Services.Finanzas
                     .ToListAsync(cancellationToken),
                 Productos = await _context.Productos
                     .AsNoTracking()
-                    .Where(p => p.Activo && p.CantidadProducto > 0)
+                    .Where(p =>
+                        (p.Activo && p.CantidadProducto > 0) ||
+                        (selectedProductoId.HasValue && p.IdProducto == selectedProductoId.Value))
                     .OrderBy(p => p.NombreProducto)
                     .Select(p => new SelectListItem
                     {
@@ -231,13 +293,13 @@ namespace LuxuryApp.Services.Finanzas
                 new SelectListItem { Value = "SINPE", Text = "Sinpe" }
             };
 
-        private static (DateTime? FechaInicio, DateTime? FechaFinExclusiva) ResolveDateRange(CobroFiltroViewModel filtros)
+        private (DateTime? FechaInicio, DateTime? FechaFinExclusiva) ResolveDateRange(CobroFiltroViewModel filtros)
         {
             var vistaTiempo = string.IsNullOrWhiteSpace(filtros.VistaTiempo)
                 ? "dia"
                 : filtros.VistaTiempo.Trim().ToLowerInvariant();
 
-            var today = DateTime.Today;
+            var today = _businessDateTimeProvider.Today();
 
             return vistaTiempo switch
             {

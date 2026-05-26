@@ -4,6 +4,7 @@ using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Middleware;
 using LuxuryApp.Services;
+using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Calendar;
 using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.DataBase;
@@ -12,6 +13,7 @@ using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Services.Identity;
 using LuxuryApp.Services.Informacion;
 using LuxuryApp.Services.Layout;
+using LuxuryApp.Services.Localization;
 using LuxuryApp.Services.Payments;
 using LuxuryApp.Services.PublicSite;
 using LuxuryApp.Services.Productos;
@@ -28,8 +30,19 @@ using ProyectoIdentity.Datos;
 using Resend;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Localization;
+using System.Globalization;
 
 var builder = WebApplication.CreateBuilder(args);
+
+if (AppContext.TryGetSwitch("System.Globalization.Invariant", out var globalizationInvariant) && globalizationInvariant)
+{
+    throw new InvalidOperationException("La globalizacion de .NET no puede estar en modo invariant para Luxury.");
+}
+
+var defaultCulture = CultureInfo.GetCultureInfo("es-CR");
+CultureInfo.DefaultThreadCurrentCulture = defaultCulture;
+CultureInfo.DefaultThreadCurrentUICulture = defaultCulture;
 
 //Builders para host en linux nginx 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
@@ -109,6 +122,8 @@ builder.Services.Configure<SecurityStampValidatorOptions>(options =>
 
 builder.Services.AddControllersWithViews(options =>
 {
+    options.ModelBinderProviders.Insert(0, new FlexibleDecimalModelBinderProvider());
+
     var policy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
         .RequireAuthenticatedUser()
         .Build();
@@ -126,8 +141,18 @@ builder.Services.AddMemoryCache();
 builder.Services.Configure<OpcionesPago>(builder.Configuration.GetSection("Payments"));
 builder.Services.Configure<OpcionesTilopay>(builder.Configuration.GetSection("Tilopay"));
 builder.Services.Configure<OpcionesOnboardingTenant>(builder.Configuration.GetSection("TenantOnboarding"));
+builder.Services.Configure<BusinessDateTimeOptions>(builder.Configuration.GetSection(BusinessDateTimeOptions.SectionName));
+builder.Services.Configure<RequestLocalizationOptions>(options =>
+{
+    var supportedCultures = new[] { defaultCulture };
+
+    options.DefaultRequestCulture = new RequestCulture(defaultCulture);
+    options.SupportedCultures = supportedCultures;
+    options.SupportedUICultures = supportedCultures;
+});
 
 builder.Services.AddSingleton<RecordatorioService>();
+builder.Services.AddSingleton<IBusinessDateTimeProvider, BusinessDateTimeProvider>();
 builder.Services.AddScoped<EmailSender>();
 builder.Services.AddTransient<EmailService, EmailSender>();
 builder.Services.AddHttpClient<ResendClient>();
@@ -195,6 +220,8 @@ app.UseForwardedHeaders();
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();
+
+app.UseRequestLocalization(app.Services.GetRequiredService<IOptions<RequestLocalizationOptions>>().Value);
 
 app.UseRouting();
 

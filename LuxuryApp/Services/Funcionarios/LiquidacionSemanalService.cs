@@ -2,6 +2,7 @@ using System.Data;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Productos;
+using LuxuryApp.Services.BusinessTime;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
@@ -10,13 +11,16 @@ namespace LuxuryApp.Services.Funcionarios
     public class LiquidacionSemanalService : ILiquidacionSemanalService
     {
         private readonly ApplicationDbContext _context;
+        private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ILogger<LiquidacionSemanalService> _logger;
 
         public LiquidacionSemanalService(
             ApplicationDbContext context,
+            IBusinessDateTimeProvider businessDateTimeProvider,
             ILogger<LiquidacionSemanalService> logger)
         {
             _context = context;
+            _businessDateTimeProvider = businessDateTimeProvider;
             _logger = logger;
         }
 
@@ -267,7 +271,7 @@ namespace LuxuryApp.Services.Funcionarios
                 }
 
                 var categoria = await EnsureCategoriaPagoFuncionariosAsync(cancellationToken);
-                var now = DateTime.Now;
+                var now = _businessDateTimeProvider.Now();
                 var fechaPago = NormalizeFechaPago(command.FechaPago, now);
                 var montoTotal = detallesValidados.Sum(item => item.MontoPagado);
 

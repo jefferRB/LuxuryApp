@@ -1,4 +1,5 @@
 using LuxuryApp.Services;
+using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Tenant;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
@@ -8,30 +9,31 @@ namespace LuxuryApp.Workers
     public class ReminderWorker : BackgroundService
     {
         private readonly TenantExecutionService _tenantExecutionService;
+        private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ILogger<ReminderWorker> _logger;
         private readonly IConfiguration _config;
 
         public ReminderWorker(
             TenantExecutionService tenantExecutionService,
+            IBusinessDateTimeProvider businessDateTimeProvider,
             ILogger<ReminderWorker> logger,
             IConfiguration config)
         {
             _tenantExecutionService = tenantExecutionService;
+            _businessDateTimeProvider = businessDateTimeProvider;
             _logger = logger;
             _config = config;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            var tzCR = TimeZoneInfo.FindSystemTimeZoneById("Central America Standard Time");
-
             _logger.LogInformation("ReminderWorker iniciado");
 
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
                 {
-                    var nowCR = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tzCR);
+                    var nowCR = _businessDateTimeProvider.Now();
 
                     var template24 = _config["TwilioTemplates:Recordatorio24h"];
                     var template3 = _config["TwilioTemplates:Recordatorio3h"];

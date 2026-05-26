@@ -1,5 +1,6 @@
 using ClosedXML.Excel;
 using LuxuryApp.Models.Finanzas;
+using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Finanzas;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,13 +12,16 @@ namespace LuxuryApp.Controllers.Finanzas
     {
         private readonly ICobroService _cobroService;
         private readonly ICobroQueryService _cobroQueryService;
+        private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
 
         public CobrosController(
             ICobroService cobroService,
-            ICobroQueryService cobroQueryService)
+            ICobroQueryService cobroQueryService,
+            IBusinessDateTimeProvider businessDateTimeProvider)
         {
             _cobroService = cobroService;
             _cobroQueryService = cobroQueryService;
+            _businessDateTimeProvider = businessDateTimeProvider;
         }
 
         public async Task<IActionResult> Index(CobroFiltroViewModel filtros)
@@ -44,6 +48,7 @@ namespace LuxuryApp.Controllers.Finanzas
             try
             {
                 await _cobroService.RegistrarAsync(MapRequest(vm.Cobro));
+                TempData["Mensaje"] = "Cobro registrado correctamente.";
                 return RedirectToAction(nameof(Index));
             }
             catch (CobroValidationException ex)
@@ -56,6 +61,82 @@ namespace LuxuryApp.Controllers.Finanzas
             }
 
             return View(await _cobroQueryService.BuildCreateViewModelAsync(vm.Cobro));
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> Edit(int id)
+        {
+            var vm = await _cobroQueryService.BuildEditViewModelAsync(id);
+
+            if (vm is null)
+            {
+                return NotFound();
+            }
+
+            return View(vm);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Edit(int id, CobroViewModel vm)
+        {
+            if (id != vm.Cobro.IdCobro)
+            {
+                return BadRequest();
+            }
+
+            if (!ModelState.IsValid)
+            {
+                var invalidVm = await _cobroQueryService.BuildEditViewModelAsync(id, vm.Cobro);
+                return invalidVm is null ? NotFound() : View(invalidVm);
+            }
+
+            try
+            {
+                var updated = await _cobroService.ActualizarAsync(MapUpdateRequest(vm.Cobro));
+
+                if (!updated)
+                {
+                    return NotFound();
+                }
+
+                TempData["Mensaje"] = "Cobro actualizado correctamente.";
+                return RedirectToAction(nameof(Index));
+            }
+            catch (CobroValidationException ex)
+            {
+                ModelState.AddModelError(ex.ModelStateKey ?? string.Empty, ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                ModelState.AddModelError(string.Empty, ex.Message);
+            }
+
+            var editVm = await _cobroQueryService.BuildEditViewModelAsync(id, vm.Cobro);
+            return editVm is null ? NotFound() : View(editVm);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Delete(int id)
+        {
+            try
+            {
+                var deleted = await _cobroService.EliminarAsync(id);
+
+                if (!deleted)
+                {
+                    return NotFound();
+                }
+
+                TempData["Mensaje"] = "Cobro eliminado correctamente.";
+            }
+            catch (InvalidOperationException ex)
+            {
+                TempData["Error"] = ex.Message;
+            }
+
+            return RedirectToAction(nameof(Index));
         }
 
         [HttpGet]
@@ -100,7 +181,9 @@ namespace LuxuryApp.Controllers.Finanzas
             ws.Cell("A2").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
             ws.Range("A3:G3").Merge();
-            ws.Cell("A3").Value = $"Generado el {DateTime.Now:dd/MM/yyyy HH:mm}";
+            var generatedAt = _businessDateTimeProvider.Now();
+
+            ws.Cell("A3").Value = $"Generado el {generatedAt:dd/MM/yyyy HH:mm}";
             ws.Cell("A3").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
             var fila = 5;
@@ -221,7 +304,7 @@ namespace LuxuryApp.Controllers.Finanzas
             return File(
                 stream.ToArray(),
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                $"LuxeReporteCobros_{DateTime.Now:yyyyMMdd_HHmm}.xlsx");
+                $"LuxeReporteCobros_{generatedAt:yyyyMMdd_HHmm}.xlsx");
         }
 
         private static CobroCreateRequest MapRequest(Cobro cobro) =>
@@ -232,6 +315,20 @@ namespace LuxuryApp.Controllers.Finanzas
                 FuncionarioId = cobro.FuncionarioId,
                 ServicioId = cobro.ServicioId,
                 ProductoId = cobro.ProductoId,
+                Monto = cobro.Monto,
+                MetodoPago = cobro.MetodoPago,
+                Observaciones = cobro.Observaciones
+            };
+
+        private static CobroUpdateRequest MapUpdateRequest(Cobro cobro) =>
+            new()
+            {
+                IdCobro = cobro.IdCobro,
+                FechaCobro = cobro.FechaCobro,
+                NombreCliente = cobro.NombreCliente,
+                FuncionarioId = cobro.FuncionarioId,
+                ServicioId = cobro.ServicioId,
+                Monto = cobro.Monto,
                 MetodoPago = cobro.MetodoPago,
                 Observaciones = cobro.Observaciones
             };

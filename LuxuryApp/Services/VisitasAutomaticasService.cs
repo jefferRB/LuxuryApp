@@ -1,4 +1,5 @@
 ﻿using LuxuryApp.Models.DataBase;
+using LuxuryApp.Services.BusinessTime;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
@@ -7,15 +8,19 @@ namespace LuxuryApp.Services
     public class VisitasAutomaticasService
     {
         private readonly ApplicationDbContext _context;
+        private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
 
-        public VisitasAutomaticasService(ApplicationDbContext context)
+        public VisitasAutomaticasService(
+            ApplicationDbContext context,
+            IBusinessDateTimeProvider businessDateTimeProvider)
         {
             _context = context;
+            _businessDateTimeProvider = businessDateTimeProvider;
         }
 
         public async Task ProcesarCitasFinalizadas(CancellationToken cancellationToken = default)
         {
-            var ahora = DateTime.Now;
+            var ahora = _businessDateTimeProvider.Now();
 
             var citas = await _context.Citas
                 .Include(c => c.Servicio)

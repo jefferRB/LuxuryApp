@@ -13,6 +13,11 @@ namespace LuxuryApp.Services.Finanzas
             Cobro? cobro = null,
             CancellationToken cancellationToken = default);
 
+        Task<CobroViewModel?> BuildEditViewModelAsync(
+            int id,
+            Cobro? cobro = null,
+            CancellationToken cancellationToken = default);
+
         Task<decimal?> ObtenerPrecioServicioAsync(int id, CancellationToken cancellationToken = default);
         Task<decimal?> ObtenerPrecioProductoAsync(int id, CancellationToken cancellationToken = default);
     }

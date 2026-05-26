@@ -274,7 +274,8 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var controller = new CobrosController(
                 ControllerTestSupport.CreateCobroService(context),
-                ControllerTestSupport.CreateCobroQueryService(context));
+                ControllerTestSupport.CreateCobroQueryService(context),
+                ControllerTestSupport.BusinessDateTimeProvider);
             var result = await controller.Index(new CobroFiltroViewModel { VistaTiempo = "todo" });
 
             var view = Assert.IsType<ViewResult>(result);
@@ -399,7 +400,10 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         private static LiquidacionSemanalService CreateService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
-            new(context, NullLogger<LiquidacionSemanalService>.Instance);
+            new(
+                context,
+                ControllerTestSupport.BusinessDateTimeProvider,
+                NullLogger<LiquidacionSemanalService>.Instance);
 
         private static async Task<Funcionario> SeedFuncionarioAsync(
             ProyectoIdentity.Datos.ApplicationDbContext context,

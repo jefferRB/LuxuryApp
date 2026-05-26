@@ -1,15 +1,15 @@
 ﻿@model LuxuryApp.Models.Finanzas.DashboardViewModel
 
+@using System.Globalization
+
 @{
     ViewData["Title"] = "Dashboard";
+    var metodosPagoValores = new[] { Model.IngresosEfectivo, Model.IngresosSinpe, Model.IngresosTarjeta };
+    var esCr = CultureInfo.GetCultureInfo("es-CR");
 }
 
 <link rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-
 
 <div class="dashboard-wrapper">
 
@@ -36,7 +36,7 @@
                     @for (int m = 1; m <= 12; m++)
                     {
                         <option value="@m" selected="@(m == Model.MesSeleccionado)">
-                            @System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(m)
+                            @esCr.DateTimeFormat.GetMonthName(m)
                         </option>
                     }
 
@@ -48,7 +48,7 @@
                         style="width:120px;"
                         onchange="this.form.submit()">
 
-                    @for (int a = DateTime.Today.Year - 5; a <= DateTime.Today.Year + 1; a++)
+                    @for (int a = Model.AnioSeleccionado - 5; a <= Model.AnioSeleccionado + 1; a++)
                     {
                         <option value="@a" selected="@(a == Model.AnioSeleccionado)">
                             @a
@@ -75,7 +75,7 @@
             <br />
 
             <small class="text-muted">
-                @System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(Model.MesSeleccionado)
+                @esCr.DateTimeFormat.GetMonthName(Model.MesSeleccionado)
                 @Model.AnioSeleccionado
             </small>
 
@@ -275,16 +275,20 @@
         <div class="row mt-4 g-4">
 
             <div class="col-lg-6">
-                <div class="kpi-card">
+                <div class="kpi-card private-chart-card">
                     <h6 class="mb-3">Ingresos por Método de Pago</h6>
-                    <canvas id="metodosPagoChart"></canvas>
+                    <div class="private-chart-body">
+                        <canvas id="metodosPagoChart"></canvas>
+                    </div>
                 </div>
             </div>
 
             <div class="col-lg-6">
-                <div class="kpi-card">
+                <div class="kpi-card private-chart-card">
                     <h6 class="mb-3">Resultado Caja vs Analítico por Mes</h6>
-                    <canvas id="gananciaMesChart"></canvas>
+                    <div class="private-chart-body">
+                        <canvas id="gananciaMesChart"></canvas>
+                    </div>
                 </div>
             </div>
 
@@ -302,29 +306,46 @@
     <script>
 
         const ctx = document.getElementById('metodosPagoChart');
+        const chartTokens = window.luxuryGetPrivateThemeTokens
+            ? window.luxuryGetPrivateThemeTokens()
+            : { chartText: '#334155', chartMuted: '#64748b', chartGrid: 'rgba(148, 163, 184, 0.24)' };
+        const chartPalette = chartTokens.chartPalette || ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#0891b2'];
 
-        new Chart(ctx, {
+        if (window.Chart && ctx) {
+        window.luxuryDestroyChartForCanvas?.(ctx);
+        const metodosPagoChart = new Chart(ctx, {
         type: 'doughnut',
         data: {
         labels: ['Efectivo','SINPE','Tarjeta'],
         datasets: [{
-        data: [
-        @Model.IngresosEfectivo,
-        @Model.IngresosSinpe,
-        @Model.IngresosTarjeta
-        ],
-        backgroundColor: [
-        '#28a745',
-        '#0d6efd',
-        '#ffc107'
-        ]
+        data: @Html.Raw(Json.Serialize(metodosPagoValores)),
+        backgroundColor: chartPalette,
+        borderColor: chartPalette,
+        borderWidth: 1,
+        luxuryUsePalette: true
         }]
+        },
+        options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        color: chartTokens.chartText,
+        plugins: {
+        legend: {
+        labels: {
+        color: chartTokens.chartText
+        }
+        }
+        }
         }
         });
+        window.luxuryRegisterChart?.(metodosPagoChart);
+        }
 
         const ctx2 = document.getElementById('gananciaMesChart');
 
-        new Chart(ctx2, {
+        if (window.Chart && ctx2) {
+        window.luxuryDestroyChartForCanvas?.(ctx2);
+        const gananciaMesChart = new Chart(ctx2, {
         type: 'bar',
         data: {
         labels: [
@@ -334,10 +355,38 @@
         datasets: [{
         label: 'Ganancias',
         data: @Html.Raw(Json.Serialize(Model.ResultadoAnaliticoPorMes)),
-        backgroundColor:'#0d6efd'
+        backgroundColor: chartPalette[0],
+        borderColor: chartPalette[0],
+        borderWidth: 1,
+        luxuryAutoBackground: true,
+        luxuryAutoBorder: true
         }]
+        },
+        options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        color: chartTokens.chartText,
+        scales: {
+        x: {
+        ticks: { color: chartTokens.chartMuted },
+        grid: { color: chartTokens.chartGrid }
+        },
+        y: {
+        ticks: { color: chartTokens.chartMuted },
+        grid: { color: chartTokens.chartGrid }
+        }
+        },
+        plugins: {
+        legend: {
+        labels: {
+        color: chartTokens.chartText
+        }
+        }
+        }
         }
         });
+        window.luxuryRegisterChart?.(gananciaMesChart);
+        }
 
     </script>
 

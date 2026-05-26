@@ -1,5 +1,6 @@
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
+using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Funcionarios;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
@@ -9,10 +10,14 @@ namespace LuxuryApp.Services.Finanzas
     public sealed class DashboardFinancieroQueryService : IDashboardFinancieroQueryService
     {
         private readonly ApplicationDbContext _context;
+        private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
 
-        public DashboardFinancieroQueryService(ApplicationDbContext context)
+        public DashboardFinancieroQueryService(
+            ApplicationDbContext context,
+            IBusinessDateTimeProvider businessDateTimeProvider)
         {
             _context = context;
+            _businessDateTimeProvider = businessDateTimeProvider;
         }
 
         public async Task<DashboardViewModel> BuildViewModelAsync(
@@ -20,7 +25,7 @@ namespace LuxuryApp.Services.Finanzas
             int? anio,
             CancellationToken cancellationToken = default)
         {
-            var selection = DashboardPeriodSelection.Resolve(mes, anio);
+            var selection = DashboardPeriodSelection.Resolve(mes, anio, _businessDateTimeProvider.Today());
 
             var cobroMetrics = await GetCobroMetricsAsync(
                     selection.MonthStart,
@@ -402,9 +407,8 @@ namespace LuxuryApp.Services.Finanzas
             public DateTime YearStart { get; init; }
             public DateTime YearEnd { get; init; }
 
-            public static DashboardPeriodSelection Resolve(int? mes, int? anio)
+            public static DashboardPeriodSelection Resolve(int? mes, int? anio, DateTime today)
             {
-                var today = DateTime.Today;
                 var year = anio ?? today.Year;
                 var month = mes ?? today.Month;
                 var monthStart = new DateTime(year, month, 1);

@@ -524,3 +524,126 @@
         text-align: left;
     }
 }
+
+body.private-shell .platform-shell {
+    border-color: var(--private-surface-border);
+    background: var(--private-surface-bg);
+    color: var(--private-surface-text);
+    box-shadow: var(--private-panel-shadow);
+}
+
+body.private-shell .platform-stat-card,
+body.private-shell .platform-section-card,
+body.private-shell .platform-metric,
+body.private-shell .platform-toggle-tile,
+body.private-shell .platform-empty-state {
+    border: 1px solid var(--private-surface-border);
+    background: var(--private-surface-bg);
+    color: var(--private-surface-text);
+    box-shadow: var(--private-card-shadow);
+}
+
+body.private-shell.surface-glass .platform-shell,
+html.surface-glass body.private-shell .platform-shell,
+body.private-shell.surface-glass .platform-stat-card,
+html.surface-glass body.private-shell .platform-stat-card,
+body.private-shell.surface-glass .platform-section-card,
+html.surface-glass body.private-shell .platform-section-card,
+body.private-shell.surface-glass .platform-metric,
+html.surface-glass body.private-shell .platform-metric,
+body.private-shell.surface-glass .platform-toggle-tile,
+html.surface-glass body.private-shell .platform-toggle-tile,
+body.private-shell.surface-glass .platform-empty-state,
+html.surface-glass body.private-shell .platform-empty-state {
+    backdrop-filter: blur(18px);
+}
+
+body.private-shell .platform-title,
+body.private-shell .platform-stat-value,
+body.private-shell .platform-section-title,
+body.private-shell .platform-table-title,
+body.private-shell .platform-code-pill,
+body.private-shell .platform-metric-value,
+body.private-shell .platform-detail-value {
+    color: var(--private-surface-text);
+}
+
+body.private-shell .platform-note-card,
+body.private-shell .platform-note-card h3,
+body.private-shell .platform-note-item strong {
+    color: #f8fafc;
+}
+
+body.private-shell .platform-subtitle,
+body.private-shell .platform-stat-label,
+body.private-shell .platform-stat-note,
+body.private-shell .platform-section-copy,
+body.private-shell .platform-table-meta,
+body.private-shell .platform-form-copy,
+body.private-shell .platform-metric-label,
+body.private-shell .platform-empty-state,
+body.private-shell .platform-detail-label {
+    color: var(--private-muted-text);
+}
+
+body.private-shell .platform-eyebrow {
+    background: var(--private-row-bg);
+    color: var(--private-muted-text);
+}
+
+body.private-shell .platform-section-kicker {
+    color: var(--private-muted-text);
+}
+
+body.private-shell .platform-table {
+    --bs-table-color: var(--private-surface-text);
+    --bs-table-border-color: var(--private-table-border);
+    color: var(--private-surface-text);
+}
+
+body.private-shell .platform-table thead th {
+    color: var(--private-muted-text);
+}
+
+body.private-shell .platform-table tbody td {
+    border-color: var(--private-table-border);
+    color: var(--private-surface-text);
+}
+
+body.private-shell .platform-inline-form .form-select,
+body.private-shell .platform-inline-form .form-control,
+body.private-shell .platform-form .form-control,
+body.private-shell .platform-form .form-select,
+body.private-shell .platform-form textarea {
+    border-color: var(--private-input-border);
+    background-color: var(--private-input-bg);
+    color: var(--private-input-text);
+}
+
+body.private-shell .platform-inline-form .form-select:focus,
+body.private-shell .platform-inline-form .form-control:focus,
+body.private-shell .platform-form .form-select:focus,
+body.private-shell .platform-form .form-control:focus,
+body.private-shell .platform-form .form-check-input:focus {
+    border-color: rgba(96, 165, 250, 0.55);
+    box-shadow: 0 0 0 0.2rem var(--private-focus-ring);
+}
+
+body.private-shell .platform-code-pill {
+    border: 1px solid var(--private-surface-border);
+    background: var(--private-row-bg);
+}
+
+body.private-shell.surface-glass .platform-note-card,
+html.surface-glass body.private-shell .platform-note-card {
+    border: 1px solid var(--private-surface-border);
+    background: rgba(8, 15, 35, 0.78);
+    box-shadow: var(--private-card-shadow);
+}
+
+body.private-shell.surface-glass .platform-note-card p,
+html.surface-glass body.private-shell .platform-note-card p,
+body.private-shell.surface-glass .platform-note-item span,
+html.surface-glass body.private-shell .platform-note-item span {
+    color: var(--private-muted-text);
+}

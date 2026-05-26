@@ -1,4 +1,5 @@
 using LuxuryApp.Models.Calendar;
+using LuxuryApp.Services.BusinessTime;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
@@ -7,10 +8,14 @@ namespace LuxuryApp.Services.Calendar
     public sealed class CalendarQueryService : ICalendarQueryService
     {
         private readonly ApplicationDbContext _context;
+        private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
 
-        public CalendarQueryService(ApplicationDbContext context)
+        public CalendarQueryService(
+            ApplicationDbContext context,
+            IBusinessDateTimeProvider businessDateTimeProvider)
         {
             _context = context;
+            _businessDateTimeProvider = businessDateTimeProvider;
         }
 
         public async Task<IReadOnlyList<CalendarAppointmentResponse>> GetAppointmentsByDayAsync(
@@ -70,7 +75,7 @@ namespace LuxuryApp.Services.Calendar
             CancellationToken cancellationToken = default)
         {
             var (startDay, endDay) = ResolveDayRange(date);
-            var now = DateTime.Now;
+            var now = _businessDateTimeProvider.Now();
 
             var query = _context.Citas
                 .AsNoTracking()
@@ -176,9 +181,9 @@ namespace LuxuryApp.Services.Calendar
             return (startDay, startDay.AddDays(1));
         }
 
-        private static (DateTime StartRange, DateTime EndRange) ResolveOccupiedRange(DateTime? startDate, DateTime? endDate)
+        private (DateTime StartRange, DateTime EndRange) ResolveOccupiedRange(DateTime? startDate, DateTime? endDate)
         {
-            var start = startDate?.Date ?? DateTime.Today.AddMonths(-1);
+            var start = startDate?.Date ?? _businessDateTimeProvider.Today().AddMonths(-1);
             var endExclusive = endDate?.Date.AddDays(1) ?? start.AddMonths(3);
 
             if (endExclusive <= start)

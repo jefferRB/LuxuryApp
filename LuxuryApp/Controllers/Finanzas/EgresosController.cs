@@ -1,5 +1,6 @@
 using ClosedXML.Excel;
 using LuxuryApp.Models.Finanzas;
+using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Finanzas;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,13 +12,16 @@ namespace LuxuryApp.Controllers.Finanzas
     {
         private readonly IEgresoService _egresoService;
         private readonly IEgresoQueryService _egresoQueryService;
+        private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
 
         public EgresosController(
             IEgresoService egresoService,
-            IEgresoQueryService egresoQueryService)
+            IEgresoQueryService egresoQueryService,
+            IBusinessDateTimeProvider businessDateTimeProvider)
         {
             _egresoService = egresoService;
             _egresoQueryService = egresoQueryService;
+            _businessDateTimeProvider = businessDateTimeProvider;
         }
 
         public async Task<IActionResult> Index(EgresoFiltroViewModel filtros)
@@ -44,6 +48,7 @@ namespace LuxuryApp.Controllers.Finanzas
             try
             {
                 await _egresoService.RegistrarAsync(MapRequest(vm.Egreso));
+                TempData["Mensaje"] = "Egreso registrado correctamente.";
                 return RedirectToAction(nameof(Index));
             }
             catch (EgresoValidationException ex)
@@ -56,6 +61,86 @@ namespace LuxuryApp.Controllers.Finanzas
             }
 
             return View(await _egresoQueryService.BuildCreateViewModelAsync(vm.Egreso));
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> Edit(int id)
+        {
+            var vm = await _egresoQueryService.BuildEditViewModelAsync(id);
+
+            if (vm is null)
+            {
+                return NotFound();
+            }
+
+            return View(vm);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Edit(int id, EgresoViewModel vm)
+        {
+            if (id != vm.Egreso.IdEgreso)
+            {
+                return BadRequest();
+            }
+
+            if (!ModelState.IsValid)
+            {
+                var invalidVm = await _egresoQueryService.BuildEditViewModelAsync(id, vm.Egreso);
+                return invalidVm is null ? NotFound() : View(invalidVm);
+            }
+
+            try
+            {
+                var updated = await _egresoService.ActualizarAsync(MapUpdateRequest(vm.Egreso));
+
+                if (!updated)
+                {
+                    return NotFound();
+                }
+
+                TempData["Mensaje"] = "Egreso actualizado correctamente.";
+                return RedirectToAction(nameof(Index));
+            }
+            catch (EgresoValidationException ex)
+            {
+                ModelState.AddModelError(ex.ModelStateKey ?? string.Empty, ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                ModelState.AddModelError(string.Empty, ex.Message);
+            }
+
+            var editVm = await _egresoQueryService.BuildEditViewModelAsync(id, vm.Egreso);
+            return editVm is null ? NotFound() : View(editVm);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Delete(int id)
+        {
+            try
+            {
+                var deleted = await _egresoService.EliminarAsync(id);
+
+                if (!deleted)
+                {
+                    return NotFound();
+                }
+
+                TempData["Mensaje"] = "Egreso eliminado correctamente.";
+            }
+            catch (EgresoValidationException ex)
+            {
+                TempData["Error"] = ex.Message;
+            }
+            catch (InvalidOperationException ex)
+            {
+                TempData["Error"] = ex.Message;
+            }
+
+            return RedirectToAction(nameof(Index));
         }
 
         public async Task<IActionResult> ExportarExcel(EgresoFiltroViewModel filtros)
@@ -86,7 +171,9 @@ namespace LuxuryApp.Controllers.Finanzas
             ws.Cell("A2").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
             ws.Range("A3:E3").Merge();
-            ws.Cell("A3").Value = $"Generado el {DateTime.Now:dd/MM/yyyy HH:mm}";
+            var generatedAt = _businessDateTimeProvider.Now();
+
+            ws.Cell("A3").Value = $"Generado el {generatedAt:dd/MM/yyyy HH:mm}";
             ws.Cell("A3").Style.Font.Italic = true;
             ws.Cell("A3").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
@@ -138,12 +225,23 @@ namespace LuxuryApp.Controllers.Finanzas
             return File(
                 stream.ToArray(),
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                $"LuxeReporteEgresos_{DateTime.Now:yyyyMMdd_HHmm}.xlsx");
+                $"LuxeReporteEgresos_{generatedAt:yyyyMMdd_HHmm}.xlsx");
         }
 
         private static EgresoCreateRequest MapRequest(Egreso egreso) =>
             new()
             {
+                FechaEgreso = egreso.FechaEgreso,
+                Detalle = egreso.Detalle,
+                Monto = egreso.Monto,
+                MetodoPago = egreso.MetodoPago,
+                CategoriaId = egreso.CategoriaId
+            };
+
+        private static EgresoUpdateRequest MapUpdateRequest(Egreso egreso) =>
+            new()
+            {
+                IdEgreso = egreso.IdEgreso,
                 FechaEgreso = egreso.FechaEgreso,
                 Detalle = egreso.Detalle,
                 Monto = egreso.Monto,

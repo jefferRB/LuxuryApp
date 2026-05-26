@@ -11,6 +11,64 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
     }
 
+    function getChartTokens() {
+        return window.luxuryGetPrivateThemeTokens
+            ? window.luxuryGetPrivateThemeTokens()
+            : {
+                chartText: "#334155",
+                chartMuted: "#64748b",
+                chartGrid: "rgba(148, 163, 184, 0.24)"
+            };
+    }
+
+    function buildAxisOptions(indexAxis = "x") {
+        const tokens = getChartTokens();
+
+        return {
+            responsive: true,
+            maintainAspectRatio: false,
+            color: tokens.chartText,
+            indexAxis,
+            scales: {
+                x: {
+                    ticks: { color: tokens.chartMuted },
+                    grid: { color: tokens.chartGrid }
+                },
+                y: {
+                    ticks: { color: tokens.chartMuted },
+                    grid: { color: tokens.chartGrid }
+                }
+            },
+            plugins: {
+                legend: {
+                    labels: { color: tokens.chartText }
+                }
+            }
+        };
+    }
+
+    function registerChart(chart) {
+        return window.luxuryRegisterChart
+            ? window.luxuryRegisterChart(chart)
+            : chart;
+    }
+
+    function destroyExistingChart(canvas) {
+        if (!canvas) {
+            return;
+        }
+
+        if (window.luxuryDestroyChartForCanvas) {
+            window.luxuryDestroyChartForCanvas(canvas);
+            return;
+        }
+
+        if (window.Chart && typeof window.Chart.getChart === "function") {
+            const existingChart = window.Chart.getChart(canvas);
+            existingChart?.destroy();
+        }
+    }
+
     const {
         citasMes,
         semanaDias,
@@ -23,7 +81,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const chartMesEl = document.getElementById("chartMes");
     if (chartMesEl) {
-        new Chart(chartMesEl, {
+        destroyExistingChart(chartMesEl);
+        registerChart(new Chart(chartMesEl, {
             type: "bar",
             data: {
                 labels: ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"],
@@ -31,8 +90,9 @@ document.addEventListener("DOMContentLoaded", () => {
                     label: "Citas",
                     data: citasMes
                 }]
-            }
-        });
+            },
+            options: buildAxisOptions()
+        }));
     }
 
     let fechaSemana = new Date();
@@ -46,24 +106,27 @@ document.addEventListener("DOMContentLoaded", () => {
     let chartSemana = null;
 
     if (ctxSemanaEl) {
+        destroyExistingChart(ctxSemanaEl);
         const ctx = ctxSemanaEl.getContext("2d");
 
         const gradient = ctx.createLinearGradient(0, 0, 0, 300);
         gradient.addColorStop(0, "rgba(13, 110, 253, 0.5)");
         gradient.addColorStop(1, "rgba(13, 110, 253, 0)");
 
-        chartSemana = new Chart(ctx, {
+        chartSemana = registerChart(new Chart(ctx, {
             type: "line",
             data: {
                 labels: semanaDias,
                 datasets: [{
+                    label: "Citas",
                     data: semanaCitas,
                     fill: true,
                     backgroundColor: gradient,
                     tension: 0.4
                 }]
-            }
-        });
+            },
+            options: buildAxisOptions()
+        }));
     }
 
     window.cambiarSemana = async function (dias) {
@@ -80,6 +143,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         chartSemana.data.labels = data.dias;
         chartSemana.data.datasets[0].data = data.citas;
+        window.luxuryRefreshCharts?.();
         chartSemana.update();
 
         document.getElementById("textoSemana").innerText =
@@ -88,37 +152,40 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const chartFuncEl = document.getElementById("chartFuncionarios");
     if (chartFuncEl) {
-        new Chart(chartFuncEl, {
+        destroyExistingChart(chartFuncEl);
+        registerChart(new Chart(chartFuncEl, {
             type: "bar",
             data: {
                 labels: funcionariosLabels,
                 datasets: [{
+                    label: "Citas",
                     data: funcionariosData
                 }]
-            }
-        });
+            },
+            options: buildAxisOptions()
+        }));
     }
 
     const chartServEl = document.getElementById("chartServicios");
     if (chartServEl) {
+        destroyExistingChart(chartServEl);
         const ctx = chartServEl.getContext("2d");
 
         const gradient = ctx.createLinearGradient(0, 0, 600, 0);
         gradient.addColorStop(0, "rgba(25, 135, 84, 0.9)");
         gradient.addColorStop(1, "rgba(25, 135, 84, 0.3)");
 
-        new Chart(ctx, {
+        registerChart(new Chart(ctx, {
             type: "bar",
             data: {
                 labels: serviciosLabels,
                 datasets: [{
+                    label: "Servicios",
                     data: serviciosData,
                     backgroundColor: gradient
                 }]
             },
-            options: {
-                indexAxis: "y"
-            }
-        });
+            options: buildAxisOptions("y")
+        }));
     }
 });

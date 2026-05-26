@@ -1,7 +1,10 @@
 ﻿@model LuxuryApp.Models.Informacion.InformacionViewModel
 
+@using System.Globalization
+
 @{
     ViewData["Title"] = "Información del Negocio";
+    var esCr = CultureInfo.GetCultureInfo("es-CR");
 }
 
 <link rel="stylesheet"
@@ -32,7 +35,7 @@
                     @for (int m = 1; m <= 12; m++)
                     {
                         <option value="@m" selected="@(m == Model.MesSeleccionado)">
-                            @System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(m)
+                            @esCr.DateTimeFormat.GetMonthName(m)
                         </option>
                     }
 
@@ -43,7 +46,7 @@
                         style="width:120px;"
                         onchange="this.form.submit()">
 
-                    @for (int a = DateTime.Today.Year - 5; a <= DateTime.Today.Year + 1; a++)
+                    @for (int a = Model.AnioSeleccionado - 5; a <= Model.AnioSeleccionado + 1; a++)
                     {
                         <option value="@a" selected="@(a == Model.AnioSeleccionado)">
                             @a
@@ -72,7 +75,7 @@
             <br />
 
             <small class="text-muted">
-                @System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(Model.MesSeleccionado)
+                @esCr.DateTimeFormat.GetMonthName(Model.MesSeleccionado)
                 @Model.AnioSeleccionado
             </small>
 
@@ -255,8 +258,12 @@
             <!-- GRAFICO MES -->
 
             <div class="col-lg-6 mb-4 mt-5">
-                <h5>Citas por Mes</h5>
-                <canvas id="chartMes"></canvas>
+                <div class="private-chart-card">
+                    <h5>Citas por Mes</h5>
+                    <div class="private-chart-body">
+                        <canvas id="chartMes"></canvas>
+                    </div>
+                </div>
             </div>
 
             <!-- GRAFICO SEMANA -->
@@ -279,21 +286,33 @@
 
                 </div>
 
-                <h5>Citas de la Semana</h5>
-                <canvas id="chartSemana"></canvas>
+                <div class="private-chart-card">
+                    <h5>Citas de la Semana</h5>
+                    <div class="private-chart-body">
+                        <canvas id="chartSemana"></canvas>
+                    </div>
+                </div>
 
             </div>
 
             <!-- GRAFICO FUNCIONARIOS -->
 
             <div class="col-lg-12 mb-4">
-                <h5>Citas por Funcionario</h5>
-                <canvas id="chartFuncionarios"></canvas>
+                <div class="private-chart-card private-chart-card-wide">
+                    <h5>Citas por Funcionario</h5>
+                    <div class="private-chart-body private-chart-body-wide">
+                        <canvas id="chartFuncionarios"></canvas>
+                    </div>
+                </div>
             </div>
 
             <div class="col-lg-12 mb-4">
-                <h5>Servicios más solicitados</h5>
-                <canvas id="chartServicios"></canvas>
+                <div class="private-chart-card private-chart-card-wide">
+                    <h5>Servicios más solicitados</h5>
+                    <div class="private-chart-body private-chart-body-wide">
+                        <canvas id="chartServicios"></canvas>
+                    </div>
+                </div>
             </div>
 
         </div>
@@ -395,7 +414,7 @@
                 };
         </script>
 
-        <script src="~/js/dashboard.js"></script>
+        <script src="~/js/dashboard.js" asp-append-version="true"></script>
     }
 
 

@@ -304,6 +304,7 @@ namespace LuxuryApp.Tests.TenantIsolation
         {
             var controller = new ClientesController(
                 context,
+                ControllerTestSupport.BusinessDateTimeProvider,
                 NullLogger<ClientesController>.Instance);
 
             ControllerTestSupport.AttachHttpContext(

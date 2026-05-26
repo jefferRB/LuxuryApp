@@ -26,7 +26,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             await SeedCobroServicioAsync(context, funcionario, "Domingo", sunday.AddHours(18), 60m, "EFECTIVO", "Cliente Domingo");
             await SeedCobroServicioAsync(context, funcionario, "Siguiente", nextMonday.AddHours(9), 70m, "EFECTIVO", "Cliente Siguiente");
 
-            var queryService = new CobroQueryService(context);
+            var queryService = ControllerTestSupport.CreateCobroQueryService(context);
             var result = await queryService.BuildIndexViewModelAsync(new CobroFiltroViewModel { VistaTiempo = "semana" }, includeFilterOptions: false);
 
             Assert.Equal(2, result.Cobros.Count);
@@ -51,7 +51,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             await SeedCobroProductoAsync(context, targetFuncionario, "Producto Target", new DateTime(2026, 4, 23, 9, 0, 0), 35m, "SINPE", "Producto Target");
             await SeedCobroProductoAsync(context, otherFuncionario, "Producto Otro", new DateTime(2026, 4, 23, 10, 0, 0), 45m, "SINPE", "Producto Otro");
 
-            var queryService = new CobroQueryService(context);
+            var queryService = ControllerTestSupport.CreateCobroQueryService(context);
             var result = await queryService.BuildIndexViewModelAsync(new CobroFiltroViewModel
             {
                 VistaTiempo = "todo",
@@ -80,7 +80,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             await SeedCobroServicioAsync(context, funcionario, "Servicio KPI", new DateTime(2026, 4, 23, 8, 0, 0), 100m, "EFECTIVO", "Servicio KPI");
             await SeedCobroProductoAsync(context, funcionario, "Producto KPI", new DateTime(2026, 4, 23, 9, 0, 0), 200m, "TARJETA", "Producto KPI");
 
-            var queryService = new CobroQueryService(context);
+            var queryService = ControllerTestSupport.CreateCobroQueryService(context);
             var result = await queryService.BuildIndexViewModelAsync(new CobroFiltroViewModel { VistaTiempo = "todo" }, includeFilterOptions: false);
 
             Assert.Equal(100m, result.TotalServicios);
@@ -114,7 +114,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var currentFuncionario = await SeedFuncionarioAsync(context, "Interno");
             await SeedCobroServicioAsync(context, currentFuncionario, "Servicio Interno", new DateTime(2026, 4, 23, 9, 0, 0), 120m, "SINPE", "Cliente Interno");
 
-            var queryService = new CobroQueryService(context);
+            var queryService = ControllerTestSupport.CreateCobroQueryService(context);
             var result = await queryService.BuildIndexViewModelAsync(new CobroFiltroViewModel { VistaTiempo = "todo" }, includeFilterOptions: false);
 
             var row = Assert.Single(result.Cobros);

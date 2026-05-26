@@ -1,4 +1,5 @@
 using LuxuryApp.Models.Finanzas;
+using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Services.Finanzas;
 using LuxuryApp.Tests.Support;
 using Microsoft.EntityFrameworkCore;
@@ -61,6 +62,118 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             Assert.Equal("Egreso.CategoriaId", exception.ModelStateKey);
             Assert.Empty(await context.Egresos.ToListAsync());
+        }
+
+        [Fact]
+        public async Task ActualizarAsync_ShouldUpdateExpenseFields()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var categoria = await SeedCategoriaAsync(context, "Compras", "Operativo");
+            context.Egresos.Add(new Egreso
+            {
+                FechaEgreso = new DateTime(2026, 4, 23, 10, 0, 0),
+                Detalle = "Original",
+                Monto = 100m,
+                MetodoPago = "EFECTIVO",
+                CategoriaId = categoria.Id
+            });
+            await context.SaveChangesAsync();
+
+            var egresoId = await context.Egresos.Select(e => e.IdEgreso).SingleAsync();
+            var service = ControllerTestSupport.CreateEgresoService(context);
+
+            var updated = await service.ActualizarAsync(new EgresoUpdateRequest
+            {
+                IdEgreso = egresoId,
+                FechaEgreso = new DateTime(2026, 4, 24, 9, 30, 59),
+                Detalle = "  Pago   actualizado ",
+                Monto = 250.456m,
+                MetodoPago = "tarjeta",
+                CategoriaId = categoria.Id
+            });
+
+            Assert.True(updated);
+
+            context.ChangeTracker.Clear();
+            var egreso = await context.Egresos.AsNoTracking().SingleAsync();
+            Assert.Equal(new DateTime(2026, 4, 24, 9, 30, 0), egreso.FechaEgreso);
+            Assert.Equal("Pago actualizado", egreso.Detalle);
+            Assert.Equal(250.46m, egreso.Monto);
+            Assert.Equal("TARJETA", egreso.MetodoPago);
+        }
+
+        [Fact]
+        public async Task EliminarAsync_ShouldDeleteExpense_WhenItIsNotLinkedToLiquidation()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var categoria = await SeedCategoriaAsync(context, "Compras", "Operativo");
+            context.Egresos.Add(new Egreso
+            {
+                FechaEgreso = new DateTime(2026, 4, 23, 10, 0, 0),
+                Detalle = "Eliminar",
+                Monto = 100m,
+                MetodoPago = "EFECTIVO",
+                CategoriaId = categoria.Id
+            });
+            await context.SaveChangesAsync();
+
+            var egresoId = await context.Egresos.Select(e => e.IdEgreso).SingleAsync();
+            var service = ControllerTestSupport.CreateEgresoService(context);
+
+            var deleted = await service.EliminarAsync(egresoId);
+
+            Assert.True(deleted);
+            Assert.Empty(await context.Egresos.ToListAsync());
+        }
+
+        [Fact]
+        public async Task EliminarAsync_ShouldRejectExpenseLinkedToLiquidation()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var categoria = await SeedCategoriaAsync(context, LiquidacionSemanalDefaults.CategoriaPagoFuncionarios, "Planilla");
+            context.Egresos.Add(new Egreso
+            {
+                FechaEgreso = new DateTime(2026, 4, 23, 10, 0, 0),
+                Detalle = "Liquidacion",
+                Monto = 100m,
+                MetodoPago = "EFECTIVO",
+                CategoriaId = categoria.Id
+            });
+            await context.SaveChangesAsync();
+
+            var egresoId = await context.Egresos.Select(e => e.IdEgreso).SingleAsync();
+            context.LiquidacionesSemanales.Add(new LiquidacionSemanal
+            {
+                SemanaInicio = new DateTime(2026, 4, 20),
+                SemanaFin = new DateTime(2026, 4, 26),
+                FechaPago = new DateTime(2026, 4, 23, 10, 0, 0),
+                MontoTotal = 100m,
+                Estado = LiquidacionSemanalDefaults.EstadoPagada,
+                FechaCreacion = new DateTime(2026, 4, 23, 10, 0, 0),
+                EgresoId = egresoId
+            });
+            await context.SaveChangesAsync();
+
+            var service = ControllerTestSupport.CreateEgresoService(context);
+            var exception = await Assert.ThrowsAsync<EgresoValidationException>(() => service.EliminarAsync(egresoId));
+
+            Assert.Contains("liquidacion semanal", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Single(await context.Egresos.ToListAsync());
         }
 
         [Fact]

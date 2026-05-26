@@ -1,5 +1,6 @@
 using System.Globalization;
 using LuxuryApp.Models.Informacion;
+using LuxuryApp.Services.BusinessTime;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
@@ -18,13 +19,17 @@ namespace LuxuryApp.Services.Informacion
         };
 
         private static readonly HashSet<int> AllowedTopValues = new() { 5, 10, 20, 50 };
-        private static readonly CultureInfo SpanishCulture = new("es-ES");
+        private static readonly CultureInfo SpanishCulture = CultureInfo.GetCultureInfo("es-CR");
 
         private readonly ApplicationDbContext _context;
+        private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
 
-        public InformacionNegocioQueryService(ApplicationDbContext context)
+        public InformacionNegocioQueryService(
+            ApplicationDbContext context,
+            IBusinessDateTimeProvider businessDateTimeProvider)
         {
             _context = context;
+            _businessDateTimeProvider = businessDateTimeProvider;
         }
 
         public async Task<InformacionViewModel> BuildViewModelAsync(
@@ -33,7 +38,7 @@ namespace LuxuryApp.Services.Informacion
             int top,
             CancellationToken cancellationToken = default)
         {
-            var selection = PeriodSelection.Resolve(mes, anio);
+            var selection = PeriodSelection.Resolve(mes, anio, _businessDateTimeProvider.Today());
             var normalizedTop = NormalizeTop(top);
 
             var citas = _context.Citas
@@ -118,7 +123,7 @@ namespace LuxuryApp.Services.Informacion
                 .ToListAsync(cancellationToken);
 
             var semanaActual = await BuildWeekSeriesInternalAsync(
-                GetStartOfWeek(DateTime.Today),
+                GetStartOfWeek(_businessDateTimeProvider.Today()),
                 FullWeekLabels,
                 cancellationToken);
 
@@ -210,13 +215,13 @@ namespace LuxuryApp.Services.Informacion
 
             if (mesMas is not null)
             {
-                vm.MesMasCitas = CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(mesMas.Month);
+                vm.MesMasCitas = SpanishCulture.DateTimeFormat.GetMonthName(mesMas.Month);
                 vm.TotalMesMasCitas = mesMas.Total;
             }
 
             if (mesMenos is not null)
             {
-                vm.MesMenosCitas = CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(mesMenos.Month);
+                vm.MesMenosCitas = SpanishCulture.DateTimeFormat.GetMonthName(mesMenos.Month);
                 vm.TotalMesMenosCitas = mesMenos.Total;
             }
         }
@@ -374,11 +379,10 @@ namespace LuxuryApp.Services.Informacion
             public DateTime YearStart { get; init; }
             public DateTime YearEnd { get; init; }
 
-            public static PeriodSelection Resolve(int? mes, int? anio)
+            public static PeriodSelection Resolve(int? mes, int? anio, DateTime today)
             {
-                var now = DateTime.Now;
-                var year = anio ?? now.Year;
-                var month = mes ?? now.Month;
+                var year = anio ?? today.Year;
+                var month = mes ?? today.Month;
                 var monthStart = new DateTime(year, month, 1);
 
                 return new PeriodSelection

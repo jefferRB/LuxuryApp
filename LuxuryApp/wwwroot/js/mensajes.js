@@ -40,33 +40,46 @@ const conversaciones = [
     }
 ];
 
+function inicializarMensajes() {
+    const inputMensaje = document.getElementById("mensajeInput");
+    const contenedorMensajes = document.getElementById("chatMessages");
+    const listaChats = document.getElementById("chatList");
 
-
-window.onload = () => cargarChats();
-
-document.getElementById("mensajeInput").addEventListener("keypress", function (e) {
-    if (e.key === "Enter") {
-        e.preventDefault();
-        enviarMensaje();
+    if (!inputMensaje || !contenedorMensajes || !listaChats) {
+        return;
     }
-});
-document.getElementById("chatMessages").addEventListener("scroll", () => {
 
-    if (!chatActual) return;
+    cargarChats();
 
-    const contenedor = document.getElementById("chatMessages");
+    inputMensaje.addEventListener("keypress", function (e) {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            enviarMensaje();
+        }
+    });
 
-    const estaAbajo =
-        contenedor.scrollHeight - contenedor.scrollTop <= contenedor.clientHeight + 50;
+    contenedorMensajes.addEventListener("scroll", () => {
 
-    if (estaAbajo) {
-        marcarMensajesLeidos(chatActual);
-        cargarChats();
-        renderMensajes();
-    }
-});
+        if (!chatActual) return;
 
-document.getElementById("mensajeInput").focus();
+        const estaAbajo =
+            contenedorMensajes.scrollHeight - contenedorMensajes.scrollTop <= contenedorMensajes.clientHeight + 50;
+
+        if (estaAbajo) {
+            marcarMensajesLeidos(chatActual);
+            cargarChats();
+            renderMensajes();
+        }
+    });
+
+    inputMensaje.focus();
+}
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", inicializarMensajes);
+} else {
+    inicializarMensajes();
+}
 
 function cargarChats() {
 

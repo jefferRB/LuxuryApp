@@ -2,6 +2,7 @@ using System.Security.Claims;
 using ClosedXML.Excel;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.SaaS;
+using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Services.Identity;
 using Microsoft.AspNetCore.Authorization;
@@ -16,15 +17,18 @@ namespace LuxuryApp.Controllers.Funcionarios
     {
         private readonly ApplicationDbContext _context;
         private readonly ILiquidacionSemanalService _liquidacionSemanalService;
+        private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ILogger<FuncionariosController> _logger;
 
         public FuncionariosController(
             ApplicationDbContext context,
             ILiquidacionSemanalService liquidacionSemanalService,
+            IBusinessDateTimeProvider businessDateTimeProvider,
             ILogger<FuncionariosController> logger)
         {
             _context = context;
             _liquidacionSemanalService = liquidacionSemanalService;
+            _businessDateTimeProvider = businessDateTimeProvider;
             _logger = logger;
         }
 
@@ -60,7 +64,7 @@ namespace LuxuryApp.Controllers.Funcionarios
 
             var funcionario = new Funcionario
             {
-                FechaIngreso = DateTime.Today,
+                FechaIngreso = _businessDateTimeProvider.Today(),
                 Activo = true,
                 ColorCalendario = "#000000"
             };
@@ -293,8 +297,8 @@ namespace LuxuryApp.Controllers.Funcionarios
 
         public async Task<IActionResult> PagosSemana(DateTime? fecha)
         {
-            var fechaReferencia = fecha?.Date ?? DateTime.Today;
-            var fechaPagoSugerida = DateTime.Now;
+            var fechaReferencia = fecha?.Date ?? _businessDateTimeProvider.Today();
+            var fechaPagoSugerida = _businessDateTimeProvider.Now();
 
             var resumen = await _liquidacionSemanalService.ObtenerResumenSemanaAsync(
                 fechaReferencia,
@@ -442,7 +446,7 @@ namespace LuxuryApp.Controllers.Funcionarios
                 finSemana,
                 HttpContext.RequestAborted);
 
-            var generatedAt = DateTime.Now;
+            var generatedAt = _businessDateTimeProvider.Now();
             const string excelCurrencyFormat = "CRC #,##0.00";
 
             using var workbook = new XLWorkbook();

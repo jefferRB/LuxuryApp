@@ -10,7 +10,7 @@ namespace LuxuryApp.Tests.TenantIsolation
     public class CobroServiceTests
     {
         [Fact]
-        public async Task RegistrarAsync_ShouldPersistServiceCharge_UsingCurrentServicePrice()
+        public async Task RegistrarAsync_ShouldPersistServiceCharge_UsingSubmittedAmount()
         {
             var tenantId = Guid.NewGuid();
             var tenantProvider = new TestTenantProvider { TenantId = tenantId };
@@ -19,7 +19,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var disposableConnection = connection;
 
             var funcionario = await SeedFuncionarioAsync(context, "Ana", porcentajeGanancia: 45m, porcentajeProducto: 10m);
-            var servicio = await SeedServicioAsync(context, "Corte", 100m);
+            var servicio = await SeedServicioAsync(context, "Corte", 10000m);
 
             var service = ControllerTestSupport.CreateCobroService(context);
             await service.RegistrarAsync(new CobroCreateRequest
@@ -28,16 +28,20 @@ namespace LuxuryApp.Tests.TenantIsolation
                 NombreCliente = "  Ana   Maria  ",
                 FuncionarioId = funcionario.IdFuncionario,
                 ServicioId = servicio.Id,
+                Monto = 8000m,
                 MetodoPago = "efectivo"
             });
 
             var cobro = await context.Cobros.SingleAsync();
             Assert.Equal(servicio.Id, cobro.ServicioId);
             Assert.Null(cobro.ProductoId);
-            Assert.Equal(100m, cobro.Monto);
+            Assert.Equal(8000m, cobro.Monto);
             Assert.Equal("Ana Maria", cobro.NombreCliente);
             Assert.Equal("EFECTIVO", cobro.MetodoPago);
             Assert.Equal(new DateTime(2026, 4, 23, 10, 15, 0), cobro.FechaCobro);
+
+            var persistedServicio = await context.Servicios.AsNoTracking().SingleAsync();
+            Assert.Equal(10000m, persistedServicio.Precio);
         }
 
         [Fact]
@@ -59,6 +63,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 NombreCliente = "Cliente Producto",
                 FuncionarioId = funcionario.IdFuncionario,
                 ProductoId = producto.IdProducto,
+                Monto = 25m,
                 MetodoPago = "SINPE"
             });
 
@@ -81,6 +86,90 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
+        public async Task ActualizarAsync_ShouldPreserveManualServiceAmount_WithoutChangingServicePrice()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Manual", porcentajeGanancia: 45m, porcentajeProducto: 10m);
+            var servicio = await SeedServicioAsync(context, "Corte Premium", 10000m);
+
+            context.Cobros.Add(new Cobro
+            {
+                FechaCobro = new DateTime(2026, 4, 23, 10, 0, 0),
+                NombreCliente = "Cliente Manual",
+                FuncionarioId = funcionario.IdFuncionario,
+                ServicioId = servicio.Id,
+                Monto = 10000m,
+                MetodoPago = "EFECTIVO"
+            });
+            await context.SaveChangesAsync();
+
+            var cobroId = await context.Cobros.Select(c => c.IdCobro).SingleAsync();
+            var service = ControllerTestSupport.CreateCobroService(context);
+
+            var updated = await service.ActualizarAsync(new CobroUpdateRequest
+            {
+                IdCobro = cobroId,
+                FechaCobro = new DateTime(2026, 4, 23, 11, 5, 42),
+                NombreCliente = "Cliente Manual Editado",
+                FuncionarioId = funcionario.IdFuncionario,
+                ServicioId = servicio.Id,
+                Monto = 8000m,
+                MetodoPago = "sinpe"
+            });
+
+            Assert.True(updated);
+
+            context.ChangeTracker.Clear();
+            var cobro = await context.Cobros.AsNoTracking().SingleAsync();
+            var servicioPersistido = await context.Servicios.AsNoTracking().SingleAsync();
+
+            Assert.Equal(8000m, cobro.Monto);
+            Assert.Equal("SINPE", cobro.MetodoPago);
+            Assert.Equal(new DateTime(2026, 4, 23, 11, 5, 0), cobro.FechaCobro);
+            Assert.Equal(10000m, servicioPersistido.Precio);
+        }
+
+        [Fact]
+        public async Task EliminarAsync_ShouldRemoveProductCharge_AndRestoreInventory()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Inventario", porcentajeGanancia: 40m, porcentajeProducto: 12m);
+            var producto = await SeedProductoAsync(context, "Pomada", 30m, stock: 2);
+
+            var service = ControllerTestSupport.CreateCobroService(context);
+            await service.RegistrarAsync(new CobroCreateRequest
+            {
+                FechaCobro = new DateTime(2026, 4, 23, 11, 20, 55),
+                NombreCliente = "Cliente Producto",
+                FuncionarioId = funcionario.IdFuncionario,
+                ProductoId = producto.IdProducto,
+                Monto = 30m,
+                MetodoPago = "SINPE"
+            });
+
+            var cobroId = await context.Cobros.Select(c => c.IdCobro).SingleAsync();
+            var deleted = await service.EliminarAsync(cobroId);
+
+            Assert.True(deleted);
+            Assert.Empty(await context.Cobros.ToListAsync());
+            Assert.Empty(await context.DetalleCobroProductos.ToListAsync());
+
+            var productoActualizado = await context.Productos.AsNoTracking().SingleAsync();
+            Assert.Equal(2, productoActualizado.CantidadProducto);
+            Assert.Contains(await context.MovimientosInventario.AsNoTracking().ToListAsync(), m => m.TipoMovimiento == "ANULACION_VENTA");
+        }
+
+        [Fact]
         public async Task RegistrarAsync_ShouldReject_WhenProductHasNoStock()
         {
             var tenantId = Guid.NewGuid();
@@ -99,6 +188,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 NombreCliente = "Sin Stock",
                 FuncionarioId = funcionario.IdFuncionario,
                 ProductoId = producto.IdProducto,
+                Monto = 15m,
                 MetodoPago = "TARJETA"
             }));
 
@@ -159,6 +249,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 NombreCliente = "Tenant Check",
                 FuncionarioId = foreignFuncionario.IdFuncionario,
                 ServicioId = servicio.Id,
+                Monto = 55m,
                 MetodoPago = "EFECTIVO"
             }));
 
@@ -190,6 +281,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 NombreCliente = "Servicio Tenant",
                 FuncionarioId = funcionario.IdFuncionario,
                 ServicioId = foreignServicio.Id,
+                Monto = 80m,
                 MetodoPago = "TARJETA"
             }));
 

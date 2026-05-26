@@ -12,7 +12,7 @@ namespace LuxuryApp.Models.Finanzas
 
         [Required]
         [Display(Name = "Fecha")]
-        public DateTime FechaEgreso { get; set; } = DateTime.Now;
+        public DateTime FechaEgreso { get; set; }
 
         [Required]
         [Display(Name = "Detalle")]
@@ -23,7 +23,7 @@ namespace LuxuryApp.Models.Finanzas
 
         [Required]
         [Display(Name = "Monto")]
-        [Range(0, 999999)]
+        [DecimalRange(0.01, 999999, ErrorMessage = "Debe indicar un monto mayor a cero y dentro del rango permitido.")]
         public decimal Monto { get; set; }
 
         [Required]

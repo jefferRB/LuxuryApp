@@ -35,7 +35,7 @@ namespace LuxuryApp.Models.Funcionarios
         public string? CreadoPor { get; set; }
 
         [Required]
-        public DateTime FechaCreacion { get; set; } = DateTime.Now;
+        public DateTime FechaCreacion { get; set; }
 
         public int? EgresoId { get; set; }
         public Egreso? Egreso { get; set; }

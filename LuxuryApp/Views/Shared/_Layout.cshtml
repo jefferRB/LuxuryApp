@@ -12,14 +12,78 @@
     <title>@ViewData["Title"] - LuxuryApp</title>
     <script>
         (function () {
+            var presets = {
+                "classic-marble": { background: "marble", surface: "classic" },
+                "futuristic-premium": { background: "futuristic", surface: "glass" }
+            };
+
+            function hasPreset(value) {
+                return Object.prototype.hasOwnProperty.call(presets, value);
+            }
+
+            function resolveAppearance() {
+                var preset = localStorage.getItem("luxury-appearance-preset");
+
+                if (hasPreset(preset)) {
+                    return {
+                        preset: preset,
+                        background: presets[preset].background,
+                        surface: presets[preset].surface
+                    };
+                }
+
+                var storedBackground = localStorage.getItem("luxury-bg-theme");
+                var storedSurface = localStorage.getItem("luxury-surface-theme");
+
+                if (storedBackground === "futuristic" && storedSurface === "glass") {
+                    return {
+                        preset: "futuristic-premium",
+                        background: "futuristic",
+                        surface: "glass"
+                    };
+                }
+
+                if (storedBackground === "marble" && storedSurface === "classic") {
+                    return {
+                        preset: "classic-marble",
+                        background: "marble",
+                        surface: "classic"
+                    };
+                }
+
+                var legacyTheme = localStorage.getItem("luxury-theme");
+
+                if (legacyTheme === "futuristic") {
+                    return {
+                        preset: "futuristic-premium",
+                        background: "futuristic",
+                        surface: "glass"
+                    };
+                }
+
+                return {
+                    preset: "classic-marble",
+                    background: "marble",
+                    surface: "classic"
+                };
+            }
+
             try {
-                var storedTheme = localStorage.getItem("luxury-theme");
-                var theme = storedTheme === "futuristic" || storedTheme === "marble"
-                    ? storedTheme
-                    : "marble";
-                document.documentElement.setAttribute("data-luxury-theme", theme);
+                var appearance = resolveAppearance();
+
+                document.documentElement.setAttribute("data-luxury-appearance-preset", appearance.preset);
+                document.documentElement.setAttribute("data-luxury-bg-theme", appearance.background);
+                document.documentElement.setAttribute("data-luxury-surface-theme", appearance.surface);
+                document.documentElement.setAttribute("data-luxury-theme", appearance.background);
+                document.documentElement.classList.add("theme-bg-" + appearance.background);
+                document.documentElement.classList.add("surface-" + appearance.surface);
             } catch (error) {
+                document.documentElement.setAttribute("data-luxury-appearance-preset", "classic-marble");
+                document.documentElement.setAttribute("data-luxury-bg-theme", "marble");
+                document.documentElement.setAttribute("data-luxury-surface-theme", "classic");
                 document.documentElement.setAttribute("data-luxury-theme", "marble");
+                document.documentElement.classList.add("theme-bg-marble");
+                document.documentElement.classList.add("surface-classic");
             }
         })();
     </script>
@@ -36,7 +100,7 @@
     <link rel="stylesheet" href="~/LuxuryApp.styles.css" asp-append-version="true" />
     @await RenderSectionAsync("Styles", required: false)
 </head>
-<body class="layout-background private-shell theme-marble @(ViewData["FullScreen"] as string)">
+<body class="layout-background private-shell theme-bg-marble surface-classic theme-marble @(ViewData["FullScreen"] as string)">
     <div class="private-layout-frame">
         <header class="private-header">
             <partial name="_PrivateNavbar" model="navigation" />
@@ -66,25 +130,25 @@
                     <div class="modal-header private-theme-modal-header">
                         <div>
                             <span class="private-theme-modal-kicker">Personalizacion visual</span>
-                            <h5 class="modal-title private-theme-modal-title" id="themeStyleModalLabel">Estilo del espacio de trabajo</h5>
+                            <h5 class="modal-title private-theme-modal-title" id="themeStyleModalLabel">Apariencia del espacio de trabajo</h5>
                         </div>
                         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
                     </div>
 
                     <div class="modal-body private-theme-modal-body">
                         <p class="private-theme-modal-copy">
-                            Elige el fondo principal del SaaS. El cambio se aplica de inmediato y se conserva en este navegador.
+                            Elige una apariencia para el espacio privado. El cambio se aplica de inmediato y se conserva solo en este navegador.
                         </p>
 
                         <div class="private-theme-grid">
                             <button type="button"
                                     class="private-theme-card"
-                                    data-luxury-theme-option="marble"
+                                    data-luxury-appearance-option="classic-marble"
                                     aria-pressed="false">
                                 <span class="private-theme-card-preview private-theme-card-preview-marble" aria-hidden="true"></span>
                                 <span class="private-theme-card-body">
-                                    <span class="private-theme-card-title">Marmol clasico</span>
-                                    <span class="private-theme-card-copy">Mantiene el fondo actual de marmol blanco.</span>
+                                    <span class="private-theme-card-title">Clasico marmol</span>
+                                    <span class="private-theme-card-copy">Fondo marmol blanco con cards claras y estilo operativo tradicional.</span>
                                 </span>
                                 <span class="private-theme-card-state">
                                     <i class="bi bi-check-circle-fill d-none" data-luxury-theme-check aria-hidden="true"></i>
@@ -93,12 +157,12 @@
 
                             <button type="button"
                                     class="private-theme-card"
-                                    data-luxury-theme-option="futuristic"
+                                    data-luxury-appearance-option="futuristic-premium"
                                     aria-pressed="false">
                                 <span class="private-theme-card-preview private-theme-card-preview-futuristic" aria-hidden="true"></span>
                                 <span class="private-theme-card-body">
-                                    <span class="private-theme-card-title">Futurista azul/morado</span>
-                                    <span class="private-theme-card-copy">Aplica un fondo sobrio inspirado en la landing publica.</span>
+                                    <span class="private-theme-card-title">Futurista premium</span>
+                                    <span class="private-theme-card-copy">Fondo azul/morado con paneles glass, tablas oscuras y estilo SaaS moderno.</span>
                                 </span>
                                 <span class="private-theme-card-state">
                                     <i class="bi bi-check-circle-fill d-none" data-luxury-theme-check aria-hidden="true"></i>
@@ -116,7 +180,7 @@
     <script src="~/js/site.js" asp-append-version="true"></script>
     <script src="~/js/servicios.js"></script>
     <script src="~/js/categorias.js"></script>
-    <script src="~/js/mensajes.js"></script>
+    <script src="~/js/mensajes.js" asp-append-version="true"></script>
     <script src="~/js/puestos.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>

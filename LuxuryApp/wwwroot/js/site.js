@@ -74,41 +74,285 @@ function toggleProducto(id) {
 }
 
 (function () {
-    const themeStorageKey = "luxury-theme";
-    const themeClassPrefix = "theme-";
-    const supportedThemes = ["marble", "futuristic"];
-    const themeLabels = {
-        marble: "Marmol clasico",
-        futuristic: "Futurista azul/morado"
+    const presetStorageKey = "luxury-appearance-preset";
+    const backgroundStorageKey = "luxury-bg-theme";
+    const surfaceStorageKey = "luxury-surface-theme";
+    const legacyThemeStorageKey = "luxury-theme";
+    const presets = {
+        "classic-marble": {
+            label: "Clasico marmol",
+            background: "marble",
+            surface: "classic"
+        },
+        "futuristic-premium": {
+            label: "Futurista premium",
+            background: "futuristic",
+            surface: "glass"
+        }
     };
+    const supportedBackgroundThemes = ["marble", "futuristic"];
+    const supportedSurfaceThemes = ["classic", "glass"];
+    const chartRegistry = new Set();
 
-    function normalizeTheme(theme) {
-        return supportedThemes.includes(theme) ? theme : "marble";
+    function normalizePreset(preset) {
+        return Object.prototype.hasOwnProperty.call(presets, preset)
+            ? preset
+            : "classic-marble";
     }
 
-    function readStoredTheme() {
+    function buildAppearance(preset) {
+        const resolvedPreset = normalizePreset(preset);
+        const definition = presets[resolvedPreset];
+
+        return {
+            preset: resolvedPreset,
+            label: definition.label,
+            background: definition.background,
+            surface: definition.surface
+        };
+    }
+
+    function resolvePresetFromParts(background, surface) {
+        if (background === "futuristic" && surface === "glass") {
+            return "futuristic-premium";
+        }
+
+        return "classic-marble";
+    }
+
+    function readStoredAppearance() {
         try {
-            return normalizeTheme(localStorage.getItem(themeStorageKey));
+            const storedPreset = localStorage.getItem(presetStorageKey);
+            if (presets[storedPreset]) {
+                return buildAppearance(storedPreset);
+            }
+
+            const storedBackground = localStorage.getItem(backgroundStorageKey);
+            const storedSurface = localStorage.getItem(surfaceStorageKey);
+
+            if (supportedBackgroundThemes.includes(storedBackground) &&
+                supportedSurfaceThemes.includes(storedSurface)) {
+                return buildAppearance(resolvePresetFromParts(storedBackground, storedSurface));
+            }
+
+            const legacyTheme = localStorage.getItem(legacyThemeStorageKey);
+            if (legacyTheme === "futuristic") {
+                return buildAppearance("futuristic-premium");
+            }
+
+            return buildAppearance("classic-marble");
         } catch (error) {
-            return "marble";
+            return buildAppearance("classic-marble");
         }
     }
 
-    function writeStoredTheme(theme) {
+    function writeStoredAppearance(appearance) {
         try {
-            localStorage.setItem(themeStorageKey, theme);
+            localStorage.setItem(presetStorageKey, appearance.preset);
+            localStorage.setItem(backgroundStorageKey, appearance.background);
+            localStorage.setItem(surfaceStorageKey, appearance.surface);
+            localStorage.setItem(legacyThemeStorageKey, appearance.background);
         } catch (error) {
-            // Ignore storage errors and keep the in-memory theme applied.
+            // Ignore storage errors and keep the in-memory appearance applied.
         }
     }
 
-    function updateThemeOptionUi(theme) {
-        document.querySelectorAll("[data-luxury-theme-current]").forEach(function (element) {
-            element.textContent = themeLabels[theme] || themeLabels.marble;
+    function getPrivateThemeTokens() {
+        const source = document.body || document.documentElement;
+        const styles = window.getComputedStyle(source);
+
+        function read(name, fallback) {
+            const value = styles.getPropertyValue(name).trim();
+            return value || fallback;
+        }
+
+        return {
+            chartText: read("--private-chart-text", "#334155"),
+            chartMuted: read("--private-chart-muted", "#64748b"),
+            chartGrid: read("--private-chart-grid", "rgba(148, 163, 184, 0.24)"),
+            chartPalette: [
+                read("--private-chart-accent", "#2563eb"),
+                read("--private-chart-success", "#16a34a"),
+                read("--private-chart-warning", "#d97706"),
+                read("--private-chart-danger", "#dc2626"),
+                read("--private-chart-info", "#0891b2")
+            ],
+            chartPaletteSoft: [
+                read("--private-chart-accent-soft", "rgba(37, 99, 235, 0.72)"),
+                read("--private-chart-success-soft", "rgba(22, 163, 74, 0.72)"),
+                read("--private-chart-warning-soft", "rgba(217, 119, 6, 0.72)"),
+                read("--private-chart-danger-soft", "rgba(220, 38, 38, 0.68)"),
+                read("--private-chart-info-soft", "rgba(8, 145, 178, 0.68)")
+            ]
+        };
+    }
+
+    function getChartConfigOptions(chart) {
+        if (!chart || !chart.config) {
+            return null;
+        }
+
+        chart.config.options = chart.config.options || {};
+        return chart.config.options;
+    }
+
+    function ensureOptionGroup(parent, key) {
+        if (!parent[key] || typeof parent[key] !== "object" || Array.isArray(parent[key])) {
+            parent[key] = {};
+        }
+
+        return parent[key];
+    }
+
+    function styleChart(chart) {
+        const options = getChartConfigOptions(chart);
+
+        if (!options) {
+            return;
+        }
+
+        const tokens = getPrivateThemeTokens();
+        options.color = tokens.chartText;
+
+        const plugins = ensureOptionGroup(options, "plugins");
+        const legend = ensureOptionGroup(plugins, "legend");
+        const labels = ensureOptionGroup(legend, "labels");
+        labels.color = tokens.chartText;
+
+        if (options.scales && typeof options.scales === "object") {
+            Object.keys(options.scales).forEach(function (scaleKey) {
+                const scale = ensureOptionGroup(options.scales, scaleKey);
+                scale.ticks = ensureOptionGroup(scale, "ticks");
+                scale.grid = ensureOptionGroup(scale, "grid");
+                scale.ticks.color = tokens.chartMuted;
+                scale.grid.color = tokens.chartGrid;
+            });
+        }
+
+        if (chart.data && Array.isArray(chart.data.datasets)) {
+            chart.data.datasets.forEach(function (dataset, index) {
+                const color = tokens.chartPalette[index % tokens.chartPalette.length];
+                const softColor = tokens.chartPaletteSoft[index % tokens.chartPaletteSoft.length];
+
+                if (dataset.luxuryUsePalette === true) {
+                    const labelCount = Array.isArray(chart.data.labels) ? chart.data.labels.length : 0;
+                    const itemCount = labelCount > 0 ? labelCount : 1;
+
+                    dataset.backgroundColor = Array.from({ length: itemCount }, function (_, itemIndex) {
+                        return tokens.chartPaletteSoft[itemIndex % tokens.chartPaletteSoft.length];
+                    });
+                    dataset.borderColor = Array.from({ length: itemCount }, function (_, itemIndex) {
+                        return tokens.chartPalette[itemIndex % tokens.chartPalette.length];
+                    });
+                    return;
+                }
+
+                if (dataset.luxuryAutoBackground === true ||
+                    dataset.backgroundColor === undefined ||
+                    dataset.backgroundColor === null) {
+                    dataset.backgroundColor = softColor;
+                    dataset.luxuryAutoBackground = true;
+                }
+
+                if (dataset.luxuryAutoBorder === true ||
+                    dataset.borderColor === undefined ||
+                    dataset.borderColor === null) {
+                    dataset.borderColor = color;
+                    dataset.luxuryAutoBorder = true;
+                }
+
+                if (dataset.luxuryAutoPointBackground === true ||
+                    dataset.pointBackgroundColor === undefined ||
+                    dataset.pointBackgroundColor === null) {
+                    dataset.pointBackgroundColor = color;
+                    dataset.luxuryAutoPointBackground = true;
+                }
+
+                if (dataset.luxuryAutoPointBorder === true ||
+                    dataset.pointBorderColor === undefined ||
+                    dataset.pointBorderColor === null) {
+                    dataset.pointBorderColor = color;
+                    dataset.luxuryAutoPointBorder = true;
+                }
+            });
+        }
+    }
+
+    function resolveChartForCanvas(canvas) {
+        if (!window.Chart || !canvas || typeof window.Chart.getChart !== "function") {
+            return null;
+        }
+
+        return window.Chart.getChart(canvas);
+    }
+
+    function destroyChartForCanvas(canvas) {
+        const existingChart = resolveChartForCanvas(canvas);
+
+        if (!existingChart) {
+            return;
+        }
+
+        chartRegistry.delete(existingChart);
+
+        if (typeof existingChart.destroy === "function") {
+            existingChart.destroy();
+        }
+    }
+
+    function refreshCharts() {
+        if (window.Chart) {
+            const tokens = getPrivateThemeTokens();
+            window.Chart.defaults.color = tokens.chartText;
+            window.Chart.defaults.borderColor = tokens.chartGrid;
+        }
+
+        chartRegistry.forEach(function (chart) {
+            if (!chart || chart._destroyed === true || !chart.canvas) {
+                chartRegistry.delete(chart);
+                return;
+            }
+
+            try {
+                styleChart(chart);
+                if (typeof chart.update === "function") {
+                    chart.update("none");
+                }
+            } catch (error) {
+                chartRegistry.delete(chart);
+            }
+        });
+    }
+
+    window.luxuryGetPrivateThemeTokens = getPrivateThemeTokens;
+    window.luxuryDestroyChartForCanvas = destroyChartForCanvas;
+    window.luxuryRegisterChart = function (chart) {
+        if (!chart) {
+            return chart;
+        }
+
+        chartRegistry.add(chart);
+
+        try {
+            styleChart(chart);
+        } catch (error) {
+            chartRegistry.delete(chart);
+        }
+
+        return chart;
+    };
+    window.luxuryRefreshCharts = refreshCharts;
+
+    function updateAppearanceOptionUi(appearance) {
+        document.querySelectorAll("[data-luxury-appearance-current], [data-luxury-theme-current]").forEach(function (element) {
+            element.textContent = appearance.label;
         });
 
-        document.querySelectorAll("[data-luxury-theme-option]").forEach(function (button) {
-            const isSelected = button.getAttribute("data-luxury-theme-option") === theme;
+        document.querySelectorAll("[data-luxury-appearance-option], [data-luxury-theme-option]").forEach(function (button) {
+            const optionPreset = button.getAttribute("data-luxury-appearance-option");
+            const legacyTheme = button.getAttribute("data-luxury-theme-option");
+            const requestedPreset = optionPreset || (legacyTheme === "futuristic" ? "futuristic-premium" : "classic-marble");
+            const isSelected = requestedPreset === appearance.preset;
             button.classList.toggle("is-selected", isSelected);
             button.setAttribute("aria-pressed", isSelected ? "true" : "false");
 
@@ -119,42 +363,74 @@ function toggleProducto(id) {
         });
     }
 
-    function applyTheme(theme) {
-        const resolvedTheme = normalizeTheme(theme);
-        document.documentElement.setAttribute("data-luxury-theme", resolvedTheme);
+    function applyAppearance(preset) {
+        const appearance = buildAppearance(preset);
+
+        document.documentElement.setAttribute("data-luxury-appearance-preset", appearance.preset);
+        document.documentElement.setAttribute("data-luxury-bg-theme", appearance.background);
+        document.documentElement.setAttribute("data-luxury-surface-theme", appearance.surface);
+        document.documentElement.setAttribute("data-luxury-theme", appearance.background);
+
+        supportedBackgroundThemes.forEach(function (backgroundTheme) {
+            document.documentElement.classList.remove("theme-bg-" + backgroundTheme);
+            document.documentElement.classList.remove("theme-" + backgroundTheme);
+        });
+
+        supportedSurfaceThemes.forEach(function (surfaceTheme) {
+            document.documentElement.classList.remove("surface-" + surfaceTheme);
+        });
+
+        document.documentElement.classList.add("theme-bg-" + appearance.background);
+        document.documentElement.classList.add("theme-" + appearance.background);
+        document.documentElement.classList.add("surface-" + appearance.surface);
 
         if (document.body) {
-            supportedThemes.forEach(function (supportedTheme) {
-                document.body.classList.remove(themeClassPrefix + supportedTheme);
+            supportedBackgroundThemes.forEach(function (backgroundTheme) {
+                document.body.classList.remove("theme-bg-" + backgroundTheme);
+                document.body.classList.remove("theme-" + backgroundTheme);
             });
 
-            document.body.classList.add(themeClassPrefix + resolvedTheme);
+            supportedSurfaceThemes.forEach(function (surfaceTheme) {
+                document.body.classList.remove("surface-" + surfaceTheme);
+            });
+
+            document.body.classList.add("theme-bg-" + appearance.background);
+            document.body.classList.add("theme-" + appearance.background);
+            document.body.classList.add("surface-" + appearance.surface);
         }
 
-        updateThemeOptionUi(resolvedTheme);
-        return resolvedTheme;
+        updateAppearanceOptionUi(appearance);
+        refreshCharts();
+        document.dispatchEvent(new CustomEvent("luxury:appearance-changed", { detail: appearance }));
+        return appearance;
     }
 
-    function handleThemeSelection(event) {
+    function handleAppearanceSelection(event) {
         const button = event.currentTarget;
-        const requestedTheme = button.getAttribute("data-luxury-theme-option");
-        const resolvedTheme = applyTheme(requestedTheme);
-        writeStoredTheme(resolvedTheme);
+        const requestedPreset = button.getAttribute("data-luxury-appearance-option")
+            || (button.getAttribute("data-luxury-theme-option") === "futuristic" ? "futuristic-premium" : "classic-marble");
+        const appearance = applyAppearance(requestedPreset);
+        writeStoredAppearance(appearance);
     }
 
-    function initializeThemeManager() {
-        const initialTheme = readStoredTheme();
-        applyTheme(initialTheme);
+    function initializeAppearanceManager() {
+        const initialAppearance = readStoredAppearance();
+        applyAppearance(initialAppearance.preset);
 
-        document.querySelectorAll("[data-luxury-theme-option]").forEach(function (button) {
-            button.addEventListener("click", handleThemeSelection);
+        document.querySelectorAll("[data-luxury-appearance-option], [data-luxury-theme-option]").forEach(function (button) {
+            if (button.dataset.luxuryAppearanceListenerInitialized === "true") {
+                return;
+            }
+
+            button.dataset.luxuryAppearanceListenerInitialized = "true";
+            button.addEventListener("click", handleAppearanceSelection);
         });
     }
 
     if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", initializeThemeManager);
+        document.addEventListener("DOMContentLoaded", initializeAppearanceManager);
     } else {
-        initializeThemeManager();
+        initializeAppearanceManager();
     }
 })();
 

@@ -12,5 +12,10 @@ namespace LuxuryApp.Services.Finanzas
         Task<EgresoViewModel> BuildCreateViewModelAsync(
             Egreso? egreso = null,
             CancellationToken cancellationToken = default);
+
+        Task<EgresoViewModel?> BuildEditViewModelAsync(
+            int id,
+            Egreso? egreso = null,
+            CancellationToken cancellationToken = default);
     }
 }

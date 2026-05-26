@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using LuxuryApp.Services;
+using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Calendar;
 using LuxuryApp.Services.Finanzas;
 using LuxuryApp.Services.Funcionarios;
@@ -14,6 +15,9 @@ namespace LuxuryApp.Tests.Support
 {
     internal static class ControllerTestSupport
     {
+        public static IBusinessDateTimeProvider BusinessDateTimeProvider { get; } =
+            new FixedBusinessDateTimeProvider();
+
         public static DefaultHttpContext AttachHttpContext(Controller controller, ClaimsPrincipal? user = null)
         {
             var httpContext = new DefaultHttpContext();
@@ -49,25 +53,34 @@ namespace LuxuryApp.Tests.Support
         }
 
         public static ILiquidacionSemanalService CreateLiquidacionSemanalService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
-            new LiquidacionSemanalService(context, Microsoft.Extensions.Logging.Abstractions.NullLogger<LiquidacionSemanalService>.Instance);
+            new LiquidacionSemanalService(
+                context,
+                BusinessDateTimeProvider,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<LiquidacionSemanalService>.Instance);
 
         public static ICobroService CreateCobroService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
-            new CobroService(context, Microsoft.Extensions.Logging.Abstractions.NullLogger<CobroService>.Instance);
+            new CobroService(
+                context,
+                BusinessDateTimeProvider,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<CobroService>.Instance);
 
         public static ICobroQueryService CreateCobroQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
-            new CobroQueryService(context);
+            new CobroQueryService(context, BusinessDateTimeProvider);
 
         public static IDashboardFinancieroQueryService CreateDashboardFinancieroQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
-            new DashboardFinancieroQueryService(context);
+            new DashboardFinancieroQueryService(context, BusinessDateTimeProvider);
 
         public static IEgresoService CreateEgresoService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
-            new EgresoService(context, Microsoft.Extensions.Logging.Abstractions.NullLogger<EgresoService>.Instance);
+            new EgresoService(
+                context,
+                BusinessDateTimeProvider,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<EgresoService>.Instance);
 
         public static IEgresoQueryService CreateEgresoQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
-            new EgresoQueryService(context);
+            new EgresoQueryService(context, BusinessDateTimeProvider);
 
         public static IInformacionNegocioQueryService CreateInformacionNegocioQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
-            new InformacionNegocioQueryService(context);
+            new InformacionNegocioQueryService(context, BusinessDateTimeProvider);
 
         public static ICalendarCommandService CreateCalendarCommandService(
             ProyectoIdentity.Datos.ApplicationDbContext context,
@@ -75,14 +88,17 @@ namespace LuxuryApp.Tests.Support
             new CalendarCommandService(
                 context,
                 notificationService ?? new NoOpCalendarNotificationService(),
-                new VisitasAutomaticasService(context),
+                new VisitasAutomaticasService(context, BusinessDateTimeProvider),
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<CalendarCommandService>.Instance);
 
         public static ICalendarQueryService CreateCalendarQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
-            new CalendarQueryService(context);
+            new CalendarQueryService(context, BusinessDateTimeProvider);
 
         public static IProductoService CreateProductoService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
-            new ProductoService(context, Microsoft.Extensions.Logging.Abstractions.NullLogger<ProductoService>.Instance);
+            new ProductoService(
+                context,
+                BusinessDateTimeProvider,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<ProductoService>.Instance);
 
         public static IProductoQueryService CreateProductoQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
             new ProductoQueryService(context);
