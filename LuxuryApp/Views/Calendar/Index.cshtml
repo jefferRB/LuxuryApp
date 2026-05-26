@@ -163,14 +163,19 @@
 
                             <div id="camposCita">
 
-                            <div class="mb-2 position-relative">
+                            <div class="mb-2">
                                 <label class="form-label">Nombre del cliente</label>
-                                <input id="nombreCliente" class="form-control" autocomplete="off">
-
-                                <!-- las sugerencias -->
-                                <div id="sugerenciasClientes"
-                                     class="list-group position-absolute w-100"
-                                     style="z-index: 1055;"></div>
+                                <div class="cliente-autocomplete-wrapper">
+                                    <input id="nombreCliente"
+                                           class="form-control cliente-autocomplete-input"
+                                           autocomplete="off"
+                                           aria-autocomplete="list"
+                                           aria-expanded="false"
+                                           aria-controls="sugerenciasClientes">
+                                    <div id="sugerenciasClientes"
+                                         class="cliente-autocomplete-dropdown d-none"
+                                         role="listbox"></div>
+                                </div>
                             </div>
 
                         <div class="mb-2">
@@ -250,7 +255,17 @@
 
                         <div class="mb-2">
                             <label>Nombre del cliente</label>
-                            <input class="form-control" id="editNombreCliente">
+                            <div class="cliente-autocomplete-wrapper">
+                                <input class="form-control cliente-autocomplete-input"
+                                       id="editNombreCliente"
+                                       autocomplete="off"
+                                       aria-autocomplete="list"
+                                       aria-expanded="false"
+                                       aria-controls="editSugerenciasClientes">
+                                <div id="editSugerenciasClientes"
+                                     class="cliente-autocomplete-dropdown d-none"
+                                     role="listbox"></div>
+                            </div>
                         </div>
 
                         <div class="mb-2">

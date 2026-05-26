@@ -293,11 +293,42 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var controller = CreateController(context, tenantId);
 
-            var result = await controller.Autocompletado("A");
+            var result = await controller.Autocompletado("An");
 
             var ok = Assert.IsType<OkObjectResult>(result);
             var payload = Assert.IsAssignableFrom<IEnumerable<object>>(ok.Value);
             Assert.Empty(payload);
+        }
+
+        [Fact]
+        public async Task Autocompletado_ShouldReturnMatches_WhenTermMeetsMinimumLength()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            context.Clientes.Add(new ClientesModel
+            {
+                Nombre = "Ana Rojas",
+                NumeroTelefono = "88889999",
+                FechaUltimaVisita = new DateTime(2026, 4, 1),
+                FrecuenciaVisita = 30
+            });
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            var controller = CreateController(context, tenantId);
+
+            var result = await controller.Autocompletado("Ana");
+
+            var ok = Assert.IsType<OkObjectResult>(result);
+            var payload = Assert.IsAssignableFrom<IEnumerable<object>>(ok.Value);
+            var serialized = System.Text.Json.JsonSerializer.Serialize(payload);
+
+            Assert.Contains("Ana Rojas", serialized, StringComparison.Ordinal);
+            Assert.Contains("88889999", serialized, StringComparison.Ordinal);
         }
 
         private static ClientesController CreateController(ProyectoIdentity.Datos.ApplicationDbContext context, Guid tenantId)

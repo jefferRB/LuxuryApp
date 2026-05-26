@@ -242,3 +242,82 @@
     color: #6b0000 !important;
     font-weight: 600;
 }
+
+/* ===============================
+   AUTOCOMPLETADO CLIENTES
+================================ */
+
+.cliente-autocomplete-wrapper {
+    position: relative;
+}
+
+.cliente-autocomplete-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 1090;
+    max-height: 240px;
+    overflow-y: auto;
+    background: #0f172a;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 8px;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
+    padding: 6px;
+}
+
+.cliente-autocomplete-item,
+.cliente-autocomplete-manual {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: #f8fafc;
+    text-align: left;
+}
+
+.cliente-autocomplete-item {
+    display: block;
+    padding: 9px 10px;
+    border-radius: 6px;
+}
+
+.cliente-autocomplete-item:hover,
+.cliente-autocomplete-item:focus {
+    background: rgba(20, 184, 166, 0.16);
+    outline: none;
+}
+
+.cliente-autocomplete-name {
+    display: block;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.cliente-autocomplete-phone {
+    display: block;
+    margin-top: 2px;
+    color: #cbd5e1;
+    font-size: 0.88rem;
+}
+
+.cliente-autocomplete-empty {
+    padding: 9px 10px;
+    color: #cbd5e1;
+    font-size: 0.92rem;
+}
+
+.cliente-autocomplete-manual {
+    margin-top: 4px;
+    padding: 8px 10px;
+    border-top: 1px solid rgba(148, 163, 184, 0.24);
+    color: #99f6e4;
+    font-weight: 600;
+}
+
+.cliente-autocomplete-manual:hover,
+.cliente-autocomplete-manual:focus {
+    color: #ffffff;
+    background: rgba(15, 118, 110, 0.32);
+    border-radius: 6px;
+    outline: none;
+}

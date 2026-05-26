@@ -14,7 +14,7 @@ namespace LuxuryApp.Controllers.DataBase
         private const int DefaultPageSize = 20;
         private const int MaxPageSize = 100;
         private const int BuscarNombreMaxResults = 50;
-        private const int AutocompleteMinLength = 2;
+        private const int AutocompleteMinLength = 3;
         private const int AutocompleteMaxResults = 10;
 
         private static readonly Expression<Func<ClientesModel, ClienteSummaryViewModel>> ClienteSummaryProjection = cliente =>

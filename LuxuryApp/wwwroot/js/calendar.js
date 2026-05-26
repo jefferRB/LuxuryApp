@@ -19,6 +19,8 @@ const calendarRequestState = {
     sequence: Object.create(null),
     controllers: Object.create(null)
 };
+const CLIENTE_AUTOCOMPLETE_MIN_LENGTH = 3;
+const CLIENTE_AUTOCOMPLETE_DEBOUNCE_MS = 300;
 
 function calendarDebugLog(message, payload = null) {
 
@@ -112,6 +114,15 @@ function beginRequest(key) {
         requestId: nextSequence,
         signal: controller?.signal
     };
+}
+
+function cancelRequest(key) {
+    calendarRequestState.sequence[key] = (calendarRequestState.sequence[key] || 0) + 1;
+
+    if (calendarRequestState.controllers[key]) {
+        calendarRequestState.controllers[key].abort();
+        delete calendarRequestState.controllers[key];
+    }
 }
 
 function isLatestRequest(key, requestId) {
@@ -583,59 +594,251 @@ function initCalendar() {
 
 function initAutocomplete() {
 
-    const nombreInput = document.getElementById("nombreCliente");
-    const telefonoInput = document.getElementById("telefonoCliente");
-    const sugerenciasDiv = document.getElementById("sugerenciasClientes");
-    const minAutocompleteLength = 2;
+    initClienteAutocomplete({
+        inputId: "nombreCliente",
+        telefonoInputId: "telefonoCliente",
+        dropdownId: "sugerenciasClientes",
+        modalId: "createCitaModal",
+        requestKey: "clientesAutocompleteCreate"
+    });
 
-    if (!nombreInput) return;
+    initClienteAutocomplete({
+        inputId: "editNombreCliente",
+        telefonoInputId: "editTelefonoCliente",
+        dropdownId: "editSugerenciasClientes",
+        modalId: "editCitaModal",
+        requestKey: "clientesAutocompleteEdit"
+    });
+}
 
-    nombreInput.addEventListener("input", async function () {
+function initClienteAutocomplete(config) {
 
-        const term = this.value.trim();
+    const nombreInput = document.getElementById(config.inputId);
+    const telefonoInput = document.getElementById(config.telefonoInputId);
+    const dropdown = document.getElementById(config.dropdownId);
+    const modalElement = document.getElementById(config.modalId);
+    const wrapper = nombreInput?.closest(".cliente-autocomplete-wrapper");
+    const clienteIdInput = resolveClienteIdInput(nombreInput, wrapper);
 
-        if (term.length < minAutocompleteLength) {
-            clearElement(sugerenciasDiv);
+    if (!nombreInput || !dropdown || !wrapper) return;
+
+    let debounceTimer = null;
+
+    const closeDropdown = () => {
+        hideClienteAutocomplete(dropdown, nombreInput);
+    };
+
+    const clearSelectedCliente = () => {
+        nombreInput.dataset.selectedClienteId = "";
+        nombreInput.dataset.selectedClienteName = "";
+
+        if (clienteIdInput) {
+            clienteIdInput.value = "";
+        }
+    };
+
+    const scheduleSearch = () => {
+        clearSelectedCliente();
+
+        const term = nombreInput.value.trim();
+
+        window.clearTimeout(debounceTimer);
+
+        if (!isAutocompleteModalOpen(modalElement) ||
+            term.length < CLIENTE_AUTOCOMPLETE_MIN_LENGTH) {
+            cancelRequest(config.requestKey);
+            closeDropdown();
             return;
         }
 
-        const request = beginRequest("autocomplete");
+        debounceTimer = window.setTimeout(
+            () => searchClientes(config, nombreInput, telefonoInput, dropdown, clienteIdInput, term),
+            CLIENTE_AUTOCOMPLETE_DEBOUNCE_MS);
+    };
 
-        try {
-            const clientes = await apiFetchJson(
-                `/Clientes/Autocompletado?term=${encodeURIComponent(term)}`,
-                { signal: request.signal });
+    nombreInput.addEventListener("input", scheduleSearch);
 
-            if (!isLatestRequest("autocomplete", request.requestId)) {
-                return;
-            }
-
-            clearElement(sugerenciasDiv);
-
-            clientes.forEach(cliente => {
-                const item = document.createElement("a");
-                item.classList.add("list-group-item", "list-group-item-action");
-                item.textContent = `${safeText(cliente.nombre, "Cliente")} - ${safeText(cliente.telefono, "—")}`;
-
-                item.addEventListener("click", function () {
-                    nombreInput.value = safeText(cliente.nombre);
-                    telefonoInput.value = safeText(cliente.telefono);
-                    clearElement(sugerenciasDiv);
-                });
-
-                sugerenciasDiv.appendChild(item);
-            });
-        } catch (error) {
-            if (error.name === "AbortError") {
-                return;
-            }
-
-            clearElement(sugerenciasDiv);
-            console.error("Error cargando autocompletado de clientes", error);
+    nombreInput.addEventListener("keydown", event => {
+        if (event.key === "Escape") {
+            closeDropdown();
         }
-
     });
 
+    dropdown.addEventListener("keydown", event => {
+        if (event.key === "Escape") {
+            closeDropdown();
+            nombreInput.focus();
+        }
+    });
+
+    document.addEventListener("mousedown", event => {
+        if (!wrapper.contains(event.target)) {
+            closeDropdown();
+        }
+    });
+
+    modalElement?.addEventListener("hidden.bs.modal", () => {
+        window.clearTimeout(debounceTimer);
+        cancelRequest(config.requestKey);
+        closeDropdown();
+    });
+}
+
+async function searchClientes(config, nombreInput, telefonoInput, dropdown, clienteIdInput, term) {
+
+    if (nombreInput.value.trim() !== term) {
+        return;
+    }
+
+    const request = beginRequest(config.requestKey);
+
+    try {
+        const clientes = await apiFetchJson(
+            `/Clientes/Autocompletado?term=${encodeURIComponent(term)}`,
+            { signal: request.signal });
+
+        if (!isLatestRequest(config.requestKey, request.requestId) ||
+            nombreInput.value.trim() !== term) {
+            return;
+        }
+
+        renderClienteAutocompleteResults(
+            Array.isArray(clientes) ? clientes : [],
+            nombreInput,
+            telefonoInput,
+            dropdown,
+            clienteIdInput);
+    } catch (error) {
+        if (error.name === "AbortError") {
+            return;
+        }
+
+        hideClienteAutocomplete(dropdown, nombreInput);
+        console.error("Error cargando autocompletado de clientes", error);
+    }
+}
+
+function renderClienteAutocompleteResults(clientes, nombreInput, telefonoInput, dropdown, clienteIdInput) {
+
+    clearElement(dropdown);
+
+    if (clientes.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "cliente-autocomplete-empty";
+        empty.textContent = "Sin coincidencias";
+        dropdown.appendChild(empty);
+    }
+
+    clientes.forEach(cliente => {
+        dropdown.appendChild(buildClienteAutocompleteItem(
+            cliente,
+            nombreInput,
+            telefonoInput,
+            dropdown,
+            clienteIdInput));
+    });
+
+    dropdown.appendChild(buildClienteAutocompleteManualAction(dropdown, nombreInput, clienteIdInput));
+    showClienteAutocomplete(dropdown, nombreInput);
+}
+
+function buildClienteAutocompleteItem(cliente, nombreInput, telefonoInput, dropdown, clienteIdInput) {
+
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "cliente-autocomplete-item";
+    item.setAttribute("role", "option");
+
+    const name = document.createElement("span");
+    name.className = "cliente-autocomplete-name";
+    name.textContent = safeText(cliente.nombre, "Cliente");
+
+    const phone = document.createElement("span");
+    phone.className = "cliente-autocomplete-phone";
+    phone.textContent = safeText(cliente.telefono, "Sin telefono");
+
+    item.appendChild(name);
+    item.appendChild(phone);
+
+    item.addEventListener("mousedown", event => {
+        event.preventDefault();
+    });
+
+    item.addEventListener("click", () => {
+        const clienteNombre = safeText(cliente.nombre);
+        const clienteTelefono = safeText(cliente.telefono);
+        const clienteId = cliente.id === null || cliente.id === undefined
+            ? ""
+            : String(cliente.id);
+
+        nombreInput.value = clienteNombre;
+        nombreInput.dataset.selectedClienteId = clienteId;
+        nombreInput.dataset.selectedClienteName = clienteNombre;
+
+        if (telefonoInput) {
+            telefonoInput.value = clienteTelefono;
+        }
+
+        if (clienteIdInput) {
+            clienteIdInput.value = clienteId;
+        }
+
+        hideClienteAutocomplete(dropdown, nombreInput);
+    });
+
+    return item;
+}
+
+function buildClienteAutocompleteManualAction(dropdown, nombreInput, clienteIdInput) {
+
+    const manual = document.createElement("button");
+    manual.type = "button";
+    manual.className = "cliente-autocomplete-manual";
+    manual.textContent = "Escribir manualmente / ocultar sugerencias";
+
+    manual.addEventListener("mousedown", event => {
+        event.preventDefault();
+    });
+
+    manual.addEventListener("click", () => {
+        nombreInput.dataset.selectedClienteId = "";
+        nombreInput.dataset.selectedClienteName = "";
+
+        if (clienteIdInput) {
+            clienteIdInput.value = "";
+        }
+
+        hideClienteAutocomplete(dropdown, nombreInput);
+        nombreInput.focus();
+    });
+
+    return manual;
+}
+
+function resolveClienteIdInput(nombreInput, wrapper) {
+
+    if (!nombreInput) {
+        return null;
+    }
+
+    return document.getElementById(`${nombreInput.id}ClienteId`) ||
+        wrapper?.querySelector("input[type='hidden'][name$='ClienteId']") ||
+        null;
+}
+
+function isAutocompleteModalOpen(modalElement) {
+    return !modalElement || modalElement.classList.contains("show");
+}
+
+function showClienteAutocomplete(dropdown, input) {
+    dropdown.classList.remove("d-none");
+    input?.setAttribute("aria-expanded", "true");
+}
+
+function hideClienteAutocomplete(dropdown, input) {
+    clearElement(dropdown);
+    dropdown?.classList.add("d-none");
+    input?.setAttribute("aria-expanded", "false");
 }
 
 /* ESTADO DE LA UI */
@@ -1737,7 +1940,10 @@ function agregarCitaVisual(cita, container = document) {
 
 function limpiarModalCita() {
 
-    document.getElementById("nombreCliente").value = "";
+    const nombreClienteInput = document.getElementById("nombreCliente");
+    nombreClienteInput.value = "";
+    nombreClienteInput.dataset.selectedClienteId = "";
+    nombreClienteInput.dataset.selectedClienteName = "";
     document.getElementById("telefonoCliente").value = "";
     document.getElementById("servicio").value = "";
     document.getElementById("funcionarioId").value = "";
@@ -1750,7 +1956,7 @@ function limpiarModalCita() {
     document.getElementById("duracionDescansoContainer").classList.add("d-none");
     document.getElementById("duplicarCita").checked = false;
     document.getElementById("duplicarConfig").classList.add("d-none");
-    clearElement(document.getElementById("sugerenciasClientes"));
+    hideClienteAutocomplete(document.getElementById("sugerenciasClientes"), nombreClienteInput);
 
     const fechasInput = document.getElementById("fechasDuplicadas");
 
@@ -1833,11 +2039,15 @@ async function editarCita(id) {
             camposCita.classList.remove("d-none");
             camposDescanso.classList.add("d-none");
 
-            document.getElementById("editNombreCliente").value =
+            const editNombreInput = document.getElementById("editNombreCliente");
+            editNombreInput.value =
                 safeText(cita.nombreCliente);
+            editNombreInput.dataset.selectedClienteId = "";
+            editNombreInput.dataset.selectedClienteName = "";
 
             document.getElementById("editTelefonoCliente").value =
                 safeText(cita.telefonoCliente);
+            hideClienteAutocomplete(document.getElementById("editSugerenciasClientes"), editNombreInput);
 
         }
 
