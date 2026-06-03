@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ProyectoIdentity.Datos;
 
@@ -11,9 +12,11 @@ using ProyectoIdentity.Datos;
 namespace LuxuryApp.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260528190337_AddMetaWhatsAppNotifications")]
+    partial class AddMetaWhatsAppNotifications
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1598,68 +1601,6 @@ namespace LuxuryApp.Migrations
                     b.ToTable("PlanFeatures");
                 });
 
-            modelBuilder.Entity("LuxuryApp.Models.WhatsApp.TenantWhatsAppSettings", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("DailyMessageLimit")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
-                        .HasDefaultValue(30);
-
-                    b.Property<bool>("IsEnabled")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(false);
-
-                    b.Property<string>("Notes")
-                        .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)");
-
-                    b.Property<bool>("SendConfirmationOnCreate")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(true);
-
-                    b.Property<bool>("SendReminderThreeHoursBefore")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(true);
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("TimeZoneId")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)")
-                        .HasDefaultValue("America/Costa_Rica");
-
-                    b.Property<DateTime>("UpdatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("UpdatedByUserId")
-                        .HasMaxLength(450)
-                        .HasColumnType("nvarchar(450)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId")
-                        .IsUnique()
-                        .HasDatabaseName("UX_TenantWhatsAppSettings_TenantId");
-
-                    b.HasIndex("TenantId", "IsEnabled")
-                        .HasDatabaseName("IX_TenantWhatsAppSettings_TenantId_IsEnabled");
-
-                    b.ToTable("TenantWhatsAppSettings");
-                });
-
             modelBuilder.Entity("LuxuryApp.Models.WhatsApp.WhatsAppMessageLog", b =>
                 {
                     b.Property<long>("Id")
@@ -1784,11 +1725,6 @@ namespace LuxuryApp.Migrations
 
                     b.HasIndex("TenantId", "RecipientPhoneE164", "CreatedAtUtc")
                         .HasDatabaseName("IX_WhatsAppMessageLogs_TenantId_RecipientPhone_CreatedAtUtc");
-
-                    b.HasIndex("TenantId", "CitaId", "NotificationType", "Direction")
-                        .IsUnique()
-                        .HasDatabaseName("UX_WhatsAppMessageLogs_ActiveOutboundNotification")
-                        .HasFilter("[Direction] = 'Outbound' AND [CitaId] IS NOT NULL AND [Status] IN ('Pending', 'Processing', 'Sent')");
 
                     b.ToTable("WhatsAppMessageLogs");
                 });
@@ -2266,17 +2202,6 @@ namespace LuxuryApp.Migrations
                     b.Navigation("Plan");
                 });
 
-            modelBuilder.Entity("LuxuryApp.Models.WhatsApp.TenantWhatsAppSettings", b =>
-                {
-                    b.HasOne("LuxuryApp.Models.SaaS.Tenant", "Tenant")
-                        .WithOne("WhatsAppSettings")
-                        .HasForeignKey("LuxuryApp.Models.WhatsApp.TenantWhatsAppSettings", "TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Tenant");
-                });
-
             modelBuilder.Entity("LuxuryApp.Models.WhatsApp.WhatsAppMessageLog", b =>
                 {
                     b.HasOne("LuxuryApp.Models.Calendar.Cita", "Cita")
@@ -2387,8 +2312,6 @@ namespace LuxuryApp.Migrations
                     b.Navigation("CommercialAccessGrants");
 
                     b.Navigation("Suscripciones");
-
-                    b.Navigation("WhatsAppSettings");
                 });
 
             modelBuilder.Entity("LuxuryApp.Models.SaaS.TenantCommercialAccessGrant", b =>

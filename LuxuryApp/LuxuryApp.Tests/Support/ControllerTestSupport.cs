@@ -84,10 +84,10 @@ namespace LuxuryApp.Tests.Support
 
         public static ICalendarCommandService CreateCalendarCommandService(
             ProyectoIdentity.Datos.ApplicationDbContext context,
-            ICalendarNotificationService? notificationService = null) =>
+            ICalendarWhatsAppNotificationService? notificationService = null) =>
             new CalendarCommandService(
                 context,
-                notificationService ?? new NoOpCalendarNotificationService(),
+                notificationService ?? new NoOpCalendarWhatsAppNotificationService(),
                 new VisitasAutomaticasService(context, BusinessDateTimeProvider),
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<CalendarCommandService>.Instance);
 
@@ -117,15 +117,22 @@ namespace LuxuryApp.Tests.Support
         }
     }
 
-    internal sealed class NoOpCalendarNotificationService : ICalendarNotificationService
+    internal sealed class NoOpCalendarWhatsAppNotificationService : ICalendarWhatsAppNotificationService
     {
-        public Task<bool> TrySendConfirmationAsync(
-            string telefonoCliente,
-            string nombreCliente,
-            DateTime fechaHoraCita,
-            string servicioNombre,
-            string funcionarioNombre,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(false);
+        public Task SendAppointmentConfirmationAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task SendAppointmentReminderAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task QueueAppointmentConfirmationAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task QueueAppointmentReminderAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task ProcessInboundReplyAsync(System.Text.Json.JsonElement payload, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task ProcessStatusUpdateAsync(System.Text.Json.JsonElement payload, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task ScheduleDueRemindersAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task ProcessPendingNotificationsAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

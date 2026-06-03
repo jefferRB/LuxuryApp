@@ -13,5 +13,11 @@ namespace LuxuryApp.Models.Calendar
         public string ServicioNombre { get; init; } = string.Empty;
 
         public string FuncionarioNombre { get; init; } = string.Empty;
+
+        public string EstadoConfirmacionWhatsApp { get; init; } = string.Empty;
+
+        public DateTime? ConfirmacionWhatsAppEnviadaUtc { get; init; }
+
+        public DateTime? RecordatorioWhatsAppTresHorasEnviadoUtc { get; init; }
     }
 }

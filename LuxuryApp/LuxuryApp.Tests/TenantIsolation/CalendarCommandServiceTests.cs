@@ -351,7 +351,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var funcionario = await SeedFuncionarioAsync(context, "Andrea");
             var servicio = await SeedServicioAsync(context, "Corte", 45);
-            var service = ControllerTestSupport.CreateCalendarCommandService(context, new ThrowingCalendarNotificationService());
+            var service = ControllerTestSupport.CreateCalendarCommandService(context, new ThrowingCalendarWhatsAppNotificationService());
 
             await service.CreateAsync(new CalendarUpsertRequest
             {
@@ -444,16 +444,29 @@ namespace LuxuryApp.Tests.TenantIsolation
             return cita;
         }
 
-        private sealed class ThrowingCalendarNotificationService : ICalendarNotificationService
+        private sealed class ThrowingCalendarWhatsAppNotificationService : ICalendarWhatsAppNotificationService
         {
-            public Task<bool> TrySendConfirmationAsync(
-                string telefonoCliente,
-                string nombreCliente,
-                DateTime fechaHoraCita,
-                string servicioNombre,
-                string funcionarioNombre,
-                CancellationToken cancellationToken = default) =>
-                throw new InvalidOperationException("Twilio no disponible");
+            public Task SendAppointmentConfirmationAsync(int citaId, CancellationToken cancellationToken = default) =>
+                throw new InvalidOperationException("Meta WhatsApp no disponible");
+
+            public Task SendAppointmentReminderAsync(int citaId, CancellationToken cancellationToken = default) =>
+                throw new InvalidOperationException("Meta WhatsApp no disponible");
+
+            public Task QueueAppointmentConfirmationAsync(int citaId, CancellationToken cancellationToken = default) =>
+                throw new InvalidOperationException("Meta WhatsApp no disponible");
+
+            public Task QueueAppointmentReminderAsync(int citaId, CancellationToken cancellationToken = default) =>
+                throw new InvalidOperationException("Meta WhatsApp no disponible");
+
+            public Task ProcessInboundReplyAsync(System.Text.Json.JsonElement payload, CancellationToken cancellationToken = default) =>
+                Task.CompletedTask;
+
+            public Task ProcessStatusUpdateAsync(System.Text.Json.JsonElement payload, CancellationToken cancellationToken = default) =>
+                Task.CompletedTask;
+
+            public Task ScheduleDueRemindersAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+            public Task ProcessPendingNotificationsAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         }
     }
 }

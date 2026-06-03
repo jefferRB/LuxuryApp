@@ -25,7 +25,8 @@ namespace LuxuryApp.Middleware
             if (path.StartsWith("/accounts") ||
                 path.StartsWith("/home") ||
                 path.StartsWith("/error") ||
-                path.StartsWith("/contract"))
+                path.StartsWith("/contract") ||
+                path.StartsWith("/api/webhooks/meta-whatsapp"))
             {
                 await _next(context);
                 return;

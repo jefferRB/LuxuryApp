@@ -9,6 +9,7 @@ using LuxuryApp.Controllers;
 using LuxuryApp.Controllers.DataBase;
 using LuxuryApp.Controllers.Finanzas;
 using LuxuryApp.Controllers.Funcionarios;
+using LuxuryApp.Services;
 using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
@@ -124,9 +125,10 @@ static ServiceProvider BuildServices(IConfiguration configuration, StaticTenantP
     services.AddScoped<SuscripcionService>();
     services.AddScoped<SaaSPaymentService>();
     services.AddScoped<PaymentProviderResolver>();
-    services.AddScoped<ICalendarNotificationService, CalendarNotificationService>();
+    services.AddScoped<ICalendarWhatsAppNotificationService, NoOpCalendarWhatsAppNotificationService>();
     services.AddScoped<ICalendarCommandService, CalendarCommandService>();
     services.AddScoped<ICalendarQueryService, CalendarQueryService>();
+    services.AddScoped<VisitasAutomaticasService>();
     services.AddScoped<ICobroService, CobroService>();
     services.AddScoped<ICobroQueryService, CobroQueryService>();
     services.AddScoped<IDashboardFinancieroQueryService, DashboardFinancieroQueryService>();
@@ -1161,6 +1163,18 @@ internal sealed class ScriptedHandler : HttpMessageHandler
     private readonly Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> _handler;
     public ScriptedHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> handler) => _handler = handler;
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => _handler(request, cancellationToken);
+}
+
+internal sealed class NoOpCalendarWhatsAppNotificationService : ICalendarWhatsAppNotificationService
+{
+    public Task SendAppointmentConfirmationAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task SendAppointmentReminderAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task QueueAppointmentConfirmationAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task QueueAppointmentReminderAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task ProcessInboundReplyAsync(JsonElement payload, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task ProcessStatusUpdateAsync(JsonElement payload, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task ScheduleDueRemindersAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task ProcessPendingNotificationsAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 }
 
 internal sealed class FakeProvider : IPaymentProvider

@@ -1,5 +1,7 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
+using LuxuryApp.Models.WhatsApp;
+
 namespace LuxuryApp.Models.SaaS
 {
     public class Tenant
@@ -31,5 +33,6 @@ namespace LuxuryApp.Models.SaaS
         // Navegación
         public ICollection<Suscripcion> Suscripciones { get; set; } = new List<Suscripcion>();
         public ICollection<TenantCommercialAccessGrant> CommercialAccessGrants { get; set; } = new List<TenantCommercialAccessGrant>();
+        public TenantWhatsAppSettings? WhatsAppSettings { get; set; }
     }
 }

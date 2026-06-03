@@ -20,6 +20,7 @@ using LuxuryApp.Services.Productos;
 using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Services.Tilopay;
+using LuxuryApp.Services.WhatsApp;
 using LuxuryApp.Workers;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
@@ -142,6 +143,7 @@ builder.Services.Configure<OpcionesPago>(builder.Configuration.GetSection("Payme
 builder.Services.Configure<OpcionesTilopay>(builder.Configuration.GetSection("Tilopay"));
 builder.Services.Configure<OpcionesOnboardingTenant>(builder.Configuration.GetSection("TenantOnboarding"));
 builder.Services.Configure<BusinessDateTimeOptions>(builder.Configuration.GetSection(BusinessDateTimeOptions.SectionName));
+builder.Services.Configure<MetaWhatsAppOptions>(builder.Configuration.GetSection(MetaWhatsAppOptions.SectionName));
 builder.Services.Configure<RequestLocalizationOptions>(options =>
 {
     var supportedCultures = new[] { defaultCulture };
@@ -162,8 +164,20 @@ builder.Services.Configure<ResendClientOptions>(options =>
 });
 builder.Services.AddTransient<IResend, ResendClient>();
 
-builder.Services.AddScoped<WhatsAppService>();
-builder.Services.AddScoped<ICalendarNotificationService, CalendarNotificationService>();
+builder.Services.AddHttpClient<IMetaWhatsAppClient, MetaWhatsAppClient>((serviceProvider, client) =>
+{
+    var options = MetaWhatsAppNormalizedOptions.Create(
+        serviceProvider.GetRequiredService<IOptionsMonitor<MetaWhatsAppOptions>>().CurrentValue);
+    if (Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var baseUri))
+    {
+        client.BaseAddress = baseUri;
+    }
+
+    client.Timeout = TimeSpan.FromSeconds(Math.Max(5, options.RequestTimeoutSeconds));
+});
+builder.Services.AddHostedService<MetaWhatsAppOptionsLoggingService>();
+builder.Services.AddScoped<ICalendarWhatsAppNotificationService, CalendarWhatsAppNotificationService>();
+builder.Services.AddScoped<ITenantWhatsAppSettingsService, TenantWhatsAppSettingsService>();
 builder.Services.AddScoped<ICalendarCommandService, CalendarCommandService>();
 builder.Services.AddScoped<ICalendarQueryService, CalendarQueryService>();
 builder.Services.AddScoped<ICobroService, CobroService>();

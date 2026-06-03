@@ -211,6 +211,86 @@
         </div>
     </section>
 
+    <section class="platform-section-card mb-4">
+        <div class="platform-section-header">
+            <div>
+                <p class="platform-section-kicker">Mensajeria SaaS</p>
+                <h2 class="platform-section-title">WhatsApp por tenant</h2>
+                <p class="platform-section-copy">
+                    Activa clientes puntuales, controla su cuota diaria y revisa el ultimo motivo de omision o error sin exponer secretos tecnicos de Meta.
+                </p>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table platform-table align-middle">
+                <thead>
+                    <tr>
+                        <th>Cliente</th>
+                        <th>Plan actual</th>
+                        <th>WhatsApp</th>
+                        <th>Uso hoy</th>
+                        <th>Ultimo error</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var tenant in Model.Tenants)
+                    {
+                        <tr>
+                            <td>
+                                <div class="platform-table-title">@tenant.TenantName</div>
+                                <div class="platform-table-meta">@tenant.WhatsAppTimeZoneId</div>
+                            </td>
+                            <td>@(tenant.EffectivePlanName ?? "Sin acceso comercial")</td>
+                            <td>
+                                <span class="platform-badge @(tenant.WhatsAppEnabled ? "platform-badge-success" : "platform-badge-danger")">
+                                    <i class="bi @(tenant.WhatsAppEnabled ? "bi-whatsapp" : "bi-pause-circle")"></i>
+                                    @(tenant.WhatsAppEnabled ? "Activo" : "Desactivado")
+                                </span>
+                            </td>
+                            <td>
+                                <div class="platform-table-title">@tenant.WhatsAppTodayUsage / @tenant.WhatsAppDailyMessageLimit</div>
+                                <div class="platform-table-meta">Mensajes outbound reservados o enviados</div>
+                            </td>
+                            <td>
+                                @if (tenant.WhatsAppLastErrorCode is null)
+                                {
+                                    <span class="platform-table-meta">Sin errores registrados</span>
+                                }
+                                else
+                                {
+                                    <div class="platform-table-title">@tenant.WhatsAppLastErrorCode</div>
+                                    <div class="platform-table-meta">@tenant.WhatsAppLastErrorMessage</div>
+                                    <div class="platform-table-meta">@tenant.WhatsAppLastErrorAtUtc?.ToString("yyyy-MM-dd HH:mm") UTC</div>
+                                }
+                            </td>
+                            <td>
+                                <div class="platform-table-actions">
+                                    <button type="button"
+                                            class="btn btn-outline-dark btn-sm platform-btn"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#whatsAppSettings-@tenant.TenantId">
+                                        <i class="bi bi-sliders"></i>
+                                        Configurar WhatsApp
+                                    </button>
+                                    <form asp-action="TestMetaWhatsAppConfiguration" method="post" target="_blank" class="d-inline">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="tenantId" value="@tenant.TenantId" />
+                                        <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                            <i class="bi bi-bug"></i>
+                                            Diagnosticar Meta
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+
     <div class="row g-4">
         <div class="col-xl-6">
             <section class="platform-section-card h-100">
@@ -302,3 +382,91 @@
         </div>
     </div>
 </div>
+
+@foreach (var tenant in Model.Tenants)
+{
+    <div class="modal platform-whatsapp-modal"
+         id="whatsAppSettings-@tenant.TenantId"
+         tabindex="-1"
+         aria-labelledby="whatsAppSettingsLabel-@tenant.TenantId"
+         aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered platform-modal-dialog">
+            <div class="modal-content border-0 rounded-4 shadow platform-modal-content">
+                <form asp-action="UpdateTenantWhatsAppSettings" method="post" class="platform-form">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="tenantId" value="@tenant.TenantId" />
+                    <div class="modal-header border-0 px-4 pt-4">
+                        <div>
+                            <p class="platform-section-kicker mb-1">Control comercial WhatsApp</p>
+                            <h2 class="modal-title fs-5" id="whatsAppSettingsLabel-@tenant.TenantId">@tenant.TenantName</h2>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+                    <div class="modal-body px-4">
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="platform-toggle-tile">
+                                    <input class="form-check-input" type="checkbox" name="whatsappSettings.IsEnabled" value="true" checked="@tenant.WhatsAppEnabled" />
+                                    <input type="hidden" name="whatsappSettings.IsEnabled" value="false" />
+                                    <span>Activar WhatsApp para este cliente</span>
+                                </label>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="platform-toggle-tile">
+                                    <input class="form-check-input" type="checkbox" name="whatsappSettings.SendConfirmationOnCreate" value="true" checked="@tenant.SendWhatsAppConfirmationOnCreate" />
+                                    <input type="hidden" name="whatsappSettings.SendConfirmationOnCreate" value="false" />
+                                    <span>Enviar confirmacion al crear cita</span>
+                                </label>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="platform-toggle-tile">
+                                    <input class="form-check-input" type="checkbox" name="whatsappSettings.SendReminderThreeHoursBefore" value="true" checked="@tenant.SendWhatsAppReminderThreeHoursBefore" />
+                                    <input type="hidden" name="whatsappSettings.SendReminderThreeHoursBefore" value="false" />
+                                    <span>Enviar recordatorio 3 horas antes</span>
+                                </label>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label platform-form-label" for="whatsAppLimit-@tenant.TenantId">Limite diario de mensajes</label>
+                                <input class="form-control"
+                                       id="whatsAppLimit-@tenant.TenantId"
+                                       name="whatsappSettings.DailyMessageLimit"
+                                       type="number"
+                                       min="0"
+                                       value="@tenant.WhatsAppDailyMessageLimit"
+                                       required />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label platform-form-label" for="whatsAppTimeZone-@tenant.TenantId">Zona horaria</label>
+                                <input class="form-control"
+                                       id="whatsAppTimeZone-@tenant.TenantId"
+                                       name="whatsappSettings.TimeZoneId"
+                                       value="@tenant.WhatsAppTimeZoneId"
+                                       maxlength="100"
+                                       required />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label platform-form-label" for="whatsAppNotes-@tenant.TenantId">Notas internas</label>
+                                <textarea class="form-control"
+                                          id="whatsAppNotes-@tenant.TenantId"
+                                          name="whatsappSettings.Notes"
+                                          rows="3"
+                                          maxlength="2000">@tenant.WhatsAppNotes</textarea>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer border-0 px-4 pb-4">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-dark platform-btn">
+                            <i class="bi bi-floppy"></i>
+                            Guardar
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+}
+
+@section Scripts {
+    <script src="~/js/platform.js" asp-append-version="true"></script>
+}

@@ -14,13 +14,13 @@ namespace LuxuryApp.Services.Calendar
         private const int MaxDescansoDurationMinutes = 180;
         private static readonly string[] SupportedTipos = ["CITA", "DESCANSO"];
         private readonly ApplicationDbContext _context;
-        private readonly ICalendarNotificationService _notificationService;
+        private readonly ICalendarWhatsAppNotificationService _notificationService;
         private readonly VisitasAutomaticasService _visitasAutomaticasService;
         private readonly ILogger<CalendarCommandService> _logger;
 
         public CalendarCommandService(
             ApplicationDbContext context,
-            ICalendarNotificationService notificationService,
+            ICalendarWhatsAppNotificationService notificationService,
             VisitasAutomaticasService visitasAutomaticasService,
             ILogger<CalendarCommandService> logger)
         {
@@ -35,7 +35,7 @@ namespace LuxuryApp.Services.Calendar
             CancellationToken cancellationToken = default)
         {
             var normalizedRequest = NormalizeRequest(request);
-            NotificationPayload? primaryNotification = null;
+            var appointmentIdsToQueue = new List<int>();
             CalendarAppointmentResponse? response = null;
 
             var executionStrategy = _context.Database.CreateExecutionStrategy();
@@ -103,15 +103,7 @@ namespace LuxuryApp.Services.Calendar
                     if (normalizedRequest.Tipo == "CITA" &&
                         !string.IsNullOrWhiteSpace(normalizedRequest.TelefonoCliente))
                     {
-                        primaryNotification = new NotificationPayload
-                        {
-                            AppointmentId = primaryAppointment.Id,
-                            TelefonoCliente = normalizedRequest.TelefonoCliente!,
-                            NombreCliente = normalizedRequest.NombreCliente!,
-                            FechaHoraCita = primaryAppointment.FechaHoraCita,
-                            ServicioNombre = servicio?.Nombre ?? string.Empty,
-                            FuncionarioNombre = funcionario.Nombre
-                        };
+                        appointmentIdsToQueue.AddRange(persistedAppointments.Select(appointment => appointment.Id));
                     }
 
                     _logger.LogInformation(
@@ -121,9 +113,19 @@ namespace LuxuryApp.Services.Calendar
                         primaryAppointment.FechaHoraCita);
                 });
 
-                if (primaryNotification is not null)
+                foreach (var appointmentId in appointmentIdsToQueue)
                 {
-                    await TryMarkConfirmationSentAsync(primaryNotification, cancellationToken);
+                    try
+                    {
+                        await _notificationService.QueueAppointmentConfirmationAsync(appointmentId, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(
+                            ex,
+                            "La cita {CitaId} se creo correctamente, pero fallo la cola de confirmacion de WhatsApp.",
+                            appointmentId);
+                    }
                 }
 
                 return response ?? throw new InvalidOperationException("No fue posible construir la respuesta de la cita creada.");
@@ -538,50 +540,6 @@ namespace LuxuryApp.Services.Calendar
             }
         }
 
-        private async Task TryMarkConfirmationSentAsync(NotificationPayload notification, CancellationToken cancellationToken)
-        {
-            bool sent;
-            try
-            {
-                sent = await _notificationService.TrySendConfirmationAsync(
-                    notification.TelefonoCliente,
-                    notification.NombreCliente,
-                    notification.FechaHoraCita,
-                    notification.ServicioNombre,
-                    notification.FuncionarioNombre,
-                    cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(
-                    ex,
-                    "La cita {CitaId} se creo correctamente, pero fallo el notificador de WhatsApp.",
-                    notification.AppointmentId);
-                return;
-            }
-
-            if (!sent)
-            {
-                return;
-            }
-
-            try
-            {
-                var cita = await _context.Citas.FirstOrDefaultAsync(c => c.Id == notification.AppointmentId, cancellationToken);
-                if (cita is null)
-                {
-                    return;
-                }
-
-                cita.ConfirmacionEnviada = true;
-                await _context.SaveChangesAsync(cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "La cita {CitaId} se creo pero no fue posible persistir ConfirmacionEnviada.", notification.AppointmentId);
-            }
-        }
-
         private static CalendarAppointmentResponse BuildAppointmentResponse(
             Cita cita,
             int duracion,
@@ -600,7 +558,10 @@ namespace LuxuryApp.Services.Calendar
                 FuncionarioNombre = funcionarioNombre,
                 ColorCalendario = colorCalendario,
                 ServicioId = cita.ServicioId,
-                ServicioNombre = servicioNombre
+                ServicioNombre = servicioNombre,
+                EstadoConfirmacionWhatsApp = cita.EstadoConfirmacionWhatsApp,
+                ConfirmacionWhatsAppEnviadaUtc = cita.ConfirmacionWhatsAppEnviadaUtc,
+                RecordatorioWhatsAppTresHorasEnviadoUtc = cita.RecordatorioWhatsAppTresHorasEnviadoUtc
             };
 
         private static CalendarUpsertRequest NormalizeRequest(CalendarUpsertRequest request) =>
@@ -700,19 +661,5 @@ namespace LuxuryApp.Services.Calendar
             public int DuracionMinutos { get; init; }
         }
 
-        private sealed class NotificationPayload
-        {
-            public int AppointmentId { get; init; }
-
-            public string TelefonoCliente { get; init; } = string.Empty;
-
-            public string NombreCliente { get; init; } = string.Empty;
-
-            public DateTime FechaHoraCita { get; init; }
-
-            public string ServicioNombre { get; init; } = string.Empty;
-
-            public string FuncionarioNombre { get; init; } = string.Empty;
-        }
     }
 }

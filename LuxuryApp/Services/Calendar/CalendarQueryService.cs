@@ -43,7 +43,10 @@ namespace LuxuryApp.Services.Calendar
                     FuncionarioNombre = c.Funcionario != null ? c.Funcionario.Nombre : string.Empty,
                     ColorCalendario = c.Funcionario != null ? c.Funcionario.ColorCalendario : string.Empty,
                     ServicioId = c.ServicioId,
-                    ServicioNombre = c.Servicio != null ? c.Servicio.Nombre : null
+                    ServicioNombre = c.Servicio != null ? c.Servicio.Nombre : null,
+                    EstadoConfirmacionWhatsApp = c.EstadoConfirmacionWhatsApp,
+                    ConfirmacionWhatsAppEnviadaUtc = c.ConfirmacionWhatsAppEnviadaUtc,
+                    RecordatorioWhatsAppTresHorasEnviadoUtc = c.RecordatorioWhatsAppTresHorasEnviadoUtc
                 })
                 .ToListAsync(cancellationToken);
         }
@@ -99,7 +102,10 @@ namespace LuxuryApp.Services.Calendar
                     TelefonoCliente = c.TelefonoCliente,
                     FechaHoraCita = c.FechaHoraCita,
                     ServicioNombre = c.Servicio != null ? c.Servicio.Nombre : string.Empty,
-                    FuncionarioNombre = c.Funcionario != null ? c.Funcionario.Nombre : string.Empty
+                    FuncionarioNombre = c.Funcionario != null ? c.Funcionario.Nombre : string.Empty,
+                    EstadoConfirmacionWhatsApp = c.EstadoConfirmacionWhatsApp,
+                    ConfirmacionWhatsAppEnviadaUtc = c.ConfirmacionWhatsAppEnviadaUtc,
+                    RecordatorioWhatsAppTresHorasEnviadoUtc = c.RecordatorioWhatsAppTresHorasEnviadoUtc
                 })
                 .ToListAsync(cancellationToken);
         }
@@ -171,7 +177,10 @@ namespace LuxuryApp.Services.Calendar
                     FuncionarioId = c.FuncionarioId,
                     DuracionMinutos = c.Tipo == "DESCANSO"
                         ? (c.DuracionMinutos ?? CalendarCommandService.DefaultDurationMinutes)
-                        : ((c.Servicio != null ? c.Servicio.DuracionMinutos : null) ?? CalendarCommandService.DefaultDurationMinutes)
+                        : ((c.Servicio != null ? c.Servicio.DuracionMinutos : null) ?? CalendarCommandService.DefaultDurationMinutes),
+                    EstadoConfirmacionWhatsApp = c.EstadoConfirmacionWhatsApp,
+                    ConfirmacionWhatsAppEnviadaUtc = c.ConfirmacionWhatsAppEnviadaUtc,
+                    RecordatorioWhatsAppTresHorasEnviadoUtc = c.RecordatorioWhatsAppTresHorasEnviadoUtc
                 })
                 .SingleOrDefaultAsync(cancellationToken);
 

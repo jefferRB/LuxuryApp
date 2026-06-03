@@ -319,6 +319,26 @@
     margin-top: 0;
 }
 
+body.private-shell > .platform-whatsapp-modal {
+    z-index: var(--private-z-modal);
+}
+
+body.private-shell > .platform-whatsapp-modal .platform-modal-dialog {
+    pointer-events: none;
+}
+
+body.private-shell > .platform-whatsapp-modal .platform-modal-content {
+    pointer-events: auto;
+}
+
+body.private-shell.platform-modal-open > .platform-modal-backdrop {
+    z-index: var(--private-z-backdrop);
+}
+
+body.private-shell.platform-modal-open > .platform-modal-backdrop.show {
+    opacity: 0.58;
+}
+
 .platform-table-actions {
     display: flex;
     flex-wrap: wrap;
@@ -522,6 +542,10 @@
 
     .platform-detail-value {
         text-align: left;
+    }
+
+    body.private-shell > .platform-whatsapp-modal .platform-modal-dialog {
+        margin: 0.75rem;
     }
 }
 

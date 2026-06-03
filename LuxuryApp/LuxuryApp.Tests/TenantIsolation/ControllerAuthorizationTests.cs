@@ -30,8 +30,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 typeof(InformacionController),
                 typeof(ProductosController),
                 typeof(BillingController),
-                typeof(RolesController),
-                typeof(WhatsAppTestController)
+                typeof(RolesController)
             };
 
             foreach (var controllerType in sensitiveControllers)

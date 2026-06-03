@@ -33,7 +33,8 @@ public class SuscripcionMiddleware
                 path.StartsWith("/home") ||
                 path.StartsWith("/error") ||
                 path.StartsWith("/billing") ||
-                path.StartsWith("/platform"))
+                path.StartsWith("/platform") ||
+                path.StartsWith("/api/webhooks/meta-whatsapp"))
             {
                 await _next(context);
                 return;

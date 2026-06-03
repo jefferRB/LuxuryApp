@@ -9,6 +9,7 @@ using LuxuryApp.Models.Legal;
 using LuxuryApp.Models.Productos;
 using LuxuryApp.Models.Saas;
 using LuxuryApp.Models.SaaS;
+using LuxuryApp.Models.WhatsApp;
 using LuxuryApp.Services.Tenant;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
@@ -109,11 +110,90 @@ namespace ProyectoIdentity.Datos
 
             modelBuilder.Entity<Cita>(entity =>
             {
+                entity.Property(c => c.EstadoConfirmacionWhatsApp)
+                    .HasMaxLength(30)
+                    .HasDefaultValue(WhatsAppConfirmationStates.Pendiente);
+
+                entity.Property(c => c.UltimoMetaMessageId)
+                    .HasMaxLength(128);
+
                 entity.HasIndex(c => new { c.TenantId, c.FechaHoraCita })
                     .HasDatabaseName("IX_Citas_TenantId_FechaHoraCita");
 
                 entity.HasIndex(c => new { c.TenantId, c.FuncionarioId, c.FechaHoraCita })
                     .HasDatabaseName("IX_Citas_TenantId_FuncionarioId_FechaHoraCita");
+            });
+
+            modelBuilder.Entity<WhatsAppMessageLog>(entity =>
+            {
+                entity.Property(message => message.Direction).HasMaxLength(20).IsRequired();
+                entity.Property(message => message.NotificationType).HasMaxLength(40).IsRequired();
+                entity.Property(message => message.Provider).HasMaxLength(40).IsRequired();
+                entity.Property(message => message.MetaMessageId).HasMaxLength(128);
+                entity.Property(message => message.ContextMessageId).HasMaxLength(128);
+                entity.Property(message => message.RecipientPhoneE164).HasMaxLength(32);
+                entity.Property(message => message.SenderPhoneE164).HasMaxLength(32);
+                entity.Property(message => message.WaId).HasMaxLength(64);
+                entity.Property(message => message.TemplateName).HasMaxLength(128);
+                entity.Property(message => message.Status).HasMaxLength(30).IsRequired();
+                entity.Property(message => message.ErrorCode).HasMaxLength(80);
+                entity.Property(message => message.ErrorMessage).HasMaxLength(1000);
+
+                entity.HasIndex(message => new { message.TenantId, message.CitaId })
+                    .HasDatabaseName("IX_WhatsAppMessageLogs_TenantId_CitaId");
+
+                entity.HasIndex(message => new { message.TenantId, message.NotificationType, message.Status })
+                    .HasDatabaseName("IX_WhatsAppMessageLogs_TenantId_NotificationType_Status");
+
+                entity.HasIndex(message => new { message.TenantId, message.CitaId, message.NotificationType, message.Direction })
+                    .IsUnique()
+                    .HasFilter("[Direction] = 'Outbound' AND [CitaId] IS NOT NULL AND [Status] IN ('Pending', 'Processing', 'Sent')")
+                    .HasDatabaseName("UX_WhatsAppMessageLogs_ActiveOutboundNotification");
+
+                entity.HasIndex(message => message.MetaMessageId)
+                    .IsUnique()
+                    .HasFilter("[MetaMessageId] IS NOT NULL")
+                    .HasDatabaseName("UX_WhatsAppMessageLogs_MetaMessageId");
+
+                entity.HasIndex(message => message.ContextMessageId)
+                    .HasDatabaseName("IX_WhatsAppMessageLogs_ContextMessageId");
+
+                entity.HasIndex(message => new { message.TenantId, message.RecipientPhoneE164, message.CreatedAtUtc })
+                    .HasDatabaseName("IX_WhatsAppMessageLogs_TenantId_RecipientPhone_CreatedAtUtc");
+
+                entity.HasIndex(message => new { message.TenantId, message.CreatedAtUtc })
+                    .HasDatabaseName("IX_WhatsAppMessageLogs_TenantId_CreatedAtUtc");
+
+                entity.HasOne(message => message.Cita)
+                    .WithMany()
+                    .HasForeignKey(message => message.CitaId)
+                    .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<TenantWhatsAppSettings>(entity =>
+            {
+                entity.Property(settings => settings.IsEnabled).HasDefaultValue(false);
+                entity.Property(settings => settings.SendConfirmationOnCreate).HasDefaultValue(true);
+                entity.Property(settings => settings.SendReminderThreeHoursBefore).HasDefaultValue(true);
+                entity.Property(settings => settings.DailyMessageLimit).HasDefaultValue(LuxuryApp.Models.WhatsApp.TenantWhatsAppSettings.DefaultDailyMessageLimit);
+                entity.Property(settings => settings.TimeZoneId)
+                    .HasMaxLength(100)
+                    .HasDefaultValue(LuxuryApp.Models.WhatsApp.TenantWhatsAppSettings.DefaultTimeZoneId)
+                    .IsRequired();
+                entity.Property(settings => settings.Notes).HasMaxLength(2000);
+                entity.Property(settings => settings.UpdatedByUserId).HasMaxLength(450);
+
+                entity.HasIndex(settings => settings.TenantId)
+                    .IsUnique()
+                    .HasDatabaseName("UX_TenantWhatsAppSettings_TenantId");
+
+                entity.HasIndex(settings => new { settings.TenantId, settings.IsEnabled })
+                    .HasDatabaseName("IX_TenantWhatsAppSettings_TenantId_IsEnabled");
+
+                entity.HasOne(settings => settings.Tenant)
+                    .WithOne(tenant => tenant.WhatsAppSettings)
+                    .HasForeignKey<TenantWhatsAppSettings>(settings => settings.TenantId)
+                    .OnDelete(DeleteBehavior.Cascade);
             });
 
             modelBuilder.Entity<Puesto>(entity =>
@@ -829,6 +909,8 @@ namespace ProyectoIdentity.Datos
         public DbSet<ClienteVisitas> ClienteVisitas { get; set; }
         //Calendar
         public DbSet<Cita> Citas { get; set; }
+        public DbSet<WhatsAppMessageLog> WhatsAppMessageLogs { get; set; }
+        public DbSet<TenantWhatsAppSettings> TenantWhatsAppSettings { get; set; }
         //Finanzas
         public DbSet<Cobro> Cobros { get; set; }
         public DbSet<Servicio> Servicios { get; set; }

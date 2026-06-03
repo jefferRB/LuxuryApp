@@ -259,6 +259,38 @@ function appendLabeledText(container, label, value, addBreak = true) {
     }
 }
 
+function formatWhatsAppState(value) {
+    const normalized = safeText(value, "Pendiente").toLowerCase();
+
+    if (normalized === "confirmada") return "Confirmada";
+    if (normalized === "cancelada") return "Cancelada";
+    if (normalized === "errorenvio") return "Error de envío";
+    if (normalized === "noenviada") return "No enviada";
+
+    return "Pendiente";
+}
+
+function formatSentState(value) {
+    return value ? "Sí" : "No";
+}
+
+function updateWhatsAppStatusPanel(cita) {
+    const panel = document.getElementById("editWhatsAppStatus");
+    if (!panel) return;
+
+    clearElement(panel);
+
+    if (!cita || cita.tipo === "DESCANSO") {
+        panel.classList.add("d-none");
+        return;
+    }
+
+    appendLabeledText(panel, "WhatsApp:", formatWhatsAppState(cita.estadoConfirmacionWhatsApp));
+    appendLabeledText(panel, "Confirmación enviada:", formatSentState(cita.confirmacionWhatsAppEnviadaUtc));
+    appendLabeledText(panel, "Recordatorio 3h enviado:", formatSentState(cita.recordatorioWhatsAppTresHorasEnviadoUtc), false);
+    panel.classList.remove("d-none");
+}
+
 function formatLocalDate(date) {
 
     const pad = value => String(value).padStart(2, "0");
@@ -399,7 +431,8 @@ function buildUpcomingAppointmentItem(cita) {
         inicioCita
             ? `${inicioCita.toLocaleDateString("es-CR")} ${inicioCita.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" })}`
             : "—");
-    appendLabeledText(small, "Funcionario:", cita.funcionarioNombre, false);
+    appendLabeledText(small, "Funcionario:", cita.funcionarioNombre);
+    appendLabeledText(small, "WhatsApp:", formatWhatsAppState(cita.estadoConfirmacionWhatsApp), false);
     li.appendChild(small);
 
     const actions = document.createElement("div");
@@ -2018,6 +2051,7 @@ async function editarCita(id) {
 
         document.getElementById("editCitaId").value = cita.id;
         document.getElementById("editTipo").value = cita.tipo;
+        updateWhatsAppStatusPanel(cita);
 
         const fechaCita = parseLocalDateTime(cita.fechaHoraCita);
         document.getElementById("editFechaHora").value =

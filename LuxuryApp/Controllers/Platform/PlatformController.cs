@@ -1,8 +1,11 @@
 using System.Security.Claims;
 using LuxuryApp.Models.Platform;
 using LuxuryApp.Models.SaaS;
+using LuxuryApp.Models.WhatsApp;
 using LuxuryApp.Services.Identity;
 using LuxuryApp.Services.SaaS;
+using LuxuryApp.Services.Tenant;
+using LuxuryApp.Services.WhatsApp;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -17,15 +20,21 @@ namespace LuxuryApp.Controllers.Platform
         private readonly ApplicationDbContext _context;
         private readonly ITenantCommercialAccessResolver _commercialAccessResolver;
         private readonly ITenantCommercialAccessCache _accessCache;
+        private readonly TenantExecutionService _tenantExecutionService;
+        private readonly IMetaWhatsAppClient _metaWhatsAppClient;
 
         public PlatformController(
             ApplicationDbContext context,
             ITenantCommercialAccessResolver commercialAccessResolver,
-            ITenantCommercialAccessCache accessCache)
+            ITenantCommercialAccessCache accessCache,
+            TenantExecutionService tenantExecutionService,
+            IMetaWhatsAppClient metaWhatsAppClient)
         {
             _context = context;
             _commercialAccessResolver = commercialAccessResolver;
             _accessCache = accessCache;
+            _tenantExecutionService = tenantExecutionService;
+            _metaWhatsAppClient = metaWhatsAppClient;
         }
 
         [HttpGet]
@@ -54,6 +63,7 @@ namespace LuxuryApp.Controllers.Platform
                     .FirstOrDefaultAsync(cancellationToken);
 
                 var access = await _commercialAccessResolver.ResolveAsync(tenant.Id, cancellationToken: cancellationToken);
+                var whatsApp = await GetTenantWhatsAppSummaryAsync(tenant.Id, cancellationToken);
                 tenantRows.Add(new PlatformTenantRowViewModel
                 {
                     TenantId = tenant.Id,
@@ -66,7 +76,17 @@ namespace LuxuryApp.Controllers.Platform
                     CommercialNotes = tenant.CommercialNotes,
                     CanAccessApp = access.CanAccessApp,
                     EffectivePlanName = access.EffectivePlanName,
-                    Reason = access.Reason
+                    Reason = access.Reason,
+                    WhatsAppEnabled = whatsApp.IsEnabled,
+                    SendWhatsAppConfirmationOnCreate = whatsApp.SendConfirmationOnCreate,
+                    SendWhatsAppReminderThreeHoursBefore = whatsApp.SendReminderThreeHoursBefore,
+                    WhatsAppDailyMessageLimit = whatsApp.DailyMessageLimit,
+                    WhatsAppTodayUsage = whatsApp.TodayUsage,
+                    WhatsAppTimeZoneId = whatsApp.TimeZoneId,
+                    WhatsAppNotes = whatsApp.Notes,
+                    WhatsAppLastErrorCode = whatsApp.LastErrorCode,
+                    WhatsAppLastErrorMessage = whatsApp.LastErrorMessage,
+                    WhatsAppLastErrorAtUtc = whatsApp.LastErrorAtUtc
                 });
             }
 
@@ -129,6 +149,90 @@ namespace LuxuryApp.Controllers.Platform
             };
 
             return View(model);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> UpdateTenantWhatsAppSettings(
+            Guid tenantId,
+            [Bind(Prefix = "whatsappSettings")] TenantWhatsAppSettingsUpdateDto whatsappSettings,
+            CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+            {
+                TempData["PlatformError"] = "Revisa la configuracion de WhatsApp. El limite no puede ser negativo y la zona horaria es obligatoria.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            var tenantExists = await _context.Tenants
+                .AsNoTracking()
+                .AnyAsync(tenant => tenant.Id == tenantId, cancellationToken);
+
+            if (!tenantExists)
+            {
+                return NotFound();
+            }
+
+            await _tenantExecutionService.RunForTenantAsync(
+                tenantId,
+                async (serviceProvider, scopedTenantId, ct) =>
+                {
+                    var settingsService = serviceProvider.GetRequiredService<ITenantWhatsAppSettingsService>();
+                    await settingsService.UpdateSettingsAsync(
+                        scopedTenantId,
+                        whatsappSettings,
+                        User.FindFirstValue(ClaimTypes.NameIdentifier),
+                        ct);
+                },
+                cancellationToken);
+
+            TempData["PlatformSuccess"] = "Configuracion WhatsApp del tenant actualizada.";
+            return RedirectToAction(nameof(Index));
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> TestMetaWhatsAppConfiguration(
+            Guid? tenantId,
+            CancellationToken cancellationToken)
+        {
+            if (tenantId.HasValue)
+            {
+                var tenantExists = await _context.Tenants
+                    .AsNoTracking()
+                    .AnyAsync(tenant => tenant.Id == tenantId.Value, cancellationToken);
+
+                if (!tenantExists)
+                {
+                    return NotFound();
+                }
+            }
+
+            var diagnostic = await _metaWhatsAppClient.TestConfigurationAsync(cancellationToken);
+
+            TenantWhatsAppSettingsSnapshot? tenantSettings = null;
+            if (tenantId.HasValue)
+            {
+                await _tenantExecutionService.RunForTenantAsync(
+                    tenantId.Value,
+                    async (serviceProvider, scopedTenantId, ct) =>
+                    {
+                        var settingsService = serviceProvider.GetRequiredService<ITenantWhatsAppSettingsService>();
+                        tenantSettings = await settingsService.GetSettingsForTenantAsync(scopedTenantId, ct);
+                    },
+                    cancellationToken);
+            }
+
+            return Json(new
+            {
+                success = diagnostic.Success,
+                tenantId,
+                configuration = diagnostic.Configuration,
+                phoneNumberProbe = diagnostic.PhoneNumberProbe,
+                wabaPhoneNumbersProbe = diagnostic.WabaPhoneNumbersProbe,
+                phoneNumberBelongsToConfiguredWaba = diagnostic.PhoneNumberBelongsToConfiguredWaba,
+                tenantSettings
+            });
         }
 
         [HttpPost]
@@ -370,5 +474,62 @@ namespace LuxuryApp.Controllers.Platform
                 Codes = codes
             };
         }
+
+        private async Task<PlatformTenantWhatsAppSummary> GetTenantWhatsAppSummaryAsync(
+            Guid tenantId,
+            CancellationToken cancellationToken)
+        {
+            PlatformTenantWhatsAppSummary? summary = null;
+
+            await _tenantExecutionService.RunForTenantAsync(
+                tenantId,
+                async (serviceProvider, scopedTenantId, ct) =>
+                {
+                    var settingsService = serviceProvider.GetRequiredService<ITenantWhatsAppSettingsService>();
+                    var settings = await settingsService.GetSettingsForTenantAsync(scopedTenantId, ct);
+                    var todayUsage = await settingsService.GetTodayUsageAsync(scopedTenantId, ct);
+                    var db = serviceProvider.GetRequiredService<ApplicationDbContext>();
+                    var lastError = await db.WhatsAppMessageLogs
+                        .AsNoTracking()
+                        .Where(message =>
+                            message.Direction == WhatsAppMessageDirections.Outbound &&
+                            message.ErrorCode != null)
+                        .OrderByDescending(message => message.CreatedAtUtc)
+                        .Select(message => new
+                        {
+                            message.ErrorCode,
+                            message.ErrorMessage,
+                            message.CreatedAtUtc
+                        })
+                        .FirstOrDefaultAsync(ct);
+
+                    summary = new PlatformTenantWhatsAppSummary(
+                        settings.IsEnabled,
+                        settings.SendConfirmationOnCreate,
+                        settings.SendReminderThreeHoursBefore,
+                        settings.DailyMessageLimit,
+                        todayUsage,
+                        settings.TimeZoneId,
+                        settings.Notes,
+                        lastError?.ErrorCode,
+                        lastError?.ErrorMessage,
+                        lastError?.CreatedAtUtc);
+                },
+                cancellationToken);
+
+            return summary ?? throw new InvalidOperationException("No fue posible cargar la configuracion WhatsApp del tenant.");
+        }
+
+        private sealed record PlatformTenantWhatsAppSummary(
+            bool IsEnabled,
+            bool SendConfirmationOnCreate,
+            bool SendReminderThreeHoursBefore,
+            int DailyMessageLimit,
+            int TodayUsage,
+            string TimeZoneId,
+            string? Notes,
+            string? LastErrorCode,
+            string? LastErrorMessage,
+            DateTime? LastErrorAtUtc);
     }
 }

@@ -47,5 +47,29 @@ namespace LuxuryApp.Services.Tenant
                 await operation(tenantScope.ServiceProvider, tenantId, cancellationToken);
             }
         }
+
+        public async Task RunForTenantAsync(
+            Guid tenantId,
+            Func<IServiceProvider, Guid, CancellationToken, Task> operation,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(operation);
+
+            if (tenantId == Guid.Empty)
+            {
+                throw new ArgumentException("El tenant scope requiere un TenantId valido.", nameof(tenantId));
+            }
+
+            using var tenantScope = _scopeFactory.CreateScope();
+            var tenantExecutionAccessor = tenantScope.ServiceProvider.GetRequiredService<ITenantExecutionContextAccessor>();
+
+            using var scope = tenantExecutionAccessor.BeginScope(tenantId);
+            using var logScope = _logger.BeginScope(new Dictionary<string, object>
+            {
+                ["TenantId"] = tenantId
+            });
+
+            await operation(tenantScope.ServiceProvider, tenantId, cancellationToken);
+        }
     }
 }
