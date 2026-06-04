@@ -48,6 +48,11 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var clienteActual = await context.Clientes.SingleAsync(c => c.Nombre == "Cliente Tenant A");
             Assert.Null(clienteActual.CorreoElectronico);
+            Assert.False(clienteActual.AceptaMensajesWhatsApp);
+            Assert.NotNull(clienteActual.WhatsAppConsentUpdatedAtUtc);
+            Assert.Equal("ClienteForm", clienteActual.WhatsAppConsentSource);
+            Assert.Equal("wa_optin_v1", clienteActual.WhatsAppConsentTextVersion);
+            Assert.Equal("user-clientes", clienteActual.WhatsAppConsentCapturedByUserId);
 
             var visita = await context.ClienteVisitas.SingleAsync(v => v.ClienteId == clienteActual.Id);
             Assert.Equal("88889999", visita.NumeroTelefono);
@@ -57,6 +62,89 @@ namespace LuxuryApp.Tests.TenantIsolation
                 .CountAsync(c => c.NumeroTelefono == "88889999");
 
             Assert.Equal(2, totalConMismoTelefono);
+        }
+
+        [Fact]
+        public async Task Create_ShouldPersistWhatsAppConsent_WhenChecked()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var controller = CreateController(context, tenantId);
+
+            var result = await controller.Create(new ClientesModel
+            {
+                Nombre = "Cliente Opt In",
+                NumeroTelefono = "75550000",
+                CorreoElectronico = "optin@test.local",
+                AceptaMensajesWhatsApp = true,
+                FrecuenciaVisita = 20,
+                FechaUltimaVisita = new DateTime(2026, 4, 18)
+            });
+
+            var redirect = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal(nameof(ClientesController.Index), redirect.ActionName);
+
+            var cliente = await context.Clientes.SingleAsync(c => c.NumeroTelefono == "75550000");
+            Assert.True(cliente.AceptaMensajesWhatsApp);
+            Assert.NotNull(cliente.WhatsAppConsentUpdatedAtUtc);
+            Assert.Equal("ClienteForm", cliente.WhatsAppConsentSource);
+            Assert.Equal("wa_optin_v1", cliente.WhatsAppConsentTextVersion);
+            Assert.Equal("user-clientes", cliente.WhatsAppConsentCapturedByUserId);
+        }
+
+        [Fact]
+        public async Task Create_Get_ShouldExposeTenantWhatsAppFlag_WhenFeatureIsDisabled()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var controller = CreateController(context, tenantId, tenantWhatsAppEnabled: false);
+
+            var result = await controller.Create(CancellationToken.None);
+
+            var view = Assert.IsType<ViewResult>(result);
+            var model = Assert.IsType<ClientesModel>(view.Model);
+            Assert.False((bool?)view.ViewData["TenantWhatsAppEnabled"] ?? true);
+            Assert.False(model.AceptaMensajesWhatsApp);
+        }
+
+        [Fact]
+        public async Task Create_ShouldForceConsentFalse_WhenTenantWhatsAppIsDisabled()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var controller = CreateController(context, tenantId, tenantWhatsAppEnabled: false);
+
+            var result = await controller.Create(new ClientesModel
+            {
+                Nombre = "Cliente Sin Feature",
+                NumeroTelefono = "76660000",
+                CorreoElectronico = "nofeature@test.local",
+                AceptaMensajesWhatsApp = true,
+                FrecuenciaVisita = 20,
+                FechaUltimaVisita = new DateTime(2026, 4, 20)
+            });
+
+            var redirect = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal(nameof(ClientesController.Index), redirect.ActionName);
+
+            var cliente = await context.Clientes.SingleAsync(c => c.NumeroTelefono == "76660000");
+            Assert.False(cliente.AceptaMensajesWhatsApp);
+            Assert.Null(cliente.WhatsAppConsentUpdatedAtUtc);
+            Assert.Null(cliente.WhatsAppConsentSource);
+            Assert.Null(cliente.WhatsAppConsentCapturedByUserId);
+            Assert.Null(cliente.WhatsAppConsentTextVersion);
         }
 
         [Fact]
@@ -116,6 +204,144 @@ namespace LuxuryApp.Tests.TenantIsolation
                 .ToListAsync();
 
             Assert.All(visitas, visita => Assert.Equal("79992222", visita.NumeroTelefono));
+        }
+
+        [Fact]
+        public async Task Editar_ShouldAllowRevokingWhatsAppConsent_AndRefreshAudit()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var cliente = new ClientesModel
+            {
+                Nombre = "Cliente Consentimiento",
+                NumeroTelefono = "71112222",
+                CorreoElectronico = "consent@test.local",
+                AceptaMensajesWhatsApp = true,
+                WhatsAppConsentUpdatedAtUtc = new DateTime(2026, 4, 1, 10, 0, 0, DateTimeKind.Utc),
+                WhatsAppConsentSource = "ClienteForm",
+                WhatsAppConsentCapturedByUserId = "seed-user",
+                WhatsAppConsentTextVersion = "wa_optin_v1",
+                FrecuenciaVisita = 30,
+                FechaUltimaVisita = new DateTime(2026, 4, 1)
+            };
+
+            context.Clientes.Add(cliente);
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            var controller = CreateController(context, tenantId);
+
+            var result = await controller.Editar(new ClientesModel
+            {
+                Id = cliente.Id,
+                Nombre = "Cliente Consentimiento",
+                NumeroTelefono = "71112222",
+                CorreoElectronico = "consent@test.local",
+                AceptaMensajesWhatsApp = false,
+                FrecuenciaVisita = 30,
+                FechaUltimaVisita = new DateTime(2026, 4, 1)
+            });
+
+            var redirect = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal(nameof(ClientesController.Buscar), redirect.ActionName);
+
+            var clienteActualizado = await context.Clientes.SingleAsync(c => c.Id == cliente.Id);
+            Assert.False(clienteActualizado.AceptaMensajesWhatsApp);
+            Assert.NotNull(clienteActualizado.WhatsAppConsentUpdatedAtUtc);
+            Assert.True(clienteActualizado.WhatsAppConsentUpdatedAtUtc > new DateTime(2026, 4, 1, 10, 0, 0, DateTimeKind.Utc));
+            Assert.Equal("ClienteForm", clienteActualizado.WhatsAppConsentSource);
+            Assert.Equal("wa_optin_v1", clienteActualizado.WhatsAppConsentTextVersion);
+            Assert.Equal("user-clientes", clienteActualizado.WhatsAppConsentCapturedByUserId);
+        }
+
+        [Fact]
+        public async Task Editar_Get_ShouldExposeTenantWhatsAppFlag_WhenFeatureIsDisabled()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var cliente = new ClientesModel
+            {
+                Nombre = "Cliente Editar",
+                NumeroTelefono = "73334444",
+                AceptaMensajesWhatsApp = true,
+                FrecuenciaVisita = 30,
+                FechaUltimaVisita = new DateTime(2026, 4, 1)
+            };
+
+            context.Clientes.Add(cliente);
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            var controller = CreateController(context, tenantId, tenantWhatsAppEnabled: false);
+
+            var result = await controller.Editar(cliente.Id);
+
+            var view = Assert.IsType<ViewResult>(result);
+            Assert.False((bool?)view.ViewData["TenantWhatsAppEnabled"] ?? true);
+            var model = Assert.IsType<ClientesModel>(view.Model);
+            Assert.True(model.AceptaMensajesWhatsApp);
+        }
+
+        [Fact]
+        public async Task Editar_ShouldPreserveExistingConsent_WhenTenantWhatsAppIsDisabled()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var originalAuditDate = new DateTime(2026, 4, 1, 10, 0, 0, DateTimeKind.Utc);
+            var cliente = new ClientesModel
+            {
+                Nombre = "Cliente Preservado",
+                NumeroTelefono = "74446666",
+                CorreoElectronico = "preservado@test.local",
+                AceptaMensajesWhatsApp = true,
+                WhatsAppConsentUpdatedAtUtc = originalAuditDate,
+                WhatsAppConsentSource = "ClienteForm",
+                WhatsAppConsentCapturedByUserId = "seed-user",
+                WhatsAppConsentTextVersion = "wa_optin_v1",
+                FrecuenciaVisita = 30,
+                FechaUltimaVisita = new DateTime(2026, 4, 1)
+            };
+
+            context.Clientes.Add(cliente);
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            var controller = CreateController(context, tenantId, tenantWhatsAppEnabled: false);
+
+            var result = await controller.Editar(new ClientesModel
+            {
+                Id = cliente.Id,
+                Nombre = "Cliente Preservado",
+                NumeroTelefono = "74446666",
+                CorreoElectronico = "nuevo@test.local",
+                AceptaMensajesWhatsApp = false,
+                FrecuenciaVisita = 45,
+                FechaUltimaVisita = new DateTime(2026, 4, 10)
+            });
+
+            var redirect = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal(nameof(ClientesController.Buscar), redirect.ActionName);
+
+            var clienteActualizado = await context.Clientes.SingleAsync(c => c.Id == cliente.Id);
+            Assert.True(clienteActualizado.AceptaMensajesWhatsApp);
+            Assert.Equal(originalAuditDate, clienteActualizado.WhatsAppConsentUpdatedAtUtc);
+            Assert.Equal("ClienteForm", clienteActualizado.WhatsAppConsentSource);
+            Assert.Equal("seed-user", clienteActualizado.WhatsAppConsentCapturedByUserId);
+            Assert.Equal("wa_optin_v1", clienteActualizado.WhatsAppConsentTextVersion);
+            Assert.Equal("nuevo@test.local", clienteActualizado.CorreoElectronico);
+            Assert.Equal(45, clienteActualizado.FrecuenciaVisita);
         }
 
         [Fact]
@@ -329,13 +555,52 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             Assert.Contains("Ana Rojas", serialized, StringComparison.Ordinal);
             Assert.Contains("88889999", serialized, StringComparison.Ordinal);
+            Assert.Contains("aceptaMensajesWhatsApp", serialized, StringComparison.Ordinal);
         }
 
-        private static ClientesController CreateController(ProyectoIdentity.Datos.ApplicationDbContext context, Guid tenantId)
+        [Fact]
+        public async Task Autocompletado_ShouldHideConsentState_WhenTenantWhatsAppIsDisabled()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            context.Clientes.Add(new ClientesModel
+            {
+                Nombre = "Cliente Oculto",
+                NumeroTelefono = "89997777",
+                AceptaMensajesWhatsApp = true,
+                FechaUltimaVisita = new DateTime(2026, 4, 1),
+                FrecuenciaVisita = 30
+            });
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            var controller = CreateController(context, tenantId, tenantWhatsAppEnabled: false);
+
+            var result = await controller.Autocompletado("Cli");
+
+            var ok = Assert.IsType<OkObjectResult>(result);
+            var payload = Assert.IsAssignableFrom<IEnumerable<object>>(ok.Value);
+            var serialized = System.Text.Json.JsonSerializer.Serialize(payload);
+
+            Assert.Contains("\"aceptaMensajesWhatsApp\":false", serialized, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static ClientesController CreateController(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            Guid tenantId,
+            bool tenantWhatsAppEnabled = true)
         {
             var controller = new ClientesController(
                 context,
                 ControllerTestSupport.BusinessDateTimeProvider,
+                new FakeTenantWhatsAppFeatureService
+                {
+                    IsEnabled = tenantWhatsAppEnabled
+                },
                 NullLogger<ClientesController>.Instance);
 
             ControllerTestSupport.AttachHttpContext(

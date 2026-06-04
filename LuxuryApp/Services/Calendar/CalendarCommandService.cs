@@ -1,7 +1,9 @@
 using System.Data;
 using System.Globalization;
 using LuxuryApp.Models.Calendar;
+using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.Finanzas;
+using LuxuryApp.Models.WhatsApp;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
@@ -51,8 +53,9 @@ namespace LuxuryApp.Services.Calendar
                     var funcionario = await EnsureFuncionarioActivoAsync(normalizedRequest.FuncionarioId, cancellationToken);
                     var servicio = await ResolveServicioAsync(normalizedRequest, cancellationToken);
                     var duracion = ResolveDuracion(normalizedRequest.Tipo, normalizedRequest.DuracionMinutos, servicio);
+                    var resolvedAppointment = await ResolveAppointmentDataAsync(normalizedRequest, cancellationToken);
 
-                    await ValidateRequestAsync(normalizedRequest, servicio, duracion, cancellationToken);
+                    await ValidateRequestAsync(normalizedRequest, resolvedAppointment, servicio, duracion, cancellationToken);
 
                     var targets = BuildCreationTargets(normalizedRequest);
                     EnsureNoDuplicateTargets(targets);
@@ -72,13 +75,17 @@ namespace LuxuryApp.Services.Calendar
                     {
                         var cita = new Cita
                         {
-                            NombreCliente = normalizedRequest.Tipo == "DESCANSO" ? "DESCANSO" : normalizedRequest.NombreCliente,
-                            TelefonoCliente = normalizedRequest.Tipo == "DESCANSO" ? null : normalizedRequest.TelefonoCliente,
+                            NombreCliente = resolvedAppointment.NombreCliente,
+                            TelefonoCliente = resolvedAppointment.TelefonoCliente,
+                            ClienteId = resolvedAppointment.ClienteId,
                             ServicioId = normalizedRequest.Tipo == "DESCANSO" ? null : servicio!.Id,
                             FechaHoraCita = target,
                             FuncionarioId = funcionario.IdFuncionario,
                             Tipo = normalizedRequest.Tipo,
                             DuracionMinutos = normalizedRequest.Tipo == "DESCANSO" ? duracion : null,
+                            WhatsAppConsentAtCreation = resolvedAppointment.WhatsAppConsentAtCreation,
+                            WhatsAppConsentSource = resolvedAppointment.WhatsAppConsentSource,
+                            WhatsAppConsentCapturedAtUtc = resolvedAppointment.WhatsAppConsentCapturedAtUtc,
                             ConfirmacionEnviada = false,
                             Recordatorio24hEnviado = false,
                             Recordatorio3hEnviado = false,
@@ -100,11 +107,12 @@ namespace LuxuryApp.Services.Calendar
                         funcionario.ColorCalendario,
                         servicio?.Nombre);
 
-                    if (normalizedRequest.Tipo == "CITA" &&
-                        !string.IsNullOrWhiteSpace(normalizedRequest.TelefonoCliente))
-                    {
-                        appointmentIdsToQueue.AddRange(persistedAppointments.Select(appointment => appointment.Id));
-                    }
+                    appointmentIdsToQueue.AddRange(
+                        persistedAppointments
+                            .Where(appointment =>
+                                string.Equals(appointment.Tipo, "CITA", StringComparison.Ordinal) &&
+                                !string.IsNullOrWhiteSpace(appointment.TelefonoCliente))
+                            .Select(appointment => appointment.Id));
 
                     _logger.LogInformation(
                         "Se registraron {CantidadCitas} entradas de agenda para funcionario {FuncionarioId} el {FechaHora:yyyy-MM-dd HH:mm}.",
@@ -175,8 +183,9 @@ namespace LuxuryApp.Services.Calendar
                     var funcionario = await EnsureFuncionarioActivoAsync(normalizedRequest.FuncionarioId, cancellationToken);
                     var servicio = await ResolveServicioAsync(normalizedRequest, cancellationToken);
                     var duracion = ResolveDuracion(normalizedRequest.Tipo, normalizedRequest.DuracionMinutos, servicio);
+                    var resolvedAppointment = await ResolveAppointmentDataAsync(normalizedRequest, cancellationToken);
 
-                    await ValidateRequestAsync(normalizedRequest, servicio, duracion, cancellationToken);
+                    await ValidateRequestAsync(normalizedRequest, resolvedAppointment, servicio, duracion, cancellationToken);
                     await EnsureNoOverlapAsync(
                         funcionario.IdFuncionario,
                         normalizedRequest.FechaHoraCita,
@@ -184,13 +193,17 @@ namespace LuxuryApp.Services.Calendar
                         excludeCitaId: cita.Id,
                         cancellationToken);
 
-                    cita.NombreCliente = normalizedRequest.Tipo == "DESCANSO" ? "DESCANSO" : normalizedRequest.NombreCliente;
-                    cita.TelefonoCliente = normalizedRequest.Tipo == "DESCANSO" ? null : normalizedRequest.TelefonoCliente;
+                    cita.NombreCliente = resolvedAppointment.NombreCliente;
+                    cita.TelefonoCliente = resolvedAppointment.TelefonoCliente;
+                    cita.ClienteId = resolvedAppointment.ClienteId;
                     cita.ServicioId = normalizedRequest.Tipo == "DESCANSO" ? null : servicio!.Id;
                     cita.FechaHoraCita = normalizedRequest.FechaHoraCita;
                     cita.FuncionarioId = funcionario.IdFuncionario;
                     cita.Tipo = normalizedRequest.Tipo;
                     cita.DuracionMinutos = normalizedRequest.Tipo == "DESCANSO" ? duracion : null;
+                    cita.WhatsAppConsentAtCreation = resolvedAppointment.WhatsAppConsentAtCreation;
+                    cita.WhatsAppConsentSource = resolvedAppointment.WhatsAppConsentSource;
+                    cita.WhatsAppConsentCapturedAtUtc = resolvedAppointment.WhatsAppConsentCapturedAtUtc;
 
                     await _context.SaveChangesAsync(cancellationToken);
                     await transaction.CommitAsync(cancellationToken);
@@ -322,6 +335,7 @@ namespace LuxuryApp.Services.Calendar
 
         private async Task ValidateRequestAsync(
             CalendarUpsertRequest request,
+            ResolvedAppointmentData resolvedAppointment,
             Servicio? servicio,
             int duracion,
             CancellationToken cancellationToken)
@@ -343,7 +357,7 @@ namespace LuxuryApp.Services.Calendar
 
             if (request.Tipo == "CITA")
             {
-                if (string.IsNullOrWhiteSpace(request.NombreCliente))
+                if (string.IsNullOrWhiteSpace(resolvedAppointment.NombreCliente))
                 {
                     throw new CalendarValidationException("Debe indicar el nombre del cliente.", nameof(CitaCreateVM.NombreCliente));
                 }
@@ -379,12 +393,12 @@ namespace LuxuryApp.Services.Calendar
                 throw new CalendarValidationException("La duracion de la cita debe ser mayor a cero.");
             }
 
-            if (!string.IsNullOrWhiteSpace(request.TelefonoCliente) && request.TelefonoCliente.Length > 20)
+            if (!string.IsNullOrWhiteSpace(resolvedAppointment.TelefonoCliente) && resolvedAppointment.TelefonoCliente.Length > 20)
             {
                 throw new CalendarValidationException("El telefono no puede exceder 20 caracteres.", nameof(CitaCreateVM.TelefonoCliente));
             }
 
-            if (!string.IsNullOrWhiteSpace(request.NombreCliente) && request.NombreCliente.Length > 100)
+            if (!string.IsNullOrWhiteSpace(resolvedAppointment.NombreCliente) && resolvedAppointment.NombreCliente.Length > 100)
             {
                 throw new CalendarValidationException("El nombre del cliente no puede exceder 100 caracteres.", nameof(CitaCreateVM.NombreCliente));
             }
@@ -452,6 +466,65 @@ namespace LuxuryApp.Services.Calendar
                     Activo = s.Activo
                 })
                 .SingleOrDefaultAsync(cancellationToken);
+        }
+
+        private async Task<ResolvedAppointmentData> ResolveAppointmentDataAsync(
+            CalendarUpsertRequest request,
+            CancellationToken cancellationToken)
+        {
+            if (request.Tipo == "DESCANSO")
+            {
+                return new ResolvedAppointmentData(
+                    NombreCliente: "DESCANSO",
+                    TelefonoCliente: null,
+                    ClienteId: null,
+                    WhatsAppConsentAtCreation: false,
+                    WhatsAppConsentSource: null,
+                    WhatsAppConsentCapturedAtUtc: null);
+            }
+
+            if (request.ClienteId.HasValue)
+            {
+                var cliente = await _context.Clientes
+                    .AsNoTracking()
+                    .Where(current => current.Id == request.ClienteId.Value)
+                    .Select(current => new ClienteSnapshot
+                    {
+                        Id = current.Id,
+                        Nombre = current.Nombre,
+                        NumeroTelefono = current.NumeroTelefono,
+                        AceptaMensajesWhatsApp = current.AceptaMensajesWhatsApp
+                    })
+                    .SingleOrDefaultAsync(cancellationToken);
+
+                if (cliente is null)
+                {
+                    throw new CalendarValidationException(
+                        "El cliente seleccionado no existe o no pertenece al tenant actual.",
+                        nameof(CitaCreateVM.ClienteId));
+                }
+
+                return new ResolvedAppointmentData(
+                    NombreCliente: cliente.Nombre,
+                    TelefonoCliente: cliente.NumeroTelefono,
+                    ClienteId: cliente.Id,
+                    WhatsAppConsentAtCreation: cliente.AceptaMensajesWhatsApp,
+                    WhatsAppConsentSource: WhatsAppConsentSources.ClienteRegistrado,
+                    WhatsAppConsentCapturedAtUtc: DateTime.UtcNow);
+            }
+
+            var consentGranted = request.WhatsAppConsentAtCreation;
+            return new ResolvedAppointmentData(
+                NombreCliente: request.NombreCliente,
+                TelefonoCliente: request.TelefonoCliente,
+                ClienteId: null,
+                WhatsAppConsentAtCreation: consentGranted,
+                WhatsAppConsentSource: consentGranted
+                    ? WhatsAppConsentSources.CitaManual
+                    : WhatsAppConsentSources.SinConsentimiento,
+                WhatsAppConsentCapturedAtUtc: consentGranted
+                    ? request.WhatsAppConsentCapturedAtUtc ?? DateTime.UtcNow
+                    : null);
         }
 
         private async Task EnsureNoOverlapAsync(
@@ -552,6 +625,7 @@ namespace LuxuryApp.Services.Calendar
                 Tipo = cita.Tipo,
                 NombreCliente = cita.NombreCliente,
                 TelefonoCliente = cita.TelefonoCliente,
+                ClienteId = cita.ClienteId,
                 FechaHoraCita = cita.FechaHoraCita,
                 DuracionMinutos = duracion,
                 FuncionarioId = cita.FuncionarioId,
@@ -559,6 +633,9 @@ namespace LuxuryApp.Services.Calendar
                 ColorCalendario = colorCalendario,
                 ServicioId = cita.ServicioId,
                 ServicioNombre = servicioNombre,
+                WhatsAppConsentAtCreation = cita.WhatsAppConsentAtCreation,
+                WhatsAppConsentSource = cita.WhatsAppConsentSource,
+                WhatsAppConsentCapturedAtUtc = cita.WhatsAppConsentCapturedAtUtc,
                 EstadoConfirmacionWhatsApp = cita.EstadoConfirmacionWhatsApp,
                 ConfirmacionWhatsAppEnviadaUtc = cita.ConfirmacionWhatsAppEnviadaUtc,
                 RecordatorioWhatsAppTresHorasEnviadoUtc = cita.RecordatorioWhatsAppTresHorasEnviadoUtc
@@ -569,6 +646,9 @@ namespace LuxuryApp.Services.Calendar
             {
                 NombreCliente = NormalizeOptionalText(request.NombreCliente),
                 TelefonoCliente = NormalizeOptionalPhone(request.TelefonoCliente),
+                ClienteId = request.ClienteId.HasValue && request.ClienteId.Value > 0
+                    ? request.ClienteId.Value
+                    : null,
                 ServicioId = request.ServicioId,
                 FechaHoraCita = request.FechaHoraCita == default
                     ? default
@@ -576,6 +656,9 @@ namespace LuxuryApp.Services.Calendar
                 FuncionarioId = request.FuncionarioId,
                 Tipo = NormalizeTipo(request.Tipo),
                 DuracionMinutos = request.DuracionMinutos,
+                WhatsAppConsentAtCreation = request.WhatsAppConsentAtCreation,
+                WhatsAppConsentSource = NormalizeOptionalText(request.WhatsAppConsentSource),
+                WhatsAppConsentCapturedAtUtc = NormalizeUtcTimestamp(request.WhatsAppConsentCapturedAtUtc),
                 Duplicar = request.Duplicar,
                 FechasDuplicadas = request.FechasDuplicadas
                     .Where(fecha => !string.IsNullOrWhiteSpace(fecha))
@@ -628,6 +711,21 @@ namespace LuxuryApp.Services.Calendar
         private static string? NormalizeOptionalPhone(string? value) =>
             string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
+        private static DateTime? NormalizeUtcTimestamp(DateTime? value)
+        {
+            if (!value.HasValue)
+            {
+                return null;
+            }
+
+            return value.Value.Kind switch
+            {
+                DateTimeKind.Utc => value.Value,
+                DateTimeKind.Local => value.Value.ToUniversalTime(),
+                _ => DateTime.SpecifyKind(value.Value, DateTimeKind.Utc)
+            };
+        }
+
         private static DateTime NormalizeToMinute(DateTime value) =>
             new(
                 value.Year,
@@ -653,6 +751,25 @@ namespace LuxuryApp.Services.Calendar
 
             public string ColorCalendario { get; init; } = string.Empty;
         }
+
+        private sealed class ClienteSnapshot
+        {
+            public int Id { get; init; }
+
+            public string Nombre { get; init; } = string.Empty;
+
+            public string NumeroTelefono { get; init; } = string.Empty;
+
+            public bool AceptaMensajesWhatsApp { get; init; }
+        }
+
+        private sealed record ResolvedAppointmentData(
+            string? NombreCliente,
+            string? TelefonoCliente,
+            int? ClienteId,
+            bool WhatsAppConsentAtCreation,
+            string? WhatsAppConsentSource,
+            DateTime? WhatsAppConsentCapturedAtUtc);
 
         private sealed class OverlapCandidate
         {

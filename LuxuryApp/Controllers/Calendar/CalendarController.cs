@@ -1,6 +1,7 @@
 using System.Globalization;
 using LuxuryApp.Models.Calendar;
 using LuxuryApp.Services.Calendar;
+using LuxuryApp.Services.WhatsApp;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -9,19 +10,25 @@ namespace LuxuryApp.Controllers.Calendar
     [Authorize(Roles = "Administrador")]
     public class CalendarController : Controller
     {
+        private const string TenantWhatsAppEnabledViewDataKey = "TenantWhatsAppEnabled";
         private readonly ICalendarCommandService _calendarCommandService;
         private readonly ICalendarQueryService _calendarQueryService;
+        private readonly ITenantWhatsAppFeatureService _tenantWhatsAppFeatureService;
 
         public CalendarController(
             ICalendarCommandService calendarCommandService,
-            ICalendarQueryService calendarQueryService)
+            ICalendarQueryService calendarQueryService,
+            ITenantWhatsAppFeatureService tenantWhatsAppFeatureService)
         {
             _calendarCommandService = calendarCommandService;
             _calendarQueryService = calendarQueryService;
+            _tenantWhatsAppFeatureService = tenantWhatsAppFeatureService;
         }
 
-        public IActionResult Index()
+        public async Task<IActionResult> Index(CancellationToken cancellationToken)
         {
+            ViewData[TenantWhatsAppEnabledViewDataKey] = await _tenantWhatsAppFeatureService
+                .IsWhatsAppEnabledForCurrentTenantAsync(cancellationToken);
             return View();
         }
 
@@ -237,11 +244,15 @@ namespace LuxuryApp.Controllers.Calendar
             {
                 NombreCliente = vm.NombreCliente,
                 TelefonoCliente = vm.TelefonoCliente,
+                ClienteId = vm.ClienteId,
                 ServicioId = vm.ServicioId,
                 FechaHoraCita = vm.FechaHoraCita,
                 FuncionarioId = vm.FuncionarioId,
                 Tipo = vm.Tipo,
                 DuracionMinutos = vm.DuracionMinutos,
+                WhatsAppConsentAtCreation = vm.WhatsAppConsentAtCreation,
+                WhatsAppConsentSource = vm.WhatsAppConsentSource,
+                WhatsAppConsentCapturedAtUtc = vm.WhatsAppConsentCapturedAtUtc,
                 Duplicar = vm.Duplicar,
                 FechasDuplicadas = vm.FechasDuplicadas
             };

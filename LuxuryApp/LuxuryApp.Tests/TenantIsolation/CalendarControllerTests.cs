@@ -36,9 +36,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var disposableContext = context;
             using var disposableConnection = connection;
 
-            var controller = new CalendarController(
-                ControllerTestSupport.CreateCalendarCommandService(context),
-                ControllerTestSupport.CreateCalendarQueryService(context));
+            var controller = CreateController(context, tenantId);
 
             ControllerTestSupport.AttachHttpContext(
                 controller,
@@ -65,9 +63,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var disposableContext = context;
             using var disposableConnection = connection;
 
-            var controller = new CalendarController(
-                ControllerTestSupport.CreateCalendarCommandService(context),
-                ControllerTestSupport.CreateCalendarQueryService(context));
+            var controller = CreateController(context, tenantId);
 
             ControllerTestSupport.AttachHttpContext(
                 controller,
@@ -77,6 +73,25 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var badRequest = Assert.IsType<BadRequestObjectResult>(result);
             Assert.Contains("fecha", badRequest.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task Index_ShouldExposeTenantWhatsAppFlag(bool tenantWhatsAppEnabled)
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var controller = CreateController(context, tenantId, tenantWhatsAppEnabled);
+
+            var result = await controller.Index(CancellationToken.None);
+
+            var view = Assert.IsType<ViewResult>(result);
+            Assert.Equal(tenantWhatsAppEnabled, (bool?)view.ViewData["TenantWhatsAppEnabled"] ?? !tenantWhatsAppEnabled);
         }
 
         [Fact]
@@ -91,9 +106,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var funcionario = await SeedFuncionarioAsync(context, "Ana");
             var servicio = await SeedServicioAsync(context, "Corte", 45);
 
-            var controller = new CalendarController(
-                ControllerTestSupport.CreateCalendarCommandService(context),
-                ControllerTestSupport.CreateCalendarQueryService(context));
+            var controller = CreateController(context, tenantId);
 
             ControllerTestSupport.AttachHttpContext(
                 controller,
@@ -140,9 +153,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             context.Citas.Add(cita);
             await context.SaveChangesAsync();
 
-            var controller = new CalendarController(
-                ControllerTestSupport.CreateCalendarCommandService(context),
-                ControllerTestSupport.CreateCalendarQueryService(context));
+            var controller = CreateController(context, tenantId);
 
             ControllerTestSupport.AttachHttpContext(
                 controller,
@@ -191,9 +202,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             context.Citas.Add(cita);
             await context.SaveChangesAsync();
 
-            var controller = new CalendarController(
-                ControllerTestSupport.CreateCalendarCommandService(context),
-                ControllerTestSupport.CreateCalendarQueryService(context));
+            var controller = CreateController(context, tenantId);
 
             ControllerTestSupport.AttachHttpContext(
                 controller,
@@ -237,9 +246,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             context.Citas.Add(cita);
             await context.SaveChangesAsync();
 
-            var controller = new CalendarController(
-                ControllerTestSupport.CreateCalendarCommandService(context),
-                ControllerTestSupport.CreateCalendarQueryService(context));
+            var controller = CreateController(context, tenantId);
 
             ControllerTestSupport.AttachHttpContext(
                 controller,
@@ -249,6 +256,26 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             Assert.IsType<OkObjectResult>(result);
             Assert.Empty(await context.Citas.AsNoTracking().ToListAsync());
+        }
+
+        private static CalendarController CreateController(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            Guid tenantId,
+            bool tenantWhatsAppEnabled = true)
+        {
+            var controller = new CalendarController(
+                ControllerTestSupport.CreateCalendarCommandService(context),
+                ControllerTestSupport.CreateCalendarQueryService(context),
+                new FakeTenantWhatsAppFeatureService
+                {
+                    IsEnabled = tenantWhatsAppEnabled
+                });
+
+            ControllerTestSupport.AttachHttpContext(
+                controller,
+                ControllerTestSupport.BuildTenantPrincipal("calendar-user", tenantId));
+
+            return controller;
         }
 
         private static async Task<Funcionario> SeedFuncionarioAsync(

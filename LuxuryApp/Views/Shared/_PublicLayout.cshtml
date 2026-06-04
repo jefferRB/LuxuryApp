@@ -1,9 +1,45 @@
+@{
+    var pageTitle = ViewData["Title"] as string;
+    var fullTitle = ViewData["FullTitle"] as string;
+
+    if (string.IsNullOrWhiteSpace(fullTitle))
+    {
+        if (string.IsNullOrWhiteSpace(pageTitle))
+        {
+            fullTitle = "LuxuryCloud";
+        }
+        else if (pageTitle.Contains('|'))
+        {
+            fullTitle = pageTitle;
+        }
+        else if (string.Equals(pageTitle, "LuxuryCloud", StringComparison.OrdinalIgnoreCase))
+        {
+            fullTitle = pageTitle;
+        }
+        else
+        {
+            fullTitle = $"{pageTitle} | LuxuryCloud";
+        }
+    }
+
+    var metaDescription = ViewData["MetaDescription"] as string;
+    var canonicalUrl = ViewData["CanonicalUrl"] as string;
+}
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>@ViewData["Title"] - LuxuryApp</title>
+    <title>@fullTitle</title>
+    @if (!string.IsNullOrWhiteSpace(metaDescription))
+    {
+        <meta name="description" content="@metaDescription" />
+    }
+    @if (!string.IsNullOrWhiteSpace(canonicalUrl))
+    {
+        <link rel="canonical" href="@canonicalUrl" />
+    }
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
@@ -24,9 +60,10 @@
     <footer class="public-footer">
         <div class="container public-footer-inner">
             <div>
-                <a class="public-footer-brand" asp-controller="Home" asp-action="Index">LuxuryApp</a>
+                <a class="public-footer-brand" asp-controller="Home" asp-action="Index">LuxuryCloud</a>
                 <p class="public-footer-copy">
-                    Plataforma SaaS para salones, barberias y negocios de servicios que necesitan operar con mas control.
+                    Plataforma SaaS para barberias, salones y negocios de servicios que necesitan operar con mas control,
+                    trazabilidad y una experiencia comercial mas clara.
                 </p>
             </div>
 
@@ -35,7 +72,7 @@
                 <a asp-controller="Home" asp-action="Index" asp-fragment="modulos">Modulos</a>
                 <a asp-controller="Billing" asp-action="Planes">Precios</a>
                 <a asp-controller="Contract" asp-action="Index">Contrato</a>
-                <a asp-controller="Home" asp-action="Privacy">Privacidad</a>
+                <a href="/privacidad">Privacidad</a>
             </div>
         </div>
     </footer>

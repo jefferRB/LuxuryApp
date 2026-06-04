@@ -128,6 +128,10 @@ namespace LuxuryApp.Tests.TenantIsolation
             var controller = new ClientesController(
                 context,
                 ControllerTestSupport.BusinessDateTimeProvider,
+                new FakeTenantWhatsAppFeatureService
+                {
+                    IsEnabled = true
+                },
                 NullLogger<ClientesController>.Instance);
             var result = await controller.Autocompletado("Cliente");
 
@@ -177,6 +181,10 @@ namespace LuxuryApp.Tests.TenantIsolation
             var controller = new ClientesController(
                 context,
                 ControllerTestSupport.BusinessDateTimeProvider,
+                new FakeTenantWhatsAppFeatureService
+                {
+                    IsEnabled = true
+                },
                 NullLogger<ClientesController>.Instance);
             var result = await controller.Autocompletado("5511");
 

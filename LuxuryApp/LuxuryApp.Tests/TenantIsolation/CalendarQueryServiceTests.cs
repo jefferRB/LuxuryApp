@@ -149,6 +149,32 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
+        public async Task GetByIdAsync_ShouldExposeConsentAndStatusDisplay_ForManualAppointmentWithoutConsent()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Sofia");
+            var servicio = await SeedServicioAsync(context, "Corte", 30);
+            var cita = await SeedCitaAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 24, 15, 0, 0), servicio.Id);
+
+            cita.WhatsAppConsentAtCreation = false;
+            cita.WhatsAppConsentSource = "SinConsentimiento";
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            var service = ControllerTestSupport.CreateCalendarQueryService(context);
+
+            var detalle = await service.GetByIdAsync(cita.Id);
+
+            Assert.NotNull(detalle);
+            Assert.Equal("WhatsApp no autorizado para esta cita. No se enviarán confirmaciones ni recordatorios.", detalle!.WhatsAppConsentDisplay);
+            Assert.Equal("WhatsApp: no enviado. Motivo: cliente sin autorización.", detalle.WhatsAppStatusDisplay);
+        }
+
+        [Fact]
         public async Task GetServiciosActivosAsync_ShouldReturnActiveServicesOrdered()
         {
             var tenantA = Guid.NewGuid();

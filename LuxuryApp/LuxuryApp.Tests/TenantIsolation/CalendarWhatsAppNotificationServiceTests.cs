@@ -39,6 +39,8 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
             Assert.Equal(WhatsAppMessageStatuses.SkippedTenantDisabled, message.Status);
+            Assert.Equal(0, fixture.MetaClient.SendCount);
+            Assert.Equal(0, await fixture.Settings.GetTodayUsageAsync(fixture.TenantId));
         }
 
         [Fact]
@@ -47,6 +49,58 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var fixture = await Fixture.CreateAsync();
             await fixture.UpdateSettingsAsync(isEnabled: true);
             var cita = await fixture.SeedCitaAsync();
+
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            Assert.Equal(WhatsAppMessageStatuses.Pending, message.Status);
+            Assert.Equal(WhatsAppNotificationTypes.Confirmation, message.NotificationType);
+        }
+
+        [Fact]
+        public async Task QueueConfirmation_WhenManualConsentIsMissing_ShouldSkipAsConsentMissing_WithoutConsumingDailyLimit()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            await fixture.UpdateSettingsAsync(isEnabled: true, dailyLimit: 1);
+            var citaSinConsentimiento = await fixture.SeedCitaAsync(whatsAppConsentAtCreation: false);
+            var citaConConsentimiento = await fixture.SeedCitaAsync(phone: "89990000", whatsAppConsentAtCreation: true);
+
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(citaSinConsentimiento.Id);
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(citaConConsentimiento.Id);
+
+            var messages = await fixture.Context.WhatsAppMessageLogs
+                .OrderBy(message => message.Id)
+                .ToListAsync();
+
+            Assert.Equal(2, messages.Count);
+            Assert.Equal(WhatsAppMessageStatuses.SkippedConsentMissing, messages[0].Status);
+            Assert.Equal(WhatsAppErrorCodes.ConsentMissing, messages[0].ErrorCode);
+            Assert.Equal(WhatsAppMessageStatuses.Pending, messages[1].Status);
+            Assert.Equal(0, fixture.MetaClient.SendCount);
+        }
+
+        [Fact]
+        public async Task QueueConfirmation_WhenRegisteredClientHasConsentFalse_ShouldSkipAsConsentMissing()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            await fixture.UpdateSettingsAsync(isEnabled: true);
+            var cliente = await fixture.SeedClienteAsync("Cliente sin consentimiento", "81112222", aceptaMensajesWhatsApp: false);
+            var cita = await fixture.SeedCitaAsync(clienteId: cliente.Id, whatsAppConsentAtCreation: true);
+
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            Assert.Equal(WhatsAppMessageStatuses.SkippedConsentMissing, message.Status);
+            Assert.Equal(WhatsAppErrorCodes.ConsentMissing, message.ErrorCode);
+        }
+
+        [Fact]
+        public async Task QueueConfirmation_WhenRegisteredClientHasConsentTrue_ShouldCreatePendingOutboundMessage()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            await fixture.UpdateSettingsAsync(isEnabled: true);
+            var cliente = await fixture.SeedClienteAsync("Cliente con consentimiento", "82223333", aceptaMensajesWhatsApp: true);
+            var cita = await fixture.SeedCitaAsync(clienteId: cliente.Id, whatsAppConsentAtCreation: false);
 
             await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
 
@@ -118,6 +172,27 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
+        public async Task QueueReminder_WhenRegisteredClientRevokedConsent_ShouldSkipAsConsentMissing()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            await fixture.UpdateSettingsAsync(isEnabled: true);
+            var cliente = await fixture.SeedClienteAsync("Cliente revocado", "83334444", aceptaMensajesWhatsApp: true);
+            var cita = await fixture.SeedCitaAsync(
+                clienteId: cliente.Id,
+                fechaHora: new DateTime(2026, 5, 27, 12, 0, 0),
+                whatsAppConsentAtCreation: true);
+
+            cliente.AceptaMensajesWhatsApp = false;
+            await fixture.Context.SaveChangesAsync();
+
+            await fixture.Notifications.QueueAppointmentReminderAsync(cita.Id);
+
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            Assert.Equal(WhatsAppMessageStatuses.SkippedConsentMissing, message.Status);
+            Assert.Equal(WhatsAppErrorCodes.ConsentMissing, message.ErrorCode);
+        }
+
+        [Fact]
         public async Task UpdateSettings_WhenTenantIsDisabled_ShouldReleasePendingMessages()
         {
             using var fixture = await Fixture.CreateAsync();
@@ -151,6 +226,27 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(WhatsAppMessageStatuses.Sent, messages[0].Status);
             Assert.Equal(WhatsAppMessageStatuses.SkippedDailyLimitExceeded, messages[1].Status);
             Assert.Equal(1, fixture.MetaClient.SendCount);
+        }
+
+        [Fact]
+        public async Task ProcessPendingNotifications_WhenClientRevokesConsentBeforeSend_ShouldSkipWithoutCallingMeta()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            await fixture.UpdateSettingsAsync(isEnabled: true);
+            var cliente = await fixture.SeedClienteAsync("Cliente pendiente", "84445555", aceptaMensajesWhatsApp: true);
+            var cita = await fixture.SeedCitaAsync(clienteId: cliente.Id, whatsAppConsentAtCreation: true);
+
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+
+            cliente.AceptaMensajesWhatsApp = false;
+            await fixture.Context.SaveChangesAsync();
+
+            await fixture.Notifications.ProcessPendingNotificationsAsync();
+
+            var message = await fixture.Context.WhatsAppMessageLogs.AsNoTracking().SingleAsync();
+            Assert.Equal(WhatsAppMessageStatuses.SkippedConsentMissing, message.Status);
+            Assert.Equal(WhatsAppErrorCodes.ConsentMissing, message.ErrorCode);
+            Assert.Equal(0, fixture.MetaClient.SendCount);
         }
 
         [Fact]
@@ -278,10 +374,34 @@ namespace LuxuryApp.Tests.TenantIsolation
                     },
                     "platform-user");
 
+            public async Task<LuxuryApp.Models.DataBase.ClientesModel> SeedClienteAsync(
+                string nombre,
+                string telefono,
+                bool aceptaMensajesWhatsApp)
+            {
+                var cliente = new LuxuryApp.Models.DataBase.ClientesModel
+                {
+                    Nombre = nombre,
+                    NumeroTelefono = telefono,
+                    AceptaMensajesWhatsApp = aceptaMensajesWhatsApp,
+                    WhatsAppConsentUpdatedAtUtc = new DateTime(2026, 5, 1, 8, 0, 0, DateTimeKind.Utc),
+                    WhatsAppConsentSource = "ClienteForm",
+                    WhatsAppConsentTextVersion = "wa_optin_v1",
+                    FrecuenciaVisita = 30,
+                    FechaUltimaVisita = new DateTime(2026, 5, 1)
+                };
+
+                Context.Clientes.Add(cliente);
+                await Context.SaveChangesAsync();
+                return cliente;
+            }
+
             public async Task<Cita> SeedCitaAsync(
                 string tipo = "CITA",
                 string? phone = "88889999",
-                DateTime? fechaHora = null)
+                DateTime? fechaHora = null,
+                int? clienteId = null,
+                bool whatsAppConsentAtCreation = true)
             {
                 var puesto = new Puesto
                 {
@@ -305,13 +425,33 @@ namespace LuxuryApp.Tests.TenantIsolation
                 Context.Funcionarios.Add(funcionario);
                 await Context.SaveChangesAsync();
 
+                LuxuryApp.Models.DataBase.ClientesModel? cliente = null;
+                if (clienteId.HasValue)
+                {
+                    cliente = await Context.Clientes.FirstAsync(current => current.Id == clienteId.Value);
+                }
+
                 var cita = new Cita
                 {
-                    NombreCliente = tipo == "DESCANSO" ? "DESCANSO" : "Cliente WhatsApp",
-                    TelefonoCliente = phone,
+                    NombreCliente = tipo == "DESCANSO" ? "DESCANSO" : cliente?.Nombre ?? "Cliente WhatsApp",
+                    TelefonoCliente = tipo == "DESCANSO" ? null : cliente?.NumeroTelefono ?? phone,
+                    ClienteId = cliente?.Id,
                     FechaHoraCita = fechaHora ?? new DateTime(2026, 5, 27, 10, 0, 0),
                     FuncionarioId = funcionario.IdFuncionario,
-                    Tipo = tipo
+                    Tipo = tipo,
+                    WhatsAppConsentAtCreation = tipo == "DESCANSO"
+                        ? false
+                        : cliente?.AceptaMensajesWhatsApp ?? whatsAppConsentAtCreation,
+                    WhatsAppConsentSource = tipo == "DESCANSO"
+                        ? null
+                        : cliente is not null
+                            ? "ClienteRegistrado"
+                            : (whatsAppConsentAtCreation ? "CitaManual" : "SinConsentimiento"),
+                    WhatsAppConsentCapturedAtUtc = tipo == "DESCANSO"
+                        ? null
+                        : (cliente is not null || whatsAppConsentAtCreation
+                            ? new DateTime(2026, 5, 1, 9, 0, 0, DateTimeKind.Utc)
+                            : null)
                 };
                 Context.Citas.Add(cita);
                 await Context.SaveChangesAsync();

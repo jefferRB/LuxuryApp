@@ -40,11 +40,18 @@ namespace LuxuryApp.Controllers
         }
 
         [AllowAnonymous]
+        [HttpGet("/privacidad")]
         public IActionResult Privacy()
         {
             return View();
         }
-        
+
+        [AllowAnonymous]
+        [HttpGet("/Home/Privacy")]
+        public IActionResult PrivacyLegacy()
+        {
+            return RedirectPermanent("/privacidad");
+        }
 
         [AllowAnonymous]
         [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]

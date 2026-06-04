@@ -21,6 +21,7 @@ const calendarRequestState = {
 };
 const CLIENTE_AUTOCOMPLETE_MIN_LENGTH = 3;
 const CLIENTE_AUTOCOMPLETE_DEBOUNCE_MS = 300;
+const TENANT_WHATSAPP_ENABLED = window.LUXURY_CALENDAR_CONFIG?.tenantWhatsAppEnabled === true;
 
 function calendarDebugLog(message, payload = null) {
 
@@ -32,6 +33,10 @@ function calendarDebugLog(message, payload = null) {
     }
 
     console.debug(`[CalendarDebug] ${message}`, payload);
+}
+
+function isTenantWhatsAppEnabled() {
+    return TENANT_WHATSAPP_ENABLED;
 }
 
 function describeElement(element) {
@@ -274,18 +279,265 @@ function formatSentState(value) {
     return value ? "Sí" : "No";
 }
 
+function getConsentUIConfig(mode) {
+    const isEdit = mode === "edit";
+
+    return {
+        mode,
+        nombreInput: document.getElementById(isEdit ? "editNombreCliente" : "nombreCliente"),
+        telefonoInput: document.getElementById(isEdit ? "editTelefonoCliente" : "telefonoCliente"),
+        clienteIdInput: document.getElementById(isEdit ? "editNombreClienteClienteId" : "nombreClienteClienteId"),
+        consentInfo: document.getElementById(isEdit ? "editClienteConsentInfo" : "clienteConsentInfo"),
+        manualContainer: document.getElementById(isEdit ? "editManualConsentContainer" : "manualConsentContainer"),
+        manualCheckbox: document.getElementById(isEdit ? "editWhatsAppConsentAtCreation" : "whatsAppConsentAtCreation"),
+        capturedAtInput: document.getElementById(isEdit ? "editWhatsAppConsentCapturedAtUtc" : "whatsAppConsentCapturedAtUtc")
+    };
+}
+
+function clearSelectedClienteState(nombreInput, clienteIdInput) {
+    if (!nombreInput) {
+        return;
+    }
+
+    nombreInput.dataset.selectedClienteId = "";
+    nombreInput.dataset.selectedClienteName = "";
+    nombreInput.dataset.selectedClientePhone = "";
+    nombreInput.dataset.selectedClienteWhatsAppOptIn = "";
+
+    if (clienteIdInput) {
+        clienteIdInput.value = "";
+    }
+}
+
+function resetManualConsentState(config) {
+    if (!config?.manualCheckbox) {
+        return;
+    }
+
+    config.manualCheckbox.checked = false;
+
+    if (config.capturedAtInput) {
+        config.capturedAtInput.value = "";
+    }
+}
+
+function transitionSelectedClienteToManual(config, options = {}) {
+    if (!config?.nombreInput || !hasSelectedCliente(config)) {
+        return false;
+    }
+
+    const selectedPhone = safeText(config.nombreInput.dataset.selectedClientePhone);
+
+    clearSelectedClienteState(config.nombreInput, config.clienteIdInput);
+    resetManualConsentState(config);
+
+    if (options.clearPhone && config.telefonoInput) {
+        const currentPhone = safeText(config.telefonoInput.value);
+        if (currentPhone === selectedPhone) {
+            config.telefonoInput.value = "";
+        }
+    }
+
+    return true;
+}
+
+function applySelectedClienteState(nombreInput, telefonoInput, clienteIdInput, cliente) {
+    if (!nombreInput) {
+        return;
+    }
+
+    const clienteId = cliente?.id === null || cliente?.id === undefined
+        ? ""
+        : String(cliente.id);
+    const clienteNombre = safeText(cliente?.nombre);
+    const clienteTelefono = safeText(cliente?.telefono);
+    const aceptaMensajesWhatsApp = cliente?.aceptaMensajesWhatsApp === true;
+
+    nombreInput.value = clienteNombre;
+    nombreInput.dataset.selectedClienteId = clienteId;
+    nombreInput.dataset.selectedClienteName = clienteNombre;
+    nombreInput.dataset.selectedClientePhone = clienteTelefono;
+    nombreInput.dataset.selectedClienteWhatsAppOptIn = aceptaMensajesWhatsApp ? "true" : "false";
+
+    if (telefonoInput) {
+        telefonoInput.value = clienteTelefono;
+    }
+
+    if (clienteIdInput) {
+        clienteIdInput.value = clienteId;
+    }
+}
+
+function hasSelectedCliente(config) {
+    return Boolean(config?.clienteIdInput?.value);
+}
+
+function ensureConsentCapturedAt(checkbox, capturedAtInput) {
+    if (!checkbox || !capturedAtInput) {
+        return null;
+    }
+
+    if (!checkbox.checked) {
+        capturedAtInput.value = "";
+        return null;
+    }
+
+    if (!capturedAtInput.value) {
+        capturedAtInput.value = new Date().toISOString();
+    }
+
+    return capturedAtInput.value;
+}
+
+function updateConsentInfoPanel(panel, text, tone) {
+    if (!panel) {
+        return;
+    }
+
+    clearElement(panel);
+
+    if (!text) {
+        panel.classList.add("d-none");
+        panel.classList.remove("text-success", "text-warning", "text-muted");
+        return;
+    }
+
+    panel.textContent = text;
+    panel.classList.remove("d-none", "text-success", "text-warning", "text-muted");
+    panel.classList.add(tone || "text-muted");
+}
+
+function isBreakMode(config) {
+    if (!config) {
+        return false;
+    }
+
+    if (config.mode === "edit") {
+        return safeText(document.getElementById("editTipo")?.value).toUpperCase() === "DESCANSO";
+    }
+
+    return document.getElementById("esDescanso")?.checked === true;
+}
+
+function hasManualAppointmentData(config) {
+    if (!config) {
+        return false;
+    }
+
+    return safeText(config.nombreInput?.value) !== "" ||
+        safeText(config.telefonoInput?.value) !== "";
+}
+
+function renderWhatsAppConsentUI(mode) {
+    const config = getConsentUIConfig(mode);
+
+    if (!config.nombreInput || !config.telefonoInput || !config.manualContainer || !config.manualCheckbox) {
+        return;
+    }
+
+    if (!isTenantWhatsAppEnabled()) {
+        resetManualConsentState(config);
+        config.manualContainer.classList.add("d-none");
+        updateConsentInfoPanel(config.consentInfo, "", "");
+        return;
+    }
+
+    const hasClienteId = hasSelectedCliente(config);
+    const isBreak = isBreakMode(config);
+    const hasManualData = hasManualAppointmentData(config);
+
+    if (isBreak) {
+        resetManualConsentState(config);
+        config.manualContainer.classList.add("d-none");
+        updateConsentInfoPanel(config.consentInfo, "", "");
+        return;
+    }
+
+    if (hasClienteId) {
+        const consentGranted = config.nombreInput.dataset.selectedClienteWhatsAppOptIn === "true";
+
+        resetManualConsentState(config);
+        config.manualContainer.classList.add("d-none");
+        updateConsentInfoPanel(
+            config.consentInfo,
+            consentGranted
+                ? "WhatsApp autorizado para este cliente."
+                : "WhatsApp no autorizado para este cliente. No se enviarán confirmaciones ni recordatorios.",
+            consentGranted ? "text-success" : "text-warning");
+        return;
+    }
+
+    if (!hasManualData) {
+        resetManualConsentState(config);
+        config.manualContainer.classList.add("d-none");
+        updateConsentInfoPanel(config.consentInfo, "", "");
+        return;
+    }
+
+    updateConsentInfoPanel(config.consentInfo, "", "");
+    config.manualContainer.classList.remove("d-none");
+
+    if (config.manualCheckbox.checked) {
+        ensureConsentCapturedAt(config.manualCheckbox, config.capturedAtInput);
+    } else if (config.capturedAtInput) {
+        config.capturedAtInput.value = "";
+    }
+}
+
+function syncCreateConsentUI() {
+    renderWhatsAppConsentUI("create");
+}
+
+function syncEditConsentUI() {
+    renderWhatsAppConsentUI("edit");
+}
+
+function invalidateSelectedClienteIfNeeded(mode) {
+    const config = getConsentUIConfig(mode);
+
+    if (!config.nombreInput || !config.telefonoInput || !hasSelectedCliente(config)) {
+        return;
+    }
+
+    const currentName = safeText(config.nombreInput.value);
+    const currentPhone = safeText(config.telefonoInput.value);
+    const selectedName = safeText(config.nombreInput.dataset.selectedClienteName);
+    const selectedPhone = safeText(config.nombreInput.dataset.selectedClientePhone);
+
+    if (currentName === selectedName && currentPhone === selectedPhone) {
+        return;
+    }
+
+    transitionSelectedClienteToManual(config, {
+        clearPhone: currentName === ""
+    });
+
+    if (mode === "edit") {
+        syncEditConsentUI();
+        return;
+    }
+
+    syncCreateConsentUI();
+}
+
 function updateWhatsAppStatusPanel(cita) {
     const panel = document.getElementById("editWhatsAppStatus");
     if (!panel) return;
 
     clearElement(panel);
 
-    if (!cita || cita.tipo === "DESCANSO") {
+    if (!isTenantWhatsAppEnabled() || !cita || cita.tipo === "DESCANSO") {
         panel.classList.add("d-none");
         return;
     }
 
-    appendLabeledText(panel, "WhatsApp:", formatWhatsAppState(cita.estadoConfirmacionWhatsApp));
+    appendLabeledText(panel, "WhatsApp:", cita.whatsAppStatusDisplay || formatWhatsAppState(cita.estadoConfirmacionWhatsApp));
+
+    if (cita.whatsAppConsentDisplay) {
+        appendLabeledText(panel, "Consentimiento:", cita.whatsAppConsentDisplay);
+    }
+
+    appendLabeledText(panel, "Estado de respuesta:", formatWhatsAppState(cita.estadoConfirmacionWhatsApp));
     appendLabeledText(panel, "Confirmación enviada:", formatSentState(cita.confirmacionWhatsAppEnviadaUtc));
     appendLabeledText(panel, "Recordatorio 3h enviado:", formatSentState(cita.recordatorioWhatsAppTresHorasEnviadoUtc), false);
     panel.classList.remove("d-none");
@@ -432,7 +684,15 @@ function buildUpcomingAppointmentItem(cita) {
             ? `${inicioCita.toLocaleDateString("es-CR")} ${inicioCita.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" })}`
             : "—");
     appendLabeledText(small, "Funcionario:", cita.funcionarioNombre);
-    appendLabeledText(small, "WhatsApp:", formatWhatsAppState(cita.estadoConfirmacionWhatsApp), false);
+
+    if (isTenantWhatsAppEnabled()) {
+        appendLabeledText(
+            small,
+            "WhatsApp:",
+            cita.whatsAppStatusDisplay || formatWhatsAppState(cita.estadoConfirmacionWhatsApp),
+            false);
+    }
+
     li.appendChild(small);
 
     const actions = document.createElement("div");
@@ -661,19 +921,26 @@ function initClienteAutocomplete(config) {
         hideClienteAutocomplete(dropdown, nombreInput);
     };
 
-    const clearSelectedCliente = () => {
-        nombreInput.dataset.selectedClienteId = "";
-        nombreInput.dataset.selectedClienteName = "";
+    const mode = config.modalId === "editCitaModal" ? "edit" : "create";
 
-        if (clienteIdInput) {
-            clienteIdInput.value = "";
+    const syncConsent = () => {
+        if (mode === "edit") {
+            syncEditConsentUI();
+            return;
         }
+
+        syncCreateConsentUI();
+    };
+
+    const clearSelectedCliente = options => {
+        const consentConfig = getConsentUIConfig(mode);
+        transitionSelectedClienteToManual(consentConfig, options);
+        syncConsent();
     };
 
     const scheduleSearch = () => {
-        clearSelectedCliente();
-
         const term = nombreInput.value.trim();
+        clearSelectedCliente({ clearPhone: term === "" });
 
         window.clearTimeout(debounceTimer);
 
@@ -690,6 +957,23 @@ function initClienteAutocomplete(config) {
     };
 
     nombreInput.addEventListener("input", scheduleSearch);
+    telefonoInput?.addEventListener("input", () => {
+        invalidateSelectedClienteIfNeeded(mode);
+        syncConsent();
+    });
+
+    const manualCheckbox = document.getElementById(
+        config.modalId === "editCitaModal"
+            ? "editWhatsAppConsentAtCreation"
+            : "whatsAppConsentAtCreation");
+    const capturedAtInput = document.getElementById(
+        config.modalId === "editCitaModal"
+            ? "editWhatsAppConsentCapturedAtUtc"
+            : "whatsAppConsentCapturedAtUtc");
+
+    manualCheckbox?.addEventListener("change", () => {
+        ensureConsentCapturedAt(manualCheckbox, capturedAtInput);
+    });
 
     nombreInput.addEventListener("keydown", event => {
         if (event.key === "Escape") {
@@ -715,6 +999,8 @@ function initClienteAutocomplete(config) {
         cancelRequest(config.requestKey);
         closeDropdown();
     });
+
+    syncConsent();
 }
 
 async function searchClientes(config, nombreInput, telefonoInput, dropdown, clienteIdInput, term) {
@@ -798,22 +1084,12 @@ function buildClienteAutocompleteItem(cliente, nombreInput, telefonoInput, dropd
     });
 
     item.addEventListener("click", () => {
-        const clienteNombre = safeText(cliente.nombre);
-        const clienteTelefono = safeText(cliente.telefono);
-        const clienteId = cliente.id === null || cliente.id === undefined
-            ? ""
-            : String(cliente.id);
-
-        nombreInput.value = clienteNombre;
-        nombreInput.dataset.selectedClienteId = clienteId;
-        nombreInput.dataset.selectedClienteName = clienteNombre;
-
-        if (telefonoInput) {
-            telefonoInput.value = clienteTelefono;
-        }
-
-        if (clienteIdInput) {
-            clienteIdInput.value = clienteId;
+        resetManualConsentState(getConsentUIConfig(nombreInput.id === "editNombreCliente" ? "edit" : "create"));
+        applySelectedClienteState(nombreInput, telefonoInput, clienteIdInput, cliente);
+        if (nombreInput.id === "editNombreCliente") {
+            syncEditConsentUI();
+        } else {
+            syncCreateConsentUI();
         }
 
         hideClienteAutocomplete(dropdown, nombreInput);
@@ -834,11 +1110,12 @@ function buildClienteAutocompleteManualAction(dropdown, nombreInput, clienteIdIn
     });
 
     manual.addEventListener("click", () => {
-        nombreInput.dataset.selectedClienteId = "";
-        nombreInput.dataset.selectedClienteName = "";
-
-        if (clienteIdInput) {
-            clienteIdInput.value = "";
+        const consentConfig = getConsentUIConfig(nombreInput.id === "editNombreCliente" ? "edit" : "create");
+        transitionSelectedClienteToManual(consentConfig);
+        if (nombreInput.id === "editNombreCliente") {
+            syncEditConsentUI();
+        } else {
+            syncCreateConsentUI();
         }
 
         hideClienteAutocomplete(dropdown, nombreInput);
@@ -911,6 +1188,17 @@ function initEvents() {
         .getElementById("aplicarHorario")
         ?.addEventListener("click", actualizarHorario);
 
+    // WhatsApp consent UI - modo cita manual
+    document.getElementById("nombreCliente")?.addEventListener("input", () => {
+        invalidateSelectedClienteIfNeeded("create");
+        renderWhatsAppConsentUI("create");
+    });
+
+    document.getElementById("telefonoCliente")?.addEventListener("input", () => {
+        invalidateSelectedClienteIfNeeded("create");
+        renderWhatsAppConsentUI("create");
+    });
+
     document.getElementById("esDescanso").addEventListener("change", function () {
 
         const esDescanso = this.checked;
@@ -930,7 +1218,12 @@ function initEvents() {
 
         }
 
+        syncCreateConsentUI();
+
     });
+
+    document.getElementById("createCitaModal")
+        ?.addEventListener("hidden.bs.modal", limpiarModalCita);
 
     /* CARGAR CONFIGURACIÓN GUARDADA */
 
@@ -1639,6 +1932,8 @@ async function abrirModalConDuracion(
         0
     );
 
+    limpiarModalCita();
+
     const formatted = formatLocalDateTime(fullDate);
 
     const inputFecha = document.getElementById("appointmentDate");
@@ -1686,6 +1981,8 @@ async function abrirModalConDuracion(
         appointmentDate: document.getElementById("appointmentDate")?.value || null,
         duracionMinutos: document.getElementById("duracionMinutos")?.value || null
     });
+
+    syncCreateConsentUI();
 
     new bootstrap.Modal(
         document.getElementById("createCitaModal")
@@ -1789,6 +2086,7 @@ async function guardarCita() {
     const fechaInput = document.getElementById("appointmentDate");
     const duplicar = document.getElementById("duplicarCita").checked;
     const fechasDuplicadas = splitSelectedDates(document.getElementById("fechasDuplicadas").value);
+    const consentConfig = getConsentUIConfig("create");
    
 
     if (!funcionario || !servicio || !fechaInput) {
@@ -1830,9 +2128,21 @@ async function guardarCita() {
         return;
     }
 
+    const clienteId = esDescanso
+        ? null
+        : parsePositiveInt(consentConfig.clienteIdInput?.value);
+    const manualConsent = isTenantWhatsAppEnabled() &&
+        !esDescanso &&
+        !clienteId &&
+        consentConfig.manualCheckbox?.checked === true;
+    const consentCapturedAtUtc = manualConsent
+        ? ensureConsentCapturedAt(consentConfig.manualCheckbox, consentConfig.capturedAtInput)
+        : null;
+
     const data = {
         nombreCliente: esDescanso ? null : document.getElementById("nombreCliente").value,
         telefonoCliente: esDescanso ? null : document.getElementById("telefonoCliente").value,
+        clienteId: clienteId,
         servicioId: servicioId,
         fechaHoraCita: fechaHoraCita,
         funcionarioId: funcionarioId,
@@ -1840,6 +2150,11 @@ async function guardarCita() {
         tipo: esDescanso ? "DESCANSO" : "CITA",
 
         duracionMinutos: duracionMinutos,
+        whatsAppConsentAtCreation: !isTenantWhatsAppEnabled() || esDescanso || clienteId ? false : manualConsent,
+        whatsAppConsentSource: !isTenantWhatsAppEnabled() || esDescanso || clienteId
+            ? null
+            : (manualConsent ? "CitaManual" : "SinConsentimiento"),
+        whatsAppConsentCapturedAtUtc: !isTenantWhatsAppEnabled() || esDescanso || clienteId ? null : consentCapturedAtUtc,
 
         duplicar: duplicar,
         fechasDuplicadas: duplicar ? fechasDuplicadas : []
@@ -1975,14 +2290,15 @@ function limpiarModalCita() {
 
     const nombreClienteInput = document.getElementById("nombreCliente");
     nombreClienteInput.value = "";
-    nombreClienteInput.dataset.selectedClienteId = "";
-    nombreClienteInput.dataset.selectedClienteName = "";
+    clearSelectedClienteState(nombreClienteInput, document.getElementById("nombreClienteClienteId"));
     document.getElementById("telefonoCliente").value = "";
     document.getElementById("servicio").value = "";
     document.getElementById("funcionarioId").value = "";
     document.getElementById("appointmentDate").value = "";
     document.getElementById("duracionMinutos").value = "30";
     document.getElementById("duracionDescanso").value = "30";
+    document.getElementById("whatsAppConsentAtCreation").checked = false;
+    document.getElementById("whatsAppConsentCapturedAtUtc").value = "";
 
     document.getElementById("esDescanso").checked = false;
     document.getElementById("camposCita").classList.remove("d-none");
@@ -1996,6 +2312,8 @@ function limpiarModalCita() {
     if (fechasInput && fechasInput._flatpickr) {
         fechasInput._flatpickr.clear(); // 🔥 limpia selección del calendario
     }
+
+    syncCreateConsentUI();
 }
 
 function formatHourAMPM(hour, minute = 0) {
@@ -2074,15 +2392,43 @@ async function editarCita(id) {
             camposDescanso.classList.add("d-none");
 
             const editNombreInput = document.getElementById("editNombreCliente");
+            const editTelefonoInput = document.getElementById("editTelefonoCliente");
+            const editClienteIdInput = document.getElementById("editNombreClienteClienteId");
+            const editConsentCheckbox = document.getElementById("editWhatsAppConsentAtCreation");
+            const editConsentCapturedAtInput = document.getElementById("editWhatsAppConsentCapturedAtUtc");
+
             editNombreInput.value =
                 safeText(cita.nombreCliente);
-            editNombreInput.dataset.selectedClienteId = "";
-            editNombreInput.dataset.selectedClienteName = "";
-
-            document.getElementById("editTelefonoCliente").value =
+            editTelefonoInput.value =
                 safeText(cita.telefonoCliente);
-            hideClienteAutocomplete(document.getElementById("editSugerenciasClientes"), editNombreInput);
 
+            if (cita.clienteId) {
+                applySelectedClienteState(editNombreInput, editTelefonoInput, editClienteIdInput, {
+                    id: cita.clienteId,
+                    nombre: cita.nombreCliente,
+                    telefono: cita.telefonoCliente,
+                    aceptaMensajesWhatsApp: cita.clienteAceptaMensajesWhatsApp === true
+                });
+                editConsentCheckbox.checked = false;
+                editConsentCapturedAtInput.value = "";
+            } else {
+                clearSelectedClienteState(editNombreInput, editClienteIdInput);
+                editConsentCheckbox.checked = cita.whatsAppConsentAtCreation === true;
+                editConsentCapturedAtInput.value = cita.whatsAppConsentCapturedAtUtc || "";
+            }
+
+            hideClienteAutocomplete(document.getElementById("editSugerenciasClientes"), editNombreInput);
+            syncEditConsentUI();
+
+        }
+
+        if (cita.tipo === "DESCANSO") {
+            clearSelectedClienteState(
+                document.getElementById("editNombreCliente"),
+                document.getElementById("editNombreClienteClienteId"));
+            document.getElementById("editWhatsAppConsentAtCreation").checked = false;
+            document.getElementById("editWhatsAppConsentCapturedAtUtc").value = "";
+            syncEditConsentUI();
         }
 
         await loadFuncionariosEdit(cita.funcionarioId);
@@ -2219,6 +2565,7 @@ async function guardarEdicion() {
     const tipo = safeText(document.getElementById("editTipo").value).toUpperCase();
     const fechaHoraCita = normalizeDateTimeLocalValue(document.getElementById("editFechaHora").value);
     const funcionarioId = parsePositiveInt(document.getElementById("editFuncionarioId").value);
+    const consentConfig = getConsentUIConfig("edit");
 
     if (!id) {
         alert("No fue posible identificar la cita a editar.");
@@ -2253,6 +2600,10 @@ async function guardarEdicion() {
         data.servicioId = null;
         data.nombreCliente = null;
         data.telefonoCliente = null;
+        data.clienteId = null;
+        data.whatsAppConsentAtCreation = false;
+        data.whatsAppConsentSource = null;
+        data.whatsAppConsentCapturedAtUtc = null;
 
     } else {
         const servicioId = parsePositiveInt(document.getElementById("editServicioId").value);
@@ -2261,15 +2612,30 @@ async function guardarEdicion() {
             return;
         }
 
+        const clienteId = parsePositiveInt(consentConfig.clienteIdInput?.value);
+        const manualConsent = isTenantWhatsAppEnabled() &&
+            !clienteId &&
+            consentConfig.manualCheckbox?.checked === true;
+        const consentCapturedAtUtc = manualConsent
+            ? ensureConsentCapturedAt(consentConfig.manualCheckbox, consentConfig.capturedAtInput)
+            : null;
+
         data.nombreCliente =
             document.getElementById("editNombreCliente").value;
 
         data.telefonoCliente =
             document.getElementById("editTelefonoCliente").value;
 
+        data.clienteId =
+            clienteId;
         data.servicioId =
             servicioId;
         data.duracionMinutos = null;
+        data.whatsAppConsentAtCreation = !isTenantWhatsAppEnabled() || clienteId ? false : manualConsent;
+        data.whatsAppConsentSource = !isTenantWhatsAppEnabled() || clienteId
+            ? null
+            : (manualConsent ? "CitaManual" : "SinConsentimiento");
+        data.whatsAppConsentCapturedAtUtc = !isTenantWhatsAppEnabled() || clienteId ? null : consentCapturedAtUtc;
 
     }
 

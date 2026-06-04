@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.Common;
 
 namespace LuxuryApp.Models.DataBase
@@ -16,6 +17,19 @@ namespace LuxuryApp.Models.DataBase
         [Required]
         [StringLength(50)]
         public string NumeroTelefono { get; set; } = string.Empty;
+
+        public bool AceptaMensajesWhatsApp { get; set; }
+
+        public DateTime? WhatsAppConsentUpdatedAtUtc { get; set; }
+
+        [StringLength(80)]
+        public string? WhatsAppConsentSource { get; set; }
+
+        [StringLength(450)]
+        public string? WhatsAppConsentCapturedByUserId { get; set; }
+
+        [StringLength(40)]
+        public string? WhatsAppConsentTextVersion { get; set; }
 
         [EmailAddress]
         [StringLength(256)]
@@ -34,6 +48,8 @@ namespace LuxuryApp.Models.DataBase
         public string? DescripcionServiciosRealizados { get; set; }
 
         public ICollection<ClienteVisitas> Visitas { get; set; } = new List<ClienteVisitas>();
+
+        public ICollection<Cita> Citas { get; set; } = new List<Cita>();
 
         [NotMapped]
         public DateTime ProximaVisita => FechaUltimaVisita.AddDays(FrecuenciaVisita);

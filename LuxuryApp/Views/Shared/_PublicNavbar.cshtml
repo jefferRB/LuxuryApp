@@ -6,6 +6,7 @@
 @{
     var isSignedIn = SignInManager.IsSignedIn(User);
     var currentController = (ViewContext.RouteData.Values["controller"]?.ToString() ?? string.Empty).ToLowerInvariant();
+    var currentPath = (ViewContext.HttpContext.Request.Path.Value ?? string.Empty).ToLowerInvariant();
     var privateNavigation = isSignedIn
         ? await NavigationService.BuildAsync(User)
         : new PrivateNavigationViewModel();
@@ -21,8 +22,8 @@
         <a class="navbar-brand public-navbar-brand" asp-controller="Home" asp-action="Index">
             <span class="public-brand-mark">L</span>
             <span>
-                <strong>LuxuryApp</strong>
-                <small>SaaS para negocios de belleza</small>
+                <strong>LuxuryCloud</strong>
+                <small>SaaS para barberias, salones y servicios</small>
             </span>
         </a>
 
@@ -40,6 +41,12 @@
                 </li>
                 <li class="nav-item">
                     <a class="nav-link @(currentController == "billing" ? "active" : string.Empty)" asp-controller="Billing" asp-action="Planes">Precios</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link @(currentController == "contract" ? "active" : string.Empty)" asp-controller="Contract" asp-action="Index">Contrato</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link @(currentPath == "/privacidad" ? "active" : string.Empty)" href="/privacidad">Privacidad</a>
                 </li>
             </ul>
 

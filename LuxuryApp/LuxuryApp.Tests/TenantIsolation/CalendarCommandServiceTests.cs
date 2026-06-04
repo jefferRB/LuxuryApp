@@ -1,4 +1,5 @@
 using LuxuryApp.Models.Calendar;
+using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Services.Calendar;
@@ -43,6 +44,109 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(servicio.Id, cita.ServicioId);
             Assert.Equal(cita.Id, response.Id);
             Assert.Equal(60, response.DuracionMinutos);
+        }
+
+        [Fact]
+        public async Task CreateAsync_ShouldUseSelectedClienteSnapshot_AndIgnoreManualConsent()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Ana");
+            var servicio = await SeedServicioAsync(context, "Corte", 45);
+            var cliente = await SeedClienteAsync(context, "Cliente Registrado", "72223333", aceptaMensajesWhatsApp: false);
+            var service = ControllerTestSupport.CreateCalendarCommandService(context);
+
+            await service.CreateAsync(new CalendarUpsertRequest
+            {
+                NombreCliente = "Nombre Manual",
+                TelefonoCliente = "79990000",
+                ClienteId = cliente.Id,
+                ServicioId = servicio.Id,
+                FechaHoraCita = new DateTime(2026, 4, 24, 11, 0, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA",
+                WhatsAppConsentAtCreation = true,
+                WhatsAppConsentSource = "CitaManual",
+                WhatsAppConsentCapturedAtUtc = new DateTime(2026, 4, 20, 8, 0, 0, DateTimeKind.Utc)
+            });
+
+            var cita = await context.Citas.AsNoTracking().SingleAsync();
+
+            Assert.Equal(cliente.Id, cita.ClienteId);
+            Assert.Equal("Cliente Registrado", cita.NombreCliente);
+            Assert.Equal("72223333", cita.TelefonoCliente);
+            Assert.False(cita.WhatsAppConsentAtCreation);
+            Assert.Equal("ClienteRegistrado", cita.WhatsAppConsentSource);
+            Assert.NotNull(cita.WhatsAppConsentCapturedAtUtc);
+        }
+
+        [Fact]
+        public async Task CreateAsync_ShouldPersistManualConsent_WhenClienteIdIsMissing()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Ana");
+            var servicio = await SeedServicioAsync(context, "Masaje", 50);
+            var service = ControllerTestSupport.CreateCalendarCommandService(context);
+            var capturedAt = new DateTime(2026, 4, 21, 9, 30, 0, DateTimeKind.Utc);
+
+            await service.CreateAsync(new CalendarUpsertRequest
+            {
+                NombreCliente = "Manual Consent",
+                TelefonoCliente = "73334444",
+                ServicioId = servicio.Id,
+                FechaHoraCita = new DateTime(2026, 4, 24, 12, 0, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA",
+                WhatsAppConsentAtCreation = true,
+                WhatsAppConsentSource = "CitaManual",
+                WhatsAppConsentCapturedAtUtc = capturedAt
+            });
+
+            var cita = await context.Citas.AsNoTracking().SingleAsync();
+
+            Assert.Null(cita.ClienteId);
+            Assert.True(cita.WhatsAppConsentAtCreation);
+            Assert.Equal("CitaManual", cita.WhatsAppConsentSource);
+            Assert.Equal(capturedAt, cita.WhatsAppConsentCapturedAtUtc);
+        }
+
+        [Fact]
+        public async Task CreateAsync_ShouldRejectClienteIdFromAnotherTenant()
+        {
+            var tenantA = Guid.NewGuid();
+            var tenantB = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantB };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var clienteExterno = await SeedClienteAsync(context, "Cliente Externo", "74445555", aceptaMensajesWhatsApp: true);
+
+            tenantProvider.TenantId = tenantA;
+            context.ChangeTracker.Clear();
+
+            var funcionario = await SeedFuncionarioAsync(context, "Ana");
+            var servicio = await SeedServicioAsync(context, "Corte", 30);
+            var service = ControllerTestSupport.CreateCalendarCommandService(context);
+
+            var exception = await Assert.ThrowsAsync<CalendarValidationException>(() => service.CreateAsync(new CalendarUpsertRequest
+            {
+                ClienteId = clienteExterno.Id,
+                ServicioId = servicio.Id,
+                FechaHoraCita = new DateTime(2026, 4, 24, 13, 0, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA"
+            }));
+
+            Assert.Contains("cliente", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(await context.Citas.IgnoreQueryFilters().AsNoTracking().ToListAsync());
         }
 
         [Fact]
@@ -418,6 +522,29 @@ namespace LuxuryApp.Tests.TenantIsolation
             context.Servicios.Add(servicio);
             await context.SaveChangesAsync();
             return servicio;
+        }
+
+        private static async Task<ClientesModel> SeedClienteAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            string nombre,
+            string telefono,
+            bool aceptaMensajesWhatsApp)
+        {
+            var cliente = new ClientesModel
+            {
+                Nombre = nombre,
+                NumeroTelefono = telefono,
+                AceptaMensajesWhatsApp = aceptaMensajesWhatsApp,
+                WhatsAppConsentUpdatedAtUtc = new DateTime(2026, 4, 1, 8, 0, 0, DateTimeKind.Utc),
+                WhatsAppConsentSource = "ClienteForm",
+                WhatsAppConsentTextVersion = "wa_optin_v1",
+                FrecuenciaVisita = 30,
+                FechaUltimaVisita = new DateTime(2026, 4, 1)
+            };
+
+            context.Clientes.Add(cliente);
+            await context.SaveChangesAsync();
+            return cliente;
         }
 
         private static async Task<Cita> SeedCitaAsync(

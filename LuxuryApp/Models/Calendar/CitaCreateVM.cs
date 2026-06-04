@@ -11,6 +11,8 @@ namespace LuxuryApp.Models.Calendar
         [StringLength(20)]
         public string? TelefonoCliente { get; set; }
 
+        public int? ClienteId { get; set; }
+
         public int? ServicioId { get; set; }
 
         [Required]
@@ -25,6 +27,13 @@ namespace LuxuryApp.Models.Calendar
 
         [Range(5, 180, ErrorMessage = "La duración del descanso debe estar entre 5 y 180 minutos.")]
         public int? DuracionMinutos { get; set; }
+
+        public bool WhatsAppConsentAtCreation { get; set; }
+
+        [StringLength(80)]
+        public string? WhatsAppConsentSource { get; set; }
+
+        public DateTime? WhatsAppConsentCapturedAtUtc { get; set; }
 
         public bool Duplicar { get; set; }
 

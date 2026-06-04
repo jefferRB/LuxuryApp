@@ -10,6 +10,8 @@ namespace LuxuryApp.Models.Calendar
 
         public string? TelefonoCliente { get; init; }
 
+        public int? ClienteId { get; init; }
+
         public DateTime FechaHoraCita { get; init; }
 
         public int DuracionMinutos { get; init; }
@@ -24,10 +26,18 @@ namespace LuxuryApp.Models.Calendar
 
         public string? ServicioNombre { get; init; }
 
+        public bool WhatsAppConsentAtCreation { get; init; }
+
+        public string? WhatsAppConsentSource { get; init; }
+
+        public DateTime? WhatsAppConsentCapturedAtUtc { get; init; }
+
         public string EstadoConfirmacionWhatsApp { get; init; } = string.Empty;
 
         public DateTime? ConfirmacionWhatsAppEnviadaUtc { get; init; }
 
         public DateTime? RecordatorioWhatsAppTresHorasEnviadoUtc { get; init; }
+
+        public string WhatsAppStatusDisplay { get; init; } = string.Empty;
     }
 }

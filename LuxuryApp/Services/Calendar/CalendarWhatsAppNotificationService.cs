@@ -155,6 +155,48 @@ namespace LuxuryApp.Services.Calendar
 
             foreach (var messageId in pendingIds)
             {
+                var pendingMessage = await _context.WhatsAppMessageLogs
+                    .AsNoTracking()
+                    .Where(message => message.Id == messageId)
+                    .Select(message => new
+                    {
+                        message.Id,
+                        message.CitaId,
+                        message.NotificationType
+                    })
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (pendingMessage is null)
+                {
+                    continue;
+                }
+
+                if (pendingMessage.CitaId.HasValue)
+                {
+                    var citaForConsent = await _context.Citas
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(c => c.Id == pendingMessage.CitaId.Value, cancellationToken);
+
+                    if (citaForConsent is not null)
+                    {
+                        var consentDecision = await EvaluateConsentAsync(citaForConsent, cancellationToken);
+                        if (!consentDecision.CanSend)
+                        {
+                            var skipped = await SkipPendingMessageForConsentAsync(
+                                pendingMessage.Id,
+                                pendingMessage.NotificationType,
+                                citaForConsent,
+                                consentDecision,
+                                cancellationToken);
+
+                            if (skipped)
+                            {
+                                continue;
+                            }
+                        }
+                    }
+                }
+
                 var claimed = await _context.WhatsAppMessageLogs
                     .Where(message =>
                         message.Id == messageId &&
@@ -325,6 +367,21 @@ namespace LuxuryApp.Services.Calendar
                 return;
             }
 
+            var consentDecision = await EvaluateConsentAsync(cita, cancellationToken);
+            if (!consentDecision.CanSend)
+            {
+                await RegisterSkippedOutboundAsync(
+                    cita,
+                    notificationType,
+                    WhatsAppMessageStatuses.SkippedConsentMissing,
+                    WhatsAppErrorCodes.ConsentMissing,
+                    consentDecision.Message,
+                    todayUsage: null,
+                    dailyMessageLimit: null,
+                    cancellationToken);
+                return;
+            }
+
             var phoneE164 = _metaClient.NormalizePhoneNumber(cita.TelefonoCliente);
             if (phoneE164 is null)
             {
@@ -445,7 +502,7 @@ namespace LuxuryApp.Services.Calendar
                     Status = status,
                     ErrorCode = errorCode,
                     ErrorMessage = Trim(reason, 1000),
-                    PayloadJson = BuildQueuedPayloadJson(cita, notificationType),
+                    PayloadJson = BuildSkippedPayloadJson(cita, notificationType, errorCode),
                     CreatedAtUtc = DateTime.UtcNow,
                     ProcessedAtUtc = DateTime.UtcNow
                 });
@@ -463,6 +520,104 @@ namespace LuxuryApp.Services.Calendar
                 dailyMessageLimit);
         }
 
+        private async Task<WhatsAppConsentDecision> EvaluateConsentAsync(
+            Cita cita,
+            CancellationToken cancellationToken)
+        {
+            if (cita.ClienteId.HasValue)
+            {
+                var cliente = await _context.Clientes
+                    .AsNoTracking()
+                    .Where(current => current.Id == cita.ClienteId.Value)
+                    .Select(current => new
+                    {
+                        current.AceptaMensajesWhatsApp
+                    })
+                    .SingleOrDefaultAsync(cancellationToken);
+
+                if (cliente?.AceptaMensajesWhatsApp == true)
+                {
+                    return new WhatsAppConsentDecision(
+                        CanSend: true,
+                        Source: WhatsAppConsentSources.ClienteRegistrado,
+                        HasClienteId: true,
+                        Message: string.Empty);
+                }
+
+                return new WhatsAppConsentDecision(
+                    CanSend: false,
+                    Source: WhatsAppConsentSources.ClienteRegistrado,
+                    HasClienteId: true,
+                    Message: "El cliente no autorizó mensajes de WhatsApp.");
+            }
+
+            var source = ResolveConsentSource(cita);
+            return cita.WhatsAppConsentAtCreation
+                ? new WhatsAppConsentDecision(
+                    CanSend: true,
+                    Source: source,
+                    HasClienteId: false,
+                    Message: string.Empty)
+                : new WhatsAppConsentDecision(
+                    CanSend: false,
+                    Source: source,
+                    HasClienteId: false,
+                    Message: "El cliente no autorizó mensajes de WhatsApp.");
+        }
+
+        private async Task<bool> SkipPendingMessageForConsentAsync(
+            long messageId,
+            string notificationType,
+            Cita cita,
+            WhatsAppConsentDecision consentDecision,
+            CancellationToken cancellationToken)
+        {
+            var nowUtc = DateTime.UtcNow;
+            var payloadJson = BuildSkippedPayloadJson(
+                cita,
+                notificationType,
+                WhatsAppErrorCodes.ConsentMissing,
+                consentDecision.Source,
+                consentDecision.HasClienteId);
+
+            var updated = await _context.WhatsAppMessageLogs
+                .Where(message =>
+                    message.Id == messageId &&
+                    message.Status == WhatsAppMessageStatuses.Pending &&
+                    message.AttemptCount < MaxAttempts)
+                .ExecuteUpdateAsync(updates => updates
+                    .SetProperty(message => message.Status, WhatsAppMessageStatuses.SkippedConsentMissing)
+                    .SetProperty(message => message.ErrorCode, WhatsAppErrorCodes.ConsentMissing)
+                    .SetProperty(message => message.ErrorMessage, Trim(consentDecision.Message, 1000))
+                    .SetProperty(message => message.ProcessedAtUtc, nowUtc)
+                    .SetProperty(message => message.ProcessingStartedAtUtc, (DateTime?)null)
+                    .SetProperty(message => message.NextAttemptAtUtc, (DateTime?)null)
+                    .SetProperty(message => message.PayloadJson, payloadJson),
+                    cancellationToken);
+
+            if (updated == 0)
+            {
+                return false;
+            }
+
+            if (notificationType == WhatsAppNotificationTypes.Confirmation)
+            {
+                await _context.Citas
+                    .Where(current => current.Id == cita.Id)
+                    .ExecuteUpdateAsync(updates => updates
+                        .SetProperty(current => current.EstadoConfirmacionWhatsApp, WhatsAppConfirmationStates.NoEnviada),
+                        cancellationToken);
+            }
+
+            _logger.LogInformation(
+                "Notificacion WhatsApp pendiente omitida por falta de consentimiento. TenantId {TenantId}. CitaId {CitaId}. NotificationType {NotificationType}.",
+                cita.TenantId,
+                cita.Id,
+                notificationType);
+
+            return true;
+        }
+
         private async Task SendPendingLogAsync(
             WhatsAppMessageLog message,
             CancellationToken cancellationToken)
@@ -476,9 +631,29 @@ namespace LuxuryApp.Services.Calendar
             {
                 MarkSkipped(
                     message,
+                    cita: null,
                     WhatsAppMessageStatuses.SkippedNotEligible,
                     WhatsAppErrorCodes.AppointmentNotEligible,
                     "Cita no encontrada.");
+                await _context.SaveChangesAsync(cancellationToken);
+                return;
+            }
+
+            var consentDecision = await EvaluateConsentAsync(cita, cancellationToken);
+            if (!consentDecision.CanSend)
+            {
+                MarkSkipped(
+                    message,
+                    cita,
+                    WhatsAppMessageStatuses.SkippedConsentMissing,
+                    WhatsAppErrorCodes.ConsentMissing,
+                    consentDecision.Message);
+
+                if (message.NotificationType == WhatsAppNotificationTypes.Confirmation)
+                {
+                    cita.EstadoConfirmacionWhatsApp = WhatsAppConfirmationStates.NoEnviada;
+                }
+
                 await _context.SaveChangesAsync(cancellationToken);
                 return;
             }
@@ -493,6 +668,7 @@ namespace LuxuryApp.Services.Calendar
             {
                 MarkSkipped(
                     message,
+                    cita,
                     ResolveSkippedStatus(decision.ErrorCode),
                     decision.ErrorCode ?? WhatsAppErrorCodes.ConfigurationDisabled,
                     decision.ErrorMessage ?? "El mensaje WhatsApp fue omitido por configuracion.");
@@ -513,6 +689,7 @@ namespace LuxuryApp.Services.Calendar
             {
                 MarkSkipped(
                     message,
+                    cita,
                     WhatsAppMessageStatuses.SkippedNotEligible,
                     WhatsAppErrorCodes.AppointmentNotEligible,
                     ignoredReason);
@@ -525,6 +702,7 @@ namespace LuxuryApp.Services.Calendar
             {
                 MarkSkipped(
                     message,
+                    cita,
                     WhatsAppMessageStatuses.SkippedInvalidPhone,
                     WhatsAppErrorCodes.InvalidPhone,
                     "Telefono invalido.");
@@ -538,6 +716,7 @@ namespace LuxuryApp.Services.Calendar
             {
                 MarkSkipped(
                     message,
+                    cita,
                     WhatsAppMessageStatuses.SkippedNotEligible,
                     WhatsAppErrorCodes.AppointmentNotEligible,
                     "Cita fuera de la ventana de recordatorio.");
@@ -666,6 +845,7 @@ namespace LuxuryApp.Services.Calendar
 
         private static void MarkSkipped(
             WhatsAppMessageLog message,
+            Cita? cita,
             string status,
             string errorCode,
             string reason)
@@ -676,6 +856,10 @@ namespace LuxuryApp.Services.Calendar
             message.ProcessedAtUtc = DateTime.UtcNow;
             message.ProcessingStartedAtUtc = null;
             message.NextAttemptAtUtc = null;
+            if (cita is not null)
+            {
+                message.PayloadJson = BuildSkippedPayloadJson(cita, message.NotificationType, errorCode);
+            }
         }
 
         private static void ApplySentState(
@@ -1244,6 +1428,7 @@ namespace LuxuryApp.Services.Calendar
         private static string ResolveSkippedStatus(string? errorCode) =>
             errorCode switch
             {
+                WhatsAppErrorCodes.ConsentMissing => WhatsAppMessageStatuses.SkippedConsentMissing,
                 WhatsAppErrorCodes.TenantDisabled => WhatsAppMessageStatuses.SkippedTenantDisabled,
                 WhatsAppErrorCodes.DailyLimitExceeded => WhatsAppMessageStatuses.SkippedDailyLimitExceeded,
                 WhatsAppErrorCodes.InvalidPhone => WhatsAppMessageStatuses.SkippedInvalidPhone,
@@ -1256,7 +1441,25 @@ namespace LuxuryApp.Services.Calendar
                 phase = "queued",
                 notificationType,
                 citaId = cita.Id,
-                citaFechaHora = cita.FechaHoraCita
+                citaFechaHora = cita.FechaHoraCita,
+                source = ResolveConsentSource(cita),
+                hasClienteId = cita.ClienteId.HasValue
+            }, JsonOptions);
+
+        private static string BuildSkippedPayloadJson(
+            Cita cita,
+            string notificationType,
+            string reason,
+            string? source = null,
+            bool? hasClienteId = null) =>
+            JsonSerializer.Serialize(new
+            {
+                phase = "skipped",
+                reason,
+                notificationType,
+                citaId = cita.Id,
+                source = source ?? ResolveConsentSource(cita),
+                hasClienteId = hasClienteId ?? cita.ClienteId.HasValue
             }, JsonOptions);
 
         private static string BuildSendResultPayloadJson(
@@ -1308,6 +1511,23 @@ namespace LuxuryApp.Services.Calendar
                 statusUpdate.ErrorCode,
                 statusUpdate.ErrorMessage
             }, JsonOptions);
+
+        private static string ResolveConsentSource(Cita cita)
+        {
+            if (cita.ClienteId.HasValue)
+            {
+                return WhatsAppConsentSources.ClienteRegistrado;
+            }
+
+            if (!string.IsNullOrWhiteSpace(cita.WhatsAppConsentSource))
+            {
+                return cita.WhatsAppConsentSource!;
+            }
+
+            return cita.WhatsAppConsentAtCreation
+                ? WhatsAppConsentSources.CitaManual
+                : WhatsAppConsentSources.SinConsentimiento;
+        }
 
         private static string NormalizeToken(string value)
         {
@@ -1363,6 +1583,12 @@ namespace LuxuryApp.Services.Calendar
             string? RecipientPhone,
             string? ErrorCode,
             string? ErrorMessage);
+
+        private sealed record WhatsAppConsentDecision(
+            bool CanSend,
+            string Source,
+            bool HasClienteId,
+            string Message);
 
         private enum WhatsAppReplyAction
         {

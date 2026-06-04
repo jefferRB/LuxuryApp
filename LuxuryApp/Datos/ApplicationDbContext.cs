@@ -117,6 +117,17 @@ namespace ProyectoIdentity.Datos
                 entity.Property(c => c.UltimoMetaMessageId)
                     .HasMaxLength(128);
 
+                entity.Property(c => c.WhatsAppConsentAtCreation)
+                    .HasDefaultValue(false);
+
+                entity.Property(c => c.WhatsAppConsentSource)
+                    .HasMaxLength(80);
+
+                entity.HasOne(c => c.Cliente)
+                    .WithMany(cliente => cliente.Citas)
+                    .HasForeignKey(c => c.ClienteId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
                 entity.HasIndex(c => new { c.TenantId, c.FechaHoraCita })
                     .HasDatabaseName("IX_Citas_TenantId_FechaHoraCita");
 
@@ -208,6 +219,18 @@ namespace ProyectoIdentity.Datos
                 entity.Property(c => c.NumeroTelefono)
                     .HasMaxLength(50)
                     .IsRequired();
+
+                entity.Property(c => c.AceptaMensajesWhatsApp)
+                    .HasDefaultValue(false);
+
+                entity.Property(c => c.WhatsAppConsentSource)
+                    .HasMaxLength(80);
+
+                entity.Property(c => c.WhatsAppConsentCapturedByUserId)
+                    .HasMaxLength(450);
+
+                entity.Property(c => c.WhatsAppConsentTextVersion)
+                    .HasMaxLength(40);
 
                 entity.Property(c => c.CorreoElectronico)
                     .HasMaxLength(256)

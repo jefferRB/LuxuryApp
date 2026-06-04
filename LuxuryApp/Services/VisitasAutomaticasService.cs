@@ -24,7 +24,7 @@ namespace LuxuryApp.Services
 
             var citas = await _context.Citas
                 .Include(c => c.Servicio)
-                .Where(c => !c.VisitaProcesada && c.ServicioId != null)
+                .Where(c => !c.VisitaProcesada && c.ServicioId != null && c.ClienteId != null)
                 .ToListAsync(cancellationToken);
 
             foreach (var cita in citas)
@@ -37,9 +37,7 @@ namespace LuxuryApp.Services
                 if (fin <= ahora)
                 {
                     var cliente = await _context.Clientes
-                        .FirstOrDefaultAsync(c =>
-                            c.NumeroTelefono == cita.TelefonoCliente,
-                            cancellationToken);
+                        .FirstOrDefaultAsync(c => c.Id == cita.ClienteId, cancellationToken);
 
                     if (cliente == null)
                         continue;

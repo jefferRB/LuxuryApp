@@ -19,5 +19,7 @@ namespace LuxuryApp.Models.Calendar
         public DateTime? ConfirmacionWhatsAppEnviadaUtc { get; init; }
 
         public DateTime? RecordatorioWhatsAppTresHorasEnviadoUtc { get; init; }
+
+        public string WhatsAppStatusDisplay { get; init; } = string.Empty;
     }
 }

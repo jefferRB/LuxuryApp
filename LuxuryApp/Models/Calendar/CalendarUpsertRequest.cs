@@ -6,6 +6,8 @@ namespace LuxuryApp.Models.Calendar
 
         public string? TelefonoCliente { get; init; }
 
+        public int? ClienteId { get; init; }
+
         public int? ServicioId { get; init; }
 
         public DateTime FechaHoraCita { get; init; }
@@ -15,6 +17,12 @@ namespace LuxuryApp.Models.Calendar
         public string Tipo { get; init; } = "CITA";
 
         public int? DuracionMinutos { get; init; }
+
+        public bool WhatsAppConsentAtCreation { get; init; }
+
+        public string? WhatsAppConsentSource { get; init; }
+
+        public DateTime? WhatsAppConsentCapturedAtUtc { get; init; }
 
         public bool Duplicar { get; init; }
 

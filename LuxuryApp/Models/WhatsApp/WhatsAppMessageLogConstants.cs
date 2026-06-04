@@ -35,6 +35,7 @@ namespace LuxuryApp.Models.WhatsApp
         public const string SkippedInvalidPhone = "SkippedInvalidPhone";
         public const string SkippedConfiguration = "SkippedConfiguration";
         public const string SkippedNotEligible = "SkippedNotEligible";
+        public const string SkippedConsentMissing = "SkippedConsentMissing";
     }
 
     public static class WhatsAppErrorCodes
@@ -45,6 +46,7 @@ namespace LuxuryApp.Models.WhatsApp
         public const string ConfigurationDisabled = "ConfigurationDisabled";
         public const string NotificationTypeDisabled = "NotificationTypeDisabled";
         public const string AppointmentNotEligible = "AppointmentNotEligible";
+        public const string ConsentMissing = "ConsentMissing";
     }
 
     public static class WhatsAppConfirmationStates
@@ -54,5 +56,18 @@ namespace LuxuryApp.Models.WhatsApp
         public const string Cancelada = "Cancelada";
         public const string NoEnviada = "NoEnviada";
         public const string ErrorEnvio = "ErrorEnvio";
+    }
+
+    public static class WhatsAppConsentSources
+    {
+        public const string ClienteForm = "ClienteForm";
+        public const string ClienteRegistrado = "ClienteRegistrado";
+        public const string CitaManual = "CitaManual";
+        public const string SinConsentimiento = "SinConsentimiento";
+    }
+
+    public static class WhatsAppConsentTextVersions
+    {
+        public const string WaOptInV1 = "wa_optin_v1";
     }
 }

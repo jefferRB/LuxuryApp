@@ -2,6 +2,10 @@
     ViewData["Title"] = "Agenda";
 }
 
+@{
+    var tenantWhatsAppEnabled = ViewData["TenantWhatsAppEnabled"] as bool? == true;
+}
+
 <div id="calendar-antiforgery" class="d-none">
     @Html.AntiForgeryToken()
 </div>
@@ -172,6 +176,7 @@
                                            aria-autocomplete="list"
                                            aria-expanded="false"
                                            aria-controls="sugerenciasClientes">
+                                    <input type="hidden" id="nombreClienteClienteId">
                                     <div id="sugerenciasClientes"
                                          class="cliente-autocomplete-dropdown d-none"
                                          role="listbox"></div>
@@ -181,6 +186,16 @@
                         <div class="mb-2">
                             <label class="form-label">Teléfono</label>
                             <input id="telefonoCliente" class="form-control">
+                        </div>
+
+                        <div id="clienteConsentInfo" class="small border rounded p-2 mb-2 d-none"></div>
+
+                        <div id="manualConsentContainer" class="form-check mb-3 d-none">
+                            <input class="form-check-input" type="checkbox" id="whatsAppConsentAtCreation">
+                            <input type="hidden" id="whatsAppConsentCapturedAtUtc">
+                            <label class="form-check-label" for="whatsAppConsentAtCreation">
+                                El cliente autorizó recibir mensajes de WhatsApp enviados por LuxuryCloud en nombre de este negocio para confirmaciones, cancelaciones y recordatorios de esta cita. No se usará para promociones.
+                            </label>
                         </div>
 
                             <div class="mb-3">
@@ -262,6 +277,7 @@
                                        aria-autocomplete="list"
                                        aria-expanded="false"
                                        aria-controls="editSugerenciasClientes">
+                                <input type="hidden" id="editNombreClienteClienteId">
                                 <div id="editSugerenciasClientes"
                                      class="cliente-autocomplete-dropdown d-none"
                                      role="listbox"></div>
@@ -271,6 +287,16 @@
                         <div class="mb-2">
                             <label>Teléfono</label>
                             <input class="form-control" id="editTelefonoCliente">
+                        </div>
+
+                        <div id="editClienteConsentInfo" class="small border rounded p-2 mb-2 d-none"></div>
+
+                        <div id="editManualConsentContainer" class="form-check mb-2 d-none">
+                            <input class="form-check-input" type="checkbox" id="editWhatsAppConsentAtCreation">
+                            <input type="hidden" id="editWhatsAppConsentCapturedAtUtc">
+                            <label class="form-check-label" for="editWhatsAppConsentAtCreation">
+                                El cliente autorizó recibir mensajes de WhatsApp enviados por LuxuryCloud en nombre de este negocio para confirmaciones, cancelaciones y recordatorios de esta cita. No se usará para promociones.
+                            </label>
                         </div>
 
                         <div id="editWhatsAppStatus" class="small text-muted border rounded p-2 mb-2 d-none"></div>
@@ -334,5 +360,10 @@
 
 
 @section Scripts {
+    <script>
+        window.LUXURY_CALENDAR_CONFIG = Object.assign({}, window.LUXURY_CALENDAR_CONFIG, {
+            tenantWhatsAppEnabled: @(tenantWhatsAppEnabled ? "true" : "false")
+        });
+    </script>
     <script src="~/js/calendar.js"></script>
 }

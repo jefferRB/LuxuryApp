@@ -348,6 +348,56 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.False(httpContext.Response.Headers.ContainsKey("Location"));
         }
 
+        [Fact]
+        public async Task SuscripcionMiddleware_ShouldAllowPublicPrivacyRouteWithoutCommercialGate()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = "Tenant publico",
+                Activo = true
+            });
+
+            context.Users.Add(new AppUsuario
+            {
+                Id = "user-public-privacy",
+                UserName = "user-public-privacy@test.local",
+                NormalizedUserName = "USER-PUBLIC-PRIVACY@TEST.LOCAL",
+                Email = "user-public-privacy@test.local",
+                NormalizedEmail = "USER-PUBLIC-PRIVACY@TEST.LOCAL",
+                TenantId = tenantId,
+                State = true,
+                SecurityStamp = Guid.NewGuid().ToString("N")
+            });
+
+            await context.SaveChangesAsync();
+
+            var nextCalled = false;
+            var httpContext = new DefaultHttpContext();
+            httpContext.Request.Path = "/privacidad";
+            httpContext.User = BuildPrincipal(userId: "user-public-privacy", tenantId);
+
+            var middleware = new SuscripcionMiddleware(
+                _ =>
+                {
+                    nextCalled = true;
+                    return Task.CompletedTask;
+                },
+                NullLogger<SuscripcionMiddleware>.Instance);
+
+            await middleware.Invoke(httpContext, context, CreateResolver(context));
+
+            Assert.True(nextCalled);
+            Assert.False(httpContext.Response.Headers.ContainsKey("Location"));
+            Assert.False(httpContext.Items.ContainsKey("TenantCommercialAccess"));
+        }
+
         private static ClaimsPrincipal BuildPrincipal(string userId, Guid tenantId, bool isPlatformSuperAdmin = false)
         {
             var claims = new List<Claim>

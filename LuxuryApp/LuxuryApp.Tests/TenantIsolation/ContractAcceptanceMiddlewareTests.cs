@@ -66,6 +66,34 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Same(status, httpContext.Items["ContractAcceptanceStatus"]);
         }
 
+        [Fact]
+        public async Task Invoke_ShouldAllowPublicPrivacyRouteWithoutContractGate()
+        {
+            var nextCalled = false;
+            var status = BuildStatus(hasAcceptedCurrentVersion: false);
+            var middleware = new ContractAcceptanceMiddleware(
+                _ =>
+                {
+                    nextCalled = true;
+                    return Task.CompletedTask;
+                },
+                NullLogger<ContractAcceptanceMiddleware>.Instance);
+
+            var httpContext = new DefaultHttpContext();
+            httpContext.Request.Path = "/privacidad";
+            httpContext.User = new ClaimsPrincipal(
+                new ClaimsIdentity(
+                    new[] { new Claim(ClaimTypes.NameIdentifier, "user-privacy") },
+                    "TestAuth"));
+
+            await middleware.Invoke(httpContext, new StubContractService(status));
+
+            Assert.True(nextCalled);
+            Assert.Equal(StatusCodes.Status200OK, httpContext.Response.StatusCode);
+            Assert.Equal(string.Empty, httpContext.Response.Headers.Location.ToString());
+            Assert.False(httpContext.Items.ContainsKey("ContractAcceptanceStatus"));
+        }
+
         private static ContractAcceptanceStatus BuildStatus(bool hasAcceptedCurrentVersion)
         {
             var contentHtml = "<section><h2>Contrato</h2><p>Contenido vigente.</p></section>";

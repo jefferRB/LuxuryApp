@@ -1,5 +1,9 @@
 ﻿@model LuxuryApp.Models.DataBase.ClientesModel
 
+@{
+    var tenantWhatsAppEnabled = ViewData["TenantWhatsAppEnabled"] as bool? == true;
+}
+
 <div class="card border-0 shadow-lg">
     <div class="card-header bg-dark text-white py-3">
         <h5 class="m-0">
@@ -22,6 +26,16 @@
                 <input asp-for="NumeroTelefono" class="form-control" placeholder="Ejemplo: 88889999" />
                 <span asp-validation-for="NumeroTelefono" class="text-danger"></span>
             </div>
+
+            @if (tenantWhatsAppEnabled)
+            {
+                <div class="form-check mb-3">
+                    <input asp-for="AceptaMensajesWhatsApp" class="form-check-input" />
+                    <label asp-for="AceptaMensajesWhatsApp" class="form-check-label">
+                        El cliente autorizó recibir mensajes de WhatsApp enviados por LuxuryCloud en nombre de este negocio para confirmaciones, cancelaciones y recordatorios de citas. No se usará para promociones.
+                    </label>
+                </div>
+            }
 
             <div class="mb-3">
                 <label asp-for="CorreoElectronico" class="form-label">Correo Electrónico (opcional)</label>

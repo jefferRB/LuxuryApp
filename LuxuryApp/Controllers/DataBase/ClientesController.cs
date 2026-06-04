@@ -1,6 +1,9 @@
 using System.Linq.Expressions;
+using System.Security.Claims;
 using LuxuryApp.Models.DataBase;
+using LuxuryApp.Models.WhatsApp;
 using LuxuryApp.Services.BusinessTime;
+using LuxuryApp.Services.WhatsApp;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +19,7 @@ namespace LuxuryApp.Controllers.DataBase
         private const int BuscarNombreMaxResults = 50;
         private const int AutocompleteMinLength = 3;
         private const int AutocompleteMaxResults = 10;
+        private const string TenantWhatsAppEnabledViewDataKey = "TenantWhatsAppEnabled";
 
         private static readonly Expression<Func<ClientesModel, ClienteSummaryViewModel>> ClienteSummaryProjection = cliente =>
             new ClienteSummaryViewModel
@@ -38,15 +42,18 @@ namespace LuxuryApp.Controllers.DataBase
 
         private readonly ApplicationDbContext _context;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
+        private readonly ITenantWhatsAppFeatureService _tenantWhatsAppFeatureService;
         private readonly ILogger<ClientesController> _logger;
 
         public ClientesController(
             ApplicationDbContext context,
             IBusinessDateTimeProvider businessDateTimeProvider,
+            ITenantWhatsAppFeatureService tenantWhatsAppFeatureService,
             ILogger<ClientesController> logger)
         {
             _context = context;
             _businessDateTimeProvider = businessDateTimeProvider;
+            _tenantWhatsAppFeatureService = tenantWhatsAppFeatureService;
             _logger = logger;
         }
 
@@ -78,7 +85,7 @@ namespace LuxuryApp.Controllers.DataBase
         }
 
         [HttpGet]
-        public IActionResult Create()
+        public async Task<IActionResult> Create(CancellationToken cancellationToken)
         {
             var cliente = new ClientesModel
             {
@@ -86,6 +93,7 @@ namespace LuxuryApp.Controllers.DataBase
                 FrecuenciaVisita = 30
             };
 
+            await SetTenantWhatsAppEnabledViewDataAsync(cancellationToken);
             return View(cliente);
         }
 
@@ -98,10 +106,21 @@ namespace LuxuryApp.Controllers.DataBase
                 nameof(ClientesModel.Nombre) + "," +
                 nameof(ClientesModel.FrecuenciaVisita) + "," +
                 nameof(ClientesModel.FechaUltimaVisita) + "," +
-                nameof(ClientesModel.FechaCumpleaños))]
+                nameof(ClientesModel.FechaCumpleaños) + "," +
+                nameof(ClientesModel.AceptaMensajesWhatsApp))]
             ClientesModel cliente)
         {
             NormalizeCliente(cliente);
+            var tenantWhatsAppEnabled = await SetTenantWhatsAppEnabledViewDataAsync();
+
+            if (tenantWhatsAppEnabled)
+            {
+                ApplyConsentAudit(cliente);
+            }
+            else
+            {
+                cliente.AceptaMensajesWhatsApp = false;
+            }
 
             await ValidateTelefonoDisponibleAsync(cliente.NumeroTelefono);
 
@@ -245,6 +264,11 @@ namespace LuxuryApp.Controllers.DataBase
                     Nombre = c.Nombre,
                     NumeroTelefono = c.NumeroTelefono,
                     CorreoElectronico = c.CorreoElectronico,
+                    AceptaMensajesWhatsApp = c.AceptaMensajesWhatsApp,
+                    WhatsAppConsentUpdatedAtUtc = c.WhatsAppConsentUpdatedAtUtc,
+                    WhatsAppConsentSource = c.WhatsAppConsentSource,
+                    WhatsAppConsentCapturedByUserId = c.WhatsAppConsentCapturedByUserId,
+                    WhatsAppConsentTextVersion = c.WhatsAppConsentTextVersion,
                     FechaCumpleaños = c.FechaCumpleaños,
                     FrecuenciaVisita = c.FrecuenciaVisita,
                     FechaUltimaVisita = c.FechaUltimaVisita
@@ -256,6 +280,7 @@ namespace LuxuryApp.Controllers.DataBase
                 return NotFound();
             }
 
+            await SetTenantWhatsAppEnabledViewDataAsync();
             return View(cliente);
         }
 
@@ -269,10 +294,12 @@ namespace LuxuryApp.Controllers.DataBase
                 nameof(ClientesModel.Nombre) + "," +
                 nameof(ClientesModel.FrecuenciaVisita) + "," +
                 nameof(ClientesModel.FechaUltimaVisita) + "," +
-                nameof(ClientesModel.FechaCumpleaños))]
+                nameof(ClientesModel.FechaCumpleaños) + "," +
+                nameof(ClientesModel.AceptaMensajesWhatsApp))]
             ClientesModel cliente)
         {
             NormalizeCliente(cliente);
+            var tenantWhatsAppEnabled = await SetTenantWhatsAppEnabledViewDataAsync();
 
             await ValidateTelefonoDisponibleAsync(cliente.NumeroTelefono, cliente.Id);
 
@@ -304,13 +331,24 @@ namespace LuxuryApp.Controllers.DataBase
                         cliente.NumeroTelefono,
                         StringComparison.Ordinal);
                     var cambioFechaVisita = clienteExistente.FechaUltimaVisita != cliente.FechaUltimaVisita;
+                    var cambioConsentimiento = tenantWhatsAppEnabled &&
+                        clienteExistente.AceptaMensajesWhatsApp != cliente.AceptaMensajesWhatsApp;
 
                     clienteExistente.Nombre = cliente.Nombre;
                     clienteExistente.NumeroTelefono = cliente.NumeroTelefono;
                     clienteExistente.CorreoElectronico = cliente.CorreoElectronico;
+                    if (tenantWhatsAppEnabled)
+                    {
+                        clienteExistente.AceptaMensajesWhatsApp = cliente.AceptaMensajesWhatsApp;
+                    }
                     clienteExistente.FechaCumpleaños = cliente.FechaCumpleaños;
                     clienteExistente.FrecuenciaVisita = cliente.FrecuenciaVisita;
                     clienteExistente.FechaUltimaVisita = cliente.FechaUltimaVisita;
+
+                    if (cambioConsentimiento)
+                    {
+                        ApplyConsentAudit(clienteExistente);
+                    }
 
                     if (cambioTelefono)
                     {
@@ -581,6 +619,7 @@ namespace LuxuryApp.Controllers.DataBase
             }
 
             var esBusquedaTelefonica = LooksLikePhoneFragment(term);
+            var tenantWhatsAppEnabled = await _tenantWhatsAppFeatureService.IsWhatsAppEnabledForCurrentTenantAsync();
             var clientesQuery = _context.Clientes.AsNoTracking();
             var normalizedPhoneTerm = NormalizePhoneForComparison(term);
 
@@ -607,7 +646,8 @@ namespace LuxuryApp.Controllers.DataBase
                 {
                     id = c.Id,
                     nombre = c.Nombre,
-                    telefono = c.NumeroTelefono
+                    telefono = c.NumeroTelefono,
+                    aceptaMensajesWhatsApp = tenantWhatsAppEnabled && c.AceptaMensajesWhatsApp
                 })
                 .ToListAsync();
 
@@ -697,6 +737,24 @@ namespace LuxuryApp.Controllers.DataBase
             cliente.Nombre = NormalizeRequiredString(cliente.Nombre);
             cliente.NumeroTelefono = NormalizeRequiredString(cliente.NumeroTelefono);
             cliente.CorreoElectronico = NormalizeOptionalString(cliente.CorreoElectronico);
+        }
+
+        private void ApplyConsentAudit(ClientesModel cliente)
+        {
+            cliente.WhatsAppConsentUpdatedAtUtc = DateTime.UtcNow;
+            cliente.WhatsAppConsentSource = WhatsAppConsentSources.ClienteForm;
+            cliente.WhatsAppConsentTextVersion = WhatsAppConsentTextVersions.WaOptInV1;
+            cliente.WhatsAppConsentCapturedByUserId = ResolveCurrentUserId();
+        }
+
+        private string? ResolveCurrentUserId() =>
+            User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+        private async Task<bool> SetTenantWhatsAppEnabledViewDataAsync(CancellationToken cancellationToken = default)
+        {
+            var isEnabled = await _tenantWhatsAppFeatureService.IsWhatsAppEnabledForCurrentTenantAsync(cancellationToken);
+            ViewData[TenantWhatsAppEnabledViewDataKey] = isEnabled;
+            return isEnabled;
         }
 
         private static int NormalizePageNumber(int pageNumber, int totalPages)

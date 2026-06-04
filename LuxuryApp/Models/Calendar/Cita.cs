@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using LuxuryApp.Models.Common;
+using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.WhatsApp;
@@ -17,6 +18,10 @@ namespace LuxuryApp.Models.Calendar
 
         [MaxLength(20)]
         public string? TelefonoCliente { get; set; }
+
+        public int? ClienteId { get; set; }
+
+        public ClientesModel? Cliente { get; set; }
 
         public int? ServicioId { get; set; }
         public Servicio? Servicio { get; set; }
@@ -48,6 +53,13 @@ namespace LuxuryApp.Models.Calendar
         public string? UltimoMetaMessageId { get; set; }
 
         public DateTime? UltimaRespuestaWhatsAppUtc { get; set; }
+
+        public bool WhatsAppConsentAtCreation { get; set; }
+
+        [MaxLength(80)]
+        public string? WhatsAppConsentSource { get; set; }
+
+        public DateTime? WhatsAppConsentCapturedAtUtc { get; set; }
 
         // 🔥 FK
         public int FuncionarioId { get; set; }

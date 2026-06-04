@@ -22,11 +22,7 @@ namespace LuxuryApp.Middleware
         {
             var path = (context.Request.Path.Value ?? string.Empty).ToLowerInvariant();
 
-            if (path.StartsWith("/accounts") ||
-                path.StartsWith("/home") ||
-                path.StartsWith("/error") ||
-                path.StartsWith("/contract") ||
-                path.StartsWith("/api/webhooks/meta-whatsapp"))
+            if (IsPublicPath(path))
             {
                 await _next(context);
                 return;
@@ -65,6 +61,22 @@ namespace LuxuryApp.Middleware
         {
             var currentPath = $"{context.Request.PathBase}{context.Request.Path}{context.Request.QueryString}";
             return QueryString.Create("returnurl", currentPath).ToString();
+        }
+
+        private static bool IsPublicPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || path == "/")
+            {
+                return true;
+            }
+
+            return path.StartsWith("/accounts") ||
+                path.StartsWith("/home") ||
+                path.StartsWith("/privacidad") ||
+                path.StartsWith("/error") ||
+                path.StartsWith("/contract") ||
+                path.StartsWith("/billing") ||
+                path.StartsWith("/api/webhooks/meta-whatsapp");
         }
     }
 }
