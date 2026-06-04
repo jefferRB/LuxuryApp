@@ -73,6 +73,7 @@ namespace LuxuryApp.Middleware
             return path.StartsWith("/accounts") ||
                 path.StartsWith("/home") ||
                 path.StartsWith("/privacidad") ||
+                path.StartsWith("/eliminacion-datos") ||
                 path.StartsWith("/error") ||
                 path.StartsWith("/contract") ||
                 path.StartsWith("/billing") ||

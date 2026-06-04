@@ -348,8 +348,11 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.False(httpContext.Response.Headers.ContainsKey("Location"));
         }
 
-        [Fact]
-        public async Task SuscripcionMiddleware_ShouldAllowPublicPrivacyRouteWithoutCommercialGate()
+        [Theory]
+        [InlineData("/privacidad")]
+        [InlineData("/Contract")]
+        [InlineData("/eliminacion-datos")]
+        public async Task SuscripcionMiddleware_ShouldAllowPublicLegalRoutesWithoutCommercialGate(string path)
         {
             var tenantId = Guid.NewGuid();
             var tenantProvider = new TestTenantProvider { TenantId = tenantId };
@@ -380,7 +383,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var nextCalled = false;
             var httpContext = new DefaultHttpContext();
-            httpContext.Request.Path = "/privacidad";
+            httpContext.Request.Path = path;
             httpContext.User = BuildPrincipal(userId: "user-public-privacy", tenantId);
 
             var middleware = new SuscripcionMiddleware(

@@ -136,6 +136,7 @@ public class SuscripcionMiddleware
         return path.StartsWith("/accounts") ||
             path.StartsWith("/home") ||
             path.StartsWith("/privacidad") ||
+            path.StartsWith("/eliminacion-datos") ||
             path.StartsWith("/contract") ||
             path.StartsWith("/error") ||
             path.StartsWith("/billing") ||

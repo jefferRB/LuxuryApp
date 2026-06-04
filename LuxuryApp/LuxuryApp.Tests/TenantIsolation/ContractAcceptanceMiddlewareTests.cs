@@ -66,8 +66,11 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Same(status, httpContext.Items["ContractAcceptanceStatus"]);
         }
 
-        [Fact]
-        public async Task Invoke_ShouldAllowPublicPrivacyRouteWithoutContractGate()
+        [Theory]
+        [InlineData("/privacidad")]
+        [InlineData("/Contract")]
+        [InlineData("/eliminacion-datos")]
+        public async Task Invoke_ShouldAllowPublicLegalRoutesWithoutContractGate(string path)
         {
             var nextCalled = false;
             var status = BuildStatus(hasAcceptedCurrentVersion: false);
@@ -80,7 +83,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 NullLogger<ContractAcceptanceMiddleware>.Instance);
 
             var httpContext = new DefaultHttpContext();
-            httpContext.Request.Path = "/privacidad";
+            httpContext.Request.Path = path;
             httpContext.User = new ClaimsPrincipal(
                 new ClaimsIdentity(
                     new[] { new Claim(ClaimTypes.NameIdentifier, "user-privacy") },

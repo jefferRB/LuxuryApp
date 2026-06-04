@@ -41,7 +41,16 @@ namespace LuxuryApp.Controllers
 
         [AllowAnonymous]
         [HttpGet("/privacidad")]
+        [HttpHead("/privacidad")]
         public IActionResult Privacy()
+        {
+            return View();
+        }
+
+        [AllowAnonymous]
+        [HttpGet("/eliminacion-datos")]
+        [HttpHead("/eliminacion-datos")]
+        public IActionResult DataDeletion()
         {
             return View();
         }

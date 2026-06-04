@@ -2,6 +2,7 @@ using LuxuryApp.Controllers;
 using LuxuryApp.Models.Marketing;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.PublicSite;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -19,6 +20,66 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             Assert.NotNull(attribute);
             Assert.Equal("/privacidad", attribute!.Template);
+        }
+
+        [Fact]
+        public void Privacy_ShouldDeclareCanonicalPrivacidadHeadRoute()
+        {
+            var method = typeof(HomeController).GetMethod(nameof(HomeController.Privacy));
+
+            var attribute = Assert.Single(method!.GetCustomAttributes(typeof(HttpHeadAttribute), inherit: false))
+                as HttpHeadAttribute;
+
+            Assert.NotNull(attribute);
+            Assert.Equal("/privacidad", attribute!.Template);
+        }
+
+        [Fact]
+        public void Privacy_ShouldAllowAnonymous()
+        {
+            var method = typeof(HomeController).GetMethod(nameof(HomeController.Privacy));
+
+            var attribute = method!.GetCustomAttributes(typeof(AllowAnonymousAttribute), inherit: false)
+                .OfType<AllowAnonymousAttribute>()
+                .SingleOrDefault();
+
+            Assert.NotNull(attribute);
+        }
+
+        [Fact]
+        public void DataDeletion_ShouldDeclareCanonicalRoute()
+        {
+            var method = typeof(HomeController).GetMethod(nameof(HomeController.DataDeletion));
+
+            var attribute = Assert.Single(method!.GetCustomAttributes(typeof(HttpGetAttribute), inherit: false))
+                as HttpGetAttribute;
+
+            Assert.NotNull(attribute);
+            Assert.Equal("/eliminacion-datos", attribute!.Template);
+        }
+
+        [Fact]
+        public void DataDeletion_ShouldDeclareCanonicalHeadRoute()
+        {
+            var method = typeof(HomeController).GetMethod(nameof(HomeController.DataDeletion));
+
+            var attribute = Assert.Single(method!.GetCustomAttributes(typeof(HttpHeadAttribute), inherit: false))
+                as HttpHeadAttribute;
+
+            Assert.NotNull(attribute);
+            Assert.Equal("/eliminacion-datos", attribute!.Template);
+        }
+
+        [Fact]
+        public void DataDeletion_ShouldAllowAnonymous()
+        {
+            var method = typeof(HomeController).GetMethod(nameof(HomeController.DataDeletion));
+
+            var attribute = method!.GetCustomAttributes(typeof(AllowAnonymousAttribute), inherit: false)
+                .OfType<AllowAnonymousAttribute>()
+                .SingleOrDefault();
+
+            Assert.NotNull(attribute);
         }
 
         [Fact]

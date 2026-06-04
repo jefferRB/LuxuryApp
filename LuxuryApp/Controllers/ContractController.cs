@@ -16,6 +16,7 @@ namespace LuxuryApp.Controllers
         }
 
         [HttpGet]
+        [HttpHead]
         [AllowAnonymous]
         public async Task<IActionResult> Index(CancellationToken cancellationToken)
         {
