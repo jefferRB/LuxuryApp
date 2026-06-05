@@ -1,8 +1,12 @@
 using LuxuryApp.Models.WhatsApp;
+using LuxuryApp.Models.SaaS;
+using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.WhatsApp;
 using LuxuryApp.Tests.Support;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace LuxuryApp.Tests.TenantIsolation
 {
@@ -37,6 +41,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var service = CreateService(context, tenantProvider);
 
             await SeedTenantAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId);
             await service.UpdateSettingsAsync(
                 tenantId,
                 new TenantWhatsAppSettingsUpdateDto
@@ -61,6 +66,32 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(WhatsAppErrorCodes.DailyLimitExceeded, decision.ErrorCode);
             Assert.Equal(1, decision.TodayUsage);
             Assert.Equal(1, decision.DailyMessageLimit);
+        }
+
+        [Fact]
+        public async Task CanSendNotificationAsync_WithoutActiveAddon_ShouldDenyWithSubscriptionRequired()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedTenantAsync(context, tenantId);
+            await service.UpdateSettingsAsync(
+                tenantId,
+                new TenantWhatsAppSettingsUpdateDto
+                {
+                    IsEnabled = true,
+                    DailyMessageLimit = 10
+                },
+                "platform-user");
+
+            var decision = await service.CanSendNotificationAsync(tenantId, WhatsAppNotificationTypes.Confirmation);
+
+            Assert.False(decision.CanSend);
+            Assert.Equal(WhatsAppErrorCodes.SubscriptionRequired, decision.ErrorCode);
         }
 
         [Fact]
@@ -106,12 +137,25 @@ namespace LuxuryApp.Tests.TenantIsolation
 
         private static TenantWhatsAppSettingsService CreateService(
             ProyectoIdentity.Datos.ApplicationDbContext context,
-            TestTenantProvider tenantProvider) =>
-            new(
+            TestTenantProvider tenantProvider)
+        {
+            var cache = new MemoryCache(new MemoryCacheOptions());
+            var accessCache = new TenantCommercialAccessCache(cache);
+            var subscriptionService = new SuscripcionService(
+                context,
+                cache,
+                accessCache,
+                new FixedBusinessDateTimeProvider(),
+                Options.Create(new TilopayRepeatOptions()),
+                NullLogger<SuscripcionService>.Instance);
+
+            return new TenantWhatsAppSettingsService(
                 context,
                 tenantProvider,
                 new StaticOptionsMonitor<MetaWhatsAppOptions>(new MetaWhatsAppOptions { Enabled = true }),
+                subscriptionService,
                 NullLogger<TenantWhatsAppSettingsService>.Instance);
+        }
 
         private static WhatsAppMessageLog CreateLog(string direction, string notificationType, string status) =>
             new()
@@ -131,6 +175,39 @@ namespace LuxuryApp.Tests.TenantIsolation
                 Id = tenantId,
                 Nombre = "Tenant WhatsApp"
             });
+            await context.SaveChangesAsync();
+        }
+
+        private static async Task SeedActiveAddonAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            Guid tenantId)
+        {
+            var planId = Guid.NewGuid();
+            context.Planes.Add(new Plan
+            {
+                Id = planId,
+                Codigo = PlanCodes.WhatsApp400,
+                Nombre = "WhatsApp 400",
+                Moneda = "CRC",
+                PrecioMensual = 6000m,
+                LimiteMensajesMensual = 400,
+                Activo = true
+            });
+
+            context.TenantSubscriptionAddons.Add(new TenantSubscriptionAddon
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                PlanId = planId,
+                AddonCode = PlanCodes.WhatsApp400,
+                Estado = EstadoSuscripcion.Activa,
+                MonthlyMessageLimit = 400,
+                FechaInicio = DateTime.UtcNow.AddDays(-1),
+                FechaFin = DateTime.UtcNow.AddDays(29),
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+
             await context.SaveChangesAsync();
         }
     }

@@ -9,6 +9,10 @@ namespace LuxuryApp.Services.PublicSite
         IReadOnlyCollection<MarketingModuleViewModel> GetModules();
         Task<IReadOnlyCollection<MarketingPlanCardViewModel>> GetPlanCardsAsync(
             CancellationToken cancellationToken = default);
+        Task<IReadOnlyCollection<MarketingPlanCardViewModel>> GetWhatsAppAddonCardsAsync(
+            CancellationToken cancellationToken = default);
+        Task<IReadOnlyCollection<MarketingPlanCardViewModel>> GetInternalPlanCardsAsync(
+            CancellationToken cancellationToken = default);
         Task<Plan?> FindAvailablePlanAsync(Guid planId, CancellationToken cancellationToken = default);
         Task<string?> GetPlanNameAsync(Guid? planId, CancellationToken cancellationToken = default);
     }

@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace LuxuryApp.Tests.TenantIsolation
 {
@@ -421,10 +422,21 @@ namespace LuxuryApp.Tests.TenantIsolation
         private static ITenantCommercialAccessResolver CreateResolver(ProyectoIdentity.Datos.ApplicationDbContext context)
         {
             var cache = new MemoryCache(new MemoryCacheOptions());
+            var accessCache = new TenantCommercialAccessCache(cache);
+            var subscriptionService = new SuscripcionService(
+                context,
+                cache,
+                accessCache,
+                new FixedBusinessDateTimeProvider(),
+                Options.Create(new TilopayRepeatOptions()),
+                NullLogger<SuscripcionService>.Instance);
+
             return new TenantCommercialAccessResolver(
                 context,
                 cache,
-                new TenantCommercialAccessCache(cache));
+                accessCache,
+                subscriptionService,
+                new FixedBusinessDateTimeProvider());
         }
 
         private sealed class FakeAuthenticationService : IAuthenticationService

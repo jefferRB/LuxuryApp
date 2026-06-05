@@ -264,7 +264,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var redirect = Assert.IsType<RedirectToActionResult>(result);
             Assert.Equal(nameof(FuncionariosController.Index), redirect.ActionName);
             Assert.Equal(
-                "Has alcanzado el limite de funcionarios activos de tu plan (Full).",
+                "Tu plan actual permite hasta 1 funcionarios. Para agregar mas, actualiza tu plan.",
                 controller.TempData["Error"]);
 
             var persisted = await context.Funcionarios

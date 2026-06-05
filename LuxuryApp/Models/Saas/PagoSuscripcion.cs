@@ -29,6 +29,14 @@ namespace LuxuryApp.Models.SaaS
         [MaxLength(100)]
         public string? ProviderReference { get; set; }
 
+        public int? TilopayRecurringPlanId { get; set; }
+
+        [MaxLength(100)]
+        public string? ProviderSubscriberId { get; set; }
+
+        [MaxLength(100)]
+        public string? CorrelationToken { get; set; }
+
         [MaxLength(50)]
         public string? ProviderResultCode { get; set; }
 

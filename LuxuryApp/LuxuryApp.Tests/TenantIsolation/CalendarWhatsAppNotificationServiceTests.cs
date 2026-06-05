@@ -3,12 +3,15 @@ using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Models.WhatsApp;
 using LuxuryApp.Services.Calendar;
+using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Services.WhatsApp;
 using LuxuryApp.Tests.Support;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using System.Net;
 
 namespace LuxuryApp.Tests.TenantIsolation
@@ -338,10 +341,20 @@ namespace LuxuryApp.Tests.TenantIsolation
                 var tenantProvider = new TestTenantProvider { TenantId = tenantId };
                 var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
                 var options = new StaticOptionsMonitor<MetaWhatsAppOptions>(new MetaWhatsAppOptions { Enabled = true });
+                var cache = new MemoryCache(new MemoryCacheOptions());
+                var accessCache = new TenantCommercialAccessCache(cache);
+                var subscriptionService = new SuscripcionService(
+                    context,
+                    cache,
+                    accessCache,
+                    new FixedBusinessDateTimeProvider(),
+                    Options.Create(new TilopayRepeatOptions()),
+                    NullLogger<SuscripcionService>.Instance);
                 var settings = new TenantWhatsAppSettingsService(
                     context,
                     tenantProvider,
                     options,
+                    subscriptionService,
                     NullLogger<TenantWhatsAppSettingsService>.Instance);
                 var serviceProvider = new ServiceCollection().BuildServiceProvider();
                 var tenantExecution = new TenantExecutionService(
@@ -359,6 +372,30 @@ namespace LuxuryApp.Tests.TenantIsolation
                     NullLogger<CalendarWhatsAppNotificationService>.Instance);
 
                 context.Tenants.Add(new Tenant { Id = tenantId, Nombre = "Tenant WhatsApp" });
+                var addOnPlanId = Guid.NewGuid();
+                context.Planes.Add(new Plan
+                {
+                    Id = addOnPlanId,
+                    Codigo = PlanCodes.WhatsApp400,
+                    Nombre = "WhatsApp 400",
+                    Moneda = "CRC",
+                    PrecioMensual = 6000m,
+                    LimiteMensajesMensual = 400,
+                    Activo = true
+                });
+                context.TenantSubscriptionAddons.Add(new TenantSubscriptionAddon
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = tenantId,
+                    PlanId = addOnPlanId,
+                    AddonCode = PlanCodes.WhatsApp400,
+                    Estado = EstadoSuscripcion.Activa,
+                    MonthlyMessageLimit = 400,
+                    FechaInicio = DateTime.UtcNow.AddDays(-1),
+                    FechaFin = DateTime.UtcNow.AddDays(29),
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                });
                 await context.SaveChangesAsync();
 
                 return new Fixture(tenantId, tenantProvider, context, connection, settings, metaClient, notifications, serviceProvider);

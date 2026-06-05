@@ -6,6 +6,7 @@ using LuxuryApp.Services.SaaS;
 using LuxuryApp.Tests.Support;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace LuxuryApp.Tests.TenantIsolation
 {
@@ -365,11 +366,27 @@ namespace LuxuryApp.Tests.TenantIsolation
             var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
             var cache = new MemoryCache(new MemoryCacheOptions());
             var accessCache = new TenantCommercialAccessCache(cache);
+            var businessNow = DateTime.SpecifyKind(
+                DateTime.UtcNow.AddHours(-6).AddMinutes(1),
+                DateTimeKind.Unspecified);
+            var businessDateTimeProvider = new FixedBusinessDateTimeProvider(businessNow);
+            var subscriptionService = new SuscripcionService(
+                context,
+                cache,
+                accessCache,
+                businessDateTimeProvider,
+                Options.Create(new TilopayRepeatOptions()),
+                NullLogger<SuscripcionService>.Instance);
 
             return (
                 context,
                 connection,
-                new TenantCommercialAccessResolver(context, cache, accessCache),
+                new TenantCommercialAccessResolver(
+                    context,
+                    cache,
+                    accessCache,
+                    subscriptionService,
+                    businessDateTimeProvider),
                 new PromotionalCodeService(context, accessCache));
         }
 

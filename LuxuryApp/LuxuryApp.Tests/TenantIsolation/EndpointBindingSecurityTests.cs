@@ -305,7 +305,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             {
                 NombreCliente = "Cliente Privado",
                 FuncionarioId = foreignFuncionario.IdFuncionario,
-                FechaCobro = DateTime.Today,
+                FechaCobro = ControllerTestSupport.BusinessDateTimeProvider.Today(),
                 Monto = 1250,
                 MetodoPago = "EFECTIVO"
             });
@@ -338,7 +338,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             {
                 NombreCliente = "Cliente Visible",
                 FuncionarioId = currentFuncionario.IdFuncionario,
-                FechaCobro = DateTime.Today,
+                FechaCobro = ControllerTestSupport.BusinessDateTimeProvider.Today(),
                 Monto = 1500,
                 MetodoPago = "SINPE"
             });
@@ -386,7 +386,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             context.Egresos.Add(new Egreso
             {
                 CategoriaId = foreignCategoryId,
-                FechaEgreso = DateTime.Today,
+                FechaEgreso = ControllerTestSupport.BusinessDateTimeProvider.Today(),
                 Detalle = "Egreso Privado",
                 Monto = 500,
                 MetodoPago = "EFECTIVO"
@@ -407,7 +407,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             context.Egresos.Add(new Egreso
             {
                 CategoriaId = currentCategoryId,
-                FechaEgreso = DateTime.Today,
+                FechaEgreso = ControllerTestSupport.BusinessDateTimeProvider.Today(),
                 Detalle = "Egreso Visible",
                 Monto = 750,
                 MetodoPago = "TARJETA"

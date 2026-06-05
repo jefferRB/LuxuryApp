@@ -11,13 +11,16 @@ namespace LuxuryApp.Services.PublicSite
     {
         private readonly ApplicationDbContext _context;
         private readonly OpcionesPago _paymentOptions;
+        private readonly TilopayRepeatOptions _tilopayRepeatOptions;
 
         public PublicSiteContentService(
             ApplicationDbContext context,
-            IOptions<OpcionesPago> paymentOptions)
+            IOptions<OpcionesPago> paymentOptions,
+            IOptions<TilopayRepeatOptions> tilopayRepeatOptions)
         {
             _context = context;
             _paymentOptions = paymentOptions.Value;
+            _tilopayRepeatOptions = tilopayRepeatOptions.Value;
         }
 
         public IReadOnlyCollection<MarketingMetricViewModel> GetHeroMetrics() =>
@@ -154,22 +157,45 @@ namespace LuxuryApp.Services.PublicSite
         ];
 
         public async Task<IReadOnlyCollection<MarketingPlanCardViewModel>> GetPlanCardsAsync(
+        CancellationToken cancellationToken = default)
+        {
+            var plans = await LoadAvailablePlansAsync(cancellationToken);
+            return plans
+                .Where(IsPublicBasePlan)
+                .OrderBy(plan => plan.PrecioMensual)
+                .Select(MapPlanCard)
+                .ToArray();
+        }
+
+        public async Task<IReadOnlyCollection<MarketingPlanCardViewModel>> GetWhatsAppAddonCardsAsync(
             CancellationToken cancellationToken = default)
         {
-            var plans = await BuildAvailablePlansQuery()
-                .AsNoTracking()
-                .Include(plan => plan.PlanFeatures)
-                    .ThenInclude(planFeature => planFeature.Feature)
+            var plans = await LoadAvailablePlansAsync(cancellationToken);
+            return plans
+                .Where(IsPublicAddonPlan)
                 .OrderBy(plan => plan.PrecioMensual)
-                .ToListAsync(cancellationToken);
+                .Select(MapPlanCard)
+                .ToArray();
+        }
 
-            return plans.Select(MapPlanCard).ToArray();
+        public async Task<IReadOnlyCollection<MarketingPlanCardViewModel>> GetInternalPlanCardsAsync(
+            CancellationToken cancellationToken = default)
+        {
+            if (!_tilopayRepeatOptions.EnableTestRecurringPlan)
+            {
+                return Array.Empty<MarketingPlanCardViewModel>();
+            }
+
+            var plans = await LoadAvailablePlansAsync(cancellationToken);
+            return plans
+                .Where(IsInternalPlan)
+                .OrderBy(plan => plan.PrecioMensual)
+                .Select(MapPlanCard)
+                .ToArray();
         }
 
         public Task<Plan?> FindAvailablePlanAsync(Guid planId, CancellationToken cancellationToken = default) =>
-            BuildAvailablePlansQuery()
-                .AsNoTracking()
-                .FirstOrDefaultAsync(plan => plan.Id == planId, cancellationToken);
+            FindAvailablePlanCoreAsync(planId, cancellationToken);
 
         public async Task<string?> GetPlanNameAsync(Guid? planId, CancellationToken cancellationToken = default)
         {
@@ -178,17 +204,29 @@ namespace LuxuryApp.Services.PublicSite
                 return null;
             }
 
-            return await BuildAvailablePlansQuery()
-                .AsNoTracking()
-                .Where(plan => plan.Id == planId.Value)
-                .Select(plan => plan.Nombre)
-                .FirstOrDefaultAsync(cancellationToken);
+            var plan = await FindAvailablePlanCoreAsync(planId.Value, cancellationToken);
+            return plan?.Nombre;
         }
 
         private IQueryable<Plan> BuildAvailablePlansQuery() =>
             _context.Planes.Where(plan =>
                 plan.Activo &&
                 (!plan.EsPlanValidacion || _paymentOptions.EnableValidationPlans));
+
+        private async Task<IReadOnlyCollection<Plan>> LoadAvailablePlansAsync(CancellationToken cancellationToken) =>
+            await BuildAvailablePlansQuery()
+                .AsNoTracking()
+                .Include(plan => plan.PlanFeatures)
+                    .ThenInclude(planFeature => planFeature.Feature)
+                .ToListAsync(cancellationToken);
+
+        private async Task<Plan?> FindAvailablePlanCoreAsync(Guid planId, CancellationToken cancellationToken)
+        {
+            var plans = await LoadAvailablePlansAsync(cancellationToken);
+            return plans.FirstOrDefault(plan =>
+                plan.Id == planId &&
+                (IsPublicBasePlan(plan) || IsPublicAddonPlan(plan) || IsInternalPlan(plan)));
+        }
 
         private static MarketingPlanCardViewModel MapPlanCard(Plan plan)
         {
@@ -201,44 +239,97 @@ namespace LuxuryApp.Services.PublicSite
 
             if (highlights.Length == 0)
             {
-                highlights =
-                [
-                    "Agenda comercial del equipo",
-                    "Control de ingresos y egresos",
-                    plan.MaxFuncionarios.HasValue
-                        ? $"Hasta {plan.MaxFuncionarios.Value} funcionarios"
-                        : "Funcionarios ilimitados",
-                    "Dashboard operativo"
-                ];
+                highlights = plan.LimiteMensajesMensual.HasValue
+                    ?
+                    [
+                        $"{plan.LimiteMensajesMensual.Value} mensajes automaticos al mes",
+                        "Recordatorios y confirmaciones por WhatsApp",
+                        "Consumo controlado por periodo mensual",
+                        "Ideal para recordatorios automáticos"
+                    ]
+                    :
+                    [
+                        "Agenda comercial del equipo",
+                        "Control de ingresos y egresos",
+                        plan.MaxFuncionarios.HasValue
+                            ? $"Hasta {plan.MaxFuncionarios.Value} funcionarios"
+                            : "Funcionarios ilimitados",
+                        "Dashboard operativo"
+                    ];
             }
 
-            var isFeatured = string.Equals(plan.Nombre, "Empresarial", StringComparison.OrdinalIgnoreCase) ||
-                !plan.MaxFuncionarios.HasValue;
+            var isAddon = plan.LimiteMensajesMensual.HasValue;
+            var isFeatured = string.Equals(plan.Codigo, PlanCodes.Business, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(plan.Nombre, "Empresarial", StringComparison.OrdinalIgnoreCase);
 
             return new MarketingPlanCardViewModel
             {
                 Id = plan.Id,
+                Code = plan.Codigo,
                 Name = plan.Nombre,
                 BillingLabel = "por mes",
                 MonthlyPrice = plan.PrecioMensual,
                 CurrencyCode = string.IsNullOrWhiteSpace(plan.Moneda) ? "CRC" : plan.Moneda,
-                StaffLabel = plan.MaxFuncionarios.HasValue
-                    ? $"Hasta {plan.MaxFuncionarios.Value} funcionarios"
-                    : "Funcionarios ilimitados",
+                StaffLabel = isAddon
+                    ? $"{plan.LimiteMensajesMensual ?? 0} mensajes al mes"
+                    : plan.MaxFuncionarios.HasValue
+                        ? $"Hasta {plan.MaxFuncionarios.Value} funcionarios"
+                        : "Funcionarios ilimitados",
+                MonthlyMessageLimit = plan.LimiteMensajesMensual,
                 Summary = plan.EsPlanValidacion
                     ? "Plan controlado para validar el primer cobro real con riesgo financiero minimo."
-                    : isFeatured
+                    : isAddon
+                        ? "Agrega recordatorios y confirmaciones automaticas por WhatsApp sin mezclarlo con el plan base."
+                        : isFeatured
                         ? "Pensado para operaciones con mayor ritmo, mas equipo y necesidad de visibilidad completa."
                         : "Una base profesional para ordenar la operacion comercial desde el primer dia.",
                 BadgeText = plan.EsPlanValidacion
-                    ? "Validacion"
+                    ? "TEST interno"
+                    : isAddon
+                        ? "Add-on"
                     : isFeatured
                         ? "Mas elegido"
                         : null,
                 IsFeatured = isFeatured,
                 IsValidationPlan = plan.EsPlanValidacion,
+                IsAddon = isAddon,
                 Highlights = highlights
             };
+        }
+
+        private bool IsPublicBasePlan(Plan plan)
+        {
+            var code = plan.Codigo?.Trim();
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                return !plan.LimiteMensajesMensual.HasValue && !plan.EsPlanValidacion;
+            }
+
+            return code is PlanCodes.Basic or PlanCodes.Pro or PlanCodes.Business;
+        }
+
+        private bool IsPublicAddonPlan(Plan plan)
+        {
+            var code = plan.Codigo?.Trim();
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                return plan.LimiteMensajesMensual.HasValue;
+            }
+
+            return code is PlanCodes.WhatsApp400 or PlanCodes.WhatsApp800 or PlanCodes.WhatsApp1200;
+        }
+
+        private bool IsInternalPlan(Plan plan)
+        {
+            if (!_tilopayRepeatOptions.Enabled || !_tilopayRepeatOptions.EnableTestRecurringPlan)
+            {
+                return false;
+            }
+
+            return string.Equals(
+                plan.Codigo,
+                PlanCodes.TestRecurring,
+                StringComparison.OrdinalIgnoreCase);
         }
 
         private static string FormatFeature(PlanFeature planFeature)

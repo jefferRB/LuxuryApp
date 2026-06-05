@@ -9,6 +9,7 @@ namespace LuxuryApp.Tests.TenantIsolation
         [Fact]
         public async Task BuildIndexViewModelAsync_ShouldApplyDayFilter()
         {
+            var businessToday = ControllerTestSupport.BusinessDateTimeProvider.Today();
             var tenantId = Guid.NewGuid();
             var tenantProvider = new TestTenantProvider { TenantId = tenantId };
             var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
@@ -16,8 +17,8 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var disposableConnection = connection;
 
             var categoria = await SeedCategoriaAsync(context, "Caja", "Operativo");
-            await SeedEgresoAsync(context, categoria, DateTime.Today.AddHours(9), 100m, "EFECTIVO", "Hoy");
-            await SeedEgresoAsync(context, categoria, DateTime.Today.AddDays(-1).AddHours(9), 200m, "TARJETA", "Ayer");
+            await SeedEgresoAsync(context, categoria, businessToday.AddHours(9), 100m, "EFECTIVO", "Hoy");
+            await SeedEgresoAsync(context, categoria, businessToday.AddDays(-1).AddHours(9), 200m, "TARJETA", "Ayer");
 
             var queryService = ControllerTestSupport.CreateEgresoQueryService(context);
             var result = await queryService.BuildIndexViewModelAsync(new EgresoFiltroViewModel { VistaTiempo = "dia" }, includeFilterOptions: false);
@@ -31,6 +32,7 @@ namespace LuxuryApp.Tests.TenantIsolation
         [Fact]
         public async Task BuildIndexViewModelAsync_ShouldApplyWeekFilter_FromMondayToSunday()
         {
+            var businessToday = ControllerTestSupport.BusinessDateTimeProvider.Today();
             var tenantId = Guid.NewGuid();
             var tenantProvider = new TestTenantProvider { TenantId = tenantId };
             var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
@@ -38,7 +40,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var disposableConnection = connection;
 
             var categoria = await SeedCategoriaAsync(context, "Semana", "Operativo");
-            var monday = StartOfWeek(DateTime.Today);
+            var monday = StartOfWeek(businessToday);
             var sunday = monday.AddDays(6);
 
             await SeedEgresoAsync(context, categoria, monday.AddHours(8), 75m, "EFECTIVO", "Lunes");
@@ -57,6 +59,7 @@ namespace LuxuryApp.Tests.TenantIsolation
         [Fact]
         public async Task BuildIndexViewModelAsync_ShouldApplyMonthAndYearFilters()
         {
+            var businessToday = ControllerTestSupport.BusinessDateTimeProvider.Today();
             var tenantId = Guid.NewGuid();
             var tenantProvider = new TestTenantProvider { TenantId = tenantId };
             var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
@@ -64,9 +67,9 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var disposableConnection = connection;
 
             var categoria = await SeedCategoriaAsync(context, "Tiempo", "Operativo");
-            var currentMonthRow = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 5, 9, 0, 0);
-            var currentYearOtherMonth = new DateTime(DateTime.Today.Year, Math.Min(DateTime.Today.Month == 1 ? 2 : 1, 12), 10, 10, 0, 0);
-            var previousYearRow = new DateTime(DateTime.Today.Year - 1, 12, 15, 11, 0, 0);
+            var currentMonthRow = new DateTime(businessToday.Year, businessToday.Month, 5, 9, 0, 0);
+            var currentYearOtherMonth = new DateTime(businessToday.Year, Math.Min(businessToday.Month == 1 ? 2 : 1, 12), 10, 10, 0, 0);
+            var previousYearRow = new DateTime(businessToday.Year - 1, 12, 15, 11, 0, 0);
 
             await SeedEgresoAsync(context, categoria, currentMonthRow, 100m, "EFECTIVO", "Mes Actual");
             await SeedEgresoAsync(context, categoria, currentYearOtherMonth, 110m, "TARJETA", "Mismo Anio");

@@ -420,24 +420,12 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             await context.SaveChangesAsync();
 
-            var controller = new BillingController(
-                NullLogger<BillingController>.Instance,
-                context,
-                null!,
-                null!,
-                null!,
-                null!,
-                null!,
-                userManager,
-                Options.Create(new OpcionesTilopay()),
-                Options.Create(new OpcionesPago()))
+            var controller = CreateBillingController(context, userManager);
+            controller.ControllerContext = new ControllerContext
             {
-                ControllerContext = new ControllerContext
+                HttpContext = new DefaultHttpContext
                 {
-                    HttpContext = new DefaultHttpContext
-                    {
-                        User = BuildPrincipal(currentUser.Id, currentTenantId)
-                    }
+                    User = BuildPrincipal(currentUser.Id, currentTenantId)
                 }
             };
 
@@ -523,24 +511,12 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             await context.SaveChangesAsync();
 
-            var controller = new BillingController(
-                NullLogger<BillingController>.Instance,
-                context,
-                null!,
-                null!,
-                null!,
-                null!,
-                null!,
-                userManager,
-                Options.Create(new OpcionesTilopay()),
-                Options.Create(new OpcionesPago()))
+            var controller = CreateBillingController(context, userManager);
+            controller.ControllerContext = new ControllerContext
             {
-                ControllerContext = new ControllerContext
+                HttpContext = new DefaultHttpContext
                 {
-                    HttpContext = new DefaultHttpContext
-                    {
-                        User = BuildPrincipal(currentUser.Id, currentTenantId)
-                    }
+                    User = BuildPrincipal(currentUser.Id, currentTenantId)
                 }
             };
 
@@ -630,24 +606,12 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             await context.SaveChangesAsync();
 
-            var controller = new BillingController(
-                NullLogger<BillingController>.Instance,
-                context,
-                null!,
-                null!,
-                null!,
-                null!,
-                null!,
-                userManager,
-                Options.Create(new OpcionesTilopay()),
-                Options.Create(new OpcionesPago()))
+            var controller = CreateBillingController(context, userManager);
+            controller.ControllerContext = new ControllerContext
             {
-                ControllerContext = new ControllerContext
+                HttpContext = new DefaultHttpContext
                 {
-                    HttpContext = new DefaultHttpContext
-                    {
-                        User = BuildPrincipal(currentUser.Id, currentTenantId)
-                    }
+                    User = BuildPrincipal(currentUser.Id, currentTenantId)
                 }
             };
 
@@ -733,24 +697,12 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             await context.SaveChangesAsync();
 
-            var controller = new BillingController(
-                NullLogger<BillingController>.Instance,
-                context,
-                null!,
-                null!,
-                null!,
-                null!,
-                null!,
-                userManager,
-                Options.Create(new OpcionesTilopay()),
-                Options.Create(new OpcionesPago()))
+            var controller = CreateBillingController(context, userManager);
+            controller.ControllerContext = new ControllerContext
             {
-                ControllerContext = new ControllerContext
+                HttpContext = new DefaultHttpContext
                 {
-                    HttpContext = new DefaultHttpContext
-                    {
-                        User = BuildPrincipal(currentUser.Id, currentTenantId)
-                    }
+                    User = BuildPrincipal(currentUser.Id, currentTenantId)
                 }
             };
 
@@ -835,24 +787,12 @@ namespace LuxuryApp.Tests.TenantIsolation
             await context.SaveChangesAsync();
 
             var principal = BuildPrincipal(currentUser.Id, currentTenantId);
-            var controller = new BillingController(
-                NullLogger<BillingController>.Instance,
-                context,
-                null!,
-                null!,
-                null!,
-                null!,
-                null!,
-                userManager,
-                Options.Create(new OpcionesTilopay()),
-                Options.Create(new OpcionesPago()))
+            var controller = CreateBillingController(context, userManager);
+            controller.ControllerContext = new ControllerContext
             {
-                ControllerContext = new ControllerContext
+                HttpContext = new DefaultHttpContext
                 {
-                    HttpContext = new DefaultHttpContext
-                    {
-                        User = principal
-                    }
+                    User = principal
                 }
             };
 
@@ -880,12 +820,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             ProyectoIdentity.Datos.ApplicationDbContext context,
             FakePaymentProvider fakeProvider)
         {
-            var cache = new MemoryCache(new MemoryCacheOptions());
-            var subscriptionService = new SuscripcionService(
-                context,
-                cache,
-                new TenantCommercialAccessCache(cache),
-                NullLogger<SuscripcionService>.Instance);
+            var subscriptionService = CreateSubscriptionService(context);
 
             return new SaaSPaymentService(
                 context,
@@ -899,7 +834,38 @@ namespace LuxuryApp.Tests.TenantIsolation
                 {
                     MerchantId = "merchant-1"
                 }),
+                Options.Create(new TilopayRepeatOptions()),
                 NullLogger<SaaSPaymentService>.Instance);
+        }
+
+        private static BillingController CreateBillingController(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            UserManager<AppUsuario> userManager) =>
+            new(
+                NullLogger<BillingController>.Instance,
+                context,
+                null!,
+                CreateSubscriptionService(context),
+                null!,
+                null!,
+                null!,
+                null!,
+                userManager,
+                Options.Create(new OpcionesTilopay()),
+                Options.Create(new OpcionesPago()),
+                Options.Create(new TilopayRepeatOptions()));
+
+        private static SuscripcionService CreateSubscriptionService(
+            ProyectoIdentity.Datos.ApplicationDbContext context)
+        {
+            var cache = new MemoryCache(new MemoryCacheOptions());
+            return new SuscripcionService(
+                context,
+                cache,
+                new TenantCommercialAccessCache(cache),
+                new FixedBusinessDateTimeProvider(),
+                Options.Create(new TilopayRepeatOptions()),
+                NullLogger<SuscripcionService>.Instance);
         }
 
         private static UserManager<AppUsuario> CreateUserManager(ProyectoIdentity.Datos.ApplicationDbContext context)

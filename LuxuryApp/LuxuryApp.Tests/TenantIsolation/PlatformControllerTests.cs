@@ -5,6 +5,7 @@ using LuxuryApp.Controllers.Platform;
 using LuxuryApp.Models.Platform;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Models.WhatsApp;
+using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Services.WhatsApp;
@@ -99,7 +100,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var accessCache = new TenantCommercialAccessCache(cache);
             var controller = new PlatformController(
                 context,
-                new TenantCommercialAccessResolver(context, cache, accessCache),
+                CreateResolver(context, cache, accessCache),
                 accessCache,
                 provider.GetRequiredService<TenantExecutionService>(),
                 new StubMetaWhatsAppClient());
@@ -159,7 +160,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var accessCache = new TenantCommercialAccessCache(cache);
             var controller = new PlatformController(
                 context,
-                new TenantCommercialAccessResolver(context, cache, accessCache),
+                CreateResolver(context, cache, accessCache),
                 accessCache,
                 provider.GetRequiredService<TenantExecutionService>(),
                 new StubMetaWhatsAppClient());
@@ -283,7 +284,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var controller = new PlatformController(
                 context,
-                new TenantCommercialAccessResolver(context, cache, accessCache),
+                CreateResolver(context, cache, accessCache),
                 accessCache,
                 new TenantExecutionService(
                     serviceProvider.GetRequiredService<IServiceScopeFactory>(),
@@ -330,16 +331,42 @@ namespace LuxuryApp.Tests.TenantIsolation
             return Assert.IsType<bool>(bindingContext.Result.Model);
         }
 
+        private static ITenantCommercialAccessResolver CreateResolver(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            MemoryCache cache,
+            TenantCommercialAccessCache accessCache)
+        {
+            var subscriptionService = new SuscripcionService(
+                context,
+                cache,
+                accessCache,
+                new FixedBusinessDateTimeProvider(),
+                Options.Create(new TilopayRepeatOptions()),
+                NullLogger<SuscripcionService>.Instance);
+
+            return new TenantCommercialAccessResolver(
+                context,
+                cache,
+                accessCache,
+                subscriptionService,
+                new FixedBusinessDateTimeProvider());
+        }
+
         private static ServiceProvider BuildWhatsAppPlatformServiceProvider(SqliteConnection connection)
         {
             var services = new ServiceCollection();
             services.AddLogging();
+            services.AddMemoryCache();
             services.AddHttpContextAccessor();
             services.AddSingleton<ITenantExecutionContextAccessor, TenantExecutionContextAccessor>();
             services.AddScoped<ITenantProvider, TenantProvider>();
             services.AddDbContext<ProyectoIdentity.Datos.ApplicationDbContext>(options => options.UseSqlite(connection));
             services.AddScoped<IOptionsMonitor<MetaWhatsAppOptions>>(_ =>
                 new StaticOptionsMonitor<MetaWhatsAppOptions>(new MetaWhatsAppOptions { Enabled = true }));
+            services.AddScoped<IBusinessDateTimeProvider>(_ => new FixedBusinessDateTimeProvider());
+            services.AddScoped<ITenantCommercialAccessCache, TenantCommercialAccessCache>();
+            services.AddScoped<SuscripcionService>();
+            services.Configure<TilopayRepeatOptions>(_ => { });
             services.AddScoped<ITenantWhatsAppSettingsService, TenantWhatsAppSettingsService>();
             services.AddSingleton<TenantExecutionService>();
             return services.BuildServiceProvider();

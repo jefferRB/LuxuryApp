@@ -7,6 +7,9 @@ namespace LuxuryApp.Models.SaaS
     {
         public Guid Id { get; set; }
 
+        [MaxLength(50)]
+        public string? Codigo { get; set; }
+
         [Required]
         [MaxLength(50)]
         public string Nombre { get; set; } = string.Empty;
@@ -25,6 +28,7 @@ namespace LuxuryApp.Models.SaaS
         public bool Activo { get; set; } = true;
         public bool EsPlanValidacion { get; set; } = false;
         public int? MaxFuncionarios { get; set; } // null = ilimitado
+        public int? LimiteMensajesMensual { get; set; }
 
         // Navegación
         public ICollection<PlanFeature> PlanFeatures { get; set; } = new List<PlanFeature>();

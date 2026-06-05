@@ -13,5 +13,10 @@ namespace LuxuryApp.Models.SaaS
         public string Reason { get; init; } = string.Empty;
         public DateTime? AccessEndsUtc { get; init; }
         public bool HasCommercialHistory { get; init; }
+        public EstadoSuscripcion? SubscriptionStatus { get; init; }
+        public DateTime? CurrentPeriodEndUtc { get; init; }
+        public DateTime? NextBillingDateUtc { get; init; }
+        public DateTime? GracePeriodEndsUtc { get; init; }
+        public bool IsInGracePeriod { get; init; }
     }
 }

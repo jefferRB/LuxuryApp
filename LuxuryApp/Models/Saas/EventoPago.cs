@@ -26,6 +26,16 @@ namespace LuxuryApp.Models.SaaS
         [MaxLength(100)]
         public string? ProviderTransactionId { get; set; }
 
+        public int? TilopayRecurringPlanId { get; set; }
+
+        [MaxLength(100)]
+        public string? ProviderSubscriberId { get; set; }
+
+        public decimal? Monto { get; set; }
+
+        [MaxLength(10)]
+        public string? Moneda { get; set; }
+
         [MaxLength(100)]
         public string? CorrelationId { get; set; }
 

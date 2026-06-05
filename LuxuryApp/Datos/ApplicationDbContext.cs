@@ -88,10 +88,14 @@ namespace ProyectoIdentity.Datos
 
             modelBuilder.Entity<Plan>(entity =>
             {
+                entity.Property(p => p.Codigo).HasMaxLength(50);
                 entity.Property(p => p.Nombre).IsRequired();
                 entity.Property(p => p.Moneda).HasMaxLength(100);
                 entity.Property(p => p.EsPlanValidacion).HasDefaultValue(false);
                 entity.Property(p => p.PrecioMensual).HasColumnType("decimal(18,2)");
+                entity.HasIndex(p => p.Codigo)
+                    .IsUnique()
+                    .HasFilter("[Codigo] IS NOT NULL");
             });
 
             modelBuilder.Entity<Funcionario>(entity =>
@@ -436,6 +440,30 @@ namespace ProyectoIdentity.Datos
             {
                 entity.HasIndex(s => s.TenantId).IsUnique();
                 entity.Property(s => s.MotivoEstado).HasMaxLength(250);
+                entity.Property(s => s.CodigoPlan).HasMaxLength(50);
+                entity.Property(s => s.PrecioMensual).HasColumnType("decimal(18,2)");
+                entity.Property(s => s.MonedaFacturacion).HasMaxLength(10);
+            });
+
+            modelBuilder.Entity<TenantSubscriptionAddon>(entity =>
+            {
+                entity.HasIndex(addon => addon.TenantId).IsUnique();
+                entity.HasIndex(addon => addon.ProviderSubscriptionId)
+                    .IsUnique()
+                    .HasFilter("[ProviderSubscriptionId] IS NOT NULL");
+                entity.Property(addon => addon.AddonCode).HasMaxLength(50).IsRequired();
+                entity.Property(addon => addon.PrecioMensual).HasColumnType("decimal(18,2)");
+                entity.Property(addon => addon.MonedaFacturacion).HasMaxLength(10);
+
+                entity.HasOne(addon => addon.Tenant)
+                    .WithMany(tenant => tenant.SubscriptionAddons)
+                    .HasForeignKey(addon => addon.TenantId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(addon => addon.Plan)
+                    .WithMany()
+                    .HasForeignKey(addon => addon.PlanId)
+                    .OnDelete(DeleteBehavior.Restrict);
             });
 
             modelBuilder.Entity<TenantCommercialAccessGrant>(entity =>
@@ -497,7 +525,10 @@ namespace ProyectoIdentity.Datos
                 entity.HasIndex(p => new { p.Proveedor, p.ProviderReference }).IsUnique().HasFilter("[ProviderReference] IS NOT NULL");
                 entity.HasIndex(p => new { p.Proveedor, p.ProviderTransactionId }).IsUnique().HasFilter("[ProviderTransactionId] IS NOT NULL");
                 entity.HasIndex(p => new { p.Proveedor, p.ProviderCheckoutId }).IsUnique().HasFilter("[ProviderCheckoutId] IS NOT NULL");
+                entity.HasIndex(p => new { p.Proveedor, p.ProviderSubscriberId }).HasFilter("[ProviderSubscriberId] IS NOT NULL");
                 entity.Property(p => p.Monto).HasColumnType("decimal(18,2)");
+                entity.Property(p => p.ProviderSubscriberId).HasMaxLength(100);
+                entity.Property(p => p.CorrelationToken).HasMaxLength(100);
             });
 
             modelBuilder.Entity<Factura>(entity =>
@@ -511,6 +542,9 @@ namespace ProyectoIdentity.Datos
             {
                 entity.HasIndex(e => new { e.Proveedor, e.ProveedorEventId }).IsUnique();
                 entity.HasIndex(e => new { e.Proveedor, e.ReferenciaExterna });
+                entity.Property(e => e.ProviderSubscriberId).HasMaxLength(100);
+                entity.Property(e => e.Moneda).HasMaxLength(10);
+                entity.Property(e => e.Monto).HasColumnType("decimal(18,2)");
             });
 
             modelBuilder.Entity<ContractDocument>(entity =>
@@ -954,6 +988,7 @@ namespace ProyectoIdentity.Datos
         public DbSet<Plan> Planes { get; set; }
         public DbSet<Tenant> Tenants { get; set; }
         public DbSet<Suscripcion> Suscripciones { get; set; }
+        public DbSet<TenantSubscriptionAddon> TenantSubscriptionAddons { get; set; }
         public DbSet<HistorialSuscripcion> HistorialSuscripciones { get; set; }
         public DbSet<PlanFeature> PlanFeatures { get; set; }
         public DbSet<Feature> Features { get; set; }

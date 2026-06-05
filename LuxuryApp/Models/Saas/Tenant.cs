@@ -32,6 +32,7 @@ namespace LuxuryApp.Models.SaaS
 
         // Navegación
         public ICollection<Suscripcion> Suscripciones { get; set; } = new List<Suscripcion>();
+        public ICollection<TenantSubscriptionAddon> SubscriptionAddons { get; set; } = new List<TenantSubscriptionAddon>();
         public ICollection<TenantCommercialAccessGrant> CommercialAccessGrants { get; set; } = new List<TenantCommercialAccessGrant>();
         public TenantWhatsAppSettings? WhatsAppSettings { get; set; }
     }

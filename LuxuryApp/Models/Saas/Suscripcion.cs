@@ -35,6 +35,11 @@ namespace LuxuryApp.Models.SaaS
         [MaxLength(100)]
         public string? UltimoEventoProveedorId { get; set; }
 
+        [MaxLength(50)]
+        public string? CodigoPlan { get; set; }
+
+        public int? TilopayRecurringPlanId { get; set; }
+
         [Required]
         public EstadoSuscripcion Estado { get; set; }
 
@@ -43,6 +48,19 @@ namespace LuxuryApp.Models.SaaS
         public DateTime? FechaFin { get; set; }
 
         public DateTime? FechaTrialFin { get; set; }
+
+        public DateTime? FechaProximoCobroUtc { get; set; }
+
+        public DateTime? FechaFinGraciaUtc { get; set; }
+
+        public DateTime? FechaCancelacionUtc { get; set; }
+
+        public decimal? PrecioMensual { get; set; }
+
+        [MaxLength(10)]
+        public string? MonedaFacturacion { get; set; }
+
+        public int? MaxFuncionarios { get; set; }
 
         public bool CancelAtPeriodEnd { get; set; }
 

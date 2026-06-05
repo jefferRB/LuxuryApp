@@ -36,6 +36,8 @@ namespace LuxuryApp.Models.WhatsApp
         public const string SkippedConfiguration = "SkippedConfiguration";
         public const string SkippedNotEligible = "SkippedNotEligible";
         public const string SkippedConsentMissing = "SkippedConsentMissing";
+        public const string SkippedSubscriptionRequired = "SkippedSubscriptionRequired";
+        public const string SkippedMonthlyLimitExceeded = "SkippedMonthlyLimitExceeded";
     }
 
     public static class WhatsAppErrorCodes
@@ -47,6 +49,8 @@ namespace LuxuryApp.Models.WhatsApp
         public const string NotificationTypeDisabled = "NotificationTypeDisabled";
         public const string AppointmentNotEligible = "AppointmentNotEligible";
         public const string ConsentMissing = "ConsentMissing";
+        public const string SubscriptionRequired = "SubscriptionRequired";
+        public const string MonthlyLimitExceeded = "MonthlyLimitExceeded";
     }
 
     public static class WhatsAppConfirmationStates

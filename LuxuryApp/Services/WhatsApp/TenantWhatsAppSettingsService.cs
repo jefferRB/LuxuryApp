@@ -1,4 +1,5 @@
 using LuxuryApp.Models.WhatsApp;
+using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Tenant;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -18,17 +19,20 @@ namespace LuxuryApp.Services.WhatsApp
         private readonly ApplicationDbContext _context;
         private readonly ITenantProvider _tenantProvider;
         private readonly IOptionsMonitor<MetaWhatsAppOptions> _options;
+        private readonly SuscripcionService _suscripcionService;
         private readonly ILogger<TenantWhatsAppSettingsService> _logger;
 
         public TenantWhatsAppSettingsService(
             ApplicationDbContext context,
             ITenantProvider tenantProvider,
             IOptionsMonitor<MetaWhatsAppOptions> options,
+            SuscripcionService suscripcionService,
             ILogger<TenantWhatsAppSettingsService> logger)
         {
             _context = context;
             _tenantProvider = tenantProvider;
             _options = options;
+            _suscripcionService = suscripcionService;
             _logger = logger;
         }
 
@@ -99,13 +103,59 @@ namespace LuxuryApp.Services.WhatsApp
                     settings.DailyMessageLimit);
             }
 
+            var addon = await _context.TenantSubscriptionAddons
+                .AsNoTracking()
+                .Include(current => current.Plan)
+                .FirstOrDefaultAsync(current => current.TenantId == tenantId, cancellationToken);
+
+            if (addon is null || !_suscripcionService.IsWhatsAppAddonActive(addon))
+            {
+                _logger.LogWarning(
+                    "WhatsApp sin add-on activo. TenantId {TenantId}. NotificationType {NotificationType}.",
+                    tenantId,
+                    notificationType);
+
+                return TenantWhatsAppSendDecision.Denied(
+                    WhatsAppErrorCodes.SubscriptionRequired,
+                    "Tu cuenta necesita un paquete activo de WhatsApp para enviar recordatorios automaticos.",
+                    todayUsage,
+                    settings.DailyMessageLimit);
+            }
+
+            var monthlyLimit = addon.MonthlyMessageLimit > 0
+                ? addon.MonthlyMessageLimit
+                : addon.Plan?.LimiteMensajesMensual ?? 0;
+            var monthlyUsage = monthlyLimit <= 0
+                ? 0
+                : await _suscripcionService.GetWhatsAppUsageInCurrentPeriodAsync(
+                    tenantId,
+                    addon.FechaInicio,
+                    addon.FechaFin,
+                    cancellationToken);
+
+            if (monthlyLimit <= 0)
+            {
+                _logger.LogWarning(
+                    "WhatsApp add-on sin limite mensual configurado. TenantId {TenantId}. AddonId {AddonId}.",
+                    tenantId,
+                    addon.Id);
+
+                return TenantWhatsAppSendDecision.Denied(
+                    WhatsAppErrorCodes.SubscriptionRequired,
+                    "El paquete activo de WhatsApp no tiene un limite mensual valido configurado.",
+                    todayUsage,
+                    settings.DailyMessageLimit);
+            }
+
             if (!settings.IsEnabled)
             {
                 return TenantWhatsAppSendDecision.Denied(
                     WhatsAppErrorCodes.TenantDisabled,
                     "WhatsApp esta deshabilitado para el tenant.",
                     todayUsage,
-                    settings.DailyMessageLimit);
+                    settings.DailyMessageLimit,
+                    monthlyUsage,
+                    monthlyLimit);
             }
 
             if (notificationType == WhatsAppNotificationTypes.Confirmation &&
@@ -115,7 +165,9 @@ namespace LuxuryApp.Services.WhatsApp
                     WhatsAppErrorCodes.NotificationTypeDisabled,
                     "Las confirmaciones de WhatsApp estan deshabilitadas para el tenant.",
                     todayUsage,
-                    settings.DailyMessageLimit);
+                    settings.DailyMessageLimit,
+                    monthlyUsage,
+                    monthlyLimit);
             }
 
             if (notificationType == WhatsAppNotificationTypes.Reminder3Hours &&
@@ -125,7 +177,26 @@ namespace LuxuryApp.Services.WhatsApp
                     WhatsAppErrorCodes.NotificationTypeDisabled,
                     "Los recordatorios de WhatsApp estan deshabilitados para el tenant.",
                     todayUsage,
-                    settings.DailyMessageLimit);
+                    settings.DailyMessageLimit,
+                    monthlyUsage,
+                    monthlyLimit);
+            }
+
+            if (monthlyUsage >= monthlyLimit)
+            {
+                _logger.LogWarning(
+                    "WhatsApp sin saldo mensual disponible. TenantId {TenantId}. Used {Used}. Limit {Limit}.",
+                    tenantId,
+                    monthlyUsage,
+                    monthlyLimit);
+
+                return TenantWhatsAppSendDecision.Denied(
+                    WhatsAppErrorCodes.MonthlyLimitExceeded,
+                    "Tu paquete actual de WhatsApp ya consumio todos los mensajes de este periodo mensual.",
+                    todayUsage,
+                    settings.DailyMessageLimit,
+                    monthlyUsage,
+                    monthlyLimit);
             }
 
             if (todayUsage >= settings.DailyMessageLimit)
@@ -134,10 +205,16 @@ namespace LuxuryApp.Services.WhatsApp
                     WhatsAppErrorCodes.DailyLimitExceeded,
                     "El tenant alcanzo su limite diario de mensajes WhatsApp.",
                     todayUsage,
-                    settings.DailyMessageLimit);
+                    settings.DailyMessageLimit,
+                    monthlyUsage,
+                    monthlyLimit);
             }
 
-            return TenantWhatsAppSendDecision.Allowed(todayUsage, settings.DailyMessageLimit);
+            return TenantWhatsAppSendDecision.Allowed(
+                todayUsage,
+                settings.DailyMessageLimit,
+                monthlyUsage,
+                monthlyLimit);
         }
 
         public Task<int> GetTodayUsageAsync(

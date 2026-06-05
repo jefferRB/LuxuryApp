@@ -11,6 +11,7 @@ namespace LuxuryApp.Tests.TenantIsolation
         [Fact]
         public async Task BuildIndexViewModelAsync_ShouldApplyWeekFilter_FromMondayToSunday()
         {
+            var businessToday = ControllerTestSupport.BusinessDateTimeProvider.Today();
             var tenantId = Guid.NewGuid();
             var tenantProvider = new TestTenantProvider { TenantId = tenantId };
             var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
@@ -18,7 +19,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var disposableConnection = connection;
 
             var funcionario = await SeedFuncionarioAsync(context, "Semana");
-            var monday = StartOfWeek(DateTime.Today);
+            var monday = StartOfWeek(businessToday);
             var sunday = monday.AddDays(6);
             var nextMonday = monday.AddDays(7);
 

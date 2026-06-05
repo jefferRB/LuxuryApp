@@ -155,40 +155,80 @@ namespace LuxuryApp.Services.Tilopay
 
         public PaymentProviderWebhookData ParseWebhook(string payload)
         {
-            var webhook = JsonSerializer.Deserialize<TilopayLinkWebhookPayload>(payload, JsonOptions)
-                ?? throw new PaymentWebhookValidationException("Tilopay webhook sin payload valido.");
+            using var document = JsonDocument.Parse(payload);
+            var root = document.RootElement;
 
-            var internalReference = NormalizeOptionalValue(webhook.reference) ??
-                NormalizeOptionalValue(webhook.orderNumber);
+            var linkPayload = JsonSerializer.Deserialize<TilopayLinkWebhookPayload>(payload, JsonOptions);
+            var recurringPlanId = TryReadFirstInt(root, "recurringPlanId", "repeatPlanId", "planId", "subscriptionPlanId", "plan_id");
+            var providerSubscriberId = NormalizeOptionalValue(TryReadFirstString(root, "subscriberId", "subscriber_id", "subscriptionId", "subscription_id", "suscriptorId", "suscriptor_id", "customerId", "customer_id"));
+            var customerEmail = NormalizeOptionalValue(TryReadFirstString(root, "customerEmail", "clientEmail", "email", "correo", "mail"));
+            var internalReference = NormalizeOptionalValue(
+                TryReadFirstString(root, "lc_ref", "correlationToken", "reference", "internalReference")) ??
+                NormalizeOptionalValue(linkPayload?.reference) ??
+                NormalizeOptionalValue(linkPayload?.orderNumber) ??
+                NormalizeOptionalValue(TryReadFirstString(root, "orderNumber", "order_number"));
 
-            if (string.IsNullOrWhiteSpace(internalReference))
+            var providerOrderNumber = NormalizeProviderOrderNumber(
+                linkPayload?.orderNumber ??
+                TryReadFirstString(root, "orderNumber", "order_number", "providerOrderNumber"));
+
+            var providerTransactionId = ReadPositiveLongAsString(linkPayload?.tilopayOrderId ?? default);
+            providerTransactionId ??= NormalizeOptionalValue(
+                TryReadFirstString(root, "transactionId", "transaction_id", "paymentId", "payment_id", "orderId", "order_id", "id_tilopay"));
+
+            var providerCheckoutId = ReadPositiveLongAsString(linkPayload?.tilopayLinkId ?? default);
+            providerCheckoutId ??= NormalizeOptionalValue(
+                TryReadFirstString(root, "linkId", "link_id", "checkoutId", "checkout_id", "tilopayLinkId"));
+
+            var statusCode = NormalizeOptionalValue(
+                linkPayload?.code ??
+                TryReadFirstString(root, "code", "statusCode", "status_code", "status")) ?? string.Empty;
+
+            var statusDescription = NormalizeOptionalValue(
+                linkPayload?.codeDescription ??
+                TryReadFirstString(root, "codeDescription", "statusDescription", "status_description", "description", "response", "message")) ?? string.Empty;
+
+            var amount = TryReadFirstDecimal(root, "amount", "monto", "total");
+            var currency = NormalizeOptionalValue(TryReadFirstString(root, "currency", "moneda"));
+            var orderHash = NormalizeOptionalValue(linkPayload?.orderHash) ?? NormalizeOptionalValue(TryReadFirstString(root, "orderHash", "order_hash"));
+            var eventType = NormalizeOptionalValue(TryReadFirstString(root, "eventType", "event_type", "event", "type"));
+
+            var isRecurring = recurringPlanId.HasValue;
+            if (!isRecurring && string.IsNullOrWhiteSpace(internalReference))
             {
                 throw new PaymentWebhookValidationException("Tilopay webhook sin referencia utilizable.");
             }
 
-            var providerOrderNumber = NormalizeProviderOrderNumber(webhook.orderNumber);
-            var providerTransactionId = ReadPositiveLongAsString(webhook.tilopayOrderId);
-            var providerCheckoutId = ReadPositiveLongAsString(webhook.tilopayLinkId);
-
-            var eventId = providerTransactionId is not null
-                ? $"tilopay-link-{providerTransactionId}"
-                : $"tilopay-link-{providerOrderNumber ?? internalReference}";
+            var eventId = BuildWebhookEventId(
+                isRecurring,
+                recurringPlanId,
+                providerTransactionId,
+                providerSubscriberId,
+                providerOrderNumber,
+                orderHash,
+                internalReference);
 
             return new PaymentProviderWebhookData
             {
                 ProviderType = ProviderType,
                 EventId = eventId,
-                EventType = "tilopay.link.completed",
-                Reference = internalReference,
+                EventType = eventType ?? (isRecurring ? "tilopay.repeat.notification" : "tilopay.link.completed"),
+                Reference = internalReference ?? string.Empty,
                 ProviderOrderNumber = providerOrderNumber,
-                StatusCode = webhook.code ?? string.Empty,
-                StatusDescription = webhook.codeDescription ?? string.Empty,
+                StatusCode = statusCode,
+                StatusDescription = statusDescription,
                 ProviderCheckoutId = providerCheckoutId,
                 ProviderTransactionId = providerTransactionId,
-                AuthorizationCode = webhook.auth,
-                CardBrand = webhook.creditCardBrand,
-                CardLast4 = webhook.last4CreditCardNumber,
-                OrderHash = webhook.orderHash,
+                RecurringPlanId = recurringPlanId,
+                ProviderSubscriberId = providerSubscriberId,
+                CustomerEmail = customerEmail,
+                Amount = amount,
+                Currency = currency,
+                IsRecurring = isRecurring,
+                AuthorizationCode = NormalizeOptionalValue(linkPayload?.auth) ?? NormalizeOptionalValue(TryReadFirstString(root, "auth", "authorizationCode")),
+                CardBrand = NormalizeOptionalValue(linkPayload?.creditCardBrand) ?? NormalizeOptionalValue(TryReadFirstString(root, "creditCardBrand", "cardBrand")),
+                CardLast4 = NormalizeOptionalValue(linkPayload?.last4CreditCardNumber) ?? NormalizeOptionalValue(TryReadFirstString(root, "last4CreditCardNumber", "cardLast4", "last4")),
+                OrderHash = orderHash,
                 RawPayload = payload
             };
         }
@@ -457,6 +497,107 @@ namespace LuxuryApp.Services.Tilopay
             }
 
             return null;
+        }
+
+        private static string BuildWebhookEventId(
+            bool isRecurring,
+            int? recurringPlanId,
+            string? providerTransactionId,
+            string? providerSubscriberId,
+            string? providerOrderNumber,
+            string? orderHash,
+            string? reference)
+        {
+            if (!string.IsNullOrWhiteSpace(providerTransactionId))
+            {
+                return isRecurring
+                    ? $"tilopay-repeat-{providerTransactionId}"
+                    : $"tilopay-link-{providerTransactionId}";
+            }
+
+            var stableSuffix = providerSubscriberId ??
+                providerOrderNumber ??
+                orderHash ??
+                reference ??
+                Guid.NewGuid().ToString("N");
+
+            return isRecurring
+                ? $"tilopay-repeat-{recurringPlanId?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}-{stableSuffix}"
+                : $"tilopay-link-{stableSuffix}";
+        }
+
+        private static string? TryReadFirstString(JsonElement root, params string[] propertyNames)
+        {
+            foreach (var propertyName in propertyNames)
+            {
+                if (TryFindPropertyValue(root, propertyName, out var value))
+                {
+                    var normalized = value.ValueKind switch
+                    {
+                        JsonValueKind.String => value.GetString(),
+                        JsonValueKind.Number => value.ToString(),
+                        JsonValueKind.True => bool.TrueString,
+                        JsonValueKind.False => bool.FalseString,
+                        _ => null
+                    };
+
+                    if (!string.IsNullOrWhiteSpace(normalized))
+                    {
+                        return normalized;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static int? TryReadFirstInt(JsonElement root, params string[] propertyNames)
+        {
+            var raw = TryReadFirstString(root, propertyNames);
+            return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : null;
+        }
+
+        private static decimal? TryReadFirstDecimal(JsonElement root, params string[] propertyNames)
+        {
+            var raw = TryReadFirstString(root, propertyNames);
+            return decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : null;
+        }
+
+        private static bool TryFindPropertyValue(JsonElement element, string propertyName, out JsonElement value)
+        {
+            if (element.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var property in element.EnumerateObject())
+                {
+                    if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        value = property.Value;
+                        return true;
+                    }
+
+                    if (TryFindPropertyValue(property.Value, propertyName, out value))
+                    {
+                        return true;
+                    }
+                }
+            }
+            else if (element.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in element.EnumerateArray())
+                {
+                    if (TryFindPropertyValue(item, propertyName, out value))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            value = default;
+            return false;
         }
 
         private sealed class TilopayLoginRequest

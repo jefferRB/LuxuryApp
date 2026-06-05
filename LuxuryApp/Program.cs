@@ -141,6 +141,7 @@ builder.Services.AddMemoryCache();
 
 builder.Services.Configure<OpcionesPago>(builder.Configuration.GetSection("Payments"));
 builder.Services.Configure<OpcionesTilopay>(builder.Configuration.GetSection("Tilopay"));
+builder.Services.Configure<TilopayRepeatOptions>(builder.Configuration.GetSection("TilopayRepeat"));
 builder.Services.Configure<OpcionesOnboardingTenant>(builder.Configuration.GetSection("TenantOnboarding"));
 builder.Services.Configure<BusinessDateTimeOptions>(builder.Configuration.GetSection(BusinessDateTimeOptions.SectionName));
 builder.Services.Configure<MetaWhatsAppOptions>(builder.Configuration.GetSection(MetaWhatsAppOptions.SectionName));

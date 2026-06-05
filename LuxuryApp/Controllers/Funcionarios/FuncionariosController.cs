@@ -727,7 +727,14 @@ namespace LuxuryApp.Controllers.Funcionarios
 
                 if (totalActivos >= plan.MaxFuncionarios.Value)
                 {
-                    return (false, $"Has alcanzado el limite de funcionarios activos de tu plan ({plan.Nombre}).");
+                    _logger.LogWarning(
+                        "Limite de funcionarios excedido. PlanId {PlanId}. PlanNombre {PlanNombre}. MaxFuncionarios {MaxFuncionarios}. TotalActivos {TotalActivos}.",
+                        plan.Id,
+                        plan.Nombre,
+                        plan.MaxFuncionarios.Value,
+                        totalActivos);
+
+                    return (false, $"Tu plan actual permite hasta {plan.MaxFuncionarios.Value} funcionarios. Para agregar mas, actualiza tu plan.");
                 }
             }
 

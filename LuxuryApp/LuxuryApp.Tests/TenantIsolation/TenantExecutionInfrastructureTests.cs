@@ -187,10 +187,21 @@ namespace LuxuryApp.Tests.TenantIsolation
         private static ITenantCommercialAccessResolver CreateResolver(ApplicationDbContext context)
         {
             var cache = new MemoryCache(new MemoryCacheOptions());
+            var accessCache = new TenantCommercialAccessCache(cache);
+            var subscriptionService = new SuscripcionService(
+                context,
+                cache,
+                accessCache,
+                new FixedBusinessDateTimeProvider(),
+                Options.Create(new TilopayRepeatOptions()),
+                NullLogger<SuscripcionService>.Instance);
+
             return new TenantCommercialAccessResolver(
                 context,
                 cache,
-                new TenantCommercialAccessCache(cache));
+                accessCache,
+                subscriptionService,
+                new FixedBusinessDateTimeProvider());
         }
     }
 }

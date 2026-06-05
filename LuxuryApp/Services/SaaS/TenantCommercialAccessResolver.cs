@@ -1,5 +1,6 @@
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.SaaS;
+using LuxuryApp.Services.BusinessTime;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using ProyectoIdentity.Datos;
@@ -13,15 +14,21 @@ namespace LuxuryApp.Services.SaaS
         private readonly ApplicationDbContext _context;
         private readonly IMemoryCache _cache;
         private readonly ITenantCommercialAccessCache _accessCache;
+        private readonly SuscripcionService _suscripcionService;
+        private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
 
         public TenantCommercialAccessResolver(
             ApplicationDbContext context,
             IMemoryCache cache,
-            ITenantCommercialAccessCache accessCache)
+            ITenantCommercialAccessCache accessCache,
+            SuscripcionService suscripcionService,
+            IBusinessDateTimeProvider businessDateTimeProvider)
         {
             _context = context;
             _cache = cache;
             _accessCache = accessCache;
+            _suscripcionService = suscripcionService;
+            _businessDateTimeProvider = businessDateTimeProvider;
         }
 
         public async Task<TenantCommercialAccessResult> ResolveAsync(
@@ -121,7 +128,7 @@ namespace LuxuryApp.Services.SaaS
                 };
             }
 
-            var now = DateTime.UtcNow;
+            var now = _businessDateTimeProvider.NowOffset().UtcDateTime;
             var grant = await _context.TenantCommercialAccessGrants
                 .IgnoreQueryFilters()
                 .AsNoTracking()
@@ -163,27 +170,62 @@ namespace LuxuryApp.Services.SaaS
 
             if (suscripcion is not null &&
                 suscripcion.Plan is not null &&
-                suscripcion.Plan.Activo &&
-                (suscripcion.Estado == EstadoSuscripcion.Activa || suscripcion.Estado == EstadoSuscripcion.Trial) &&
-                (!suscripcion.FechaFin.HasValue || suscripcion.FechaFin.Value >= now) &&
-                (!suscripcion.FechaTrialFin.HasValue || suscripcion.FechaTrialFin.Value >= now))
+                suscripcion.Plan.Activo)
             {
+                var effectiveStatus = _suscripcionService.GetEffectiveStatus(suscripcion);
+                var canAccessApp = _suscripcionService.CanAccessApp(suscripcion);
+                var isInGracePeriod = effectiveStatus == EstadoSuscripcion.Morosa;
+
+                if (canAccessApp)
+                {
+                    return new TenantCommercialAccessResult
+                    {
+                        CanAccessApp = true,
+                        RequiresBilling = true,
+                        TenantId = tenantId,
+                        EffectivePlanId = suscripcion.PlanId,
+                        EffectivePlanName = suscripcion.Plan.Nombre,
+                        CommercialAccessMode = tenant.CommercialAccessMode,
+                        AccessSource = effectiveStatus == EstadoSuscripcion.Trial
+                            ? TenantCommercialAccessSource.SubscriptionTrial
+                            : TenantCommercialAccessSource.SubscriptionActive,
+                        Reason = effectiveStatus == EstadoSuscripcion.Trial
+                            ? "Acceso permitido por trial vigente."
+                            : isInGracePeriod
+                                ? "Suscripcion en periodo de gracia por cobro pendiente."
+                                : "Acceso permitido por suscripcion activa.",
+                        AccessEndsUtc = effectiveStatus == EstadoSuscripcion.Trial
+                            ? suscripcion.FechaTrialFin
+                            : isInGracePeriod
+                                ? suscripcion.FechaFinGraciaUtc
+                                : suscripcion.FechaFin,
+                        HasCommercialHistory = true,
+                        SubscriptionStatus = effectiveStatus,
+                        CurrentPeriodEndUtc = suscripcion.FechaFin,
+                        NextBillingDateUtc = suscripcion.FechaProximoCobroUtc,
+                        GracePeriodEndsUtc = suscripcion.FechaFinGraciaUtc,
+                        IsInGracePeriod = isInGracePeriod
+                    };
+                }
+
                 return new TenantCommercialAccessResult
                 {
-                    CanAccessApp = true,
-                    RequiresBilling = true,
                     TenantId = tenantId,
+                    CommercialAccessMode = tenant.CommercialAccessMode,
+                    AccessSource = TenantCommercialAccessSource.None,
+                    CanAccessApp = false,
+                    RequiresBilling = true,
                     EffectivePlanId = suscripcion.PlanId,
                     EffectivePlanName = suscripcion.Plan.Nombre,
-                    CommercialAccessMode = tenant.CommercialAccessMode,
-                    AccessSource = suscripcion.Estado == EstadoSuscripcion.Trial
-                        ? TenantCommercialAccessSource.SubscriptionTrial
-                        : TenantCommercialAccessSource.SubscriptionActive,
-                    Reason = suscripcion.Estado == EstadoSuscripcion.Trial
-                        ? "Acceso permitido por trial vigente."
-                        : "Acceso permitido por suscripcion activa.",
-                    AccessEndsUtc = suscripcion.FechaTrialFin ?? suscripcion.FechaFin,
-                    HasCommercialHistory = true
+                    Reason = effectiveStatus == EstadoSuscripcion.Suspendida
+                        ? "La suscripcion vencio y ya supero el periodo de gracia."
+                        : "El tenant no tiene acceso comercial activo.",
+                    HasCommercialHistory = true,
+                    SubscriptionStatus = effectiveStatus,
+                    CurrentPeriodEndUtc = suscripcion.FechaFin,
+                    NextBillingDateUtc = suscripcion.FechaProximoCobroUtc,
+                    GracePeriodEndsUtc = suscripcion.FechaFinGraciaUtc,
+                    IsInGracePeriod = effectiveStatus == EstadoSuscripcion.Morosa
                 };
             }
 

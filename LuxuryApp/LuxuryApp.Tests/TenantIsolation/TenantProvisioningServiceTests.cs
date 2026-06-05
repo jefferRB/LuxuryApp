@@ -4,10 +4,12 @@ using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Tenant;
+using LuxuryApp.Tests.Support;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Tests.TenantIsolation
@@ -106,6 +108,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             services.AddScoped<ITenantProvider, TenantProvider>();
             services.AddSingleton<ITenantCommercialAccessCache, TenantCommercialAccessCache>();
             services.Configure<IdentityOptions>(_ => { });
+            services.Configure<TilopayRepeatOptions>(_ => { });
             services.Configure<OpcionesOnboardingTenant>(options =>
             {
                 options.RegistrationRole = "Administrador";
@@ -121,6 +124,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 .AddIdentity<AppUsuario, IdentityRole>()
                 .AddEntityFrameworkStores<ApplicationDbContext>()
                 .AddDefaultTokenProviders();
+            services.AddSingleton<Services.BusinessTime.IBusinessDateTimeProvider>(_ => new FixedBusinessDateTimeProvider());
+            services.AddScoped<SuscripcionService>();
             services.AddScoped<ITenantCommercialAccessResolver, TenantCommercialAccessResolver>();
             services.AddScoped<IPromotionalCodeService, PromotionalCodeService>();
             services.AddScoped<IContractService, ContractService>();

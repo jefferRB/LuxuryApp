@@ -75,6 +75,7 @@ namespace LuxuryApp.Controllers
             model.EffectiveFromUtc = currentModel.EffectiveFromUtc;
             model.ContentHtml = currentModel.ContentHtml;
             model.ReturnUrl = currentModel.ReturnUrl;
+            NormalizeContractAcceptance(model);
 
             if (!model.HasActiveDocument)
             {
@@ -151,6 +152,23 @@ namespace LuxuryApp.Controllers
                 ContentHtml = activeDocument.ContentHtml,
                 ReturnUrl = returnUrl
             };
+        }
+
+        private void NormalizeContractAcceptance(ContractReacceptViewModel model)
+        {
+            model.AcceptCurrentContract = ContractAcceptanceBindingHelper.NormalizeAcceptedValue(
+                Request,
+                nameof(ContractReacceptViewModel.AcceptCurrentContract),
+                model.AcceptCurrentContract);
+
+            ModelState.Remove(nameof(ContractReacceptViewModel.AcceptCurrentContract));
+
+            if (!model.AcceptCurrentContract)
+            {
+                ModelState.AddModelError(
+                    nameof(ContractReacceptViewModel.AcceptCurrentContract),
+                    "Debes aceptar el contrato vigente para continuar.");
+            }
         }
     }
 }

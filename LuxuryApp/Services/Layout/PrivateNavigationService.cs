@@ -150,6 +150,11 @@ namespace LuxuryApp.Services.Layout
 
             if (access?.CanAccessApp == true)
             {
+                if (access.IsInGracePeriod)
+                {
+                    return "En gracia";
+                }
+
                 return string.IsNullOrWhiteSpace(access.EffectivePlanName)
                     ? "Acceso activo"
                     : $"Plan {access.EffectivePlanName}";
@@ -171,7 +176,7 @@ namespace LuxuryApp.Services.Layout
 
             if (access?.CanAccessApp == true)
             {
-                return "success";
+                return access.IsInGracePeriod ? "warning" : "success";
             }
 
             return access?.HasCommercialHistory == true

@@ -8,6 +8,7 @@
         Cancelada = 3,
         Pendiente = 4,
         Fallida = 5,
-        Vencida = 6
+        Vencida = 6,
+        Suspendida = 7
     }
 }

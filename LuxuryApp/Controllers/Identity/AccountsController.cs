@@ -1,4 +1,5 @@
 using LuxuryApp.Models.Identity;
+using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.PublicSite;
 using LuxuryApp.Services.Tenant;
@@ -6,6 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Controllers.Identity
@@ -18,6 +20,7 @@ namespace LuxuryApp.Controllers.Identity
         private readonly TenantProvisioningService _tenantProvisioningService;
         private readonly IContractService _contractService;
         private readonly IPublicSiteContentService _publicSiteContentService;
+        private readonly TilopayRepeatOptions _tilopayRepeatOptions;
         private readonly ILogger<AccountsController> _logger;
 
         public AccountsController(
@@ -27,6 +30,7 @@ namespace LuxuryApp.Controllers.Identity
             TenantProvisioningService tenantProvisioningService,
             IContractService contractService,
             IPublicSiteContentService publicSiteContentService,
+            IOptions<TilopayRepeatOptions> tilopayRepeatOptions,
             ILogger<AccountsController> logger)
         {
             _userManager = userManager;
@@ -35,6 +39,7 @@ namespace LuxuryApp.Controllers.Identity
             _tenantProvisioningService = tenantProvisioningService;
             _contractService = contractService;
             _publicSiteContentService = publicSiteContentService;
+            _tilopayRepeatOptions = tilopayRepeatOptions.Value;
             _logger = logger;
         }
 
@@ -72,6 +77,7 @@ namespace LuxuryApp.Controllers.Identity
             ViewData["SelectedPlanName"] = await _publicSiteContentService.GetPlanNameAsync(model.SelectedPlanId, cancellationToken);
             var submittedContractDocumentId = model.CurrentContractDocumentId;
             await PopulateCurrentContractAsync(model, cancellationToken);
+            NormalizeContractAcceptance(model);
             var safeReturnUrl = Url.IsLocalUrl(returnurl)
                 ? returnurl!
                 : Url.Content("~/") ?? "/";
@@ -117,6 +123,31 @@ namespace LuxuryApp.Controllers.Identity
 
                 if (provisioning.RequiresPlanSelection)
                 {
+                    if (model.SelectedPlanId.HasValue && model.SelectedPlanId.Value != Guid.Empty)
+                    {
+                        var selectedPlan = await _publicSiteContentService.FindAvailablePlanAsync(
+                            model.SelectedPlanId.Value,
+                            cancellationToken);
+                        var selectedRepeatPlan = selectedPlan is null
+                            ? null
+                            : _tilopayRepeatOptions.FindRegistrationByCode(selectedPlan.Codigo);
+
+                        if (ShouldAutoContinueToCheckout(selectedRepeatPlan))
+                        {
+                            _logger.LogInformation(
+                                "Registro completado con plan preseleccionado listo para checkout recurrente. TenantId {TenantId}. UserId {UserId}. PlanId {PlanId}. PlanCode {PlanCode}.",
+                                provisioning.TenantId,
+                                provisioning.User.Id,
+                                selectedPlan!.Id,
+                                selectedPlan.Codigo ?? selectedPlan.Nombre);
+
+                            return RedirectToAction(
+                                "ContinuarCheckout",
+                                "Billing",
+                                new { planId = selectedPlan.Id });
+                        }
+                    }
+
                     return RedirectToAction("Planes", "Billing", new { selectedPlanId = model.SelectedPlanId });
                 }
 
@@ -265,6 +296,43 @@ namespace LuxuryApp.Controllers.Identity
             model.CurrentContractTitle = activeContract.Title;
             model.CurrentContractVersion = activeContract.VersionNumber;
             model.CurrentContractEffectiveFromUtc = activeContract.EffectiveFromUtc;
+        }
+
+        private void NormalizeContractAcceptance(RegistroViewModel model)
+        {
+            model.AcceptCurrentContract = ContractAcceptanceBindingHelper.NormalizeAcceptedValue(
+                Request,
+                nameof(RegistroViewModel.AcceptCurrentContract),
+                model.AcceptCurrentContract);
+
+            ModelState.Remove(nameof(RegistroViewModel.AcceptCurrentContract));
+
+            if (!model.AcceptCurrentContract)
+            {
+                ModelState.AddModelError(
+                    nameof(RegistroViewModel.AcceptCurrentContract),
+                    "Debes aceptar el contrato para crear tu cuenta.");
+            }
+        }
+
+        private bool ShouldAutoContinueToCheckout(TilopayRepeatPlanRegistration? repeatPlan)
+        {
+            if (repeatPlan is null || !_tilopayRepeatOptions.Enabled)
+            {
+                return false;
+            }
+
+            if (repeatPlan.Plan.IsAddon)
+            {
+                return false;
+            }
+
+            if (repeatPlan.Plan.IsValidation)
+            {
+                return _tilopayRepeatOptions.EnableTestRecurringPlan;
+            }
+
+            return _tilopayRepeatOptions.UseRecurringCheckoutForPublicPlans;
         }
     }
 }

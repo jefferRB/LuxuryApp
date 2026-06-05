@@ -121,6 +121,16 @@ namespace LuxuryApp.Tests.TenantIsolation
                 Task.FromResult<IReadOnlyCollection<MarketingPlanCardViewModel>>(
                     Array.Empty<MarketingPlanCardViewModel>());
 
+            public Task<IReadOnlyCollection<MarketingPlanCardViewModel>> GetWhatsAppAddonCardsAsync(
+                CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyCollection<MarketingPlanCardViewModel>>(
+                    Array.Empty<MarketingPlanCardViewModel>());
+
+            public Task<IReadOnlyCollection<MarketingPlanCardViewModel>> GetInternalPlanCardsAsync(
+                CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyCollection<MarketingPlanCardViewModel>>(
+                    Array.Empty<MarketingPlanCardViewModel>());
+
             public Task<Plan?> FindAvailablePlanAsync(Guid planId, CancellationToken cancellationToken = default) =>
                 Task.FromResult<Plan?>(null);
 
