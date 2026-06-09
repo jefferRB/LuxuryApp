@@ -6,45 +6,62 @@ namespace LuxuryApp.Tests.TenantIsolation
 {
     public class ContractAcceptanceBindingHelperTests
     {
-        [Fact]
-        public void NormalizeAcceptedValue_ShouldTreatTruthyCheckboxPayloadAsAccepted()
+        [Theory]
+        [MemberData(nameof(TruthySingleValueCases))]
+        public void IsAccepted_ShouldTreatTruthySingleValuesAsAccepted(string rawValue)
         {
-            var context = BuildHttpContext(new Dictionary<string, StringValues>
+            var form = new FormCollection(new Dictionary<string, StringValues>
             {
-                ["AcceptCurrentContract"] = new StringValues(["false", "true"])
+                ["AcceptCurrentContract"] = new StringValues(rawValue)
             });
 
-            var accepted = ContractAcceptanceBindingHelper.NormalizeAcceptedValue(
-                context.Request,
-                "AcceptCurrentContract",
-                currentValue: false);
+            var accepted = ContractAcceptanceBindingHelper.IsAccepted(form, "AcceptCurrentContract");
 
             Assert.True(accepted);
         }
 
-        [Fact]
-        public void NormalizeAcceptedValue_ShouldTreatOnValueAsAccepted()
+        [Theory]
+        [MemberData(nameof(TruthyCombinedValueCases))]
+        public void IsAccepted_ShouldTreatCombinedTruthyValuesAsAccepted(StringValues rawValue)
         {
-            var context = BuildHttpContext(new Dictionary<string, StringValues>
+            var form = new FormCollection(new Dictionary<string, StringValues>
             {
-                ["AcceptCurrentContract"] = new StringValues("on")
+                ["AcceptCurrentContract"] = rawValue
             });
 
-            var accepted = ContractAcceptanceBindingHelper.NormalizeAcceptedValue(
-                context.Request,
-                "AcceptCurrentContract",
-                currentValue: false);
+            var accepted = ContractAcceptanceBindingHelper.IsAccepted(form, "AcceptCurrentContract");
 
             Assert.True(accepted);
         }
 
-        [Fact]
-        public void NormalizeAcceptedValue_ShouldStayFalseWhenOnlyFalseIsPosted()
+        [Theory]
+        [MemberData(nameof(FalseyValueCases))]
+        public void IsAccepted_ShouldTreatFalseyValuesAsRejected(StringValues rawValue)
         {
-            var context = BuildHttpContext(new Dictionary<string, StringValues>
+            var form = new FormCollection(new Dictionary<string, StringValues>
             {
-                ["AcceptCurrentContract"] = new StringValues("false")
+                ["AcceptCurrentContract"] = rawValue
             });
+            var accepted = ContractAcceptanceBindingHelper.IsAccepted(form, "AcceptCurrentContract");
+
+            Assert.False(accepted);
+        }
+
+        [Fact]
+        public void IsAccepted_ShouldReturnFalseWhenFieldIsAbsent()
+        {
+            var form = new FormCollection(new Dictionary<string, StringValues>());
+
+            var accepted = ContractAcceptanceBindingHelper.IsAccepted(form, "AcceptCurrentContract");
+
+            Assert.False(accepted);
+        }
+
+        [Fact]
+        public void NormalizeAcceptedValue_ShouldReturnCurrentValueWhenFieldIsAbsent()
+        {
+            var context = new DefaultHttpContext();
+            context.Request.ContentType = "application/x-www-form-urlencoded";
 
             var accepted = ContractAcceptanceBindingHelper.NormalizeAcceptedValue(
                 context.Request,
@@ -54,12 +71,32 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.False(accepted);
         }
 
-        private static DefaultHttpContext BuildHttpContext(Dictionary<string, StringValues> values)
+        public static IEnumerable<object[]> TruthySingleValueCases()
         {
-            var context = new DefaultHttpContext();
-            context.Request.ContentType = "application/x-www-form-urlencoded";
-            context.Request.Form = new FormCollection(values);
-            return context;
+            yield return ["true"];
+            yield return ["True"];
+            yield return ["on"];
+            yield return ["1"];
+            yield return ["yes"];
+            yield return [" YES "];
+        }
+
+        public static IEnumerable<object[]> TruthyCombinedValueCases()
+        {
+            yield return [new StringValues("true,false")];
+            yield return [new StringValues("on,false")];
+            yield return [new StringValues(["true", "false"])];
+            yield return [new StringValues(["on", "false"])];
+            yield return [new StringValues([" false ", " yes "])];
+        }
+
+        public static IEnumerable<object[]> FalseyValueCases()
+        {
+            yield return [new StringValues("false")];
+            yield return [new StringValues("0")];
+            yield return [new StringValues(string.Empty)];
+            yield return [new StringValues("false,false")];
+            yield return [new StringValues(["false", "0"])];
         }
     }
 }

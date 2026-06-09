@@ -544,6 +544,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             {
                 Path.Combine("Controllers", "Billing", "BillingController.cs"),
                 Path.Combine("Controllers", "Platform", "PlatformController.cs"),
+                Path.Combine("Controllers", "Platform", "RecurringReconciliationController.cs"),
                 Path.Combine("Services", "Payments", "SaaSPaymentService.cs"),
                 Path.Combine("Services", "Stripe", "SuscripcionService.cs"),
                 Path.Combine("Services", "SaaS", "PromotionalCodeService.cs"),

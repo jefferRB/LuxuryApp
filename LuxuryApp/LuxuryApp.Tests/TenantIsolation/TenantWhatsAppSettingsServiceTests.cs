@@ -1,9 +1,8 @@
-using LuxuryApp.Models.WhatsApp;
 using LuxuryApp.Models.SaaS;
+using LuxuryApp.Models.WhatsApp;
 using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.WhatsApp;
 using LuxuryApp.Tests.Support;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -30,6 +29,37 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Empty(context.TenantWhatsAppSettings);
         }
 
+        [Theory]
+        [InlineData(PlanCodes.WhatsApp400, "WhatsApp 400", 6000, 400, 15)]
+        [InlineData(PlanCodes.WhatsApp800, "WhatsApp 800", 12000, 800, 30)]
+        [InlineData(PlanCodes.WhatsApp1200, "WhatsApp 1200", 18000, 1200, 45)]
+        public async Task GetSettingsForTenantAsync_WithActiveAddonAndNoStoredSettings_ShouldExposeEnabledDefaults(
+            string addonCode,
+            string addonName,
+            decimal monthlyPrice,
+            int monthlyLimit,
+            int dailyLimit)
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedTenantAsync(context, tenantId);
+            await SeedActiveBaseSubscriptionAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId, addonCode, addonName, monthlyPrice, monthlyLimit);
+
+            var settings = await service.GetSettingsForTenantAsync(tenantId);
+
+            Assert.False(settings.Exists);
+            Assert.True(settings.IsEnabled);
+            Assert.True(settings.SendConfirmationOnCreate);
+            Assert.True(settings.SendReminderThreeHoursBefore);
+            Assert.Equal(dailyLimit, settings.DailyMessageLimit);
+        }
+
         [Fact]
         public async Task CanSendNotificationAsync_WhenDailyLimitWasReached_ShouldDenyWithStableCode()
         {
@@ -41,6 +71,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var service = CreateService(context, tenantProvider);
 
             await SeedTenantAsync(context, tenantId);
+            await SeedActiveBaseSubscriptionAsync(context, tenantId);
             await SeedActiveAddonAsync(context, tenantId);
             await service.UpdateSettingsAsync(
                 tenantId,
@@ -51,13 +82,11 @@ namespace LuxuryApp.Tests.TenantIsolation
                 },
                 "platform-user");
 
-            context.WhatsAppMessageLogs.Add(new WhatsAppMessageLog
-            {
-                NotificationType = WhatsAppNotificationTypes.Confirmation,
-                Direction = WhatsAppMessageDirections.Outbound,
-                Status = WhatsAppMessageStatuses.Pending,
-                CreatedAtUtc = DateTime.UtcNow
-            });
+            context.WhatsAppMessageLogs.Add(CreateLog(
+                tenantId,
+                WhatsAppMessageDirections.Outbound,
+                WhatsAppNotificationTypes.Confirmation,
+                WhatsAppMessageStatuses.Sent));
             await context.SaveChangesAsync();
 
             var decision = await service.CanSendNotificationAsync(tenantId, WhatsAppNotificationTypes.Reminder3Hours);
@@ -68,8 +97,15 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(1, decision.DailyMessageLimit);
         }
 
-        [Fact]
-        public async Task CanSendNotificationAsync_WithoutActiveAddon_ShouldDenyWithSubscriptionRequired()
+        [Theory]
+        [InlineData(PlanCodes.WhatsApp400, "WhatsApp 400", 6000, 400)]
+        [InlineData(PlanCodes.WhatsApp800, "WhatsApp 800", 12000, 800)]
+        [InlineData(PlanCodes.WhatsApp1200, "WhatsApp 1200", 18000, 1200)]
+        public async Task CanSendNotificationAsync_WithActiveAddon_ShouldExposeConfiguredMonthlyLimit(
+            string addonCode,
+            string addonName,
+            decimal monthlyPrice,
+            int monthlyLimit)
         {
             var tenantId = Guid.NewGuid();
             var tenantProvider = new TestTenantProvider { TenantId = tenantId };
@@ -79,6 +115,28 @@ namespace LuxuryApp.Tests.TenantIsolation
             var service = CreateService(context, tenantProvider);
 
             await SeedTenantAsync(context, tenantId);
+            await SeedActiveBaseSubscriptionAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId, addonCode, addonName, monthlyPrice, monthlyLimit);
+
+            var decision = await service.CanSendNotificationAsync(tenantId, WhatsAppNotificationTypes.Confirmation);
+
+            Assert.True(decision.CanSend);
+            Assert.Equal(0, decision.MonthlyUsage);
+            Assert.Equal(monthlyLimit, decision.MonthlyMessageLimit);
+        }
+
+        [Fact]
+        public async Task CanSendNotificationAsync_WithoutActiveAddon_ShouldDenyWithNoActiveWhatsAppAddon()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedTenantAsync(context, tenantId);
+            await SeedActiveBaseSubscriptionAsync(context, tenantId);
             await service.UpdateSettingsAsync(
                 tenantId,
                 new TenantWhatsAppSettingsUpdateDto
@@ -91,11 +149,11 @@ namespace LuxuryApp.Tests.TenantIsolation
             var decision = await service.CanSendNotificationAsync(tenantId, WhatsAppNotificationTypes.Confirmation);
 
             Assert.False(decision.CanSend);
-            Assert.Equal(WhatsAppErrorCodes.SubscriptionRequired, decision.ErrorCode);
+            Assert.Equal(WhatsAppErrorCodes.NoActiveWhatsAppAddon, decision.ErrorCode);
         }
 
         [Fact]
-        public async Task GetTodayUsageAsync_ShouldCountOnlyProcessableOutboundNotifications()
+        public async Task CanSendNotificationAsync_WithoutActiveBaseSubscription_ShouldDenyWithNoActiveBaseSubscription()
         {
             var tenantId = Guid.NewGuid();
             var tenantProvider = new TestTenantProvider { TenantId = tenantId };
@@ -104,15 +162,65 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var disposableConnection = connection;
             var service = CreateService(context, tenantProvider);
 
+            await SeedTenantAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId);
+
+            var decision = await service.CanSendNotificationAsync(tenantId, WhatsAppNotificationTypes.Confirmation);
+
+            Assert.False(decision.CanSend);
+            Assert.Equal(WhatsAppErrorCodes.NoActiveBaseSubscription, decision.ErrorCode);
+        }
+
+        [Fact]
+        public async Task CanSendNotificationAsync_WhenMonthlyLimitWasReached_ShouldDenyWithMonthlyLimitExceeded()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedTenantAsync(context, tenantId);
+            await SeedActiveBaseSubscriptionAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId, PlanCodes.WhatsApp400, "WhatsApp 400", 6000m, 1);
+
+            context.WhatsAppMessageLogs.Add(CreateLog(
+                tenantId,
+                WhatsAppMessageDirections.Outbound,
+                WhatsAppNotificationTypes.Confirmation,
+                WhatsAppMessageStatuses.Sent));
+            await context.SaveChangesAsync();
+
+            var decision = await service.CanSendNotificationAsync(tenantId, WhatsAppNotificationTypes.Reminder3Hours);
+
+            Assert.False(decision.CanSend);
+            Assert.Equal(WhatsAppErrorCodes.MonthlyLimitExceeded, decision.ErrorCode);
+            Assert.Equal(1, decision.MonthlyUsage);
+            Assert.Equal(1, decision.MonthlyMessageLimit);
+        }
+
+        [Fact]
+        public async Task GetTodayUsageAsync_ShouldCountOnlySuccessfulOutboundNotifications()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedTenantAsync(context, tenantId);
+
             context.WhatsAppMessageLogs.AddRange(
-                CreateLog(WhatsAppMessageDirections.Outbound, WhatsAppNotificationTypes.Confirmation, WhatsAppMessageStatuses.Pending),
-                CreateLog(WhatsAppMessageDirections.Outbound, WhatsAppNotificationTypes.Reminder3Hours, WhatsAppMessageStatuses.Processing),
-                CreateLog(WhatsAppMessageDirections.Outbound, WhatsAppNotificationTypes.Confirmation, WhatsAppMessageStatuses.Sent),
-                CreateLog(WhatsAppMessageDirections.Inbound, WhatsAppNotificationTypes.Reply, WhatsAppMessageStatuses.Received),
-                CreateLog(WhatsAppMessageDirections.Status, WhatsAppNotificationTypes.Status, WhatsAppMessageStatuses.Delivered),
-                CreateLog(WhatsAppMessageDirections.Outbound, WhatsAppNotificationTypes.Confirmation, WhatsAppMessageStatuses.Delivered),
-                CreateLog(WhatsAppMessageDirections.Outbound, WhatsAppNotificationTypes.Confirmation, WhatsAppMessageStatuses.Read),
-                CreateLog(WhatsAppMessageDirections.Outbound, WhatsAppNotificationTypes.Confirmation, WhatsAppMessageStatuses.SkippedTenantDisabled));
+                CreateLog(tenantId, WhatsAppMessageDirections.Outbound, WhatsAppNotificationTypes.Confirmation, WhatsAppMessageStatuses.Pending),
+                CreateLog(tenantId, WhatsAppMessageDirections.Outbound, WhatsAppNotificationTypes.Reminder3Hours, WhatsAppMessageStatuses.Processing),
+                CreateLog(tenantId, WhatsAppMessageDirections.Outbound, WhatsAppNotificationTypes.Confirmation, WhatsAppMessageStatuses.Sent),
+                CreateLog(tenantId, WhatsAppMessageDirections.Inbound, WhatsAppNotificationTypes.Reply, WhatsAppMessageStatuses.Received),
+                CreateLog(tenantId, WhatsAppMessageDirections.Status, WhatsAppNotificationTypes.Status, WhatsAppMessageStatuses.Delivered),
+                CreateLog(tenantId, WhatsAppMessageDirections.Outbound, WhatsAppNotificationTypes.Confirmation, WhatsAppMessageStatuses.Delivered),
+                CreateLog(tenantId, WhatsAppMessageDirections.Outbound, WhatsAppNotificationTypes.Confirmation, WhatsAppMessageStatuses.Read),
+                CreateLog(tenantId, WhatsAppMessageDirections.Outbound, WhatsAppNotificationTypes.Confirmation, WhatsAppMessageStatuses.SkippedTenantDisabled));
             await context.SaveChangesAsync();
 
             var usage = await service.GetTodayUsageAsync(tenantId);
@@ -135,17 +243,317 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Contains("contexto de su tenant", exception.Message, StringComparison.OrdinalIgnoreCase);
         }
 
+        [Fact]
+        public async Task UpdateSettingsAsync_WhenBothEnabled_ShouldPersistBothActive()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedTenantAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId);
+
+            await service.UpdateSettingsAsync(tenantId, new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = true,
+                DailyMessageLimit = 30
+            }, "user1");
+
+            var result = await service.GetSettingsForTenantAsync(tenantId);
+
+            Assert.True(result.SendConfirmationOnCreate);
+            Assert.True(result.SendReminderThreeHoursBefore);
+            Assert.True(result.IsEnabled);
+        }
+
+        [Fact]
+        public async Task UpdateSettingsAsync_WhenOnlyConfirmationsEnabled_ShouldPersistOnlyConfirmations()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedTenantAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId);
+
+            await service.UpdateSettingsAsync(tenantId, new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = false,
+                DailyMessageLimit = 30
+            }, "user1");
+
+            var result = await service.GetSettingsForTenantAsync(tenantId);
+
+            Assert.True(result.SendConfirmationOnCreate);
+            Assert.False(result.SendReminderThreeHoursBefore);
+            Assert.True(result.IsEnabled);
+        }
+
+        [Fact]
+        public async Task UpdateSettingsAsync_WhenOnlyRemindersEnabled_ShouldPersistOnlyReminders()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedTenantAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId);
+
+            await service.UpdateSettingsAsync(tenantId, new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = false,
+                SendReminderThreeHoursBefore = true,
+                DailyMessageLimit = 30
+            }, "user1");
+
+            var result = await service.GetSettingsForTenantAsync(tenantId);
+
+            Assert.False(result.SendConfirmationOnCreate);
+            Assert.True(result.SendReminderThreeHoursBefore);
+            Assert.True(result.IsEnabled);
+        }
+
+        [Fact]
+        public async Task UpdateSettingsAsync_WhenBothDisabled_ShouldPersistBothDisabled()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedTenantAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId);
+
+            await service.UpdateSettingsAsync(tenantId, new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = false,
+                SendConfirmationOnCreate = false,
+                SendReminderThreeHoursBefore = false,
+                DailyMessageLimit = 30
+            }, "user1");
+
+            var result = await service.GetSettingsForTenantAsync(tenantId);
+
+            Assert.False(result.SendConfirmationOnCreate);
+            Assert.False(result.SendReminderThreeHoursBefore);
+            Assert.False(result.IsEnabled);
+        }
+
+        [Fact]
+        public async Task UpdateSettingsAsync_ShouldPersistAndReadbackMatchSavedValues()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedTenantAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId);
+
+            await service.UpdateSettingsAsync(tenantId, new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = false,
+                DailyMessageLimit = 25
+            }, "user1");
+
+            await service.UpdateSettingsAsync(tenantId, new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = false,
+                SendReminderThreeHoursBefore = true,
+                DailyMessageLimit = 25
+            }, "user1");
+
+            var result = await service.GetSettingsForTenantAsync(tenantId);
+
+            Assert.False(result.SendConfirmationOnCreate);
+            Assert.True(result.SendReminderThreeHoursBefore);
+        }
+
+        [Fact]
+        public async Task UpdateSettingsAsync_ShouldPreserveDailyMessageLimit()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedTenantAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId, PlanCodes.WhatsApp800, "WhatsApp 800", 12000m, 800);
+
+            var expectedDailyLimit = 30;
+            await service.UpdateSettingsAsync(tenantId, new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = true,
+                DailyMessageLimit = expectedDailyLimit
+            }, "user1");
+
+            await service.UpdateSettingsAsync(tenantId, new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = false,
+                SendReminderThreeHoursBefore = false,
+                DailyMessageLimit = expectedDailyLimit
+            }, "user1");
+
+            var result = await service.GetSettingsForTenantAsync(tenantId);
+
+            Assert.Equal(expectedDailyLimit, result.DailyMessageLimit);
+        }
+
+        [Fact]
+        public async Task UpdateSettingsAsync_ShouldNotModifyAddonMonthlyMessageLimit()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedTenantAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId, PlanCodes.WhatsApp800, "WhatsApp 800", 12000m, 800);
+
+            var addonBefore = context.TenantSubscriptionAddons.First(a => a.TenantId == tenantId);
+            var monthlyLimitBefore = addonBefore.MonthlyMessageLimit;
+
+            await service.UpdateSettingsAsync(tenantId, new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = false,
+                SendReminderThreeHoursBefore = false,
+                DailyMessageLimit = 30
+            }, "user1");
+
+            var addonAfter = context.TenantSubscriptionAddons.First(a => a.TenantId == tenantId);
+            Assert.Equal(monthlyLimitBefore, addonAfter.MonthlyMessageLimit);
+        }
+
+        [Fact]
+        public async Task UpdateSettingsAsync_ShouldNotDeactivateActiveAddon()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedTenantAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId);
+
+            await service.UpdateSettingsAsync(tenantId, new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = false,
+                SendConfirmationOnCreate = false,
+                SendReminderThreeHoursBefore = false,
+                DailyMessageLimit = 15
+            }, "user1");
+
+            var addonAfter = context.TenantSubscriptionAddons.First(a => a.TenantId == tenantId);
+            Assert.Equal(EstadoSuscripcion.Activa, addonAfter.Estado);
+        }
+
+        [Fact]
+        public async Task UpdateSettingsAsync_ShouldNotModifyBaseSubscription()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedTenantAsync(context, tenantId);
+            await SeedActiveBaseSubscriptionAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId);
+
+            var subscriptionBefore = context.Suscripciones.First(s => s.TenantId == tenantId);
+            var estadoBefore = subscriptionBefore.Estado;
+            var fechaFinBefore = subscriptionBefore.FechaFin;
+
+            await service.UpdateSettingsAsync(tenantId, new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = false,
+                SendConfirmationOnCreate = false,
+                SendReminderThreeHoursBefore = false,
+                DailyMessageLimit = 15
+            }, "user1");
+
+            var subscriptionAfter = context.Suscripciones.First(s => s.TenantId == tenantId);
+            Assert.Equal(estadoBefore, subscriptionAfter.Estado);
+            Assert.Equal(fechaFinBefore, subscriptionAfter.FechaFin);
+        }
+
+        [Fact]
+        public async Task GetSettingsForTenantAsync_ShouldExposeIdenticalValuesAsUpdateSettingsAsync_SimulatingMiSuscripcionAndPlatformSync()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedTenantAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId);
+
+            await service.UpdateSettingsAsync(tenantId, new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = false,
+                DailyMessageLimit = 20
+            }, "platform-user");
+
+            // Mi Suscripción y Platform llaman a GetSettingsForTenantAsync — ambas deben leer los mismos valores.
+            var snapshotA = await service.GetSettingsForTenantAsync(tenantId);
+            var snapshotB = await service.GetSettingsForTenantAsync(tenantId);
+
+            Assert.Equal(snapshotA.SendConfirmationOnCreate, snapshotB.SendConfirmationOnCreate);
+            Assert.Equal(snapshotA.SendReminderThreeHoursBefore, snapshotB.SendReminderThreeHoursBefore);
+            Assert.Equal(snapshotA.IsEnabled, snapshotB.IsEnabled);
+            Assert.Equal(snapshotA.DailyMessageLimit, snapshotB.DailyMessageLimit);
+            Assert.True(snapshotA.SendConfirmationOnCreate);
+            Assert.False(snapshotA.SendReminderThreeHoursBefore);
+        }
+
         private static TenantWhatsAppSettingsService CreateService(
             ProyectoIdentity.Datos.ApplicationDbContext context,
             TestTenantProvider tenantProvider)
         {
             var cache = new MemoryCache(new MemoryCacheOptions());
             var accessCache = new TenantCommercialAccessCache(cache);
+            var businessDateTimeProvider = new FixedBusinessDateTimeProvider();
             var subscriptionService = new SuscripcionService(
                 context,
                 cache,
                 accessCache,
-                new FixedBusinessDateTimeProvider(),
+                businessDateTimeProvider,
                 Options.Create(new TilopayRepeatOptions()),
                 NullLogger<SuscripcionService>.Instance);
 
@@ -154,23 +562,47 @@ namespace LuxuryApp.Tests.TenantIsolation
                 tenantProvider,
                 new StaticOptionsMonitor<MetaWhatsAppOptions>(new MetaWhatsAppOptions { Enabled = true }),
                 subscriptionService,
+                businessDateTimeProvider,
                 NullLogger<TenantWhatsAppSettingsService>.Instance);
         }
 
-        private static WhatsAppMessageLog CreateLog(string direction, string notificationType, string status) =>
-            new()
+        private static WhatsAppMessageLog CreateLog(
+            Guid tenantId,
+            string direction,
+            string notificationType,
+            string status)
+        {
+            var createdAtUtc = GetFixedNowUtc();
+            var log = new WhatsAppMessageLog
             {
+                TenantId = tenantId,
                 Direction = direction,
                 NotificationType = notificationType,
                 Status = status,
-                CreatedAtUtc = DateTime.UtcNow
+                CreatedAtUtc = createdAtUtc
             };
+
+            switch (status)
+            {
+                case WhatsAppMessageStatuses.Sent:
+                    log.SentAtUtc = createdAtUtc;
+                    break;
+                case WhatsAppMessageStatuses.Delivered:
+                    log.DeliveredAtUtc = createdAtUtc;
+                    break;
+                case WhatsAppMessageStatuses.Read:
+                    log.ReadAtUtc = createdAtUtc;
+                    break;
+            }
+
+            return log;
+        }
 
         private static async Task SeedTenantAsync(
             ProyectoIdentity.Datos.ApplicationDbContext context,
             Guid tenantId)
         {
-            context.Tenants.Add(new LuxuryApp.Models.SaaS.Tenant
+            context.Tenants.Add(new Tenant
             {
                 Id = tenantId,
                 Nombre = "Tenant WhatsApp"
@@ -178,19 +610,58 @@ namespace LuxuryApp.Tests.TenantIsolation
             await context.SaveChangesAsync();
         }
 
-        private static async Task SeedActiveAddonAsync(
+        private static async Task SeedActiveBaseSubscriptionAsync(
             ProyectoIdentity.Datos.ApplicationDbContext context,
             Guid tenantId)
         {
             var planId = Guid.NewGuid();
+            var nowUtc = GetFixedNowUtc();
             context.Planes.Add(new Plan
             {
                 Id = planId,
-                Codigo = PlanCodes.WhatsApp400,
-                Nombre = "WhatsApp 400",
+                Codigo = PlanCodes.Basic,
+                Nombre = "Basico",
                 Moneda = "CRC",
-                PrecioMensual = 6000m,
-                LimiteMensajesMensual = 400,
+                PrecioMensual = 8000m,
+                MaxFuncionarios = 1,
+                Activo = true
+            });
+
+            context.Suscripciones.Add(new Suscripcion
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                PlanId = planId,
+                CodigoPlan = PlanCodes.Basic,
+                Estado = EstadoSuscripcion.Activa,
+                Proveedor = PaymentProviderType.Tilopay,
+                FechaInicio = nowUtc.AddDays(-3),
+                FechaFin = nowUtc.AddDays(27),
+                FechaProximoCobroUtc = nowUtc.AddDays(27),
+                FechaUltimaActualizacionUtc = nowUtc
+            });
+
+            await context.SaveChangesAsync();
+        }
+
+        private static async Task SeedActiveAddonAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            Guid tenantId,
+            string addonCode = PlanCodes.WhatsApp400,
+            string addonName = "WhatsApp 400",
+            decimal monthlyPrice = 6000m,
+            int monthlyLimit = 400)
+        {
+            var nowUtc = GetFixedNowUtc();
+            var planId = Guid.NewGuid();
+            context.Planes.Add(new Plan
+            {
+                Id = planId,
+                Codigo = addonCode,
+                Nombre = addonName,
+                Moneda = "CRC",
+                PrecioMensual = monthlyPrice,
+                LimiteMensajesMensual = monthlyLimit,
                 Activo = true
             });
 
@@ -199,16 +670,19 @@ namespace LuxuryApp.Tests.TenantIsolation
                 Id = Guid.NewGuid(),
                 TenantId = tenantId,
                 PlanId = planId,
-                AddonCode = PlanCodes.WhatsApp400,
+                AddonCode = addonCode,
                 Estado = EstadoSuscripcion.Activa,
-                MonthlyMessageLimit = 400,
-                FechaInicio = DateTime.UtcNow.AddDays(-1),
-                FechaFin = DateTime.UtcNow.AddDays(29),
-                CreatedAtUtc = DateTime.UtcNow,
-                UpdatedAtUtc = DateTime.UtcNow
+                MonthlyMessageLimit = monthlyLimit,
+                FechaInicio = nowUtc.AddDays(-1),
+                FechaFin = nowUtc.AddDays(29),
+                CreatedAtUtc = nowUtc,
+                UpdatedAtUtc = nowUtc
             });
 
             await context.SaveChangesAsync();
         }
+
+        private static DateTime GetFixedNowUtc() =>
+            new DateTimeOffset(new DateTime(2026, 5, 26, 10, 30, 0), TimeSpan.FromHours(-6)).UtcDateTime;
     }
 }

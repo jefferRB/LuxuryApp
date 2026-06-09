@@ -159,9 +159,16 @@ namespace LuxuryApp.Services.Tilopay
             var root = document.RootElement;
 
             var linkPayload = JsonSerializer.Deserialize<TilopayLinkWebhookPayload>(payload, JsonOptions);
-            var recurringPlanId = TryReadFirstInt(root, "recurringPlanId", "repeatPlanId", "planId", "subscriptionPlanId", "plan_id");
+            var recurringPlanId = TryReadFirstInt(root, "id_plan", "idPlan", "recurringPlanId", "repeatPlanId", "planId", "subscriptionPlanId", "plan_id");
+            var planCode = NormalizeOptionalValue(TryReadFirstString(root, "lc_plan", "planCode", "plan_code", "subscriptionPlanCode", "subscription_plan_code", "codigoPlan", "codigo_plan"));
             var providerSubscriberId = NormalizeOptionalValue(TryReadFirstString(root, "subscriberId", "subscriber_id", "subscriptionId", "subscription_id", "suscriptorId", "suscriptor_id", "customerId", "customer_id"));
             var customerEmail = NormalizeOptionalValue(TryReadFirstString(root, "customerEmail", "clientEmail", "email", "correo", "mail"));
+            var recurringModality = NormalizeOptionalValue(TryReadFirstString(root, "modality", "modalidad"));
+            var recurringFrequency = NormalizeOptionalValue(TryReadFirstString(root, "frequency", "frecuency", "frecuencia"));
+            var couponCode = NormalizeOptionalValue(TryReadFirstString(root, "coupon", "coupon_code", "couponCode"));
+            var hasFreeTrial = TryReadFirstBool(root, "free_trial", "freeTrial", "trial", "freeTrialEnabled");
+            var nextBillingDateUtc = TryReadFirstProviderDateUtc(root, "next_payment_date", "nextPaymentDate", "next_payment_at", "nextPaymentAt");
+            var expirationDateUtc = TryReadFirstProviderDateUtc(root, "expire", "expires_at", "expiresAt", "expiration_date", "expirationDate");
             var internalReference = NormalizeOptionalValue(
                 TryReadFirstString(root, "lc_ref", "correlationToken", "reference", "internalReference")) ??
                 NormalizeOptionalValue(linkPayload?.reference) ??
@@ -193,7 +200,7 @@ namespace LuxuryApp.Services.Tilopay
             var orderHash = NormalizeOptionalValue(linkPayload?.orderHash) ?? NormalizeOptionalValue(TryReadFirstString(root, "orderHash", "order_hash"));
             var eventType = NormalizeOptionalValue(TryReadFirstString(root, "eventType", "event_type", "event", "type"));
 
-            var isRecurring = recurringPlanId.HasValue;
+            var isRecurring = recurringPlanId.HasValue || IsRecurringWebhookHint(planCode, eventType);
             if (!isRecurring && string.IsNullOrWhiteSpace(internalReference))
             {
                 throw new PaymentWebhookValidationException("Tilopay webhook sin referencia utilizable.");
@@ -201,12 +208,16 @@ namespace LuxuryApp.Services.Tilopay
 
             var eventId = BuildWebhookEventId(
                 isRecurring,
+                eventType,
                 recurringPlanId,
                 providerTransactionId,
                 providerSubscriberId,
                 providerOrderNumber,
                 orderHash,
-                internalReference);
+                internalReference,
+                customerEmail,
+                nextBillingDateUtc,
+                expirationDateUtc);
 
             return new PaymentProviderWebhookData
             {
@@ -220,17 +231,42 @@ namespace LuxuryApp.Services.Tilopay
                 ProviderCheckoutId = providerCheckoutId,
                 ProviderTransactionId = providerTransactionId,
                 RecurringPlanId = recurringPlanId,
+                PlanCode = planCode,
                 ProviderSubscriberId = providerSubscriberId,
                 CustomerEmail = customerEmail,
                 Amount = amount,
                 Currency = currency,
                 IsRecurring = isRecurring,
+                RecurringModality = recurringModality,
+                RecurringFrequency = recurringFrequency,
+                CouponCode = couponCode,
+                HasFreeTrial = hasFreeTrial,
+                NextBillingDateUtc = nextBillingDateUtc,
+                ExpirationDateUtc = expirationDateUtc,
                 AuthorizationCode = NormalizeOptionalValue(linkPayload?.auth) ?? NormalizeOptionalValue(TryReadFirstString(root, "auth", "authorizationCode")),
                 CardBrand = NormalizeOptionalValue(linkPayload?.creditCardBrand) ?? NormalizeOptionalValue(TryReadFirstString(root, "creditCardBrand", "cardBrand")),
                 CardLast4 = NormalizeOptionalValue(linkPayload?.last4CreditCardNumber) ?? NormalizeOptionalValue(TryReadFirstString(root, "last4CreditCardNumber", "cardLast4", "last4")),
                 OrderHash = orderHash,
                 RawPayload = payload
             };
+        }
+
+        private static bool IsRecurringWebhookHint(string? planCode, string? eventType)
+        {
+            if (TilopayRepeatOptions.IsManagedPlanCode(planCode))
+            {
+                return true;
+            }
+
+            if (string.IsNullOrWhiteSpace(eventType))
+            {
+                return false;
+            }
+
+            return eventType.Contains("repeat", StringComparison.OrdinalIgnoreCase) ||
+                   eventType.Contains("recurring", StringComparison.OrdinalIgnoreCase) ||
+                   eventType.Contains("subscription", StringComparison.OrdinalIgnoreCase) ||
+                   eventType.Contains("suscripcion", StringComparison.OrdinalIgnoreCase);
         }
 
         public async Task<PaymentVerificationResult> VerifyPaymentAsync(
@@ -501,12 +537,16 @@ namespace LuxuryApp.Services.Tilopay
 
         private static string BuildWebhookEventId(
             bool isRecurring,
+            string? eventType,
             int? recurringPlanId,
             string? providerTransactionId,
             string? providerSubscriberId,
             string? providerOrderNumber,
             string? orderHash,
-            string? reference)
+            string? reference,
+            string? customerEmail,
+            DateTime? nextBillingDateUtc,
+            DateTime? expirationDateUtc)
         {
             if (!string.IsNullOrWhiteSpace(providerTransactionId))
             {
@@ -519,10 +559,19 @@ namespace LuxuryApp.Services.Tilopay
                 providerOrderNumber ??
                 orderHash ??
                 reference ??
+                customerEmail ??
+                nextBillingDateUtc?.ToString("yyyyMMdd", CultureInfo.InvariantCulture) ??
+                expirationDateUtc?.ToString("yyyyMMdd", CultureInfo.InvariantCulture) ??
                 Guid.NewGuid().ToString("N");
 
+            var normalizedEventType = NormalizeOptionalValue(eventType)?
+                .Replace(".", "-", StringComparison.Ordinal)
+                .Replace("_", "-", StringComparison.Ordinal)
+                .Replace(" ", "-", StringComparison.Ordinal)
+                .ToLowerInvariant();
+
             return isRecurring
-                ? $"tilopay-repeat-{recurringPlanId?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}-{stableSuffix}"
+                ? $"tilopay-repeat-{normalizedEventType ?? "notification"}-{recurringPlanId?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}-{stableSuffix}"
                 : $"tilopay-link-{stableSuffix}";
         }
 
@@ -559,12 +608,94 @@ namespace LuxuryApp.Services.Tilopay
                 : null;
         }
 
+        private static bool? TryReadFirstBool(JsonElement root, params string[] propertyNames)
+        {
+            foreach (var propertyName in propertyNames)
+            {
+                if (!TryFindPropertyValue(root, propertyName, out var value))
+                {
+                    continue;
+                }
+
+                switch (value.ValueKind)
+                {
+                    case JsonValueKind.True:
+                        return true;
+                    case JsonValueKind.False:
+                        return false;
+                    case JsonValueKind.Number when value.TryGetInt32(out var numeric):
+                        return numeric != 0;
+                    case JsonValueKind.String:
+                    {
+                        var raw = NormalizeOptionalValue(value.GetString());
+                        if (string.IsNullOrWhiteSpace(raw))
+                        {
+                            break;
+                        }
+
+                        if (bool.TryParse(raw, out var parsedBool))
+                        {
+                            return parsedBool;
+                        }
+
+                        if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedNumeric))
+                        {
+                            return parsedNumeric != 0;
+                        }
+
+                        break;
+                    }
+                }
+            }
+
+            return null;
+        }
+
         private static decimal? TryReadFirstDecimal(JsonElement root, params string[] propertyNames)
         {
             var raw = TryReadFirstString(root, propertyNames);
             return decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
                 ? parsed
                 : null;
+        }
+
+        private static DateTime? TryReadFirstProviderDateUtc(JsonElement root, params string[] propertyNames)
+        {
+            var raw = NormalizeOptionalValue(TryReadFirstString(root, propertyNames));
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return null;
+            }
+
+            var supportedFormats = new[]
+            {
+                "yyyy-MM-dd",
+                "yyyy-MM-dd HH:mm:ss",
+                "yyyy-MM-ddTHH:mm:ss",
+                "yyyy-MM-ddTHH:mm:ssZ",
+                "dd-MM-yyyy"
+            };
+
+            if (DateTime.TryParseExact(
+                raw,
+                supportedFormats,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var parsedExact))
+            {
+                return DateTime.SpecifyKind(parsedExact, DateTimeKind.Utc);
+            }
+
+            if (DateTime.TryParse(
+                raw,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var parsed))
+            {
+                return parsed.ToUniversalTime();
+            }
+
+            return null;
         }
 
         private static bool TryFindPropertyValue(JsonElement element, string propertyName, out JsonElement value)

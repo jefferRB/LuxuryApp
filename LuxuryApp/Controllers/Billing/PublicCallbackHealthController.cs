@@ -11,10 +11,6 @@ namespace LuxuryApp.Controllers
     {
         [HttpGet]
         public IActionResult Get() =>
-            Ok(new
-            {
-                status = "ok",
-                utc = DateTime.UtcNow
-            });
+            Content("OK LuxuryCloud public callback reachable", "text/plain");
     }
 }

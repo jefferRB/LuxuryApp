@@ -25,5 +25,9 @@ namespace LuxuryApp.Models.Platform
         public string? WhatsAppLastErrorCode { get; init; }
         public string? WhatsAppLastErrorMessage { get; init; }
         public DateTime? WhatsAppLastErrorAtUtc { get; init; }
+        public string? WhatsAppAddonCode { get; init; }
+        public bool WhatsAppAddonIsManual { get; init; }
+        public DateTime? WhatsAppAddonFechaFin { get; init; }
+        public int? WhatsAppAddonMonthlyLimit { get; init; }
     }
 }

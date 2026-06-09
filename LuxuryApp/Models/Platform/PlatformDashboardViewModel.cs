@@ -12,5 +12,9 @@ namespace LuxuryApp.Models.Platform
         public IReadOnlyCollection<PlatformTenantRowViewModel> Tenants { get; init; } = Array.Empty<PlatformTenantRowViewModel>();
         public IReadOnlyCollection<PlatformRecentUserViewModel> RecentUsers { get; init; } = Array.Empty<PlatformRecentUserViewModel>();
         public IReadOnlyCollection<PlatformRecentPaymentViewModel> RecentPayments { get; init; } = Array.Empty<PlatformRecentPaymentViewModel>();
+        public IReadOnlyCollection<PlatformBillingPendingCheckoutViewModel> PendingRecurringCheckouts { get; init; } = Array.Empty<PlatformBillingPendingCheckoutViewModel>();
+        public IReadOnlyCollection<PlatformBillingEventViewModel> RecentBillingEvents { get; init; } = Array.Empty<PlatformBillingEventViewModel>();
+        public IReadOnlyCollection<PlatformSubscriptionStatusViewModel> ActiveRecurringSubscriptions { get; init; } = Array.Empty<PlatformSubscriptionStatusViewModel>();
+        public IReadOnlyCollection<PlatformSubscriptionStatusViewModel> ActiveRecurringAddons { get; init; } = Array.Empty<PlatformSubscriptionStatusViewModel>();
     }
 }

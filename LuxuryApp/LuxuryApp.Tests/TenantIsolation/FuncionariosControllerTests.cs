@@ -175,6 +175,57 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Contains(funcionarios, f => f.Nombre == "Nueva" && f.Activo);
         }
 
+        [Theory]
+        [InlineData(1)]
+        [InlineData(3)]
+        [InlineData(7)]
+        public async Task Create_ShouldBlockWhenActiveFuncionariosReachConfiguredPlanLimit(int maxFuncionarios)
+        {
+            var tenantId = Guid.NewGuid();
+            var planId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            await SeedPlanAsync(context, planId, maxFuncionarios);
+            var puesto = await SeedPuestoAsync(context, $"Puesto {maxFuncionarios}", "Operaciones");
+
+            for (var index = 1; index <= maxFuncionarios; index++)
+            {
+                context.Funcionarios.Add(new Funcionario
+                {
+                    Nombre = $"Activa {index}",
+                    IdPuesto = puesto.IdPuesto,
+                    ColorCalendario = $"#AA{index:D2}AA",
+                    PorcentajeGanancia = 40,
+                    PorcentajeProducto = 10,
+                    FechaIngreso = new DateTime(2026, 4, 1).AddDays(index),
+                    Activo = true
+                });
+            }
+
+            await context.SaveChangesAsync();
+
+            var controller = CreateController(context, tenantId, planId);
+            var result = await controller.Create(new Funcionario
+            {
+                Nombre = "Extra",
+                IdPuesto = puesto.IdPuesto,
+                ColorCalendario = "#333333",
+                PorcentajeGanancia = 35,
+                PorcentajeProducto = 8,
+                FechaIngreso = new DateTime(2026, 4, 13)
+            });
+
+            var redirect = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal(nameof(FuncionariosController.Index), redirect.ActionName);
+            Assert.Equal(
+                $"Tu plan actual permite hasta {maxFuncionarios} funcionarios. Para agregar mas, actualiza tu plan.",
+                controller.TempData["Error"]);
+            Assert.Equal(maxFuncionarios, await context.Funcionarios.CountAsync());
+        }
+
         [Fact]
         public async Task Edit_ShouldPreserveActivoState_WhenStateIsManagedExternally()
         {

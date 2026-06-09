@@ -145,6 +145,8 @@ builder.Services.Configure<TilopayRepeatOptions>(builder.Configuration.GetSectio
 builder.Services.Configure<OpcionesOnboardingTenant>(builder.Configuration.GetSection("TenantOnboarding"));
 builder.Services.Configure<BusinessDateTimeOptions>(builder.Configuration.GetSection(BusinessDateTimeOptions.SectionName));
 builder.Services.Configure<MetaWhatsAppOptions>(builder.Configuration.GetSection(MetaWhatsAppOptions.SectionName));
+builder.Services.Configure<LuxuryApp.Services.Account.AccountEmailOptions>(
+    builder.Configuration.GetSection(LuxuryApp.Services.Account.AccountEmailOptions.SectionName));
 builder.Services.Configure<RequestLocalizationOptions>(options =>
 {
     var supportedCultures = new[] { defaultCulture };
@@ -161,9 +163,11 @@ builder.Services.AddTransient<EmailService, EmailSender>();
 builder.Services.AddHttpClient<ResendClient>();
 builder.Services.Configure<ResendClientOptions>(options =>
 {
-    options.ApiToken = builder.Configuration["Email:resendAPIKey"] ?? string.Empty;
+    options.ApiToken = builder.Configuration["Email:SmtpPassword"] ?? string.Empty;
 });
 builder.Services.AddTransient<IResend, ResendClient>();
+builder.Services.AddScoped<LuxuryApp.Services.Account.IAccountEmailService,
+    LuxuryApp.Services.Account.AccountEmailService>();
 
 builder.Services.AddHttpClient<IMetaWhatsAppClient, MetaWhatsAppClient>((serviceProvider, client) =>
 {

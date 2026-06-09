@@ -5,6 +5,7 @@ using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.SaaS;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using ProyectoIdentity.Datos;
 
@@ -12,6 +13,11 @@ namespace LuxuryApp.Services.Tenant
 {
     public class TenantProvisioningService
     {
+        private const string ContractAcceptanceRequiredError = "Debes aceptar el contrato para crear tu cuenta.";
+        private const string ContractValidationUnavailableError = "No fue posible validar el contrato vigente. Recarga la página e intenta de nuevo.";
+        private const string ContractChangedError = "El contrato vigente cambió. Recarga la página e intenta de nuevo.";
+        private const string NoActiveContractError = "No hay un contrato vigente configurado en este momento. Contacta soporte.";
+
         private readonly ApplicationDbContext _context;
         private readonly UserManager<AppUsuario> _userManager;
         private readonly RoleManager<IdentityRole> _roleManager;
@@ -19,6 +25,7 @@ namespace LuxuryApp.Services.Tenant
         private readonly IContractService _contractService;
         private readonly IPromotionalCodeService _promotionalCodeService;
         private readonly ITenantCommercialAccessResolver _commercialAccessResolver;
+        private readonly IHostEnvironment _environment;
         private readonly ILogger<TenantProvisioningService> _logger;
 
         public TenantProvisioningService(
@@ -29,6 +36,7 @@ namespace LuxuryApp.Services.Tenant
             IPromotionalCodeService promotionalCodeService,
             ITenantCommercialAccessResolver commercialAccessResolver,
             IOptions<OpcionesOnboardingTenant> options,
+            IHostEnvironment environment,
             ILogger<TenantProvisioningService> logger)
         {
             _context = context;
@@ -38,6 +46,7 @@ namespace LuxuryApp.Services.Tenant
             _promotionalCodeService = promotionalCodeService;
             _commercialAccessResolver = commercialAccessResolver;
             _options = options.Value;
+            _environment = environment;
             _logger = logger;
         }
 
@@ -51,21 +60,55 @@ namespace LuxuryApp.Services.Tenant
             var name = request.Name.Trim();
             var phoneNumber = request.PhoneNumber?.Trim();
             var accessCode = request.AccessCode?.Trim();
+            var activeContract = await _contractService.GetActiveContractAsync(cancellationToken);
+            var activeContractDocumentId = activeContract?.Id;
+
+            LogDevelopmentContractTrace(request, activeContractDocumentId, "Received");
 
             if (!request.AcceptCurrentContract)
             {
-                return TenantProvisioningResult.Failure("Debes aceptar el contrato para crear tu cuenta.");
+                return FailureWithDevelopmentTrace(
+                    request,
+                    activeContractDocumentId,
+                    "ContractAcceptanceMissing",
+                    ContractAcceptanceRequiredError);
+            }
+
+            if (activeContract is null)
+            {
+                return FailureWithDevelopmentTrace(
+                    request,
+                    activeContractDocumentId,
+                    "ActiveContractMissing",
+                    NoActiveContractError);
             }
 
             if (!request.SubmittedContractDocumentId.HasValue || request.SubmittedContractDocumentId.Value == Guid.Empty)
             {
-                return TenantProvisioningResult.Failure("No se recibio una version valida del contrato para completar el registro.");
+                return FailureWithDevelopmentTrace(
+                    request,
+                    activeContractDocumentId,
+                    "SubmittedContractDocumentIdMissing",
+                    ContractValidationUnavailableError);
+            }
+
+            if (request.SubmittedContractDocumentId.Value != activeContract.Id)
+            {
+                return FailureWithDevelopmentTrace(
+                    request,
+                    activeContractDocumentId,
+                    "SubmittedContractDocumentIdMismatch",
+                    ContractChangedError);
             }
 
             var existingUser = await _userManager.FindByEmailAsync(email);
             if (existingUser is not null)
             {
-                return TenantProvisioningResult.Failure("El correo ya está registrado.");
+                return FailureWithDevelopmentTrace(
+                    request,
+                    activeContractDocumentId,
+                    "EmailAlreadyRegistered",
+                    "El correo ya está registrado.");
             }
 
             var executionStrategy = _context.Database.CreateExecutionStrategy();
@@ -108,8 +151,13 @@ namespace LuxuryApp.Services.Tenant
                     var createUserResult = await _userManager.CreateAsync(usuario, request.Password);
                     if (!createUserResult.Succeeded)
                     {
-                        provisioningResult = TenantProvisioningResult.Failure(
-                            createUserResult.Errors.Select(error => error.Description).ToArray());
+                        var errors = createUserResult.Errors.Select(error => error.Description).ToArray();
+                        LogDevelopmentProvisioningFailure(
+                            request,
+                            activeContractDocumentId,
+                            "IdentityUserCreationFailed",
+                            errors);
+                        provisioningResult = TenantProvisioningResult.Failure(errors);
                         await transaction.RollbackAsync(cancellationToken);
                         return;
                     }
@@ -119,8 +167,13 @@ namespace LuxuryApp.Services.Tenant
                         var addToRoleResult = await _userManager.AddToRoleAsync(usuario, roleName);
                         if (!addToRoleResult.Succeeded)
                         {
-                            provisioningResult = TenantProvisioningResult.Failure(
-                                addToRoleResult.Errors.Select(error => error.Description).ToArray());
+                            var errors = addToRoleResult.Errors.Select(error => error.Description).ToArray();
+                            LogDevelopmentProvisioningFailure(
+                                request,
+                                activeContractDocumentId,
+                                "IdentityRoleAssignmentFailed",
+                                errors);
+                            provisioningResult = TenantProvisioningResult.Failure(errors);
                             await transaction.RollbackAsync(cancellationToken);
                             return;
                         }
@@ -139,7 +192,17 @@ namespace LuxuryApp.Services.Tenant
                     }
                     catch (InvalidOperationException ex)
                     {
-                        provisioningResult = TenantProvisioningResult.Failure(ex.Message);
+                        var contractError = await ResolveContractRegistrationErrorAsync(
+                            request,
+                            ex.Message,
+                            cancellationToken);
+                        var errors = new[] { contractError };
+                        LogDevelopmentProvisioningFailure(
+                            request,
+                            activeContractDocumentId,
+                            "ContractAcceptanceRegistrationFailed",
+                            errors);
+                        provisioningResult = TenantProvisioningResult.Failure(errors);
                         await transaction.RollbackAsync(cancellationToken);
                         return;
                     }
@@ -154,8 +217,16 @@ namespace LuxuryApp.Services.Tenant
 
                         if (!redemptionResult.Succeeded)
                         {
-                            provisioningResult = TenantProvisioningResult.Failure(
-                                redemptionResult.Error ?? "No fue posible aplicar el código de acceso.");
+                            var errors = new[]
+                            {
+                                redemptionResult.Error ?? "No fue posible aplicar el código de acceso."
+                            };
+                            LogDevelopmentProvisioningFailure(
+                                request,
+                                activeContractDocumentId,
+                                "PromotionalCodeRedemptionFailed",
+                                errors);
+                            provisioningResult = TenantProvisioningResult.Failure(errors);
                             await transaction.RollbackAsync(cancellationToken);
                             return;
                         }
@@ -193,6 +264,77 @@ namespace LuxuryApp.Services.Tenant
 
             return provisioningResult
                 ?? throw new InvalidOperationException("No se pudo completar el aprovisionamiento del tenant.");
+        }
+
+        private TenantProvisioningResult FailureWithDevelopmentTrace(
+            TenantRegistrationRequest request,
+            Guid? activeContractDocumentId,
+            string reason,
+            params string[] errors)
+        {
+            LogDevelopmentProvisioningFailure(request, activeContractDocumentId, reason, errors);
+            return TenantProvisioningResult.Failure(errors);
+        }
+
+        private async Task<string> ResolveContractRegistrationErrorAsync(
+            TenantRegistrationRequest request,
+            string fallbackError,
+            CancellationToken cancellationToken)
+        {
+            if (!request.SubmittedContractDocumentId.HasValue || request.SubmittedContractDocumentId.Value == Guid.Empty)
+            {
+                return ContractValidationUnavailableError;
+            }
+
+            var activeContract = await _contractService.GetActiveContractAsync(cancellationToken);
+            if (activeContract is null)
+            {
+                return NoActiveContractError;
+            }
+
+            return activeContract.Id == request.SubmittedContractDocumentId.Value
+                ? fallbackError
+                : ContractChangedError;
+        }
+
+        private void LogDevelopmentProvisioningFailure(
+            TenantRegistrationRequest request,
+            Guid? activeContractDocumentId,
+            string reason,
+            IReadOnlyCollection<string> errors)
+        {
+            LogDevelopmentContractTrace(request, activeContractDocumentId, "Failure", reason, errors);
+        }
+
+        private void LogDevelopmentContractTrace(
+            TenantRegistrationRequest request,
+            Guid? activeContractDocumentId,
+            string stage,
+            string? reason = null,
+            IReadOnlyCollection<string>? errors = null)
+        {
+            if (!_environment.IsDevelopment())
+            {
+                return;
+            }
+
+            var submittedContractDocumentId = request.SubmittedContractDocumentId;
+            var hasActiveContract = activeContractDocumentId.HasValue && activeContractDocumentId.Value != Guid.Empty;
+            var contractDocumentIdsMatch = hasActiveContract &&
+                submittedContractDocumentId.HasValue &&
+                submittedContractDocumentId.Value != Guid.Empty &&
+                submittedContractDocumentId.Value == activeContractDocumentId.GetValueOrDefault();
+
+            _logger.LogInformation(
+                "Tenant provisioning contract trace. Stage {Stage}. AcceptCurrentContract {AcceptCurrentContract}. SubmittedContractDocumentId {SubmittedContractDocumentId}. HasActiveContract {HasActiveContract}. ActiveContractDocumentId {ActiveContractDocumentId}. ContractDocumentIdsMatch {ContractDocumentIdsMatch}. FailureReason {FailureReason}. ErrorsReturned {ErrorsReturned}.",
+                stage,
+                request.AcceptCurrentContract,
+                submittedContractDocumentId,
+                hasActiveContract,
+                activeContractDocumentId,
+                contractDocumentIdsMatch,
+                reason,
+                errors ?? Array.Empty<string>());
         }
 
         private async Task<bool> CreateInitialSubscriptionAsync(Guid tenantId, CancellationToken cancellationToken)

@@ -8,6 +8,8 @@ using LuxuryApp.Tests.Support;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using ProyectoIdentity.Datos;
@@ -94,6 +96,57 @@ namespace LuxuryApp.Tests.TenantIsolation
             }
         }
 
+        [Fact]
+        public async Task RegisterAsync_ShouldReturnContractValidationErrorWhenAcceptedButSubmittedDocumentIsMissing()
+        {
+            await using var provider = await CreateServiceProviderAsync();
+
+            using var scope = provider.CreateScope();
+            var service = scope.ServiceProvider.GetRequiredService<TenantProvisioningService>();
+
+            var result = await service.RegisterAsync(new TenantRegistrationRequest
+            {
+                Name = "Luxury Tenant",
+                Email = "missing-contract@test.local",
+                PhoneNumber = "88888888",
+                Password = "Valid1!",
+                AcceptCurrentContract = true,
+                SubmittedContractDocumentId = null,
+                ContractIpAddress = "198.51.100.26",
+                ContractUserAgent = "TenantProvisioningServiceTests/missing-contract"
+            });
+
+            Assert.False(result.Succeeded);
+            var error = Assert.Single(result.Errors);
+            Assert.Equal("No fue posible validar el contrato vigente. Recarga la página e intenta de nuevo.", error);
+            Assert.DoesNotContain("Debes aceptar el contrato para crear tu cuenta.", result.Errors);
+        }
+
+        [Fact]
+        public async Task RegisterAsync_ShouldReturnContractChangedErrorWhenSubmittedDocumentDoesNotMatchActiveContract()
+        {
+            await using var provider = await CreateServiceProviderAsync();
+
+            using var scope = provider.CreateScope();
+            var service = scope.ServiceProvider.GetRequiredService<TenantProvisioningService>();
+
+            var result = await service.RegisterAsync(new TenantRegistrationRequest
+            {
+                Name = "Luxury Tenant",
+                Email = "changed-contract@test.local",
+                PhoneNumber = "88888888",
+                Password = "Valid1!",
+                AcceptCurrentContract = true,
+                SubmittedContractDocumentId = Guid.NewGuid(),
+                ContractIpAddress = "198.51.100.27",
+                ContractUserAgent = "TenantProvisioningServiceTests/changed-contract"
+            });
+
+            Assert.False(result.Succeeded);
+            var error = Assert.Single(result.Errors);
+            Assert.Equal("El contrato vigente cambió. Recarga la página e intenta de nuevo.", error);
+        }
+
         private static async Task<ServiceProvider> CreateServiceProviderAsync()
         {
             var connection = new SqliteConnection("DataSource=:memory:");
@@ -104,6 +157,9 @@ namespace LuxuryApp.Tests.TenantIsolation
             services.AddHttpContextAccessor();
             services.AddMemoryCache();
             services.AddSingleton(connection);
+            services.AddSingleton<TestWebHostEnvironment>();
+            services.AddSingleton<IWebHostEnvironment>(serviceProvider => serviceProvider.GetRequiredService<TestWebHostEnvironment>());
+            services.AddSingleton<IHostEnvironment>(serviceProvider => serviceProvider.GetRequiredService<TestWebHostEnvironment>());
             services.AddSingleton<ITenantExecutionContextAccessor, TenantExecutionContextAccessor>();
             services.AddScoped<ITenantProvider, TenantProvider>();
             services.AddSingleton<ITenantCommercialAccessCache, TenantCommercialAccessCache>();

@@ -14,8 +14,8 @@
             <span class="section-kicker">Precios LuxuryCloud</span>
             <h1>Planes mensuales claros para operar con control y sin acceso permanente por un solo pago.</h1>
             <p>
-                LuxuryCloud mantiene la prueba interna, el tenant y el onboarding actual, pero el acceso comercial
-                depende de una suscripcion vigente y su periodo mensual activo.
+                LuxuryCloud mantiene el tenant y la cuenta existente. El acceso comercial depende
+                de una suscripcion mensual vigente y su periodo activo.
             </p>
         </div>
     </div>
@@ -118,8 +118,18 @@
                                     <p>
                                         <strong>@Model.CurrentSubscription.WhatsAppAddonName</strong><br />
                                         Estado: @Model.CurrentSubscription.WhatsAppAddonStatusLabel<br />
-                                        Usados: @Model.CurrentSubscription.WhatsAppMessagesUsed de @(Model.CurrentSubscription.WhatsAppMonthlyLimit ?? 0)
+                                        Confirmaciones: <strong>@(Model.CurrentSubscription.SendAppointmentConfirmations ? "Activas" : "Inactivas")</strong><br />
+                                        Recordatorios: <strong>@(Model.CurrentSubscription.SendAppointmentReminders ? "Activos" : "Inactivos")</strong>
                                     </p>
+                                    <ul class="billing-metric-list">
+                                        <li>Usados del mes: <strong>@Model.CurrentSubscription.WhatsAppMessagesUsed</strong> de <strong>@(Model.CurrentSubscription.WhatsAppMonthlyLimit ?? 0)</strong></li>
+                                        <li>Restantes del mes: <strong>@(Model.CurrentSubscription.WhatsAppMessagesRemaining ?? 0)</strong></li>
+                                        <li>Usados hoy: <strong>@Model.CurrentSubscription.WhatsAppTodayUsage</strong> de <strong>@(Model.CurrentSubscription.WhatsAppDailyLimit ?? 0)</strong></li>
+                                    </ul>
+                                    @if (Model.CurrentSubscription.WhatsAppNextBillingDateUtc.HasValue)
+                                    {
+                                        <p class="mb-0">Proxima renovacion: <strong>@Model.CurrentSubscription.WhatsAppNextBillingDateUtc.Value.ToString("dd/MM/yyyy")</strong></p>
+                                    }
                                 }
                                 else
                                 {
@@ -140,6 +150,68 @@
                             </p>
                         }
                     </div>
+
+                    @if (Model.CurrentSubscription.HasWhatsAppAddon)
+                    {
+                        <form asp-action="UpdateWhatsAppPreferences" method="post" class="billing-whatsapp-settings">
+                            @Html.AntiForgeryToken()
+                            <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-3">
+                                <div>
+                                    <span class="section-kicker">Automatizaciones WhatsApp</span>
+                                    <h3>Controla confirmaciones y recordatorios sin tocar tu plan base.</h3>
+                                    <p class="mb-0">
+                                        Paquete activo: <strong>@Model.CurrentSubscription.WhatsAppAddonName</strong>.
+                                        Automatizacion general: <strong>@(Model.CurrentSubscription.WhatsAppAutomationEnabled ? "Activa" : "Inactiva")</strong>.
+                                    </p>
+                                </div>
+                                <div class="billing-inline-note">
+                                    <strong>Saldo actual</strong><br />
+                                    Mes: @(Model.CurrentSubscription.WhatsAppMessagesRemaining ?? 0) restante(s)<br />
+                                    Hoy: @(Math.Max((Model.CurrentSubscription.WhatsAppDailyLimit ?? 0) - Model.CurrentSubscription.WhatsAppTodayUsage, 0)) disponible(s)
+                                </div>
+                            </div>
+
+                            <div class="row g-3">
+                                <div class="col-lg-6">
+                                    <div class="billing-toggle-panel">
+                                        <div>
+                                            <h4>Confirmaciones automaticas</h4>
+                                            <p>Se envian al crear una cita cuando el tenant tiene saldo disponible.</p>
+                                        </div>
+                                        <div class="form-check form-switch m-0">
+                                            <input class="form-check-input"
+                                                   type="checkbox"
+                                                   id="sendAppointmentConfirmations"
+                                                   name="sendAppointmentConfirmations"
+                                                   value="true"
+                                                   @(Model.CurrentSubscription.SendAppointmentConfirmations ? "checked" : null) />
+                                            <input type="hidden" name="sendAppointmentConfirmations" value="false" />
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-6">
+                                    <div class="billing-toggle-panel">
+                                        <div>
+                                            <h4>Recordatorios automaticos</h4>
+                                            <p>Se envian antes de la cita solo si el add-on sigue vigente y hay saldo.</p>
+                                        </div>
+                                        <div class="form-check form-switch m-0">
+                                            <input class="form-check-input"
+                                                   type="checkbox"
+                                                   id="sendAppointmentReminders"
+                                                   name="sendAppointmentReminders"
+                                                   value="true"
+                                                   @(Model.CurrentSubscription.SendAppointmentReminders ? "checked" : null) />
+                                            <input type="hidden" name="sendAppointmentReminders" value="false" />
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-12 d-flex justify-content-end">
+                                    <button type="submit" class="btn public-btn public-btn-secondary">Guardar preferencias WhatsApp</button>
+                                </div>
+                            </div>
+                        </form>
+                    }
                 </div>
             }
 
@@ -230,11 +302,20 @@
                                 }
                             </ul>
 
+                            @if (!plan.CanStartCheckout && !string.IsNullOrWhiteSpace(plan.CheckoutAvailabilityMessage))
+                            {
+                                <p class="pricing-login-link text-danger mb-3">@plan.CheckoutAvailabilityMessage</p>
+                            }
+
                             @if (Model.IsAuthenticated)
                             {
                                 if (isCurrentPlan)
                                 {
                                     <button type="button" class="btn public-btn public-btn-secondary w-100" disabled>Plan actual</button>
+                                }
+                                else if (!plan.CanStartCheckout)
+                                {
+                                    <button type="button" class="btn public-btn public-btn-secondary w-100" disabled>Configuracion pendiente</button>
                                 }
                                 else
                                 {
@@ -249,12 +330,19 @@
                             }
                             else
                             {
-                                <a class="btn public-btn @(plan.IsFeatured ? "public-btn-primary" : "public-btn-secondary") w-100" asp-controller="Accounts" asp-action="Registro" asp-route-selectedPlanId="@plan.Id" asp-route-returnurl="@planReturnUrl">
-                                    Crear cuenta y continuar
-                                </a>
-                                <a class="pricing-login-link" asp-controller="Accounts" asp-action="Acceso" asp-route-returnurl="@planReturnUrl">
-                                    Ya tengo cuenta
-                                </a>
+                                if (plan.CanStartCheckout)
+                                {
+                                    <a class="btn public-btn @(plan.IsFeatured ? "public-btn-primary" : "public-btn-secondary") w-100" asp-controller="Accounts" asp-action="Registro" asp-route-selectedPlanId="@plan.Id" asp-route-returnurl="@planReturnUrl">
+                                        Crear cuenta y continuar
+                                    </a>
+                                    <a class="pricing-login-link" asp-controller="Accounts" asp-action="Acceso" asp-route-returnurl="@planReturnUrl">
+                                        Ya tengo cuenta
+                                    </a>
+                                }
+                                else
+                                {
+                                    <button type="button" class="btn public-btn @(plan.IsFeatured ? "public-btn-primary" : "public-btn-secondary") w-100" disabled>Configuracion pendiente</button>
+                                }
                             }
                         </article>
                     </div>
@@ -304,6 +392,11 @@
                                 }
                             </ul>
 
+                            @if (!plan.CanStartCheckout && !string.IsNullOrWhiteSpace(plan.CheckoutAvailabilityMessage))
+                            {
+                                <p class="pricing-login-link text-danger mb-3">@plan.CheckoutAvailabilityMessage</p>
+                            }
+
                             @if (Model.IsAuthenticated)
                             {
                                 if (isCurrentAddon)
@@ -314,20 +407,31 @@
                                 {
                                     <button type="button" class="btn public-btn public-btn-secondary w-100" disabled>Activa un plan base primero</button>
                                 }
+                                else if (!plan.CanStartCheckout)
+                                {
+                                    <button type="button" class="btn public-btn public-btn-secondary w-100" disabled>Configuracion pendiente</button>
+                                }
                                 else
                                 {
-                                    <form asp-action="Checkout" method="post">
-                                        @Html.AntiForgeryToken()
-                                        <input type="hidden" name="planId" value="@plan.Id" />
-                                        <button class="btn public-btn public-btn-secondary w-100">Activar add-on</button>
-                                    </form>
+                                    <a class="btn public-btn public-btn-secondary w-100"
+                                       asp-action="ContinuarCheckout"
+                                       asp-route-planId="@plan.Id">
+                                        @(Model.CurrentSubscription?.HasWhatsAppAddon == true ? "Cambiar add-on" : "Activar add-on")
+                                    </a>
                                 }
                             }
                             else
                             {
-                                <a class="btn public-btn public-btn-secondary w-100" asp-controller="Accounts" asp-action="Registro" asp-route-returnurl="@planReturnUrl">
-                                    Crear cuenta para activarlo
-                                </a>
+                                if (plan.CanStartCheckout)
+                                {
+                                    <a class="btn public-btn public-btn-secondary w-100" asp-controller="Accounts" asp-action="Registro" asp-route-returnurl="@planReturnUrl">
+                                        Crear cuenta para activarlo
+                                    </a>
+                                }
+                                else
+                                {
+                                    <button type="button" class="btn public-btn public-btn-secondary w-100" disabled>Configuracion pendiente</button>
+                                }
                             }
                         </article>
                     </div>
@@ -335,7 +439,7 @@
             </div>
         }
 
-        @if (Model.IsAuthenticated && Model.InternalPlanCards.Any())
+        @if (Model.InternalPlanCards.Any())
         {
             <div class="section-heading text-center mt-5" data-aos="fade-up">
                 <span class="section-kicker">Validacion interna</span>
@@ -368,11 +472,40 @@
                                 }
                             </ul>
 
-                            <form asp-action="Checkout" method="post">
-                                @Html.AntiForgeryToken()
-                                <input type="hidden" name="planId" value="@plan.Id" />
-                                <button class="btn public-btn public-btn-secondary w-100">Probar plan TEST</button>
-                            </form>
+                            @if (!plan.CanStartCheckout && !string.IsNullOrWhiteSpace(plan.CheckoutAvailabilityMessage))
+                            {
+                                <p class="pricing-login-link text-danger mb-3">@plan.CheckoutAvailabilityMessage</p>
+                            }
+
+                            @if (Model.IsAuthenticated)
+                            {
+                                if (plan.CanStartCheckout)
+                                {
+                                    <form asp-action="Checkout" method="post">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="planId" value="@plan.Id" />
+                                        <button class="btn public-btn public-btn-secondary w-100">Probar plan TEST</button>
+                                    </form>
+                                }
+                                else
+                                {
+                                    <button type="button" class="btn public-btn public-btn-secondary w-100" disabled>Configuracion pendiente</button>
+                                }
+                            }
+                            else
+                            {
+                                var internalPlanReturnUrl = Url.Action("Planes", "Billing", new { selectedPlanId = plan.Id }) ?? "/Billing/Planes";
+                                if (plan.CanStartCheckout)
+                                {
+                                    <a class="btn public-btn public-btn-secondary w-100" asp-controller="Accounts" asp-action="Registro" asp-route-selectedPlanId="@plan.Id" asp-route-returnurl="@internalPlanReturnUrl">
+                                        Crear cuenta y continuar
+                                    </a>
+                                }
+                                else
+                                {
+                                    <button type="button" class="btn public-btn public-btn-secondary w-100" disabled>Configuracion pendiente</button>
+                                }
+                            }
                         </article>
                     </div>
                 }

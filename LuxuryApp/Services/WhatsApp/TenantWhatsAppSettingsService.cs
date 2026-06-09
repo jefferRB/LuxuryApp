@@ -1,4 +1,6 @@
+using LuxuryApp.Models.SaaS;
 using LuxuryApp.Models.WhatsApp;
+using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Tenant;
 using Microsoft.EntityFrameworkCore;
@@ -11,15 +13,16 @@ namespace LuxuryApp.Services.WhatsApp
     {
         private static readonly string[] CountedStatuses =
         [
-            WhatsAppMessageStatuses.Pending,
-            WhatsAppMessageStatuses.Processing,
-            WhatsAppMessageStatuses.Sent
+            WhatsAppMessageStatuses.Sent,
+            WhatsAppMessageStatuses.Delivered,
+            WhatsAppMessageStatuses.Read
         ];
 
         private readonly ApplicationDbContext _context;
         private readonly ITenantProvider _tenantProvider;
         private readonly IOptionsMonitor<MetaWhatsAppOptions> _options;
         private readonly SuscripcionService _suscripcionService;
+        private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ILogger<TenantWhatsAppSettingsService> _logger;
 
         public TenantWhatsAppSettingsService(
@@ -27,12 +30,14 @@ namespace LuxuryApp.Services.WhatsApp
             ITenantProvider tenantProvider,
             IOptionsMonitor<MetaWhatsAppOptions> options,
             SuscripcionService suscripcionService,
+            IBusinessDateTimeProvider businessDateTimeProvider,
             ILogger<TenantWhatsAppSettingsService> logger)
         {
             _context = context;
             _tenantProvider = tenantProvider;
             _options = options;
             _suscripcionService = suscripcionService;
+            _businessDateTimeProvider = businessDateTimeProvider;
             _logger = logger;
         }
 
@@ -42,13 +47,12 @@ namespace LuxuryApp.Services.WhatsApp
         {
             EnsureCurrentTenant(tenantId);
 
+            var addon = await GetActiveAddonAsync(tenantId, cancellationToken);
             var settings = await _context.TenantWhatsAppSettings
                 .AsNoTracking()
                 .FirstOrDefaultAsync(current => current.TenantId == tenantId, cancellationToken);
 
-            return settings is null
-                ? TenantWhatsAppSettingsSnapshot.CreateDefault(tenantId)
-                : ToSnapshot(settings);
+            return CreateSnapshot(tenantId, settings, addon);
         }
 
         public async Task<TenantWhatsAppSettingsSnapshot> EnsureDefaultSettingsAsync(
@@ -57,22 +61,34 @@ namespace LuxuryApp.Services.WhatsApp
         {
             EnsureCurrentTenant(tenantId);
 
+            var addon = await GetActiveAddonAsync(tenantId, cancellationToken);
             var settings = await _context.TenantWhatsAppSettings
                 .FirstOrDefaultAsync(current => current.TenantId == tenantId, cancellationToken);
 
             if (settings is not null)
             {
-                return ToSnapshot(settings);
+                return CreateSnapshot(tenantId, settings, addon);
             }
 
+            var nowUtc = _businessDateTimeProvider.NowOffset().UtcDateTime;
+            var defaultDailyLimit = _suscripcionService.ResolveWhatsAppDailyMessageLimit(
+                addon,
+                TenantWhatsAppSettings.DefaultDailyMessageLimit);
             settings = new TenantWhatsAppSettings
             {
-                TenantId = tenantId
+                TenantId = tenantId,
+                IsEnabled = addon is not null,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = true,
+                DailyMessageLimit = defaultDailyLimit,
+                TimeZoneId = TenantWhatsAppSettings.DefaultTimeZoneId,
+                CreatedAtUtc = nowUtc,
+                UpdatedAtUtc = nowUtc
             };
 
             _context.TenantWhatsAppSettings.Add(settings);
             await _context.SaveChangesAsync(cancellationToken);
-            return ToSnapshot(settings);
+            return CreateSnapshot(tenantId, settings, addon);
         }
 
         public async Task<bool> IsWhatsAppEnabledForTenantAsync(
@@ -91,24 +107,31 @@ namespace LuxuryApp.Services.WhatsApp
         {
             EnsureCurrentTenant(tenantId);
 
-            var settings = await GetSettingsForTenantAsync(tenantId, cancellationToken);
-            var todayUsage = await GetTodayUsageAsync(tenantId, reservedMessageLogId, cancellationToken);
-
             if (!_options.CurrentValue.Enabled)
             {
+                var currentSettings = await GetSettingsForTenantAsync(tenantId, cancellationToken);
+                var currentTodayUsage = await GetTodayUsageAsync(
+                    tenantId,
+                    currentSettings.TimeZoneId,
+                    reservedMessageLogId,
+                    cancellationToken);
+
                 return TenantWhatsAppSendDecision.Denied(
                     WhatsAppErrorCodes.ConfigurationDisabled,
                     "Meta WhatsApp esta deshabilitado globalmente.",
-                    todayUsage,
-                    settings.DailyMessageLimit);
+                    currentTodayUsage,
+                    currentSettings.DailyMessageLimit);
             }
 
-            var addon = await _context.TenantSubscriptionAddons
-                .AsNoTracking()
-                .Include(current => current.Plan)
-                .FirstOrDefaultAsync(current => current.TenantId == tenantId, cancellationToken);
+            var addon = await GetActiveAddonAsync(tenantId, cancellationToken);
+            var settings = await GetSettingsForTenantAsync(tenantId, cancellationToken);
+            var todayUsage = await GetTodayUsageAsync(
+                tenantId,
+                settings.TimeZoneId,
+                reservedMessageLogId,
+                cancellationToken);
 
-            if (addon is null || !_suscripcionService.IsWhatsAppAddonActive(addon))
+            if (addon is null)
             {
                 _logger.LogWarning(
                     "WhatsApp sin add-on activo. TenantId {TenantId}. NotificationType {NotificationType}.",
@@ -116,8 +139,23 @@ namespace LuxuryApp.Services.WhatsApp
                     notificationType);
 
                 return TenantWhatsAppSendDecision.Denied(
-                    WhatsAppErrorCodes.SubscriptionRequired,
+                    WhatsAppErrorCodes.NoActiveWhatsAppAddon,
                     "Tu cuenta necesita un paquete activo de WhatsApp para enviar recordatorios automaticos.",
+                    todayUsage,
+                    settings.DailyMessageLimit);
+            }
+
+            var baseSubscription = await GetCurrentBaseSubscriptionAsync(tenantId, cancellationToken);
+            if (baseSubscription is null || !_suscripcionService.CanAccessApp(baseSubscription))
+            {
+                _logger.LogWarning(
+                    "WhatsApp sin plan base activo. TenantId {TenantId}. NotificationType {NotificationType}.",
+                    tenantId,
+                    notificationType);
+
+                return TenantWhatsAppSendDecision.Denied(
+                    WhatsAppErrorCodes.NoActiveBaseSubscription,
+                    "Tu cuenta necesita un plan base activo de LuxuryCloud antes de enviar automatizaciones de WhatsApp.",
                     todayUsage,
                     settings.DailyMessageLimit);
             }
@@ -141,7 +179,7 @@ namespace LuxuryApp.Services.WhatsApp
                     addon.Id);
 
                 return TenantWhatsAppSendDecision.Denied(
-                    WhatsAppErrorCodes.SubscriptionRequired,
+                    WhatsAppErrorCodes.ConfigurationDisabled,
                     "El paquete activo de WhatsApp no tiene un limite mensual valido configurado.",
                     todayUsage,
                     settings.DailyMessageLimit);
@@ -162,7 +200,7 @@ namespace LuxuryApp.Services.WhatsApp
                 (!settings.SendConfirmationOnCreate || !_options.CurrentValue.SendConfirmationOnCreate))
             {
                 return TenantWhatsAppSendDecision.Denied(
-                    WhatsAppErrorCodes.NotificationTypeDisabled,
+                    WhatsAppErrorCodes.UserDisabled,
                     "Las confirmaciones de WhatsApp estan deshabilitadas para el tenant.",
                     todayUsage,
                     settings.DailyMessageLimit,
@@ -174,7 +212,7 @@ namespace LuxuryApp.Services.WhatsApp
                 (!settings.SendReminderThreeHoursBefore || !_options.CurrentValue.SendReminderBeforeAppointment))
             {
                 return TenantWhatsAppSendDecision.Denied(
-                    WhatsAppErrorCodes.NotificationTypeDisabled,
+                    WhatsAppErrorCodes.UserDisabled,
                     "Los recordatorios de WhatsApp estan deshabilitados para el tenant.",
                     todayUsage,
                     settings.DailyMessageLimit,
@@ -220,7 +258,7 @@ namespace LuxuryApp.Services.WhatsApp
         public Task<int> GetTodayUsageAsync(
             Guid tenantId,
             CancellationToken cancellationToken = default) =>
-            GetTodayUsageAsync(tenantId, reservedMessageLogId: null, cancellationToken);
+            GetTodayUsageForCurrentTenantAsync(tenantId, reservedMessageLogId: null, cancellationToken);
 
         public async Task UpdateSettingsAsync(
             Guid tenantId,
@@ -280,7 +318,7 @@ namespace LuxuryApp.Services.WhatsApp
             }
         }
 
-        private async Task<int> GetTodayUsageAsync(
+        private async Task<int> GetTodayUsageForCurrentTenantAsync(
             Guid tenantId,
             long? reservedMessageLogId,
             CancellationToken cancellationToken)
@@ -288,8 +326,21 @@ namespace LuxuryApp.Services.WhatsApp
             EnsureCurrentTenant(tenantId);
 
             var settings = await GetSettingsForTenantAsync(tenantId, cancellationToken);
-            var timeZone = ResolveTimeZone(settings.TimeZoneId);
-            var tenantNow = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, timeZone);
+            return await GetTodayUsageAsync(
+                tenantId,
+                settings.TimeZoneId,
+                reservedMessageLogId,
+                cancellationToken);
+        }
+
+        private async Task<int> GetTodayUsageAsync(
+            Guid tenantId,
+            string timeZoneId,
+            long? reservedMessageLogId,
+            CancellationToken cancellationToken)
+        {
+            var timeZone = ResolveTimeZone(timeZoneId);
+            var tenantNow = TimeZoneInfo.ConvertTime(_businessDateTimeProvider.NowOffset(), timeZone);
             var startUtc = TimeZoneInfo.ConvertTimeToUtc(
                 DateTime.SpecifyKind(tenantNow.Date, DateTimeKind.Unspecified),
                 timeZone);
@@ -305,28 +356,12 @@ namespace LuxuryApp.Services.WhatsApp
                     (message.NotificationType == WhatsAppNotificationTypes.Confirmation ||
                      message.NotificationType == WhatsAppNotificationTypes.Reminder3Hours) &&
                     CountedStatuses.Contains(message.Status) &&
-                    message.CreatedAtUtc >= startUtc &&
-                    message.CreatedAtUtc < endUtc);
+                    (message.SentAtUtc ?? message.DeliveredAtUtc ?? message.ReadAtUtc ?? message.CreatedAtUtc) >= startUtc &&
+                    (message.SentAtUtc ?? message.DeliveredAtUtc ?? message.ReadAtUtc ?? message.CreatedAtUtc) < endUtc);
 
             if (reservedMessageLogId.HasValue)
             {
-                var reservedMessage = await _context.WhatsAppMessageLogs
-                    .AsNoTracking()
-                    .Where(message => message.Id == reservedMessageLogId.Value)
-                    .Select(message => new
-                    {
-                        message.Id,
-                        message.CreatedAtUtc
-                    })
-                    .FirstOrDefaultAsync(cancellationToken);
-
-                if (reservedMessage is not null)
-                {
-                    usageQuery = usageQuery.Where(message =>
-                        message.CreatedAtUtc < reservedMessage.CreatedAtUtc ||
-                        (message.CreatedAtUtc == reservedMessage.CreatedAtUtc &&
-                         message.Id < reservedMessage.Id));
-                }
+                usageQuery = usageQuery.Where(message => message.Id != reservedMessageLogId.Value);
             }
 
             return await usageQuery.CountAsync(cancellationToken);
@@ -345,16 +380,64 @@ namespace LuxuryApp.Services.WhatsApp
             }
         }
 
-        private static TenantWhatsAppSettingsSnapshot ToSnapshot(TenantWhatsAppSettings settings) =>
-            new(
+        private TenantWhatsAppSettingsSnapshot CreateSnapshot(
+            Guid tenantId,
+            TenantWhatsAppSettings? settings,
+            TenantSubscriptionAddon? addon)
+        {
+            var effectiveDailyLimit = settings is not null && settings.DailyMessageLimit > 0
+                ? settings.DailyMessageLimit
+                : _suscripcionService.ResolveWhatsAppDailyMessageLimit(
+                    addon,
+                    TenantWhatsAppSettings.DefaultDailyMessageLimit);
+
+            if (settings is null)
+            {
+                return addon is null
+                    ? TenantWhatsAppSettingsSnapshot.CreateDefault(tenantId)
+                    : TenantWhatsAppSettingsSnapshot.CreateEnabledDefaultsForAddon(tenantId, effectiveDailyLimit);
+            }
+
+            return new TenantWhatsAppSettingsSnapshot(
                 settings.TenantId,
                 Exists: true,
-                settings.IsEnabled,
-                settings.SendConfirmationOnCreate,
-                settings.SendReminderThreeHoursBefore,
-                settings.DailyMessageLimit,
-                settings.TimeZoneId,
-                settings.Notes);
+                IsEnabled: settings.IsEnabled,
+                SendConfirmationOnCreate: settings.SendConfirmationOnCreate,
+                SendReminderThreeHoursBefore: settings.SendReminderThreeHoursBefore,
+                DailyMessageLimit: effectiveDailyLimit,
+                TimeZoneId: string.IsNullOrWhiteSpace(settings.TimeZoneId)
+                    ? TenantWhatsAppSettings.DefaultTimeZoneId
+                    : settings.TimeZoneId,
+                Notes: settings.Notes);
+        }
+
+        private async Task<TenantSubscriptionAddon?> GetActiveAddonAsync(
+            Guid tenantId,
+            CancellationToken cancellationToken)
+        {
+            var addon = await _context.TenantSubscriptionAddons
+                .AsNoTracking()
+                .Include(current => current.Plan)
+                .Where(current => current.TenantId == tenantId)
+                .OrderByDescending(current => current.UpdatedAtUtc)
+                .ThenByDescending(current => current.CreatedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            return addon is not null && _suscripcionService.IsWhatsAppAddonActive(addon)
+                ? addon
+                : null;
+        }
+
+        private Task<Suscripcion?> GetCurrentBaseSubscriptionAsync(
+            Guid tenantId,
+            CancellationToken cancellationToken) =>
+            _context.Suscripciones
+                .AsNoTracking()
+                .Include(current => current.Plan)
+                .Where(current => current.TenantId == tenantId)
+                .OrderByDescending(current => current.FechaUltimaActualizacionUtc ?? current.FechaInicio)
+                .ThenByDescending(current => current.FechaInicio)
+                .FirstOrDefaultAsync(cancellationToken);
 
         private string NormalizeTimeZoneId(string? configuredTimeZoneId)
         {

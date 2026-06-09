@@ -50,6 +50,19 @@ namespace LuxuryApp.Models.SaaS
                 PlanCodes.WhatsApp800 or
                 PlanCodes.WhatsApp1200 or
                 PlanCodes.TestRecurring;
+
+        public static string? ResolveSectionKey(string? code) =>
+            code switch
+            {
+                PlanCodes.Basic => "Basic",
+                PlanCodes.Pro => "Pro",
+                PlanCodes.Business => "Business",
+                PlanCodes.WhatsApp400 => "WhatsApp400",
+                PlanCodes.WhatsApp800 => "WhatsApp800",
+                PlanCodes.WhatsApp1200 => "WhatsApp1200",
+                PlanCodes.TestRecurring => "TestRecurring",
+                _ => null
+            };
     }
 
     public sealed record TilopayRepeatPlanRegistration(
@@ -61,9 +74,11 @@ namespace LuxuryApp.Models.SaaS
         public int TilopayPlanId { get; set; }
         public string Code { get; set; } = string.Empty;
         public decimal MonthlyPrice { get; set; }
+        public decimal ExpectedFirstChargeAmount => MonthlyPrice;
         public string Currency { get; set; } = "CRC";
         public int? MaxFuncionarios { get; set; }
         public int? MonthlyMessageLimit { get; set; }
+        public int? DailyMessageLimit { get; set; }
         public string CheckoutUrl { get; set; } = string.Empty;
         public bool IsAddon { get; set; }
         public bool IsValidation { get; set; }

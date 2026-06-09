@@ -156,17 +156,17 @@ namespace LuxuryApp.Controllers
 
         private void NormalizeContractAcceptance(ContractReacceptViewModel model)
         {
-            model.AcceptCurrentContract = ContractAcceptanceBindingHelper.NormalizeAcceptedValue(
-                Request,
-                nameof(ContractReacceptViewModel.AcceptCurrentContract),
-                model.AcceptCurrentContract);
+            var fieldName = nameof(ContractReacceptViewModel.AcceptCurrentContract);
+            model.AcceptCurrentContract = Request.HasFormContentType
+                ? ContractAcceptanceBindingHelper.IsAccepted(Request.Form, fieldName)
+                : model.AcceptCurrentContract;
 
-            ModelState.Remove(nameof(ContractReacceptViewModel.AcceptCurrentContract));
+            ModelState.Remove(fieldName);
 
             if (!model.AcceptCurrentContract)
             {
                 ModelState.AddModelError(
-                    nameof(ContractReacceptViewModel.AcceptCurrentContract),
+                    fieldName,
                     "Debes aceptar el contrato vigente para continuar.");
             }
         }

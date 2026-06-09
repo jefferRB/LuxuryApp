@@ -22,5 +22,18 @@ namespace LuxuryApp.Services.WhatsApp
                 TenantWhatsAppSettings.DefaultDailyMessageLimit,
                 TenantWhatsAppSettings.DefaultTimeZoneId,
                 Notes: null);
+
+        public static TenantWhatsAppSettingsSnapshot CreateEnabledDefaultsForAddon(
+            Guid tenantId,
+            int dailyMessageLimit) =>
+            new(
+                tenantId,
+                Exists: false,
+                IsEnabled: true,
+                SendConfirmationOnCreate: true,
+                SendReminderThreeHoursBefore: true,
+                dailyMessageLimit > 0 ? dailyMessageLimit : TenantWhatsAppSettings.DefaultDailyMessageLimit,
+                TenantWhatsAppSettings.DefaultTimeZoneId,
+                Notes: null);
     }
 }

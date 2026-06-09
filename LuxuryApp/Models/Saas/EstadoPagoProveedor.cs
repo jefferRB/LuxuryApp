@@ -6,6 +6,7 @@ namespace LuxuryApp.Models.SaaS
         Confirmado = 1,
         Fallido = 2,
         Cancelado = 3,
-        Expirado = 4
+        Expirado = 4,
+        ManualReview = 5
     }
 }

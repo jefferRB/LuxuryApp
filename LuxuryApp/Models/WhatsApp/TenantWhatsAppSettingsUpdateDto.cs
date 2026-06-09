@@ -19,5 +19,12 @@ namespace LuxuryApp.Models.WhatsApp
 
         [MaxLength(2000)]
         public string? Notes { get; set; }
+
+        /// Código de paquete a asignar manual. null/"" = sin cambio; "NONE" = revocar; "WA400"/"WA800"/"WA1200" = asignar.
+        [MaxLength(10)]
+        public string? AddonCode { get; set; }
+
+        [MaxLength(2000)]
+        public string? ManualAssignmentObservation { get; set; }
     }
 }

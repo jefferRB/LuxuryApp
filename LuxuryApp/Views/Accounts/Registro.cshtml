@@ -41,7 +41,7 @@
                     <span class="section-kicker">Crear cuenta</span>
                     <h2>Empieza con una base profesional desde el primer acceso.</h2>
 
-                    <form asp-controller="Accounts" asp-action="Registro" method="post">
+                    <form id="registration-form" asp-controller="Accounts" asp-action="Registro" method="post">
                         @Html.AntiForgeryToken()
                         <input type="hidden" name="returnurl" value="@returnUrl" />
                         <input asp-for="SelectedPlanId" type="hidden" />
@@ -92,7 +92,7 @@
                                 </div>
 
                                 <div class="form-check contract-check">
-                                    <input asp-for="AcceptCurrentContract" class="form-check-input" required />
+                                    <input asp-for="AcceptCurrentContract" type="checkbox" class="form-check-input" value="true" required data-msg-required="Debes aceptar el contrato para crear tu cuenta." />
                                     <label asp-for="AcceptCurrentContract" class="form-check-label">
                                         He leido y acepto el Contrato de Uso del Servicio.
                                     </label>
@@ -116,7 +116,7 @@
                             </div>
                         }
 
-                        <button type="submit" class="btn public-btn public-btn-primary w-100 mt-4" disabled="@(!Model.HasCurrentContract ? "disabled" : null)">Crear cuenta y continuar</button>
+                        <button type="submit" form="registration-form" class="btn public-btn public-btn-primary w-100 mt-4" disabled="@(!Model.HasCurrentContract ? "disabled" : null)">Crear cuenta y continuar</button>
 
                         <div class="auth-links-row">
                             <a asp-action="Acceso" asp-route-returnurl="@returnUrl">Ya tengo cuenta</a>

@@ -433,6 +433,9 @@ namespace LuxuryApp.Services.Calendar
             string.Equals(status, WhatsAppMessageStatuses.SkippedConfiguration, StringComparison.Ordinal) ||
             string.Equals(status, WhatsAppMessageStatuses.SkippedTenantDisabled, StringComparison.Ordinal) ||
             string.Equals(status, WhatsAppMessageStatuses.SkippedDailyLimitExceeded, StringComparison.Ordinal) ||
+            string.Equals(status, WhatsAppMessageStatuses.SkippedSubscriptionRequired, StringComparison.Ordinal) ||
+            string.Equals(status, WhatsAppMessageStatuses.SkippedMonthlyLimitExceeded, StringComparison.Ordinal) ||
+            string.Equals(status, WhatsAppMessageStatuses.SkippedUserDisabled, StringComparison.Ordinal) ||
             string.Equals(status, WhatsAppMessageStatuses.SkippedNotEligible, StringComparison.Ordinal);
 
         private sealed class OccupiedDateProjection

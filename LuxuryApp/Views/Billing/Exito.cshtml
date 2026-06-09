@@ -22,6 +22,22 @@
 
     var paymentState = Model.EstadoPago?.ToString() ?? "Sin registro local";
     var subscriptionState = Model.EstadoSuscripcion?.ToString() ?? "Sin suscripcion asociada";
+    var primaryActionLabel = Model.PrimaryActionLabel
+        ?? (Model.AccesoRestringido
+            ? "Ingresar con la cuenta correcta"
+            : Model.SuscripcionActiva
+                ? "Ir al panel"
+                : !string.IsNullOrWhiteSpace(Model.UrlActualizacion)
+                    ? "Actualizar estado"
+                    : "Ir a mi suscripcion");
+    var primaryActionUrl = Model.PrimaryActionUrl
+        ?? (Model.AccesoRestringido
+            ? "/Accounts/Acceso"
+            : Model.SuscripcionActiva
+                ? "/Dashboard"
+                : !string.IsNullOrWhiteSpace(Model.UrlActualizacion)
+                    ? Model.UrlActualizacion
+                    : "/Billing/Planes");
 }
 
 <style>
@@ -322,6 +338,30 @@
                             <dd>@subscriptionState</dd>
                         </div>
 
+                        @if (Model.VigenciaHastaUtc.HasValue)
+                        {
+                            <div class="checkout-meta-card">
+                                <dt>Vigencia hasta</dt>
+                                <dd>@Model.VigenciaHastaUtc.Value.ToString("dd/MM/yyyy")</dd>
+                            </div>
+                        }
+
+                        @if (Model.ProximoCobroUtc.HasValue)
+                        {
+                            <div class="checkout-meta-card">
+                                <dt>Proximo cobro</dt>
+                                <dd>@Model.ProximoCobroUtc.Value.ToString("dd/MM/yyyy")</dd>
+                            </div>
+                        }
+
+                        @if (Model.MaxFuncionarios.HasValue)
+                        {
+                            <div class="checkout-meta-card">
+                                <dt>Limite de funcionarios</dt>
+                                <dd>@Model.MaxFuncionarios.Value</dd>
+                            </div>
+                        }
+
                         @if (!string.IsNullOrWhiteSpace(Model.CodigoProveedor))
                         {
                             <div class="checkout-meta-card">
@@ -340,21 +380,14 @@
                     </dl>
 
                     <div class="checkout-actions">
-                        @if (Model.AccesoRestringido)
+                        @if (!string.IsNullOrWhiteSpace(primaryActionUrl))
                         {
-                            <a class="btn checkout-btn-primary" href="/Accounts/Acceso">Ingresar con la cuenta correcta</a>
+                            <a class="btn @(Model.SuscripcionActiva || Model.AccesoRestringido ? "checkout-btn-primary" : "checkout-btn-accent")" href="@primaryActionUrl">@primaryActionLabel</a>
                         }
-                        else if (Model.SuscripcionActiva)
+
+                        @if (!string.IsNullOrWhiteSpace(Model.SecondaryActionUrl))
                         {
-                            <a class="btn checkout-btn-primary" href="/Home/Index">Ir al sistema</a>
-                        }
-                        else if (!string.IsNullOrWhiteSpace(Model.UrlActualizacion))
-                        {
-                            <a class="btn checkout-btn-accent" href="@Model.UrlActualizacion">Actualizar estado</a>
-                        }
-                        else
-                        {
-                            <a class="btn btn-outline-secondary" href="/Billing/Planes">Ver planes</a>
+                            <a class="btn btn-outline-secondary" href="@Model.SecondaryActionUrl">@(Model.SecondaryActionLabel ?? "Ver detalle")</a>
                         }
                     </div>
 

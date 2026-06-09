@@ -42,7 +42,7 @@ namespace LuxuryApp.Models.Identity
         public DateTime? CurrentContractEffectiveFromUtc { get; set; }
 
         [Display(Name = "He leido y acepto el Contrato de Uso del Servicio")]
-        [Range(typeof(bool), "true", "true", ErrorMessage = "Debes aceptar el contrato para crear tu cuenta.")]
+        [Required(ErrorMessage = "Debes aceptar el contrato para crear tu cuenta.")]
         public bool AcceptCurrentContract { get; set; }
 
         public bool HasCurrentContract => CurrentContractDocumentId.HasValue && CurrentContractDocumentId.Value != Guid.Empty;

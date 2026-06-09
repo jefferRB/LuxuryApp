@@ -86,7 +86,11 @@ namespace LuxuryApp.Controllers.Platform
                     WhatsAppNotes = whatsApp.Notes,
                     WhatsAppLastErrorCode = whatsApp.LastErrorCode,
                     WhatsAppLastErrorMessage = whatsApp.LastErrorMessage,
-                    WhatsAppLastErrorAtUtc = whatsApp.LastErrorAtUtc
+                    WhatsAppLastErrorAtUtc = whatsApp.LastErrorAtUtc,
+                    WhatsAppAddonCode = whatsApp.AddonCode,
+                    WhatsAppAddonIsManual = whatsApp.AddonIsManual,
+                    WhatsAppAddonFechaFin = whatsApp.AddonFechaFin,
+                    WhatsAppAddonMonthlyLimit = whatsApp.AddonMonthlyLimit
                 });
             }
 
@@ -136,6 +140,130 @@ namespace LuxuryApp.Controllers.Platform
                 .Take(10)
                 .ToListAsync(cancellationToken);
 
+            var latestSubscriptions = await _context.Suscripciones
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Include(subscription => subscription.Plan)
+                .Where(subscription =>
+                    subscription.Proveedor == PaymentProviderType.Tilopay ||
+                    subscription.TilopayRecurringPlanId.HasValue)
+                .OrderByDescending(subscription => subscription.FechaUltimaActualizacionUtc ?? subscription.FechaInicio)
+                .ThenByDescending(subscription => subscription.FechaInicio)
+                .ToListAsync(cancellationToken);
+
+            var latestSubscriptionByTenant = latestSubscriptions
+                .GroupBy(subscription => subscription.TenantId)
+                .ToDictionary(group => group.Key, group => group.First());
+
+            var ownerByTenantId = tenantRows
+                .ToDictionary(row => row.TenantId, row => row.OwnerEmail, EqualityComparer<Guid>.Default);
+
+            var pendingRecurringCheckouts = await _context.PagosSuscripcion
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Include(payment => payment.Plan)
+                .Where(payment =>
+                    payment.Proveedor == PaymentProviderType.Tilopay &&
+                    (payment.Estado == EstadoPagoProveedor.Pendiente ||
+                     payment.Estado == EstadoPagoProveedor.ManualReview))
+                .OrderByDescending(payment => payment.FechaCreacionUtc)
+                .Take(25)
+                .ToListAsync(cancellationToken);
+
+            var pendingRecurringCheckoutRows = pendingRecurringCheckouts
+                .Select(payment =>
+                {
+                    latestSubscriptionByTenant.TryGetValue(payment.TenantId, out var currentSubscription);
+                    ownerByTenantId.TryGetValue(payment.TenantId, out var ownerEmail);
+                    return new PlatformBillingPendingCheckoutViewModel
+                    {
+                        PaymentId = payment.Id,
+                        TenantName = tenants.FirstOrDefault(tenant => tenant.Id == payment.TenantId)?.Nombre ?? payment.TenantId.ToString(),
+                        OwnerEmail = ownerEmail,
+                        PlanName = payment.Plan?.Nombre ?? "Sin plan",
+                        PlanCode = payment.Plan?.Codigo,
+                        CheckoutKind = ResolveCheckoutKind(payment, currentSubscription),
+                        Amount = payment.Monto,
+                        Currency = payment.Moneda,
+                        Status = payment.Estado,
+                        CreatedUtc = payment.FechaCreacionUtc,
+                        CorrelationToken = payment.CorrelationToken ?? payment.ProviderReference,
+                        ProviderSubscriberId = payment.ProviderSubscriberId,
+                        ProviderTransactionId = payment.ProviderTransactionId,
+                        ProviderResultMessage = payment.ProviderResultMessage
+                    };
+                })
+                .ToArray();
+
+            var recentBillingEvents = await _context.EventosPago
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(evento => evento.Proveedor == PaymentProviderType.Tilopay)
+                .OrderByDescending(evento => evento.FechaRecepcionUtc)
+                .Take(25)
+                .ToListAsync(cancellationToken);
+
+            var recentBillingEventRows = recentBillingEvents
+                .Select(evento => new PlatformBillingEventViewModel
+                {
+                    TenantName = tenants.FirstOrDefault(tenant => tenant.Id == evento.TenantId)?.Nombre ?? (evento.TenantId?.ToString() ?? "Sin correlacion"),
+                    PlanName = plans.FirstOrDefault(plan => plan.Id == evento.PlanId)?.Nombre,
+                    EventType = evento.Tipo,
+                    ProcessingStatus = evento.EstadoProcesamiento,
+                    ReceivedUtc = evento.FechaRecepcionUtc,
+                    Amount = evento.Monto,
+                    Currency = evento.Moneda,
+                    CorrelationId = evento.CorrelationId,
+                    TilopayRecurringPlanId = evento.TilopayRecurringPlanId,
+                    ProviderTransactionId = evento.ProviderTransactionId,
+                    ProviderSubscriberId = evento.ProviderSubscriberId,
+                    Error = evento.Error
+                })
+                .ToArray();
+
+            var activeRecurringSubscriptionRows = latestSubscriptions
+                .Where(subscription => subscription.Estado is EstadoSuscripcion.Activa or EstadoSuscripcion.Trial or EstadoSuscripcion.Morosa)
+                .Take(25)
+                .Select(subscription => new PlatformSubscriptionStatusViewModel
+                {
+                    TenantName = tenants.FirstOrDefault(tenant => tenant.Id == subscription.TenantId)?.Nombre ?? subscription.TenantId.ToString(),
+                    PlanName = subscription.Plan?.Nombre ?? "Sin plan",
+                    PlanCode = subscription.CodigoPlan ?? subscription.Plan?.Codigo,
+                    Status = subscription.Estado,
+                    CurrentPeriodEndUtc = subscription.FechaFin,
+                    NextBillingDateUtc = subscription.FechaProximoCobroUtc,
+                    MaxFuncionarios = subscription.MaxFuncionarios ?? subscription.Plan?.MaxFuncionarios,
+                    ProviderSubscriberId = subscription.ProviderSubscriptionId,
+                    ProviderTransactionId = subscription.ProviderTransactionId
+                })
+                .ToArray();
+
+            var activeRecurringAddons = await _context.TenantSubscriptionAddons
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Include(addon => addon.Plan)
+                .Where(addon =>
+                    addon.Estado == EstadoSuscripcion.Activa ||
+                    addon.Estado == EstadoSuscripcion.Morosa)
+                .OrderByDescending(addon => addon.UpdatedAtUtc)
+                .Take(25)
+                .ToListAsync(cancellationToken);
+
+            var activeRecurringAddonRows = activeRecurringAddons
+                .Select(addon => new PlatformSubscriptionStatusViewModel
+                {
+                    TenantName = tenants.FirstOrDefault(tenant => tenant.Id == addon.TenantId)?.Nombre ?? addon.TenantId.ToString(),
+                    PlanName = addon.Plan?.Nombre ?? "Sin add-on",
+                    PlanCode = addon.AddonCode ?? addon.Plan?.Codigo,
+                    Status = addon.Estado,
+                    CurrentPeriodEndUtc = addon.FechaFin,
+                    NextBillingDateUtc = addon.FechaProximoCobroUtc,
+                    MonthlyMessageLimit = addon.MonthlyMessageLimit > 0 ? addon.MonthlyMessageLimit : addon.Plan?.LimiteMensajesMensual,
+                    ProviderSubscriberId = addon.ProviderSubscriptionId,
+                    ProviderTransactionId = addon.ProviderTransactionId
+                })
+                .ToArray();
+
             var model = new PlatformDashboardViewModel
             {
                 TotalTenants = tenants.Count,
@@ -145,7 +273,11 @@ namespace LuxuryApp.Controllers.Platform
                 AvailablePlans = plans,
                 Tenants = tenantRows,
                 RecentUsers = recentUsers,
-                RecentPayments = recentPayments
+                RecentPayments = recentPayments,
+                PendingRecurringCheckouts = pendingRecurringCheckoutRows,
+                RecentBillingEvents = recentBillingEventRows,
+                ActiveRecurringSubscriptions = activeRecurringSubscriptionRows,
+                ActiveRecurringAddons = activeRecurringAddonRows
             };
 
             return View(model);
@@ -173,18 +305,45 @@ namespace LuxuryApp.Controllers.Platform
                 return NotFound();
             }
 
-            await _tenantExecutionService.RunForTenantAsync(
-                tenantId,
-                async (serviceProvider, scopedTenantId, ct) =>
+            if (!string.IsNullOrWhiteSpace(whatsappSettings.AddonCode))
+            {
+                if (string.IsNullOrWhiteSpace(whatsappSettings.ManualAssignmentObservation))
                 {
-                    var settingsService = serviceProvider.GetRequiredService<ITenantWhatsAppSettingsService>();
-                    await settingsService.UpdateSettingsAsync(
-                        scopedTenantId,
-                        whatsappSettings,
-                        User.FindFirstValue(ClaimTypes.NameIdentifier),
-                        ct);
-                },
-                cancellationToken);
+                    TempData["PlatformError"] = "La observacion es obligatoria al cambiar el paquete WhatsApp.";
+                    return RedirectToAction(nameof(Index));
+                }
+
+                await _tenantExecutionService.RunForTenantAsync(
+                    tenantId,
+                    async (serviceProvider, scopedTenantId, ct) =>
+                    {
+                        var svc = serviceProvider.GetRequiredService<SuscripcionService>();
+                        await svc.AssignManualWhatsAppAddonAsync(
+                            scopedTenantId,
+                            whatsappSettings.AddonCode,
+                            User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "platform",
+                            whatsappSettings.ManualAssignmentObservation,
+                            whatsappSettings.SendConfirmationOnCreate,
+                            whatsappSettings.SendReminderThreeHoursBefore,
+                            ct);
+                    },
+                    cancellationToken);
+            }
+            else
+            {
+                await _tenantExecutionService.RunForTenantAsync(
+                    tenantId,
+                    async (serviceProvider, scopedTenantId, ct) =>
+                    {
+                        var settingsService = serviceProvider.GetRequiredService<ITenantWhatsAppSettingsService>();
+                        await settingsService.UpdateSettingsAsync(
+                            scopedTenantId,
+                            whatsappSettings,
+                            User.FindFirstValue(ClaimTypes.NameIdentifier),
+                            ct);
+                    },
+                    cancellationToken);
+            }
 
             TempData["PlatformSuccess"] = "Configuracion WhatsApp del tenant actualizada.";
             return RedirectToAction(nameof(Index));
@@ -503,6 +662,14 @@ namespace LuxuryApp.Controllers.Platform
                         })
                         .FirstOrDefaultAsync(ct);
 
+                    var addonRecord = await db.TenantSubscriptionAddons
+                        .IgnoreQueryFilters()
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(a => a.TenantId == tenantId, ct);
+
+                    var subscriptionSvc = serviceProvider.GetRequiredService<SuscripcionService>();
+                    var addonIsActive = addonRecord is not null && subscriptionSvc.IsWhatsAppAddonActive(addonRecord);
+
                     summary = new PlatformTenantWhatsAppSummary(
                         settings.IsEnabled,
                         settings.SendConfirmationOnCreate,
@@ -513,11 +680,38 @@ namespace LuxuryApp.Controllers.Platform
                         settings.Notes,
                         lastError?.ErrorCode,
                         lastError?.ErrorMessage,
-                        lastError?.CreatedAtUtc);
+                        lastError?.CreatedAtUtc,
+                        addonIsActive ? addonRecord!.AddonCode : null,
+                        addonIsActive && addonRecord!.TilopayRecurringPlanId is null,
+                        addonIsActive ? addonRecord!.FechaFin : null,
+                        addonIsActive ? addonRecord!.MonthlyMessageLimit : null);
                 },
                 cancellationToken);
 
             return summary ?? throw new InvalidOperationException("No fue posible cargar la configuracion WhatsApp del tenant.");
+        }
+
+        private static string ResolveCheckoutKind(PagoSuscripcion payment, Suscripcion? currentSubscription)
+        {
+            var planCode = payment.Plan?.Codigo?.Trim();
+            if (!string.IsNullOrWhiteSpace(planCode) &&
+                PlanCodes.WhatsAppAddons.Contains(planCode, StringComparer.OrdinalIgnoreCase))
+            {
+                return "PendingAddonCheckout";
+            }
+
+            if (currentSubscription is null ||
+                currentSubscription.Estado is EstadoSuscripcion.Pendiente or EstadoSuscripcion.Fallida or EstadoSuscripcion.Suspendida or EstadoSuscripcion.Cancelada or EstadoSuscripcion.Vencida)
+            {
+                return "PendingSubscriptionSignup";
+            }
+
+            if (currentSubscription.PlanId != payment.PlanId)
+            {
+                return "PendingPlanChange";
+            }
+
+            return "PendingRecurringCheckout";
         }
 
         private sealed record PlatformTenantWhatsAppSummary(
@@ -530,6 +724,10 @@ namespace LuxuryApp.Controllers.Platform
             string? Notes,
             string? LastErrorCode,
             string? LastErrorMessage,
-            DateTime? LastErrorAtUtc);
+            DateTime? LastErrorAtUtc,
+            string? AddonCode,
+            bool AddonIsManual,
+            DateTime? AddonFechaFin,
+            int? AddonMonthlyLimit);
     }
 }

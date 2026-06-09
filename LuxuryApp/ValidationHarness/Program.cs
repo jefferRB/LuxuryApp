@@ -838,8 +838,13 @@ static BillingController CreateController(IServiceProvider services, ValidationC
         services.GetRequiredService<ILogger<BillingController>>(),
         services.GetRequiredService<ApplicationDbContext>(),
         services.GetRequiredService<SaaSPaymentService>(),
+        services.GetRequiredService<SuscripcionService>(),
+        services.GetRequiredService<LuxuryApp.Services.PublicSite.IPromotionalCodeService>(),
+        services.GetRequiredService<ITenantCommercialAccessResolver>(),
+        services.GetRequiredService<LuxuryApp.Services.PublicSite.IPublicSiteContentService>(),
         services.GetRequiredService<PublicCallbackHealthService>(),
         services.GetRequiredService<UserManager<AppUsuario>>(),
+        services.GetRequiredService<LuxuryApp.Services.WhatsApp.ITenantWhatsAppSettingsService>(),
         Options.Create(tilopayOptions),
         Options.Create(new OpcionesPago
         {
@@ -847,7 +852,8 @@ static BillingController CreateController(IServiceProvider services, ValidationC
             PublicBaseUrl = publicBaseUrl,
             EnableValidationPlans = enableValidationPlans,
             ValidatePublicCallbackReachability = false
-        }));
+        }),
+        services.GetRequiredService<IOptions<TilopayRepeatOptions>>());
     var httpContext = new DefaultHttpContext { RequestServices = services, User = BuildPrincipal(validation) };
     httpContext.Request.Scheme = "https";
     httpContext.Request.Host = new HostString("localhost", 5057);

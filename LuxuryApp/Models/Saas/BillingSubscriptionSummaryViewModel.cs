@@ -21,6 +21,12 @@ namespace LuxuryApp.Models.SaaS
         public int? WhatsAppMonthlyLimit { get; init; }
         public int WhatsAppMessagesUsed { get; init; }
         public int? WhatsAppMessagesRemaining { get; init; }
-        public bool HasWhatsAppAddon => !string.IsNullOrWhiteSpace(WhatsAppAddonName);
+        public int WhatsAppTodayUsage { get; init; }
+        public int? WhatsAppDailyLimit { get; init; }
+        public bool WhatsAppAutomationEnabled { get; init; }
+        public bool SendAppointmentConfirmations { get; init; }
+        public bool SendAppointmentReminders { get; init; }
+        public DateTime? WhatsAppNextBillingDateUtc { get; init; }
+        public bool HasWhatsAppAddon => !string.IsNullOrWhiteSpace(WhatsAppAddonCode);
     }
 }

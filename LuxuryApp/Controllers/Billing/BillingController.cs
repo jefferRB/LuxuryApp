@@ -2,9 +2,11 @@ using System.Net;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.Marketing;
 using LuxuryApp.Models.SaaS;
+using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.Payments;
 using LuxuryApp.Services.PublicSite;
 using LuxuryApp.Services.SaaS;
+using LuxuryApp.Services.WhatsApp;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -29,6 +31,8 @@ namespace LuxuryApp.Controllers
         private readonly IPublicSiteContentService _publicSiteContentService;
         private readonly PublicCallbackHealthService _publicCallbackHealthService;
         private readonly UserManager<AppUsuario> _userManager;
+        private readonly ITenantWhatsAppSettingsService _tenantWhatsAppSettingsService;
+        private readonly IWebHostEnvironment _environment;
         private readonly OpcionesTilopay _tilopayOptions;
         private readonly OpcionesPago _paymentOptions;
         private readonly TilopayRepeatOptions _tilopayRepeatOptions;
@@ -43,6 +47,8 @@ namespace LuxuryApp.Controllers
             IPublicSiteContentService publicSiteContentService,
             PublicCallbackHealthService publicCallbackHealthService,
             UserManager<AppUsuario> userManager,
+            ITenantWhatsAppSettingsService tenantWhatsAppSettingsService,
+            IWebHostEnvironment environment,
             IOptions<OpcionesTilopay> tilopayOptions,
             IOptions<OpcionesPago> paymentOptions,
             IOptions<TilopayRepeatOptions> tilopayRepeatOptions)
@@ -56,6 +62,8 @@ namespace LuxuryApp.Controllers
             _publicSiteContentService = publicSiteContentService;
             _publicCallbackHealthService = publicCallbackHealthService;
             _userManager = userManager;
+            _tenantWhatsAppSettingsService = tenantWhatsAppSettingsService;
+            _environment = environment;
             _tilopayOptions = tilopayOptions.Value;
             _paymentOptions = paymentOptions.Value;
             _tilopayRepeatOptions = tilopayRepeatOptions.Value;
@@ -70,7 +78,15 @@ namespace LuxuryApp.Controllers
             var user = await _userManager.GetUserAsync(User);
             TenantCommercialAccessResult? currentAccess = null;
             BillingSubscriptionSummaryViewModel? currentSubscription = null;
-            IReadOnlyCollection<MarketingPlanCardViewModel> internalPlanCards = Array.Empty<MarketingPlanCardViewModel>();
+            IReadOnlyCollection<MarketingPlanCardViewModel> internalPlanCards;
+            if (_environment.IsDevelopment() && _paymentOptions.EnableValidationPlans)
+            {
+                internalPlanCards = await _publicSiteContentService.GetInternalPlanCardsAsync(cancellationToken);
+            }
+            else
+            {
+                internalPlanCards = Array.Empty<MarketingPlanCardViewModel>();
+            }
 
             if (user is not null && user.TenantId != Guid.Empty)
             {
@@ -82,8 +98,6 @@ namespace LuxuryApp.Controllers
                 currentSubscription = await BuildCurrentSubscriptionSummaryAsync(
                     user.TenantId,
                     cancellationToken);
-
-                internalPlanCards = await _publicSiteContentService.GetInternalPlanCardsAsync(cancellationToken);
             }
 
             return View(new BillingPlanesViewModel
@@ -106,6 +120,92 @@ namespace LuxuryApp.Controllers
         public IActionResult PlanVencido()
         {
             return View();
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> UpdateWhatsAppPreferences(CancellationToken cancellationToken = default)
+        {
+            var user = await _userManager.GetUserAsync(User);
+            if (user is null)
+            {
+                return Challenge();
+            }
+
+            if (user.TenantId == Guid.Empty)
+            {
+                return BadRequest("El usuario autenticado no tiene tenant asociado.");
+            }
+
+            // Leer con ContractAcceptanceBindingHelper para manejar correctamente el patrón
+            // hidden(false) + checkbox(true) independientemente del orden en que el navegador los envíe.
+            var sendAppointmentConfirmations = ContractAcceptanceBindingHelper.IsAccepted(
+                Request.Form, "sendAppointmentConfirmations");
+            var sendAppointmentReminders = ContractAcceptanceBindingHelper.IsAccepted(
+                Request.Form, "sendAppointmentReminders");
+
+            if (_environment.IsDevelopment())
+            {
+                _logger.LogDebug(
+                    "UpdateWhatsAppPreferences form binding. FormKeys: [{FormKeys}]. RawConfirmations: [{RawConfirmations}]. RawReminders: [{RawReminders}]. ResolvedConfirmations: {ResolvedConfirmations}. ResolvedReminders: {ResolvedReminders}.",
+                    string.Join(", ", Request.Form.Keys),
+                    string.Join("|", ContractAcceptanceBindingHelper.GetSubmittedValues(Request, "sendAppointmentConfirmations")),
+                    string.Join("|", ContractAcceptanceBindingHelper.GetSubmittedValues(Request, "sendAppointmentReminders")),
+                    sendAppointmentConfirmations,
+                    sendAppointmentReminders);
+            }
+
+            var addon = await _context.TenantSubscriptionAddons
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Include(current => current.Plan)
+                .Where(current => current.TenantId == user.TenantId)
+                .OrderByDescending(current => current.UpdatedAtUtc)
+                .ThenByDescending(current => current.CreatedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (addon is null || !_suscripcionService.IsWhatsAppAddonActive(addon))
+            {
+                TempData["BillingError"] = "Activa un paquete de WhatsApp antes de cambiar estas preferencias.";
+                return RedirectToAction(nameof(Planes));
+            }
+
+            var currentSettings = await _tenantWhatsAppSettingsService.GetSettingsForTenantAsync(
+                user.TenantId,
+                cancellationToken);
+            var automationEnabled = sendAppointmentConfirmations || sendAppointmentReminders;
+
+            var dto = new Models.WhatsApp.TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = automationEnabled,
+                SendConfirmationOnCreate = sendAppointmentConfirmations,
+                SendReminderThreeHoursBefore = sendAppointmentReminders,
+                DailyMessageLimit = _suscripcionService.ResolveWhatsAppDailyMessageLimit(
+                    addon,
+                    currentSettings.DailyMessageLimit),
+                TimeZoneId = currentSettings.TimeZoneId,
+                Notes = currentSettings.Notes
+            };
+
+            if (_environment.IsDevelopment())
+            {
+                _logger.LogDebug(
+                    "UpdateWhatsAppPreferences DTO a guardar. IsEnabled: {IsEnabled}. SendConfirmationOnCreate: {SendConfirmationOnCreate}. SendReminderThreeHoursBefore: {SendReminderThreeHoursBefore}. DailyMessageLimit: {DailyMessageLimit}. TimeZoneId: {TimeZoneId}.",
+                    dto.IsEnabled,
+                    dto.SendConfirmationOnCreate,
+                    dto.SendReminderThreeHoursBefore,
+                    dto.DailyMessageLimit,
+                    dto.TimeZoneId);
+            }
+
+            await _tenantWhatsAppSettingsService.UpdateSettingsAsync(
+                user.TenantId,
+                dto,
+                user.Id,
+                cancellationToken);
+
+            TempData["BillingSuccess"] = "Preferencias de automatizacion WhatsApp actualizadas correctamente.";
+            return RedirectToAction(nameof(Planes));
         }
 
         [HttpPost]
@@ -197,15 +297,17 @@ namespace LuxuryApp.Controllers
                     "Este retorno de pago no pertenece a la cuenta autenticada. Ingresa con la cuenta que inicio el checkout.");
             }
 
-            var suscripcion = pago is null
-                ? null
-                : await FindCurrentSubscriptionAsync(user.TenantId);
+            var suscripcion = await FindCurrentSubscriptionAsync(user.TenantId);
 
             var pollAttemptNormalized = Math.Max(0, pollAttempt);
             var suscripcionActiva = suscripcion is not null && _suscripcionService.CanAccessApp(suscripcion);
             var confirmadoPorWebhook = pago?.Estado == EstadoPagoProveedor.Confirmado || suscripcionActiva;
             var pagoAprobadoPorProveedor = confirmadoPorWebhook || IsProviderApproved(code, description);
             var requiereConsulta = pago is not null && pagoAprobadoPorProveedor && !confirmadoPorWebhook;
+            var requiereRevisionRecurrente = pago is not null &&
+                                             pago.TilopayRecurringPlanId.HasValue &&
+                                             !suscripcionActiva &&
+                                             pago.Estado is EstadoPagoProveedor.Pendiente or EstadoPagoProveedor.ManualReview;
             var debeAutoActualizar = requiereConsulta && pollAttemptNormalized < CheckoutAutoRefreshMaxAttempts;
 
             var model = new ResultadoCheckoutViewModel
@@ -216,19 +318,108 @@ namespace LuxuryApp.Controllers
                 NombrePlan = pago?.Plan?.Nombre ?? suscripcion?.Plan?.Nombre,
                 EstadoPago = pago?.Estado,
                 EstadoSuscripcion = suscripcion?.Estado,
+                VigenciaHastaUtc = suscripcion?.FechaFin,
+                ProximoCobroUtc = suscripcion?.FechaProximoCobroUtc,
+                MaxFuncionarios = suscripcion?.MaxFuncionarios ?? suscripcion?.Plan?.MaxFuncionarios,
                 PagoAprobadoPorProveedor = pagoAprobadoPorProveedor,
                 ConfirmadoPorWebhook = confirmadoPorWebhook,
                 SuscripcionActiva = suscripcionActiva,
                 DebeAutoActualizar = debeAutoActualizar,
                 SegundosAutoActualizacion = debeAutoActualizar ? CheckoutAutoRefreshSeconds : 0,
-                UrlActualizacion = requiereConsulta
+                UrlActualizacion = requiereConsulta || requiereRevisionRecurrente
                     ? BuildCheckoutRefreshUrl(orderNumber, reference, code, description, pollAttemptNormalized + 1)
                     : null
             };
 
-            ApplyCheckoutMessaging(model, pago);
+            ApplyCheckoutMessaging(model, pago, requestedReference);
+            ApplyRecurringHostedLinkFallbackMessaging(model, pago, user);
+            ApplyCheckoutActionLinks(model);
 
-            return View(model);
+            return View("Exito", model);
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> CheckoutReturn(
+            string? orderNumber = null,
+            string? reference = null,
+            string? lc_ref = null,
+            string? correlationToken = null,
+            string? code = null,
+            string? description = null,
+            int pollAttempt = 0,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var resolvedReference = FirstNonEmpty(reference, lc_ref, correlationToken, orderNumber);
+
+                if (string.IsNullOrWhiteSpace(resolvedReference))
+                {
+                    var user = await _userManager.GetUserAsync(User);
+                    if (user is null || user.TenantId == Guid.Empty)
+                    {
+                        return Challenge();
+                    }
+
+                    var latestPayment = await _context.PagosSuscripcion
+                        .IgnoreQueryFilters()
+                        .AsNoTracking()
+                        .Where(payment =>
+                            payment.TenantId == user.TenantId &&
+                            payment.Proveedor == PaymentProviderType.Tilopay &&
+                            (payment.Estado == EstadoPagoProveedor.Pendiente ||
+                             payment.Estado == EstadoPagoProveedor.ManualReview ||
+                             payment.Estado == EstadoPagoProveedor.Confirmado))
+                        .OrderByDescending(payment => payment.FechaCreacionUtc)
+                        .FirstOrDefaultAsync(cancellationToken);
+
+                    resolvedReference = FirstNonEmpty(
+                        latestPayment?.CorrelationToken,
+                        latestPayment?.ProviderReference,
+                        latestPayment?.ReferenciaInterna);
+
+                    _logger.LogInformation(
+                        "Billing/CheckoutReturn sin referencia explicita. TenantId {TenantId}. FallbackPaymentId {PaymentId}. ResolvedReference {ResolvedReference}.",
+                        user.TenantId,
+                        latestPayment?.Id,
+                        resolvedReference);
+                }
+
+                return await Exito(
+                    orderNumber,
+                    resolvedReference,
+                    code,
+                    description,
+                    pollAttempt);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Error preparando Billing/CheckoutReturn. TraceIdentifier {TraceIdentifier}. OrderNumber {OrderNumber}. Reference {Reference}. LcRef {LcRef}. CorrelationToken {CorrelationToken}.",
+                    HttpContext.TraceIdentifier,
+                    orderNumber,
+                    reference,
+                    lc_ref,
+                    correlationToken);
+
+                Response.StatusCode = StatusCodes.Status200OK;
+
+                var model = new ResultadoCheckoutViewModel
+                {
+                    Referencia = FirstNonEmpty(reference, lc_ref, correlationToken, orderNumber),
+                    CodigoProveedor = code,
+                    DescripcionProveedor = description,
+                    MensajePrincipal = "No pudimos confirmar automaticamente este pago.",
+                    MensajeSecundario = $"Revisa el estado de tu suscripcion o intenta de nuevo en unos segundos. Si el problema continua, comparte el identificador {HttpContext.TraceIdentifier} con soporte.",
+                    PrimaryActionLabel = "Ir a mi suscripcion",
+                    PrimaryActionUrl = Url?.Action(nameof(Planes), "Billing") ?? "/Billing/Planes",
+                    SecondaryActionLabel = "Ir al panel",
+                    SecondaryActionUrl = Url?.Action("Index", "Dashboard") ?? "/Dashboard"
+                };
+
+                return View("Exito", model);
+            }
         }
 
         private IActionResult BuildRestrictedCheckoutResult(
@@ -303,19 +494,27 @@ namespace LuxuryApp.Controllers
 
         private static void ApplyCheckoutMessaging(
             ResultadoCheckoutViewModel model,
-            PagoSuscripcion? pago)
+            PagoSuscripcion? pago,
+            string? requestedReference)
         {
-            if (pago is null)
-            {
-                model.MensajePrincipal = "No encontramos un pago asociado a esa referencia dentro de tu tenant.";
-                model.MensajeSecundario = "Verifica que ingresaste con la cuenta que inicio el checkout antes de volver a consultar.";
-                return;
-            }
-
             if (model.SuscripcionActiva)
             {
                 model.MensajePrincipal = "Pago confirmado y suscripcion activa.";
                 model.MensajeSecundario = "Tu acceso ya esta habilitado para continuar dentro del sistema.";
+                return;
+            }
+
+            if (pago is null)
+            {
+                if (string.IsNullOrWhiteSpace(requestedReference))
+                {
+                    model.MensajePrincipal = "No pudimos confirmar automaticamente este pago.";
+                    model.MensajeSecundario = "Si ya pagaste, revisa el estado actual de tu suscripcion o intenta actualizar en unos segundos.";
+                    return;
+                }
+
+                model.MensajePrincipal = "No encontramos un pago asociado a esa referencia dentro de tu tenant.";
+                model.MensajeSecundario = "Verifica que ingresaste con la cuenta que inicio el checkout antes de volver a consultar.";
                 return;
             }
 
@@ -330,6 +529,70 @@ namespace LuxuryApp.Controllers
 
             model.MensajePrincipal = "Tu pago fue recibido. Estamos esperando la confirmacion final del proveedor.";
             model.MensajeSecundario = "Mantendremos esta referencia ligada a tu tenant hasta completar la activacion.";
+        }
+
+        private void ApplyRecurringHostedLinkFallbackMessaging(
+            ResultadoCheckoutViewModel model,
+            PagoSuscripcion? pago,
+            AppUsuario user)
+        {
+            if (pago is null ||
+                pago.TilopayRecurringPlanId is null ||
+                model.AccesoRestringido ||
+                model.SuscripcionActiva)
+            {
+                return;
+            }
+
+            var environment = HttpContext?.RequestServices?.GetService<IWebHostEnvironment>();
+            var canUseInternalReconciliation = user.IsPlatformSuperAdmin ||
+                                               (environment?.IsDevelopment() == true && User.IsInRole("Administrador"));
+
+            model.MensajePrincipal = "Tu pago puede estar aprobado en Tilopay, pero aun no recibimos confirmacion automatica.";
+            model.MensajeSecundario = canUseInternalReconciliation
+                ? "Si ya pagaste, usa el boton para revisar tu suscripcion o abre la conciliacion interna con auditoria."
+                : "Si ya pagaste y el estado no cambia, contacta soporte para validar la transaccion aprobada en Tilopay.";
+            model.PrimaryActionLabel = "Ya pague, revisar mi suscripcion";
+
+            if (canUseInternalReconciliation)
+            {
+                model.SecondaryActionLabel = "Abrir conciliacion interna";
+                model.SecondaryActionUrl = Url?.Action(
+                    "Index",
+                    "RecurringReconciliation",
+                    new { paymentId = pago.Id });
+            }
+        }
+
+        private void ApplyCheckoutActionLinks(ResultadoCheckoutViewModel model)
+        {
+            if (model.AccesoRestringido)
+            {
+                model.PrimaryActionLabel ??= "Ingresar con la cuenta correcta";
+                model.PrimaryActionUrl ??= Url?.Action("Acceso", "Accounts") ?? "/Accounts/Acceso";
+                return;
+            }
+
+            if (model.SuscripcionActiva)
+            {
+                model.PrimaryActionLabel ??= "Ir al panel";
+                model.PrimaryActionUrl ??= Url?.Action("Index", "Dashboard") ?? "/Dashboard";
+                model.SecondaryActionLabel ??= "Ir a mi suscripcion";
+                model.SecondaryActionUrl ??= Url?.Action(nameof(Planes), "Billing") ?? "/Billing/Planes";
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(model.UrlActualizacion))
+            {
+                model.PrimaryActionLabel ??= "Actualizar estado";
+                model.PrimaryActionUrl ??= model.UrlActualizacion;
+                model.SecondaryActionLabel ??= "Ir a mi suscripcion";
+                model.SecondaryActionUrl ??= Url?.Action(nameof(Planes), "Billing") ?? "/Billing/Planes";
+                return;
+            }
+
+            model.PrimaryActionLabel ??= "Ir a mi suscripcion";
+            model.PrimaryActionUrl ??= Url?.Action(nameof(Planes), "Billing") ?? "/Billing/Planes";
         }
 
         private string BuildCheckoutRefreshUrl(
@@ -367,6 +630,9 @@ namespace LuxuryApp.Controllers
             return $"{basePath}{QueryString.Create(queryValues)}";
         }
 
+        private static string? FirstNonEmpty(params string?[] values) =>
+            values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
+
         private static string? TryExtractTilopayCheckoutId(string? orderNumber)
         {
             if (string.IsNullOrWhiteSpace(orderNumber))
@@ -401,6 +667,10 @@ namespace LuxuryApp.Controllers
         }
 
         [HttpGet]
+        public IActionResult CheckoutCancel(string? description = null) =>
+            Cancelado(description);
+
+        [HttpGet]
         public async Task<IActionResult> ContinuarCheckout(Guid planId, CancellationToken cancellationToken)
         {
             var selectedPlan = await _publicSiteContentService.FindAvailablePlanAsync(planId, cancellationToken);
@@ -410,11 +680,23 @@ namespace LuxuryApp.Controllers
                 return RedirectToAction(nameof(Planes));
             }
 
+            if (selectedPlan.EsPlanValidacion && !_environment.IsDevelopment())
+            {
+                _logger.LogWarning(
+                    "Intento de acceder a ContinuarCheckout con plan de validacion fuera de Development. TenantId {TenantId}. PlanId {PlanId}.",
+                    (await _userManager.GetUserAsync(User))?.TenantId,
+                    planId);
+                TempData["BillingError"] = "El plan seleccionado no está disponible en este entorno.";
+                return RedirectToAction(nameof(Planes));
+            }
+
             return View(new BillingCheckoutContinuationViewModel
             {
                 PlanId = selectedPlan.Id,
                 PlanName = selectedPlan.Nombre,
-                PlanCode = selectedPlan.Codigo
+                PlanCode = selectedPlan.Codigo,
+                AccountEmail = (await _userManager.GetUserAsync(User))?.Email,
+                IsAddon = selectedPlan.LimiteMensajesMensual.HasValue
             });
         }
 
@@ -451,6 +733,16 @@ namespace LuxuryApp.Controllers
 
             if (selectedPlan is null)
             {
+                TempData["BillingError"] = "El plan seleccionado no está disponible en este entorno.";
+                return RedirectToAction(nameof(Planes));
+            }
+
+            if (selectedPlan.EsPlanValidacion && !_environment.IsDevelopment())
+            {
+                _logger.LogWarning(
+                    "Intento de checkout con plan de validacion fuera de Development. TenantId {TenantId}. PlanId {PlanId}.",
+                    user.TenantId,
+                    planId);
                 TempData["BillingError"] = "El plan seleccionado no está disponible en este entorno.";
                 return RedirectToAction(nameof(Planes));
             }
@@ -493,6 +785,15 @@ namespace LuxuryApp.Controllers
             {
                 if (shouldUseRecurringCheckout)
                 {
+                    EnsurePublicCallbackBaseUrl();
+
+                    if (_paymentOptions.ValidatePublicCallbackReachability)
+                    {
+                        await _publicCallbackHealthService.EnsureReachableAsync(
+                            BuildPublicCallbackHealthUrl(),
+                            cancellationToken);
+                    }
+
                     var recurringCheckout = await _paymentService.CreateRecurringCheckoutAsync(
                         user.TenantId,
                         selectedPlan.Id,
@@ -505,7 +806,7 @@ namespace LuxuryApp.Controllers
 
                 if (isWhatsAppAddon)
                 {
-                    TempData["BillingError"] = $"No existe mapping recurrente para el add-on seleccionado. Configura primero TilopayRepeat:{ResolveRepeatSectionKey(selectedPlan.Codigo) ?? "<plan>"} o usa un paquete con mapping activo.";
+                    TempData["BillingError"] = $"El plan {selectedPlan.Codigo ?? selectedPlan.Nombre} no tiene mapping recurrente configurado.";
                     return RedirectToAction(nameof(Planes), new { selectedPlanId = planId });
                 }
 
@@ -602,6 +903,11 @@ namespace LuxuryApp.Controllers
             var addonStatus = addon is null
                 ? (EstadoSuscripcion?)null
                 : _suscripcionService.GetEffectiveStatus(addon);
+            var hasActiveWhatsAppAddon = addon is not null &&
+                                         addonStatus is EstadoSuscripcion.Activa or EstadoSuscripcion.Morosa or EstadoSuscripcion.Trial;
+            var whatsAppSettings = hasActiveWhatsAppAddon
+                ? await _tenantWhatsAppSettingsService.GetSettingsForTenantAsync(tenantId, cancellationToken)
+                : null;
 
             var whatsAppUsage = addon is null
                 ? 0
@@ -610,6 +916,9 @@ namespace LuxuryApp.Controllers
                     addon.FechaInicio,
                     addon.FechaFin,
                     cancellationToken);
+            var todaysWhatsAppUsage = hasActiveWhatsAppAddon
+                ? await _tenantWhatsAppSettingsService.GetTodayUsageAsync(tenantId, cancellationToken)
+                : 0;
 
             return new BillingSubscriptionSummaryViewModel
             {
@@ -625,23 +934,29 @@ namespace LuxuryApp.Controllers
                 GracePeriodEndsUtc = subscription?.FechaFinGraciaUtc,
                 MaxFuncionarios = subscription?.MaxFuncionarios ?? subscription?.Plan?.MaxFuncionarios,
                 ActiveFuncionarios = activeFuncionarios,
-                WhatsAppAddonName = addon?.Plan?.Nombre,
-                WhatsAppAddonCode = addon?.AddonCode ?? addon?.Plan?.Codigo,
-                WhatsAppAddonStatus = addonStatus,
-                WhatsAppAddonStatusLabel = ResolveStatusLabel(addonStatus),
-                WhatsAppMonthlyLimit = addon is null
+                WhatsAppAddonName = hasActiveWhatsAppAddon ? addon?.Plan?.Nombre : null,
+                WhatsAppAddonCode = hasActiveWhatsAppAddon ? addon?.AddonCode ?? addon?.Plan?.Codigo : null,
+                WhatsAppAddonStatus = hasActiveWhatsAppAddon ? addonStatus : null,
+                WhatsAppAddonStatusLabel = hasActiveWhatsAppAddon ? ResolveStatusLabel(addonStatus) : null,
+                WhatsAppMonthlyLimit = !hasActiveWhatsAppAddon || addon is null
                     ? null
                     : addon.MonthlyMessageLimit > 0
                         ? addon.MonthlyMessageLimit
                         : addon.Plan?.LimiteMensajesMensual,
-                WhatsAppMessagesUsed = whatsAppUsage,
-                WhatsAppMessagesRemaining = addon is null
+                WhatsAppMessagesUsed = hasActiveWhatsAppAddon ? whatsAppUsage : 0,
+                WhatsAppMessagesRemaining = !hasActiveWhatsAppAddon || addon is null
                     ? null
                     : Math.Max(
                         (addon.MonthlyMessageLimit > 0
                             ? addon.MonthlyMessageLimit
                             : addon.Plan?.LimiteMensajesMensual ?? 0) - whatsAppUsage,
-                        0)
+                        0),
+                WhatsAppTodayUsage = hasActiveWhatsAppAddon ? todaysWhatsAppUsage : 0,
+                WhatsAppDailyLimit = hasActiveWhatsAppAddon ? whatsAppSettings?.DailyMessageLimit : null,
+                WhatsAppAutomationEnabled = hasActiveWhatsAppAddon && (whatsAppSettings?.IsEnabled ?? false),
+                SendAppointmentConfirmations = hasActiveWhatsAppAddon && (whatsAppSettings?.SendConfirmationOnCreate ?? false),
+                SendAppointmentReminders = hasActiveWhatsAppAddon && (whatsAppSettings?.SendReminderThreeHoursBefore ?? false),
+                WhatsAppNextBillingDateUtc = hasActiveWhatsAppAddon ? addon?.FechaProximoCobroUtc : null
             };
         }
 
@@ -657,56 +972,46 @@ namespace LuxuryApp.Controllers
 
             if (repeatPlanRegistration is null)
             {
-                return $"No existe mapping para PlanCode {selectedPlan.Codigo ?? selectedPlan.Nombre}. Configura TilopayRepeat para este plan antes de iniciar checkout recurrente.";
+                return $"El plan {selectedPlan.Codigo ?? selectedPlan.Nombre} no tiene mapping recurrente configurado.";
             }
 
             if (!_tilopayRepeatOptions.Enabled)
             {
-                return "Tilopay Repeat no esta habilitado en configuracion. Activa TilopayRepeat:Enabled.";
+                return "Tilopay Repeat esta deshabilitado: TilopayRepeat:Enabled=false.";
             }
 
             if (!_tilopayRepeatOptions.UseHostedLinks)
             {
-                return "Tilopay Repeat solo esta implementado con hosted links en este entorno. Activa TilopayRepeat:UseHostedLinks.";
+                return "Tilopay Repeat requiere hosted links: TilopayRepeat:UseHostedLinks=false.";
             }
 
             if (repeatPlanRegistration.Plan.IsValidation && !_tilopayRepeatOptions.EnableTestRecurringPlan)
             {
-                return "El plan TEST recurrente esta deshabilitado. Activa TilopayRepeat:EnableTestRecurringPlan.";
+                return "El plan TEST recurrente esta deshabilitado: TilopayRepeat:EnableTestRecurringPlan=false.";
             }
 
             if (!repeatPlanRegistration.Plan.IsValidation &&
                 !repeatPlanRegistration.Plan.IsAddon &&
                 !_tilopayRepeatOptions.UseRecurringCheckoutForPublicPlans)
             {
-                return "Tilopay Repeat esta deshabilitado para planes publicos. Activa TilopayRepeat:UseRecurringCheckoutForPublicPlans o usa primero el plan TEST 5834.";
+                return "Tilopay Repeat esta deshabilitado para planes publicos: TilopayRepeat:UseRecurringCheckoutForPublicPlans=false.";
             }
 
             if (string.IsNullOrWhiteSpace(_tilopayOptions.WebhookAccessToken))
             {
-                return "Falta configuracion obligatoria: Tilopay:WebhookAccessToken.";
+                return "Falta WebhookAccessToken: Tilopay:WebhookAccessToken.";
             }
 
             if (string.IsNullOrWhiteSpace(repeatPlanRegistration.Plan.CheckoutUrl))
             {
-                return $"Falta configuracion de checkout recurrente para PlanCode {repeatPlanRegistration.Plan.Code}. Key esperada: TilopayRepeat:{repeatPlanRegistration.SectionKey}:CheckoutUrl.";
+                return $"Falta CheckoutUrl para {repeatPlanRegistration.Plan.Code}: TilopayRepeat:{repeatPlanRegistration.SectionKey}:CheckoutUrl.";
             }
 
             return null;
         }
 
         private static string? ResolveRepeatSectionKey(string? planCode) =>
-            planCode switch
-            {
-                PlanCodes.Basic => "Basic",
-                PlanCodes.Pro => "Pro",
-                PlanCodes.Business => "Business",
-                PlanCodes.WhatsApp400 => "WhatsApp400",
-                PlanCodes.WhatsApp800 => "WhatsApp800",
-                PlanCodes.WhatsApp1200 => "WhatsApp1200",
-                PlanCodes.TestRecurring => "TestRecurring",
-                _ => null
-            };
+            TilopayRepeatOptions.ResolveSectionKey(planCode);
 
         private static string ResolveStatusLabel(EstadoSuscripcion? status) =>
             status switch
@@ -736,7 +1041,7 @@ namespace LuxuryApp.Controllers
                 _ => "secondary"
             };
 
-        private string BuildSuccessUrl() => BuildAbsoluteUrl(nameof(Exito));
+        private string BuildSuccessUrl() => BuildAbsoluteUrl(nameof(CheckoutReturn));
 
         private string BuildCancelUrl() => BuildAbsoluteUrl(nameof(Cancelado));
 

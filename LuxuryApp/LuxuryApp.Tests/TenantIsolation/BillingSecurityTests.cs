@@ -628,6 +628,321 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
+        public async Task CheckoutReturn_WithoutQueryString_ShouldRenderExplicitSuccessViewWhenSubscriptionIsAlreadyActive()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            using var userManager = CreateUserManager(context);
+
+            var tenantId = Guid.NewGuid();
+            var planId = Guid.NewGuid();
+            var currentPeriodEndUtc = new DateTime(2026, 7, 7, 0, 0, 0, DateTimeKind.Utc);
+
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = "Tenant Return Active",
+                Activo = true
+            });
+
+            context.Planes.Add(new Plan
+            {
+                Id = planId,
+                Nombre = "Prueba Tilopay",
+                Codigo = PlanCodes.TestRecurring,
+                PrecioMensual = 1000,
+                Moneda = "CRC",
+                MaxFuncionarios = 1,
+                Activo = true
+            });
+
+            var currentUser = new AppUsuario
+            {
+                Id = Guid.NewGuid().ToString(),
+                UserName = "return-active@test.local",
+                NormalizedUserName = "RETURN-ACTIVE@TEST.LOCAL",
+                Email = "return-active@test.local",
+                NormalizedEmail = "RETURN-ACTIVE@TEST.LOCAL",
+                TenantId = tenantId,
+                State = true
+            };
+
+            context.Users.Add(currentUser);
+            context.Suscripciones.Add(new Suscripcion
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                PlanId = planId,
+                Proveedor = PaymentProviderType.Tilopay,
+                Estado = EstadoSuscripcion.Activa,
+                FechaInicio = currentPeriodEndUtc.AddMonths(-1),
+                FechaFin = currentPeriodEndUtc,
+                FechaProximoCobroUtc = currentPeriodEndUtc,
+                MaxFuncionarios = 1,
+                FechaUltimaActualizacionUtc = DateTime.UtcNow
+            });
+
+            await context.SaveChangesAsync();
+
+            var controller = CreateBillingController(context, userManager);
+            controller.ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = BuildPrincipal(currentUser.Id, tenantId)
+                }
+            };
+
+            var result = await controller.CheckoutReturn();
+
+            var view = Assert.IsType<ViewResult>(result);
+            var model = Assert.IsType<ResultadoCheckoutViewModel>(view.Model);
+            Assert.Equal("Exito", view.ViewName);
+            Assert.True(model.SuscripcionActiva);
+            Assert.Equal("Prueba Tilopay", model.NombrePlan);
+            Assert.Equal(currentPeriodEndUtc, model.VigenciaHastaUtc);
+            Assert.Equal(currentPeriodEndUtc, model.ProximoCobroUtc);
+            Assert.Equal(1, model.MaxFuncionarios);
+            Assert.Equal("/Dashboard", model.PrimaryActionUrl);
+            Assert.Contains("suscripcion activa", model.MensajePrincipal, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Theory]
+        [InlineData(PlanCodes.Basic, "Basico", 1, 8000)]
+        [InlineData(PlanCodes.Pro, "Pro", 3, 20000)]
+        [InlineData(PlanCodes.Business, "Business", 7, 35000)]
+        public async Task CheckoutReturn_WithoutQueryString_ShouldRenderActiveSubscriptionForPublicRecurringPlans(
+            string planCode,
+            string planName,
+            int maxFuncionarios,
+            decimal monthlyPrice)
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            using var userManager = CreateUserManager(context);
+
+            var tenantId = Guid.NewGuid();
+            var planId = Guid.NewGuid();
+            var currentPeriodEndUtc = new DateTime(2026, 7, 15, 0, 0, 0, DateTimeKind.Utc);
+
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = $"Tenant Return {planCode}",
+                Activo = true
+            });
+
+            context.Planes.Add(new Plan
+            {
+                Id = planId,
+                Nombre = planName,
+                Codigo = planCode,
+                PrecioMensual = monthlyPrice,
+                Moneda = "CRC",
+                MaxFuncionarios = maxFuncionarios,
+                Activo = true
+            });
+
+            var currentUser = new AppUsuario
+            {
+                Id = Guid.NewGuid().ToString(),
+                UserName = $"return-{planCode.ToLowerInvariant()}@test.local",
+                NormalizedUserName = $"RETURN-{planCode.ToUpperInvariant()}@TEST.LOCAL",
+                Email = $"return-{planCode.ToLowerInvariant()}@test.local",
+                NormalizedEmail = $"RETURN-{planCode.ToUpperInvariant()}@TEST.LOCAL",
+                TenantId = tenantId,
+                State = true
+            };
+
+            context.Users.Add(currentUser);
+            context.Suscripciones.Add(new Suscripcion
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                PlanId = planId,
+                CodigoPlan = planCode,
+                Proveedor = PaymentProviderType.Tilopay,
+                Estado = EstadoSuscripcion.Activa,
+                FechaInicio = currentPeriodEndUtc.AddMonths(-1),
+                FechaFin = currentPeriodEndUtc,
+                FechaProximoCobroUtc = currentPeriodEndUtc,
+                PrecioMensual = monthlyPrice,
+                MaxFuncionarios = maxFuncionarios,
+                FechaUltimaActualizacionUtc = DateTime.UtcNow
+            });
+
+            await context.SaveChangesAsync();
+
+            var controller = CreateBillingController(context, userManager);
+            controller.ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = BuildPrincipal(currentUser.Id, tenantId)
+                }
+            };
+
+            var result = await controller.CheckoutReturn();
+
+            var view = Assert.IsType<ViewResult>(result);
+            var model = Assert.IsType<ResultadoCheckoutViewModel>(view.Model);
+            Assert.Equal("Exito", view.ViewName);
+            Assert.True(model.SuscripcionActiva);
+            Assert.Equal(planName, model.NombrePlan);
+            Assert.Equal(currentPeriodEndUtc, model.VigenciaHastaUtc);
+            Assert.Equal(currentPeriodEndUtc, model.ProximoCobroUtc);
+            Assert.Equal(maxFuncionarios, model.MaxFuncionarios);
+            Assert.Equal("/Dashboard", model.PrimaryActionUrl);
+            Assert.Contains("suscripcion activa", model.MensajePrincipal, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public async Task CheckoutReturn_WithoutQueryString_ShouldShowFriendlyPendingMessageForRecurringPayment()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            using var userManager = CreateUserManager(context);
+
+            var tenantId = Guid.NewGuid();
+            var planId = Guid.NewGuid();
+
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = "Tenant Return Pending",
+                Activo = true
+            });
+
+            context.Planes.Add(new Plan
+            {
+                Id = planId,
+                Nombre = "Prueba Tilopay",
+                Codigo = PlanCodes.TestRecurring,
+                PrecioMensual = 1000,
+                Moneda = "CRC",
+                MaxFuncionarios = 1,
+                Activo = true
+            });
+
+            var currentUser = new AppUsuario
+            {
+                Id = Guid.NewGuid().ToString(),
+                UserName = "return-pending@test.local",
+                NormalizedUserName = "RETURN-PENDING@TEST.LOCAL",
+                Email = "return-pending@test.local",
+                NormalizedEmail = "RETURN-PENDING@TEST.LOCAL",
+                TenantId = tenantId,
+                State = true
+            };
+
+            context.Users.Add(currentUser);
+            context.PagosSuscripcion.Add(new PagoSuscripcion
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                PlanId = planId,
+                Proveedor = PaymentProviderType.Tilopay,
+                ReferenciaInterna = "LXA-RETURN-PENDING",
+                CorrelationToken = "corr-return-pending",
+                ProviderReference = "corr-return-pending",
+                Estado = EstadoPagoProveedor.Pendiente,
+                Descripcion = "Pago recurrente pendiente",
+                ClienteEmail = currentUser.Email,
+                Monto = 1000,
+                Moneda = "CRC",
+                TilopayRecurringPlanId = 5834,
+                FechaCreacionUtc = DateTime.UtcNow
+            });
+
+            context.Suscripciones.Add(new Suscripcion
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                PlanId = planId,
+                Proveedor = PaymentProviderType.Tilopay,
+                Estado = EstadoSuscripcion.Pendiente,
+                FechaInicio = DateTime.UtcNow,
+                FechaUltimaActualizacionUtc = DateTime.UtcNow
+            });
+
+            await context.SaveChangesAsync();
+
+            var controller = CreateBillingController(context, userManager);
+            controller.ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = BuildPrincipal(currentUser.Id, tenantId)
+                }
+            };
+
+            var result = await controller.CheckoutReturn();
+
+            var view = Assert.IsType<ViewResult>(result);
+            var model = Assert.IsType<ResultadoCheckoutViewModel>(view.Model);
+            Assert.Equal("Exito", view.ViewName);
+            Assert.False(model.SuscripcionActiva);
+            Assert.Equal(EstadoPagoProveedor.Pendiente, model.EstadoPago);
+            Assert.Equal("corr-return-pending", model.Referencia);
+            Assert.Equal("Ya pague, revisar mi suscripcion", model.PrimaryActionLabel);
+            Assert.Equal(model.UrlActualizacion, model.PrimaryActionUrl);
+            Assert.Contains("aun no recibimos confirmacion automatica", model.MensajePrincipal, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public async Task CheckoutReturn_WithoutQueryString_ShouldShowFriendlyFallbackWhenNoPaymentOrSubscriptionExists()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            using var userManager = CreateUserManager(context);
+
+            var tenantId = Guid.NewGuid();
+
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = "Tenant Return Empty",
+                Activo = true
+            });
+
+            var currentUser = new AppUsuario
+            {
+                Id = Guid.NewGuid().ToString(),
+                UserName = "return-empty@test.local",
+                NormalizedUserName = "RETURN-EMPTY@TEST.LOCAL",
+                Email = "return-empty@test.local",
+                NormalizedEmail = "RETURN-EMPTY@TEST.LOCAL",
+                TenantId = tenantId,
+                State = true
+            };
+
+            context.Users.Add(currentUser);
+            await context.SaveChangesAsync();
+
+            var controller = CreateBillingController(context, userManager);
+            controller.ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = BuildPrincipal(currentUser.Id, tenantId)
+                }
+            };
+
+            var result = await controller.CheckoutReturn();
+
+            var view = Assert.IsType<ViewResult>(result);
+            var model = Assert.IsType<ResultadoCheckoutViewModel>(view.Model);
+            Assert.Equal("Exito", view.ViewName);
+            Assert.False(model.SuscripcionActiva);
+            Assert.Equal("/Billing/Planes", model.PrimaryActionUrl);
+            Assert.Contains("No pudimos confirmar automaticamente este pago", model.MensajePrincipal, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
         public async Task BillingSuccess_ShouldKeepPollingWhenProviderApprovedButWebhookIsStillPending()
         {
             var (context, connection) = CreateSystemContext();
@@ -851,6 +1166,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 null!,
                 null!,
                 userManager,
+                null!,
+                new LuxuryApp.Tests.Support.TestWebHostEnvironment(),
                 Options.Create(new OpcionesTilopay()),
                 Options.Create(new OpcionesPago()),
                 Options.Create(new TilopayRepeatOptions()));

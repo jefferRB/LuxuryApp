@@ -450,7 +450,7 @@ namespace LuxuryApp.Services.Calendar
                 TemplateName = ResolveTemplateName(options, notificationType),
                 Status = WhatsAppMessageStatuses.Pending,
                 PayloadJson = BuildQueuedPayloadJson(cita, notificationType),
-                CreatedAtUtc = DateTime.UtcNow
+                CreatedAtUtc = _businessDateTimeProvider.NowOffset().UtcDateTime
             });
 
             await _context.SaveChangesAsync(cancellationToken);
@@ -475,6 +475,7 @@ namespace LuxuryApp.Services.Calendar
             int? dailyMessageLimit,
             CancellationToken cancellationToken)
         {
+            var nowUtc = _businessDateTimeProvider.NowOffset().UtcDateTime;
             if (notificationType == WhatsAppNotificationTypes.Confirmation)
             {
                 cita.EstadoConfirmacionWhatsApp = WhatsAppConfirmationStates.NoEnviada;
@@ -503,8 +504,8 @@ namespace LuxuryApp.Services.Calendar
                     ErrorCode = errorCode,
                     ErrorMessage = Trim(reason, 1000),
                     PayloadJson = BuildSkippedPayloadJson(cita, notificationType, errorCode),
-                    CreatedAtUtc = DateTime.UtcNow,
-                    ProcessedAtUtc = DateTime.UtcNow
+                    CreatedAtUtc = nowUtc,
+                    ProcessedAtUtc = nowUtc
                 });
             }
 
@@ -572,7 +573,7 @@ namespace LuxuryApp.Services.Calendar
             WhatsAppConsentDecision consentDecision,
             CancellationToken cancellationToken)
         {
-            var nowUtc = DateTime.UtcNow;
+            var nowUtc = _businessDateTimeProvider.NowOffset().UtcDateTime;
             var payloadJson = BuildSkippedPayloadJson(
                 cita,
                 notificationType,
@@ -622,6 +623,7 @@ namespace LuxuryApp.Services.Calendar
             WhatsAppMessageLog message,
             CancellationToken cancellationToken)
         {
+            var nowUtc = _businessDateTimeProvider.NowOffset().UtcDateTime;
             var cita = await _context.Citas
                 .Include(c => c.Funcionario)
                 .Include(c => c.Servicio)
@@ -634,7 +636,8 @@ namespace LuxuryApp.Services.Calendar
                     cita: null,
                     WhatsAppMessageStatuses.SkippedNotEligible,
                     WhatsAppErrorCodes.AppointmentNotEligible,
-                    "Cita no encontrada.");
+                    "Cita no encontrada.",
+                    nowUtc);
                 await _context.SaveChangesAsync(cancellationToken);
                 return;
             }
@@ -647,7 +650,8 @@ namespace LuxuryApp.Services.Calendar
                     cita,
                     WhatsAppMessageStatuses.SkippedConsentMissing,
                     WhatsAppErrorCodes.ConsentMissing,
-                    consentDecision.Message);
+                    consentDecision.Message,
+                    nowUtc);
 
                 if (message.NotificationType == WhatsAppNotificationTypes.Confirmation)
                 {
@@ -671,7 +675,8 @@ namespace LuxuryApp.Services.Calendar
                     cita,
                     ResolveSkippedStatus(decision.ErrorCode),
                     decision.ErrorCode ?? WhatsAppErrorCodes.ConfigurationDisabled,
-                    decision.ErrorMessage ?? "El mensaje WhatsApp fue omitido por configuracion.");
+                    decision.ErrorMessage ?? "El mensaje WhatsApp fue omitido por configuracion.",
+                    nowUtc);
                 await _context.SaveChangesAsync(cancellationToken);
 
                 _logger.LogInformation(
@@ -692,7 +697,8 @@ namespace LuxuryApp.Services.Calendar
                     cita,
                     WhatsAppMessageStatuses.SkippedNotEligible,
                     WhatsAppErrorCodes.AppointmentNotEligible,
-                    ignoredReason);
+                    ignoredReason,
+                    nowUtc);
                 await _context.SaveChangesAsync(cancellationToken);
                 return;
             }
@@ -705,7 +711,8 @@ namespace LuxuryApp.Services.Calendar
                     cita,
                     WhatsAppMessageStatuses.SkippedInvalidPhone,
                     WhatsAppErrorCodes.InvalidPhone,
-                    "Telefono invalido.");
+                    "Telefono invalido.",
+                    nowUtc);
                 cita.EstadoConfirmacionWhatsApp = WhatsAppConfirmationStates.NoEnviada;
                 await _context.SaveChangesAsync(cancellationToken);
                 return;
@@ -719,7 +726,8 @@ namespace LuxuryApp.Services.Calendar
                     cita,
                     WhatsAppMessageStatuses.SkippedNotEligible,
                     WhatsAppErrorCodes.AppointmentNotEligible,
-                    "Cita fuera de la ventana de recordatorio.");
+                    "Cita fuera de la ventana de recordatorio.",
+                    nowUtc);
                 await _context.SaveChangesAsync(cancellationToken);
                 return;
             }
@@ -756,12 +764,12 @@ namespace LuxuryApp.Services.Calendar
 
             if (sendResult.Success && !string.IsNullOrWhiteSpace(sendResult.MetaMessageId))
             {
-                MarkSent(message, sendResult, phoneE164);
-                ApplySentState(cita, message.NotificationType, sendResult.MetaMessageId);
+                MarkSent(message, sendResult, phoneE164, nowUtc);
+                ApplySentState(cita, message.NotificationType, sendResult.MetaMessageId, nowUtc);
             }
             else
             {
-                MarkFailedOrRetry(message, sendResult);
+                MarkFailedOrRetry(message, sendResult, nowUtc);
                 if (message.NotificationType == WhatsAppNotificationTypes.Confirmation &&
                     message.Status == WhatsAppMessageStatuses.Failed)
                 {
@@ -800,9 +808,9 @@ namespace LuxuryApp.Services.Calendar
         private static void MarkSent(
             WhatsAppMessageLog message,
             MetaWhatsAppSendResult sendResult,
-            string phoneE164)
+            string phoneE164,
+            DateTime nowUtc)
         {
-            var nowUtc = DateTime.UtcNow;
             message.Status = WhatsAppMessageStatuses.Sent;
             message.MetaMessageId = sendResult.MetaMessageId;
             message.RecipientPhoneE164 = phoneE164;
@@ -817,7 +825,8 @@ namespace LuxuryApp.Services.Calendar
 
         private static void MarkFailedOrRetry(
             WhatsAppMessageLog message,
-            MetaWhatsAppSendResult sendResult)
+            MetaWhatsAppSendResult sendResult,
+            DateTime nowUtc)
         {
             message.PayloadJson = BuildSendResultPayloadJson(message, sendResult);
             message.ProcessingStartedAtUtc = null;
@@ -829,8 +838,8 @@ namespace LuxuryApp.Services.Calendar
                 message.Status = WhatsAppMessageStatuses.Failed;
                 message.ErrorCode = Trim(sendResult.ErrorCode ?? "SEND_ERROR", 80);
                 message.ErrorMessage = Trim(sendResult.ErrorMessage ?? "No fue posible enviar el mensaje.", 1000);
-                message.FailedAtUtc = DateTime.UtcNow;
-                message.ProcessedAtUtc = DateTime.UtcNow;
+                message.FailedAtUtc = nowUtc;
+                message.ProcessedAtUtc = nowUtc;
                 message.NextAttemptAtUtc = null;
                 return;
             }
@@ -840,7 +849,7 @@ namespace LuxuryApp.Services.Calendar
             message.ErrorMessage = null;
             message.FailedAtUtc = null;
             message.ProcessedAtUtc = null;
-            message.NextAttemptAtUtc = DateTime.UtcNow.AddMinutes(Math.Min(message.AttemptCount * 2, 10));
+            message.NextAttemptAtUtc = nowUtc.AddMinutes(Math.Min(message.AttemptCount * 2, 10));
         }
 
         private static void MarkSkipped(
@@ -848,12 +857,13 @@ namespace LuxuryApp.Services.Calendar
             Cita? cita,
             string status,
             string errorCode,
-            string reason)
+            string reason,
+            DateTime nowUtc)
         {
             message.Status = status;
             message.ErrorCode = errorCode;
             message.ErrorMessage = Trim(reason, 1000);
-            message.ProcessedAtUtc = DateTime.UtcNow;
+            message.ProcessedAtUtc = nowUtc;
             message.ProcessingStartedAtUtc = null;
             message.NextAttemptAtUtc = null;
             if (cita is not null)
@@ -865,9 +875,9 @@ namespace LuxuryApp.Services.Calendar
         private static void ApplySentState(
             Cita cita,
             string notificationType,
-            string metaMessageId)
+            string metaMessageId,
+            DateTime nowUtc)
         {
-            var nowUtc = DateTime.UtcNow;
             cita.UltimoMetaMessageId = metaMessageId;
 
             if (notificationType == WhatsAppNotificationTypes.Confirmation)
@@ -1431,8 +1441,13 @@ namespace LuxuryApp.Services.Calendar
                 WhatsAppErrorCodes.ConsentMissing => WhatsAppMessageStatuses.SkippedConsentMissing,
                 WhatsAppErrorCodes.TenantDisabled => WhatsAppMessageStatuses.SkippedTenantDisabled,
                 WhatsAppErrorCodes.DailyLimitExceeded => WhatsAppMessageStatuses.SkippedDailyLimitExceeded,
+                WhatsAppErrorCodes.NoActiveWhatsAppAddon => WhatsAppMessageStatuses.SkippedSubscriptionRequired,
+                WhatsAppErrorCodes.NoActiveBaseSubscription => WhatsAppMessageStatuses.SkippedSubscriptionRequired,
                 WhatsAppErrorCodes.SubscriptionRequired => WhatsAppMessageStatuses.SkippedSubscriptionRequired,
                 WhatsAppErrorCodes.MonthlyLimitExceeded => WhatsAppMessageStatuses.SkippedMonthlyLimitExceeded,
+                WhatsAppErrorCodes.InsufficientBalance => WhatsAppMessageStatuses.SkippedMonthlyLimitExceeded,
+                WhatsAppErrorCodes.UserDisabled => WhatsAppMessageStatuses.SkippedUserDisabled,
+                WhatsAppErrorCodes.NotificationTypeDisabled => WhatsAppMessageStatuses.SkippedUserDisabled,
                 WhatsAppErrorCodes.InvalidPhone => WhatsAppMessageStatuses.SkippedInvalidPhone,
                 _ => WhatsAppMessageStatuses.SkippedConfiguration
             };

@@ -15,6 +15,8 @@ namespace LuxuryApp.Models.Marketing
         public bool IsFeatured { get; init; }
         public bool IsValidationPlan { get; init; }
         public bool IsAddon { get; init; }
+        public bool CanStartCheckout { get; init; } = true;
+        public string? CheckoutAvailabilityMessage { get; init; }
         public IReadOnlyCollection<string> Highlights { get; init; } = Array.Empty<string>();
     }
 }

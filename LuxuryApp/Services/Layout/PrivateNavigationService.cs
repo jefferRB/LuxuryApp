@@ -63,6 +63,14 @@ namespace LuxuryApp.Services.Layout
             {
                 new()
                 {
+                    Text = "Cuenta",
+                    Controller = "Accounts",
+                    Action = "Cuenta",
+                    Icon = "bi-person-circle",
+                    Highlight = false
+                },
+                new()
+                {
                     Text = hasCommercialAccess ? "Suscripcion" : "Activar plan",
                     Controller = "Billing",
                     Action = "Planes",

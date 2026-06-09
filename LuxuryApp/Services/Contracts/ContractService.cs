@@ -1,5 +1,6 @@
 using LuxuryApp.Models.Legal;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
 using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Services.Contracts
@@ -8,13 +9,16 @@ namespace LuxuryApp.Services.Contracts
     {
         private readonly ApplicationDbContext _context;
         private readonly ILogger<ContractService> _logger;
+        private readonly IHostEnvironment? _environment;
 
         public ContractService(
             ApplicationDbContext context,
-            ILogger<ContractService> logger)
+            ILogger<ContractService> logger,
+            IHostEnvironment? environment = null)
         {
             _context = context;
             _logger = logger;
+            _environment = environment;
         }
 
         // Single source of truth for the current enforceable contract version.
@@ -88,21 +92,48 @@ namespace LuxuryApp.Services.Contracts
                 throw new ArgumentException("El userId es obligatorio.", nameof(userId));
             }
 
-            if (submittedContractDocumentId == Guid.Empty)
-            {
-                throw new InvalidOperationException("No se recibio una version valida del contrato para registrar la aceptacion.");
-            }
-
             var activeDocument = await _context.ContractDocuments
                 .FirstOrDefaultAsync(document => document.IsActive, cancellationToken);
 
+            LogDevelopmentAcceptanceTrace(
+                "Received",
+                userId,
+                submittedContractDocumentId,
+                activeDocument?.Id);
+
+            if (submittedContractDocumentId == Guid.Empty)
+            {
+                LogDevelopmentAcceptanceTrace(
+                    "Failure",
+                    userId,
+                    submittedContractDocumentId,
+                    activeDocument?.Id,
+                    "SubmittedContractDocumentIdMissing");
+
+                throw new InvalidOperationException("No se recibio una version valida del contrato para registrar la aceptacion.");
+            }
+
             if (activeDocument is null)
             {
+                LogDevelopmentAcceptanceTrace(
+                    "Failure",
+                    userId,
+                    submittedContractDocumentId,
+                    null,
+                    "ActiveContractMissing");
+
                 throw new InvalidOperationException("No existe un contrato vigente configurado para aceptar.");
             }
 
             if (activeDocument.Id != submittedContractDocumentId)
             {
+                LogDevelopmentAcceptanceTrace(
+                    "Failure",
+                    userId,
+                    submittedContractDocumentId,
+                    activeDocument.Id,
+                    "SubmittedContractDocumentIdMismatch");
+
                 throw new InvalidOperationException("La version vigente del contrato cambio. Vuelve a revisar el documento y acepta la version actual.");
             }
 
@@ -112,6 +143,13 @@ namespace LuxuryApp.Services.Contracts
                 _logger.LogCritical(
                     "El hash almacenado del contrato vigente no coincide con su contenido. ContractDocumentId {ContractDocumentId}.",
                     activeDocument.Id);
+
+                LogDevelopmentAcceptanceTrace(
+                    "Failure",
+                    userId,
+                    submittedContractDocumentId,
+                    activeDocument.Id,
+                    "ActiveContractHashMismatch");
 
                 throw new InvalidOperationException("No fue posible validar la integridad del contrato vigente.");
             }
@@ -132,7 +170,35 @@ namespace LuxuryApp.Services.Contracts
             _context.ContractAcceptanceRecords.Add(acceptance);
             await _context.SaveChangesAsync(cancellationToken);
 
+            LogDevelopmentAcceptanceTrace(
+                "Success",
+                userId,
+                submittedContractDocumentId,
+                activeDocument.Id,
+                result: "AcceptanceRegistered");
+
             return acceptance;
+        }
+
+        private void LogDevelopmentAcceptanceTrace(
+            string stage,
+            string userId,
+            Guid submittedContractDocumentId,
+            Guid? activeContractDocumentId,
+            string? result = null)
+        {
+            if (_environment?.IsDevelopment() != true)
+            {
+                return;
+            }
+
+            _logger.LogInformation(
+                "Contract acceptance registration trace. Stage {Stage}. UserId {UserId}. SubmittedContractDocumentId {SubmittedContractDocumentId}. ActiveContractDocumentId {ActiveContractDocumentId}. Result {Result}.",
+                stage,
+                userId,
+                submittedContractDocumentId,
+                activeContractDocumentId,
+                result);
         }
 
         private static string NormalizeSource(string? acceptanceSource)

@@ -8,6 +8,9 @@ namespace LuxuryApp.Models.SaaS
         public string? NombrePlan { get; set; }
         public EstadoPagoProveedor? EstadoPago { get; set; }
         public EstadoSuscripcion? EstadoSuscripcion { get; set; }
+        public DateTime? VigenciaHastaUtc { get; set; }
+        public DateTime? ProximoCobroUtc { get; set; }
+        public int? MaxFuncionarios { get; set; }
         public bool AccesoRestringido { get; set; }
         public bool PagoAprobadoPorProveedor { get; set; }
         public bool ConfirmadoPorWebhook { get; set; }
@@ -15,6 +18,10 @@ namespace LuxuryApp.Models.SaaS
         public bool DebeAutoActualizar { get; set; }
         public int SegundosAutoActualizacion { get; set; }
         public string? UrlActualizacion { get; set; }
+        public string? PrimaryActionLabel { get; set; }
+        public string? PrimaryActionUrl { get; set; }
+        public string? SecondaryActionLabel { get; set; }
+        public string? SecondaryActionUrl { get; set; }
         public string MensajePrincipal { get; set; } = string.Empty;
         public string? MensajeSecundario { get; set; }
     }

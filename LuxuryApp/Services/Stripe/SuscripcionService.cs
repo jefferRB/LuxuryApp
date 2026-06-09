@@ -1,4 +1,5 @@
 using LuxuryApp.Models.SaaS;
+using LuxuryApp.Models.WhatsApp;
 using LuxuryApp.Services.BusinessTime;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -465,15 +466,27 @@ namespace LuxuryApp.Services.SaaS
         {
             ArgumentNullException.ThrowIfNull(plan);
 
+            var addonWasPersisted = true;
             var addon = await _db.TenantSubscriptionAddons
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(current => current.TenantId == tenantId, cancellationToken);
+            if (addon is null)
+            {
+                addonWasPersisted = false;
+            }
 
             var nowUtc = GetUtcNow();
+            var isSameAddonPlan = addon is not null &&
+                                  (addon.PlanId == plan.Id ||
+                                   addon.TilopayRecurringPlanId == tilopayRecurringPlanId ||
+                                   string.Equals(
+                                       addon.AddonCode,
+                                       plan.Codigo ?? plan.Nombre,
+                                       StringComparison.OrdinalIgnoreCase));
             var (periodStartUtc, periodEndUtc) = ResolveNextBillingPeriod(
                 nowUtc,
                 addon?.FechaFin,
-                shouldExtendExistingPeriod: true);
+                shouldExtendExistingPeriod: isSameAddonPlan && addon is not null && IsWhatsAppAddonActive(addon));
 
             if (addon is null)
             {
@@ -503,7 +516,176 @@ namespace LuxuryApp.Services.SaaS
             addon.FechaCancelacionUtc = null;
             addon.UpdatedAtUtc = nowUtc;
 
+            var settings = await _db.TenantWhatsAppSettings
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(current => current.TenantId == tenantId, cancellationToken);
+            var effectiveDailyLimit = ResolveWhatsAppDailyMessageLimit(
+                addon,
+                settings?.DailyMessageLimit ?? TenantWhatsAppSettings.DefaultDailyMessageLimit);
+
+            if (settings is null)
+            {
+                settings = new TenantWhatsAppSettings
+                {
+                    TenantId = tenantId,
+                    CreatedAtUtc = nowUtc
+                };
+                _db.TenantWhatsAppSettings.Add(settings);
+            }
+
+            settings.DailyMessageLimit = effectiveDailyLimit;
+            settings.TimeZoneId = string.IsNullOrWhiteSpace(settings.TimeZoneId)
+                ? TenantWhatsAppSettings.DefaultTimeZoneId
+                : settings.TimeZoneId;
+
+            if (!addonWasPersisted || !isSameAddonPlan)
+            {
+                settings.IsEnabled = true;
+                settings.SendConfirmationOnCreate = true;
+                settings.SendReminderThreeHoursBefore = true;
+            }
+
+            settings.UpdatedAtUtc = nowUtc;
+
             await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        public async Task AssignManualWhatsAppAddonAsync(
+            Guid tenantId,
+            string? addonCode,
+            string assignedByUserId,
+            string? observation,
+            bool sendConfirmationOnCreate,
+            bool sendReminderThreeHoursBefore,
+            CancellationToken cancellationToken = default)
+        {
+            var nowUtc = GetUtcNow();
+            var revoking = string.IsNullOrWhiteSpace(addonCode) ||
+                           addonCode.Equals("NONE", StringComparison.OrdinalIgnoreCase);
+
+            var addon = await _db.TenantSubscriptionAddons
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(a => a.TenantId == tenantId, cancellationToken);
+
+            _logger.LogInformation(
+                "AssignManualWhatsAppAddon. TenantId {TenantId}. AssignedBy {UserId}. PreviousAddonCode {Prev}. PreviousEstado {PrevEstado}. NewAddonCode {New}.",
+                tenantId,
+                assignedByUserId,
+                addon?.AddonCode,
+                addon?.Estado,
+                revoking ? "NONE" : addonCode);
+
+            if (revoking)
+            {
+                if (addon is not null)
+                {
+                    addon.Estado = EstadoSuscripcion.Cancelada;
+                    addon.FechaCancelacionUtc = nowUtc;
+                    addon.FechaFin = nowUtc;
+                    addon.UpdatedAtUtc = nowUtc;
+                }
+
+                await UpsertWhatsAppSettingsForManualAsync(
+                    tenantId,
+                    isEnabled: false,
+                    sendConfirmationOnCreate: false,
+                    sendReminderThreeHoursBefore: false,
+                    dailyLimit: TenantWhatsAppSettings.DefaultDailyMessageLimit,
+                    observation: observation,
+                    nowUtc: nowUtc,
+                    cancellationToken: cancellationToken);
+
+                await _db.SaveChangesAsync(cancellationToken);
+                return;
+            }
+
+            if (!PlanCodes.WhatsAppAddons.Contains(addonCode!, StringComparer.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException($"Código de paquete WhatsApp no válido: {addonCode}", nameof(addonCode));
+            }
+
+            var plan = await _db.Planes
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Codigo == addonCode && p.Activo, cancellationToken)
+                ?? throw new InvalidOperationException($"Plan {addonCode} no encontrado o inactivo en la BD.");
+
+            if (addon is null)
+            {
+                addon = new TenantSubscriptionAddon
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = tenantId,
+                    CreatedAtUtc = nowUtc
+                };
+                _db.TenantSubscriptionAddons.Add(addon);
+            }
+
+            addon.PlanId = plan.Id;
+            addon.AddonCode = plan.Codigo!;
+            addon.Estado = EstadoSuscripcion.Activa;
+            addon.TilopayRecurringPlanId = null;
+            addon.ProviderSubscriptionId = null;
+            addon.ProviderTransactionId = $"MANUAL-{addonCode}-{nowUtc:yyyyMMddHHmmss}";
+            addon.PrecioMensual = null;
+            addon.MonedaFacturacion = "CRC";
+            addon.MonthlyMessageLimit = plan.LimiteMensajesMensual ?? 0;
+            addon.FechaInicio = nowUtc;
+            addon.FechaFin = nowUtc.AddMonths(1);
+            addon.FechaProximoCobroUtc = nowUtc.AddMonths(1);
+            addon.FechaFinGraciaUtc = null;
+            addon.FechaCancelacionUtc = null;
+            addon.UpdatedAtUtc = nowUtc;
+
+            var dailyLimit = ResolveWhatsAppDailyMessageLimit(addonCode);
+            var isEnabled = sendConfirmationOnCreate || sendReminderThreeHoursBefore;
+
+            await UpsertWhatsAppSettingsForManualAsync(
+                tenantId,
+                isEnabled,
+                sendConfirmationOnCreate,
+                sendReminderThreeHoursBefore,
+                dailyLimit,
+                observation,
+                nowUtc,
+                cancellationToken);
+
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        private async Task UpsertWhatsAppSettingsForManualAsync(
+            Guid tenantId,
+            bool isEnabled,
+            bool sendConfirmationOnCreate,
+            bool sendReminderThreeHoursBefore,
+            int dailyLimit,
+            string? observation,
+            DateTime nowUtc,
+            CancellationToken cancellationToken)
+        {
+            var settings = await _db.TenantWhatsAppSettings
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(s => s.TenantId == tenantId, cancellationToken);
+
+            if (settings is null)
+            {
+                settings = new TenantWhatsAppSettings
+                {
+                    TenantId = tenantId,
+                    CreatedAtUtc = nowUtc,
+                    TimeZoneId = TenantWhatsAppSettings.DefaultTimeZoneId
+                };
+                _db.TenantWhatsAppSettings.Add(settings);
+            }
+
+            settings.IsEnabled = isEnabled;
+            settings.SendConfirmationOnCreate = sendConfirmationOnCreate;
+            settings.SendReminderThreeHoursBefore = sendReminderThreeHoursBefore;
+            settings.DailyMessageLimit = dailyLimit;
+            settings.Notes = string.IsNullOrWhiteSpace(observation) ? settings.Notes : observation.Trim();
+            settings.TimeZoneId = string.IsNullOrWhiteSpace(settings.TimeZoneId)
+                ? TenantWhatsAppSettings.DefaultTimeZoneId
+                : settings.TimeZoneId;
+            settings.UpdatedAtUtc = nowUtc;
         }
 
         public async Task RegistrarPagoFallidoAddonAsync(
@@ -558,12 +740,19 @@ namespace LuxuryApp.Services.SaaS
 
             if (isAddon)
             {
-                var addon = await _db.TenantSubscriptionAddons
+                var addonQuery = _db.TenantSubscriptionAddons
                     .IgnoreQueryFilters()
-                    .FirstOrDefaultAsync(
-                        current => current.TenantId == tenantId &&
-                                   current.ProviderSubscriptionId == providerSubscriberId,
-                        cancellationToken);
+                    .Where(current => current.TenantId == tenantId);
+
+                if (!string.IsNullOrWhiteSpace(providerSubscriberId))
+                {
+                    addonQuery = addonQuery.Where(current => current.ProviderSubscriptionId == providerSubscriberId);
+                }
+
+                var addon = await addonQuery
+                    .OrderByDescending(current => current.UpdatedAtUtc)
+                    .ThenByDescending(current => current.CreatedAtUtc)
+                    .FirstOrDefaultAsync(cancellationToken);
 
                 if (addon is null)
                 {
@@ -658,9 +847,35 @@ namespace LuxuryApp.Services.SaaS
                     (message.Status == "Sent" ||
                      message.Status == "Delivered" ||
                      message.Status == "Read") &&
-                    message.CreatedAtUtc >= periodStartUtc.Value &&
-                    message.CreatedAtUtc < periodEndUtc.Value)
+                    (message.SentAtUtc ?? message.DeliveredAtUtc ?? message.ReadAtUtc ?? message.CreatedAtUtc) >= periodStartUtc.Value &&
+                    (message.SentAtUtc ?? message.DeliveredAtUtc ?? message.ReadAtUtc ?? message.CreatedAtUtc) < periodEndUtc.Value)
                 .CountAsync(cancellationToken);
+        }
+
+        public int ResolveWhatsAppDailyMessageLimit(
+            TenantSubscriptionAddon? addon,
+            int configuredDailyLimit = TenantWhatsAppSettings.DefaultDailyMessageLimit) =>
+            ResolveWhatsAppDailyMessageLimit(
+                addon?.AddonCode ?? addon?.Plan?.Codigo,
+                configuredDailyLimit);
+
+        public int ResolveWhatsAppDailyMessageLimit(
+            string? addonCode,
+            int configuredDailyLimit = TenantWhatsAppSettings.DefaultDailyMessageLimit)
+        {
+            var configuredLimit = _tilopayRepeatOptions.FindByCode(addonCode)?.DailyMessageLimit;
+            if (configuredLimit is > 0)
+            {
+                return configuredLimit.Value;
+            }
+
+            return addonCode switch
+            {
+                PlanCodes.WhatsApp400 => 15,
+                PlanCodes.WhatsApp800 => 30,
+                PlanCodes.WhatsApp1200 => 45,
+                _ => configuredDailyLimit > 0 ? configuredDailyLimit : TenantWhatsAppSettings.DefaultDailyMessageLimit
+            };
         }
 
         // Compatibilidad razonable con el codigo legado de Stripe.

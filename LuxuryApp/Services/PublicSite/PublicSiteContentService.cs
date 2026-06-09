@@ -11,15 +11,18 @@ namespace LuxuryApp.Services.PublicSite
     {
         private readonly ApplicationDbContext _context;
         private readonly OpcionesPago _paymentOptions;
+        private readonly OpcionesTilopay _tilopayOptions;
         private readonly TilopayRepeatOptions _tilopayRepeatOptions;
 
         public PublicSiteContentService(
             ApplicationDbContext context,
             IOptions<OpcionesPago> paymentOptions,
+            IOptions<OpcionesTilopay> tilopayOptions,
             IOptions<TilopayRepeatOptions> tilopayRepeatOptions)
         {
             _context = context;
             _paymentOptions = paymentOptions.Value;
+            _tilopayOptions = tilopayOptions.Value;
             _tilopayRepeatOptions = tilopayRepeatOptions.Value;
         }
 
@@ -181,7 +184,8 @@ namespace LuxuryApp.Services.PublicSite
         public async Task<IReadOnlyCollection<MarketingPlanCardViewModel>> GetInternalPlanCardsAsync(
             CancellationToken cancellationToken = default)
         {
-            if (!_tilopayRepeatOptions.EnableTestRecurringPlan)
+            if (!_paymentOptions.EnableValidationPlans ||
+                !_tilopayRepeatOptions.EnableTestRecurringPlan)
             {
                 return Array.Empty<MarketingPlanCardViewModel>();
             }
@@ -228,7 +232,7 @@ namespace LuxuryApp.Services.PublicSite
                 (IsPublicBasePlan(plan) || IsPublicAddonPlan(plan) || IsInternalPlan(plan)));
         }
 
-        private static MarketingPlanCardViewModel MapPlanCard(Plan plan)
+        private MarketingPlanCardViewModel MapPlanCard(Plan plan)
         {
             var highlights = plan.PlanFeatures
                 .Select(FormatFeature)
@@ -261,6 +265,7 @@ namespace LuxuryApp.Services.PublicSite
             var isAddon = plan.LimiteMensajesMensual.HasValue;
             var isFeatured = string.Equals(plan.Codigo, PlanCodes.Business, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(plan.Nombre, "Empresarial", StringComparison.OrdinalIgnoreCase);
+            var checkoutAvailability = ResolveCheckoutAvailability(plan);
 
             return new MarketingPlanCardViewModel
             {
@@ -293,6 +298,8 @@ namespace LuxuryApp.Services.PublicSite
                 IsFeatured = isFeatured,
                 IsValidationPlan = plan.EsPlanValidacion,
                 IsAddon = isAddon,
+                CanStartCheckout = checkoutAvailability.CanStartCheckout,
+                CheckoutAvailabilityMessage = checkoutAvailability.Message,
                 Highlights = highlights
             };
         }
@@ -321,7 +328,9 @@ namespace LuxuryApp.Services.PublicSite
 
         private bool IsInternalPlan(Plan plan)
         {
-            if (!_tilopayRepeatOptions.Enabled || !_tilopayRepeatOptions.EnableTestRecurringPlan)
+            if (!_paymentOptions.EnableValidationPlans ||
+                !_tilopayRepeatOptions.Enabled ||
+                !_tilopayRepeatOptions.EnableTestRecurringPlan)
             {
                 return false;
             }
@@ -343,6 +352,74 @@ namespace LuxuryApp.Services.PublicSite
             return planFeature.Limite.HasValue
                 ? $"{featureName} hasta {planFeature.Limite.Value}"
                 : featureName;
+        }
+
+        private CheckoutAvailability ResolveCheckoutAvailability(Plan plan)
+        {
+            var code = plan.Codigo?.Trim();
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                return CheckoutAvailability.Enabled();
+            }
+
+            if (!TilopayRepeatOptions.IsManagedPlanCode(code))
+            {
+                return CheckoutAvailability.Enabled();
+            }
+
+            var repeatPlan = _tilopayRepeatOptions.FindByCode(code);
+            if (repeatPlan is null)
+            {
+                return CheckoutAvailability.Disabled(
+                    $"El plan {code} no tiene mapping recurrente configurado.");
+            }
+
+            if (!_tilopayRepeatOptions.Enabled)
+            {
+                return CheckoutAvailability.Disabled(
+                    "Tilopay Repeat esta deshabilitado: TilopayRepeat:Enabled=false.");
+            }
+
+            if (!_tilopayRepeatOptions.UseHostedLinks)
+            {
+                return CheckoutAvailability.Disabled(
+                    "Tilopay Repeat requiere hosted links: TilopayRepeat:UseHostedLinks=false.");
+            }
+
+            if (plan.EsPlanValidacion && !_tilopayRepeatOptions.EnableTestRecurringPlan)
+            {
+                return CheckoutAvailability.Disabled(
+                    "El plan TEST recurrente esta deshabilitado: TilopayRepeat:EnableTestRecurringPlan=false.");
+            }
+
+            if (code is PlanCodes.Basic or PlanCodes.Pro or PlanCodes.Business &&
+                !_tilopayRepeatOptions.UseRecurringCheckoutForPublicPlans)
+            {
+                return CheckoutAvailability.Disabled(
+                    "Tilopay Repeat esta deshabilitado para planes publicos: TilopayRepeat:UseRecurringCheckoutForPublicPlans=false.");
+            }
+
+            if (string.IsNullOrWhiteSpace(_tilopayOptions.WebhookAccessToken))
+            {
+                return CheckoutAvailability.Disabled(
+                    "Falta WebhookAccessToken: Tilopay:WebhookAccessToken.");
+            }
+
+            var sectionKey = TilopayRepeatOptions.ResolveSectionKey(code);
+            if (string.IsNullOrWhiteSpace(repeatPlan.CheckoutUrl) && !string.IsNullOrWhiteSpace(sectionKey))
+            {
+                return CheckoutAvailability.Disabled(
+                    $"Falta CheckoutUrl para {code}: TilopayRepeat:{sectionKey}:CheckoutUrl.");
+            }
+
+            return CheckoutAvailability.Enabled();
+        }
+
+        private sealed record CheckoutAvailability(bool CanStartCheckout, string? Message)
+        {
+            public static CheckoutAvailability Enabled() => new(true, null);
+
+            public static CheckoutAvailability Disabled(string message) => new(false, message);
         }
     }
 }

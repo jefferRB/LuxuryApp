@@ -1,3 +1,4 @@
+using System.Net;
 using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.SaaS;
@@ -8,27 +9,30 @@ using LuxuryApp.Services.Tenant;
 using LuxuryApp.Services.WhatsApp;
 using LuxuryApp.Tests.Support;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using System.Net;
 
 namespace LuxuryApp.Tests.TenantIsolation
 {
     public class CalendarWhatsAppNotificationServiceTests
     {
         [Fact]
-        public async Task QueueConfirmation_WhenTenantHasNoSettings_ShouldSkipAsTenantDisabled()
+        public async Task QueueConfirmation_WhenTenantHasNoStoredSettings_ShouldUseAddonDefaultsAndCreatePendingOutboundMessage()
         {
             using var fixture = await Fixture.CreateAsync();
             var cita = await fixture.SeedCitaAsync();
 
             await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
 
-            var message = await fixture.Context.WhatsAppMessageLogs.AsNoTracking().SingleAsync();
-            Assert.Equal(WhatsAppMessageStatuses.SkippedTenantDisabled, message.Status);
-            Assert.Equal(WhatsAppErrorCodes.TenantDisabled, message.ErrorCode);
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            var settings = await fixture.Settings.GetSettingsForTenantAsync(fixture.TenantId);
+            Assert.Equal(WhatsAppMessageStatuses.Pending, message.Status);
+            Assert.True(settings.IsEnabled);
+            Assert.True(settings.SendConfirmationOnCreate);
+            Assert.True(settings.SendReminderThreeHoursBefore);
+            Assert.Equal(15, settings.DailyMessageLimit);
         }
 
         [Fact]
@@ -42,222 +46,180 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
             Assert.Equal(WhatsAppMessageStatuses.SkippedTenantDisabled, message.Status);
+            Assert.Equal(WhatsAppErrorCodes.TenantDisabled, message.ErrorCode);
             Assert.Equal(0, fixture.MetaClient.SendCount);
             Assert.Equal(0, await fixture.Settings.GetTodayUsageAsync(fixture.TenantId));
         }
 
         [Fact]
-        public async Task QueueConfirmation_WhenTenantIsEnabled_ShouldCreatePendingOutboundMessage()
+        public async Task QueueConfirmation_WhenConfirmationsWereDisabledByTenant_ShouldSkipAsUserDisabled()
         {
             using var fixture = await Fixture.CreateAsync();
-            await fixture.UpdateSettingsAsync(isEnabled: true);
+            await fixture.UpdateSettingsAsync(
+                isEnabled: true,
+                sendConfirmation: false,
+                sendReminder: true);
             var cita = await fixture.SeedCitaAsync();
 
             await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
 
             var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
-            Assert.Equal(WhatsAppMessageStatuses.Pending, message.Status);
-            Assert.Equal(WhatsAppNotificationTypes.Confirmation, message.NotificationType);
+            Assert.Equal(WhatsAppMessageStatuses.SkippedUserDisabled, message.Status);
+            Assert.Equal(WhatsAppErrorCodes.UserDisabled, message.ErrorCode);
         }
 
         [Fact]
-        public async Task QueueConfirmation_WhenManualConsentIsMissing_ShouldSkipAsConsentMissing_WithoutConsumingDailyLimit()
+        public async Task QueueReminder_WhenRemindersWereDisabledByTenant_ShouldSkipAsUserDisabled()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            await fixture.UpdateSettingsAsync(
+                isEnabled: true,
+                sendConfirmation: true,
+                sendReminder: false);
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 26, 13, 0, 0));
+
+            await fixture.Notifications.QueueAppointmentReminderAsync(cita.Id);
+
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            Assert.Equal(WhatsAppMessageStatuses.SkippedUserDisabled, message.Status);
+            Assert.Equal(WhatsAppErrorCodes.UserDisabled, message.ErrorCode);
+        }
+
+        [Fact]
+        public async Task QueueReminder_WithoutActiveAddon_ShouldSkipAsNoActiveWhatsAppAddon()
+        {
+            using var fixture = await Fixture.CreateAsync(seedActiveAddon: false);
+            await fixture.UpdateSettingsAsync(isEnabled: true);
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 26, 13, 0, 0));
+
+            await fixture.Notifications.QueueAppointmentReminderAsync(cita.Id);
+
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync(current => current.CitaId == cita.Id);
+            Assert.Equal(WhatsAppMessageStatuses.SkippedSubscriptionRequired, message.Status);
+            Assert.Equal(WhatsAppErrorCodes.NoActiveWhatsAppAddon, message.ErrorCode);
+            Assert.Equal(0, fixture.MetaClient.SendCount);
+        }
+
+        [Fact]
+        public async Task QueueReminder_WithoutActiveBaseSubscription_ShouldSkipAsNoActiveBaseSubscription()
+        {
+            using var fixture = await Fixture.CreateAsync(seedActiveBaseSubscription: false);
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 26, 13, 0, 0));
+
+            await fixture.Notifications.QueueAppointmentReminderAsync(cita.Id);
+
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync(current => current.CitaId == cita.Id);
+            Assert.Equal(WhatsAppMessageStatuses.SkippedSubscriptionRequired, message.Status);
+            Assert.Equal(WhatsAppErrorCodes.NoActiveBaseSubscription, message.ErrorCode);
+        }
+
+        [Fact]
+        public async Task QueueReminder_WhenAddonExpired_ShouldSkipAsNoActiveWhatsAppAddon()
+        {
+            using var fixture = await Fixture.CreateAsync(addonEndsUtc: Fixture.FixedNowUtc.AddMinutes(-1));
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 26, 13, 0, 0));
+
+            await fixture.Notifications.QueueAppointmentReminderAsync(cita.Id);
+
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync(current => current.CitaId == cita.Id);
+            Assert.Equal(WhatsAppMessageStatuses.SkippedSubscriptionRequired, message.Status);
+            Assert.Equal(WhatsAppErrorCodes.NoActiveWhatsAppAddon, message.ErrorCode);
+        }
+
+        [Fact]
+        public async Task QueueReminder_WhenMonthlyBalanceWasExhausted_ShouldSkipAsMonthlyLimitExceeded()
+        {
+            using var fixture = await Fixture.CreateAsync(addonMonthlyLimit: 1);
+            fixture.Context.WhatsAppMessageLogs.Add(new WhatsAppMessageLog
+            {
+                TenantId = fixture.TenantId,
+                Direction = WhatsAppMessageDirections.Outbound,
+                NotificationType = WhatsAppNotificationTypes.Confirmation,
+                Status = WhatsAppMessageStatuses.Sent,
+                CreatedAtUtc = Fixture.FixedNowUtc,
+                SentAtUtc = Fixture.FixedNowUtc
+            });
+            await fixture.Context.SaveChangesAsync();
+
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 26, 13, 0, 0));
+
+            await fixture.Notifications.QueueAppointmentReminderAsync(cita.Id);
+
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync(current => current.CitaId == cita.Id);
+            Assert.Equal(WhatsAppMessageStatuses.SkippedMonthlyLimitExceeded, message.Status);
+            Assert.Equal(WhatsAppErrorCodes.MonthlyLimitExceeded, message.ErrorCode);
+            Assert.Equal(0, fixture.MetaClient.SendCount);
+        }
+
+        [Fact]
+        public async Task QueueReminder_WhenActualDailyUsageReached_ShouldSkipAsDailyLimitExceeded()
         {
             using var fixture = await Fixture.CreateAsync();
             await fixture.UpdateSettingsAsync(isEnabled: true, dailyLimit: 1);
-            var citaSinConsentimiento = await fixture.SeedCitaAsync(whatsAppConsentAtCreation: false);
-            var citaConConsentimiento = await fixture.SeedCitaAsync(phone: "89990000", whatsAppConsentAtCreation: true);
+            var firstCita = await fixture.SeedCitaAsync();
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(firstCita.Id);
+            await fixture.Notifications.ProcessPendingNotificationsAsync();
 
-            await fixture.Notifications.QueueAppointmentConfirmationAsync(citaSinConsentimiento.Id);
-            await fixture.Notifications.QueueAppointmentConfirmationAsync(citaConConsentimiento.Id);
+            var reminder = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 26, 13, 0, 0));
+
+            await fixture.Notifications.QueueAppointmentReminderAsync(reminder.Id);
+
+            var reminderMessage = await fixture.Context.WhatsAppMessageLogs
+                .SingleAsync(message => message.CitaId == reminder.Id);
+            Assert.Equal(WhatsAppMessageStatuses.SkippedDailyLimitExceeded, reminderMessage.Status);
+            Assert.Equal(WhatsAppErrorCodes.DailyLimitExceeded, reminderMessage.ErrorCode);
+        }
+
+        [Fact]
+        public async Task ProcessPendingNotifications_WhenDailyLimitAllowsOnlyOne_ShouldSendOldestAndSkipTheRest()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            await fixture.UpdateSettingsAsync(isEnabled: true, dailyLimit: 1);
+            var firstCita = await fixture.SeedCitaAsync();
+            var secondCita = await fixture.SeedCitaAsync(phone: "89990000");
+
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(firstCita.Id);
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(secondCita.Id);
+            await fixture.Notifications.ProcessPendingNotificationsAsync();
 
             var messages = await fixture.Context.WhatsAppMessageLogs
                 .OrderBy(message => message.Id)
                 .ToListAsync();
 
             Assert.Equal(2, messages.Count);
-            Assert.Equal(WhatsAppMessageStatuses.SkippedConsentMissing, messages[0].Status);
-            Assert.Equal(WhatsAppErrorCodes.ConsentMissing, messages[0].ErrorCode);
-            Assert.Equal(WhatsAppMessageStatuses.Pending, messages[1].Status);
-            Assert.Equal(0, fixture.MetaClient.SendCount);
-        }
-
-        [Fact]
-        public async Task QueueConfirmation_WhenRegisteredClientHasConsentFalse_ShouldSkipAsConsentMissing()
-        {
-            using var fixture = await Fixture.CreateAsync();
-            await fixture.UpdateSettingsAsync(isEnabled: true);
-            var cliente = await fixture.SeedClienteAsync("Cliente sin consentimiento", "81112222", aceptaMensajesWhatsApp: false);
-            var cita = await fixture.SeedCitaAsync(clienteId: cliente.Id, whatsAppConsentAtCreation: true);
-
-            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
-
-            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
-            Assert.Equal(WhatsAppMessageStatuses.SkippedConsentMissing, message.Status);
-            Assert.Equal(WhatsAppErrorCodes.ConsentMissing, message.ErrorCode);
-        }
-
-        [Fact]
-        public async Task QueueConfirmation_WhenRegisteredClientHasConsentTrue_ShouldCreatePendingOutboundMessage()
-        {
-            using var fixture = await Fixture.CreateAsync();
-            await fixture.UpdateSettingsAsync(isEnabled: true);
-            var cliente = await fixture.SeedClienteAsync("Cliente con consentimiento", "82223333", aceptaMensajesWhatsApp: true);
-            var cita = await fixture.SeedCitaAsync(clienteId: cliente.Id, whatsAppConsentAtCreation: false);
-
-            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
-
-            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
-            Assert.Equal(WhatsAppMessageStatuses.Pending, message.Status);
-            Assert.Equal(WhatsAppNotificationTypes.Confirmation, message.NotificationType);
-        }
-
-        [Fact]
-        public async Task QueueConfirmation_WhenDailyLimitWasReached_ShouldSkipWithoutDuplicatingPendingMessages()
-        {
-            using var fixture = await Fixture.CreateAsync();
-            await fixture.UpdateSettingsAsync(isEnabled: true, dailyLimit: 1);
-            var firstCita = await fixture.SeedCitaAsync();
-            var secondCita = await fixture.SeedCitaAsync();
-
-            await fixture.Notifications.QueueAppointmentConfirmationAsync(firstCita.Id);
-            await fixture.Notifications.QueueAppointmentConfirmationAsync(secondCita.Id);
-            await fixture.Notifications.QueueAppointmentConfirmationAsync(secondCita.Id);
-
-            var messages = await fixture.Context.WhatsAppMessageLogs.OrderBy(message => message.Id).ToListAsync();
-            Assert.Equal(2, messages.Count);
-            Assert.Equal(WhatsAppMessageStatuses.Pending, messages[0].Status);
-            Assert.Equal(WhatsAppMessageStatuses.SkippedDailyLimitExceeded, messages[1].Status);
-            Assert.Equal(WhatsAppErrorCodes.DailyLimitExceeded, messages[1].ErrorCode);
-        }
-
-        [Fact]
-        public async Task QueueConfirmation_WhenCalendarEntryIsBreak_ShouldSkipAsNotEligible()
-        {
-            using var fixture = await Fixture.CreateAsync();
-            await fixture.UpdateSettingsAsync(isEnabled: true);
-            var cita = await fixture.SeedCitaAsync(tipo: "DESCANSO", phone: null);
-
-            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
-
-            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
-            Assert.Equal(WhatsAppMessageStatuses.SkippedNotEligible, message.Status);
-        }
-
-        [Fact]
-        public async Task QueueConfirmation_WhenPhoneIsInvalid_ShouldSkipWithExplicitStatus()
-        {
-            using var fixture = await Fixture.CreateAsync();
-            await fixture.UpdateSettingsAsync(isEnabled: true);
-            var cita = await fixture.SeedCitaAsync(phone: "invalid");
-
-            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
-
-            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
-            Assert.Equal(WhatsAppMessageStatuses.SkippedInvalidPhone, message.Status);
-            Assert.Equal(WhatsAppErrorCodes.InvalidPhone, message.ErrorCode);
-        }
-
-        [Fact]
-        public async Task QueueReminder_ShouldRespectTenantDailyLimit()
-        {
-            using var fixture = await Fixture.CreateAsync();
-            await fixture.UpdateSettingsAsync(isEnabled: true, dailyLimit: 1);
-            var confirmation = await fixture.SeedCitaAsync();
-            var reminder = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 26, 13, 0, 0));
-
-            await fixture.Notifications.QueueAppointmentConfirmationAsync(confirmation.Id);
-            await fixture.Notifications.QueueAppointmentReminderAsync(reminder.Id);
-
-            var reminderMessage = await fixture.Context.WhatsAppMessageLogs
-                .SingleAsync(message => message.CitaId == reminder.Id);
-            Assert.Equal(WhatsAppMessageStatuses.SkippedDailyLimitExceeded, reminderMessage.Status);
-        }
-
-        [Fact]
-        public async Task QueueReminder_WhenRegisteredClientRevokedConsent_ShouldSkipAsConsentMissing()
-        {
-            using var fixture = await Fixture.CreateAsync();
-            await fixture.UpdateSettingsAsync(isEnabled: true);
-            var cliente = await fixture.SeedClienteAsync("Cliente revocado", "83334444", aceptaMensajesWhatsApp: true);
-            var cita = await fixture.SeedCitaAsync(
-                clienteId: cliente.Id,
-                fechaHora: new DateTime(2026, 5, 27, 12, 0, 0),
-                whatsAppConsentAtCreation: true);
-
-            cliente.AceptaMensajesWhatsApp = false;
-            await fixture.Context.SaveChangesAsync();
-
-            await fixture.Notifications.QueueAppointmentReminderAsync(cita.Id);
-
-            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
-            Assert.Equal(WhatsAppMessageStatuses.SkippedConsentMissing, message.Status);
-            Assert.Equal(WhatsAppErrorCodes.ConsentMissing, message.ErrorCode);
-        }
-
-        [Fact]
-        public async Task UpdateSettings_WhenTenantIsDisabled_ShouldReleasePendingMessages()
-        {
-            using var fixture = await Fixture.CreateAsync();
-            await fixture.UpdateSettingsAsync(isEnabled: true);
-            var cita = await fixture.SeedCitaAsync();
-            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
-
-            await fixture.UpdateSettingsAsync(isEnabled: false);
-
-            var message = await fixture.Context.WhatsAppMessageLogs.AsNoTracking().SingleAsync();
-            Assert.Equal(WhatsAppMessageStatuses.SkippedTenantDisabled, message.Status);
-            Assert.Equal(WhatsAppErrorCodes.TenantDisabled, message.ErrorCode);
-            Assert.NotNull(message.ProcessedAtUtc);
-            Assert.Null(message.ProcessingStartedAtUtc);
-        }
-
-        [Fact]
-        public async Task ProcessPendingNotifications_WhenLimitWasLowered_ShouldSendOldestReservationAndSkipTheRest()
-        {
-            using var fixture = await Fixture.CreateAsync();
-            await fixture.UpdateSettingsAsync(isEnabled: true, dailyLimit: 2);
-            var firstCita = await fixture.SeedCitaAsync();
-            var secondCita = await fixture.SeedCitaAsync();
-            await fixture.Notifications.QueueAppointmentConfirmationAsync(firstCita.Id);
-            await fixture.Notifications.QueueAppointmentConfirmationAsync(secondCita.Id);
-
-            await fixture.UpdateSettingsAsync(isEnabled: true, dailyLimit: 1);
-            await fixture.Notifications.ProcessPendingNotificationsAsync();
-
-            var messages = await fixture.Context.WhatsAppMessageLogs.OrderBy(message => message.Id).ToListAsync();
             Assert.Equal(WhatsAppMessageStatuses.Sent, messages[0].Status);
             Assert.Equal(WhatsAppMessageStatuses.SkippedDailyLimitExceeded, messages[1].Status);
             Assert.Equal(1, fixture.MetaClient.SendCount);
+            Assert.Equal(1, await fixture.Settings.GetTodayUsageAsync(fixture.TenantId));
         }
 
         [Fact]
-        public async Task ProcessPendingNotifications_WhenClientRevokesConsentBeforeSend_ShouldSkipWithoutCallingMeta()
+        public async Task ProcessPendingNotifications_WhenMetaAcceptsMessage_ShouldConsumeDailyAndMonthlyUsage()
         {
             using var fixture = await Fixture.CreateAsync();
-            await fixture.UpdateSettingsAsync(isEnabled: true);
-            var cliente = await fixture.SeedClienteAsync("Cliente pendiente", "84445555", aceptaMensajesWhatsApp: true);
-            var cita = await fixture.SeedCitaAsync(clienteId: cliente.Id, whatsAppConsentAtCreation: true);
+            var cita = await fixture.SeedCitaAsync();
 
             await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
-
-            cliente.AceptaMensajesWhatsApp = false;
-            await fixture.Context.SaveChangesAsync();
-
             await fixture.Notifications.ProcessPendingNotificationsAsync();
 
-            var message = await fixture.Context.WhatsAppMessageLogs.AsNoTracking().SingleAsync();
-            Assert.Equal(WhatsAppMessageStatuses.SkippedConsentMissing, message.Status);
-            Assert.Equal(WhatsAppErrorCodes.ConsentMissing, message.ErrorCode);
-            Assert.Equal(0, fixture.MetaClient.SendCount);
+            var addon = await fixture.Context.TenantSubscriptionAddons.SingleAsync();
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            var monthlyUsage = await fixture.SubscriptionService.GetWhatsAppUsageInCurrentPeriodAsync(
+                fixture.TenantId,
+                addon.FechaInicio,
+                addon.FechaFin);
+
+            Assert.Equal(WhatsAppMessageStatuses.Sent, message.Status);
+            Assert.Equal(1, await fixture.Settings.GetTodayUsageAsync(fixture.TenantId));
+            Assert.Equal(1, monthlyUsage);
         }
 
         [Fact]
-        public async Task ProcessPendingNotifications_WhenMetaReturnsAuthenticationError_ShouldFailImmediately()
+        public async Task ProcessPendingNotifications_WhenMetaRejectsMessage_ShouldNotConsumeBalance()
         {
             using var fixture = await Fixture.CreateAsync();
-            await fixture.UpdateSettingsAsync(isEnabled: true);
             var cita = await fixture.SeedCitaAsync();
+
             await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
             fixture.MetaClient.NextSendResult = MetaWhatsAppSendResult.Failed(
                 "190",
@@ -271,36 +233,60 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             await fixture.Notifications.ProcessPendingNotificationsAsync();
 
-            var message = await fixture.Context.WhatsAppMessageLogs.AsNoTracking().SingleAsync();
+            var addon = await fixture.Context.TenantSubscriptionAddons.SingleAsync();
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            var monthlyUsage = await fixture.SubscriptionService.GetWhatsAppUsageInCurrentPeriodAsync(
+                fixture.TenantId,
+                addon.FechaInicio,
+                addon.FechaFin);
+
             Assert.Equal(WhatsAppMessageStatuses.Failed, message.Status);
-            Assert.Equal("190", message.ErrorCode);
-            Assert.Contains("OAuthException", message.ErrorMessage);
-            Assert.NotNull(message.FailedAtUtc);
-            Assert.NotNull(message.ProcessedAtUtc);
-            Assert.Null(message.NextAttemptAtUtc);
+            Assert.Equal(0, await fixture.Settings.GetTodayUsageAsync(fixture.TenantId));
+            Assert.Equal(0, monthlyUsage);
         }
 
         [Fact]
-        public async Task ProcessPendingNotifications_WhenMetaReturnsTransientError_ShouldRetryWithoutErrorFieldsOnPending()
+        public async Task QueueConfirmation_DoubleSubmitForSameAppointment_ShouldNotDuplicateConsumption()
         {
             using var fixture = await Fixture.CreateAsync();
-            await fixture.UpdateSettingsAsync(isEnabled: true);
             var cita = await fixture.SeedCitaAsync();
-            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
-            fixture.MetaClient.NextSendResult = MetaWhatsAppSendResult.Failed(
-                "TIMEOUT",
-                "Timeout enviando mensaje a Meta WhatsApp.",
-                shouldRetry: true);
 
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
             await fixture.Notifications.ProcessPendingNotificationsAsync();
 
-            var message = await fixture.Context.WhatsAppMessageLogs.AsNoTracking().SingleAsync();
-            Assert.Equal(WhatsAppMessageStatuses.Pending, message.Status);
-            Assert.Null(message.ErrorCode);
-            Assert.Null(message.ErrorMessage);
-            Assert.Null(message.FailedAtUtc);
-            Assert.Null(message.ProcessedAtUtc);
-            Assert.NotNull(message.NextAttemptAtUtc);
+            var messages = await fixture.Context.WhatsAppMessageLogs.ToListAsync();
+            var addon = await fixture.Context.TenantSubscriptionAddons.SingleAsync();
+            var monthlyUsage = await fixture.SubscriptionService.GetWhatsAppUsageInCurrentPeriodAsync(
+                fixture.TenantId,
+                addon.FechaInicio,
+                addon.FechaFin);
+
+            Assert.Single(messages);
+            Assert.Equal(1, await fixture.Settings.GetTodayUsageAsync(fixture.TenantId));
+            Assert.Equal(1, monthlyUsage);
+        }
+
+        [Fact]
+        public async Task QueueReminder_DoubleExecutionForSameAppointment_ShouldNotDuplicateConsumption()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 26, 13, 0, 0));
+
+            await fixture.Notifications.QueueAppointmentReminderAsync(cita.Id);
+            await fixture.Notifications.QueueAppointmentReminderAsync(cita.Id);
+            await fixture.Notifications.ProcessPendingNotificationsAsync();
+
+            var messages = await fixture.Context.WhatsAppMessageLogs.ToListAsync();
+            var addon = await fixture.Context.TenantSubscriptionAddons.SingleAsync();
+            var monthlyUsage = await fixture.SubscriptionService.GetWhatsAppUsageInCurrentPeriodAsync(
+                fixture.TenantId,
+                addon.FechaInicio,
+                addon.FechaFin);
+
+            Assert.Single(messages);
+            Assert.Equal(1, await fixture.Settings.GetTodayUsageAsync(fixture.TenantId));
+            Assert.Equal(1, monthlyUsage);
         }
 
         private sealed class Fixture : IDisposable
@@ -313,6 +299,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 TestTenantProvider tenantProvider,
                 ProyectoIdentity.Datos.ApplicationDbContext context,
                 Microsoft.Data.Sqlite.SqliteConnection connection,
+                SuscripcionService subscriptionService,
                 TenantWhatsAppSettingsService settings,
                 FakeMetaWhatsAppClient metaClient,
                 CalendarWhatsAppNotificationService notifications,
@@ -322,20 +309,31 @@ namespace LuxuryApp.Tests.TenantIsolation
                 TenantProvider = tenantProvider;
                 Context = context;
                 _connection = connection;
+                SubscriptionService = subscriptionService;
                 Settings = settings;
                 MetaClient = metaClient;
                 Notifications = notifications;
                 _serviceProvider = serviceProvider;
             }
 
+            public static DateTime FixedNowLocal => new(2026, 5, 26, 10, 30, 0);
+
+            public static DateTime FixedNowUtc =>
+                new DateTimeOffset(FixedNowLocal, TimeSpan.FromHours(-6)).UtcDateTime;
+
             public Guid TenantId { get; }
             public TestTenantProvider TenantProvider { get; }
             public ProyectoIdentity.Datos.ApplicationDbContext Context { get; }
+            public SuscripcionService SubscriptionService { get; }
             public TenantWhatsAppSettingsService Settings { get; }
             public FakeMetaWhatsAppClient MetaClient { get; }
             public CalendarWhatsAppNotificationService Notifications { get; }
 
-            public static async Task<Fixture> CreateAsync()
+            public static async Task<Fixture> CreateAsync(
+                bool seedActiveAddon = true,
+                bool seedActiveBaseSubscription = true,
+                int addonMonthlyLimit = 400,
+                DateTime? addonEndsUtc = null)
             {
                 var tenantId = Guid.NewGuid();
                 var tenantProvider = new TestTenantProvider { TenantId = tenantId };
@@ -343,11 +341,12 @@ namespace LuxuryApp.Tests.TenantIsolation
                 var options = new StaticOptionsMonitor<MetaWhatsAppOptions>(new MetaWhatsAppOptions { Enabled = true });
                 var cache = new MemoryCache(new MemoryCacheOptions());
                 var accessCache = new TenantCommercialAccessCache(cache);
+                var businessDateTimeProvider = new FixedBusinessDateTimeProvider(FixedNowLocal);
                 var subscriptionService = new SuscripcionService(
                     context,
                     cache,
                     accessCache,
-                    new FixedBusinessDateTimeProvider(),
+                    businessDateTimeProvider,
                     Options.Create(new TilopayRepeatOptions()),
                     NullLogger<SuscripcionService>.Instance);
                 var settings = new TenantWhatsAppSettingsService(
@@ -355,6 +354,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                     tenantProvider,
                     options,
                     subscriptionService,
+                    businessDateTimeProvider,
                     NullLogger<TenantWhatsAppSettingsService>.Instance);
                 var serviceProvider = new ServiceCollection().BuildServiceProvider();
                 var tenantExecution = new TenantExecutionService(
@@ -365,48 +365,97 @@ namespace LuxuryApp.Tests.TenantIsolation
                     context,
                     metaClient,
                     options,
-                    new FixedBusinessDateTimeProvider(),
+                    businessDateTimeProvider,
                     settings,
                     tenantProvider,
                     tenantExecution,
                     NullLogger<CalendarWhatsAppNotificationService>.Instance);
 
                 context.Tenants.Add(new Tenant { Id = tenantId, Nombre = "Tenant WhatsApp" });
-                var addOnPlanId = Guid.NewGuid();
-                context.Planes.Add(new Plan
+
+                if (seedActiveBaseSubscription)
                 {
-                    Id = addOnPlanId,
-                    Codigo = PlanCodes.WhatsApp400,
-                    Nombre = "WhatsApp 400",
-                    Moneda = "CRC",
-                    PrecioMensual = 6000m,
-                    LimiteMensajesMensual = 400,
-                    Activo = true
-                });
-                context.TenantSubscriptionAddons.Add(new TenantSubscriptionAddon
+                    var basePlanId = Guid.NewGuid();
+                    context.Planes.Add(new Plan
+                    {
+                        Id = basePlanId,
+                        Codigo = PlanCodes.Basic,
+                        Nombre = "Basico",
+                        Moneda = "CRC",
+                        PrecioMensual = 8000m,
+                        MaxFuncionarios = 1,
+                        Activo = true
+                    });
+
+                    context.Suscripciones.Add(new Suscripcion
+                    {
+                        Id = Guid.NewGuid(),
+                        TenantId = tenantId,
+                        PlanId = basePlanId,
+                        CodigoPlan = PlanCodes.Basic,
+                        Estado = EstadoSuscripcion.Activa,
+                        Proveedor = PaymentProviderType.Tilopay,
+                        FechaInicio = FixedNowUtc.AddDays(-3),
+                        FechaFin = FixedNowUtc.AddDays(27),
+                        FechaProximoCobroUtc = FixedNowUtc.AddDays(27),
+                        FechaUltimaActualizacionUtc = FixedNowUtc
+                    });
+                }
+
+                if (seedActiveAddon)
                 {
-                    Id = Guid.NewGuid(),
-                    TenantId = tenantId,
-                    PlanId = addOnPlanId,
-                    AddonCode = PlanCodes.WhatsApp400,
-                    Estado = EstadoSuscripcion.Activa,
-                    MonthlyMessageLimit = 400,
-                    FechaInicio = DateTime.UtcNow.AddDays(-1),
-                    FechaFin = DateTime.UtcNow.AddDays(29),
-                    CreatedAtUtc = DateTime.UtcNow,
-                    UpdatedAtUtc = DateTime.UtcNow
-                });
+                    var addOnPlanId = Guid.NewGuid();
+                    context.Planes.Add(new Plan
+                    {
+                        Id = addOnPlanId,
+                        Codigo = PlanCodes.WhatsApp400,
+                        Nombre = "WhatsApp 400",
+                        Moneda = "CRC",
+                        PrecioMensual = 6000m,
+                        LimiteMensajesMensual = addonMonthlyLimit,
+                        Activo = true
+                    });
+                    context.TenantSubscriptionAddons.Add(new TenantSubscriptionAddon
+                    {
+                        Id = Guid.NewGuid(),
+                        TenantId = tenantId,
+                        PlanId = addOnPlanId,
+                        AddonCode = PlanCodes.WhatsApp400,
+                        Estado = EstadoSuscripcion.Activa,
+                        MonthlyMessageLimit = addonMonthlyLimit,
+                        FechaInicio = FixedNowUtc.AddDays(-1),
+                        FechaFin = addonEndsUtc ?? FixedNowUtc.AddDays(29),
+                        CreatedAtUtc = FixedNowUtc,
+                        UpdatedAtUtc = FixedNowUtc
+                    });
+                }
+
                 await context.SaveChangesAsync();
 
-                return new Fixture(tenantId, tenantProvider, context, connection, settings, metaClient, notifications, serviceProvider);
+                return new Fixture(
+                    tenantId,
+                    tenantProvider,
+                    context,
+                    connection,
+                    subscriptionService,
+                    settings,
+                    metaClient,
+                    notifications,
+                    serviceProvider);
             }
 
-            public Task UpdateSettingsAsync(bool isEnabled, int dailyLimit = TenantWhatsAppSettings.DefaultDailyMessageLimit) =>
+            public Task UpdateSettingsAsync(
+                bool isEnabled,
+                int dailyLimit = TenantWhatsAppSettings.DefaultDailyMessageLimit,
+                bool sendConfirmation = true,
+                bool sendReminder = true) =>
                 Settings.UpdateSettingsAsync(
                     TenantId,
                     new TenantWhatsAppSettingsUpdateDto
                     {
                         IsEnabled = isEnabled,
+                        SendConfirmationOnCreate = sendConfirmation,
+                        SendReminderThreeHoursBefore = sendReminder,
                         DailyMessageLimit = dailyLimit
                     },
                     "platform-user");
