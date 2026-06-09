@@ -557,12 +557,20 @@ namespace LuxuryApp.Tests.TenantIsolation
                 Options.Create(new TilopayRepeatOptions()),
                 NullLogger<SuscripcionService>.Instance);
 
+            var commercialAccessResolver = new TenantCommercialAccessResolver(
+                context,
+                cache,
+                accessCache,
+                subscriptionService,
+                businessDateTimeProvider);
+
             return new TenantWhatsAppSettingsService(
                 context,
                 tenantProvider,
                 new StaticOptionsMonitor<MetaWhatsAppOptions>(new MetaWhatsAppOptions { Enabled = true }),
                 subscriptionService,
                 businessDateTimeProvider,
+                commercialAccessResolver,
                 NullLogger<TenantWhatsAppSettingsService>.Instance);
         }
 
@@ -679,6 +687,251 @@ namespace LuxuryApp.Tests.TenantIsolation
                 UpdatedAtUtc = nowUtc
             });
 
+            await context.SaveChangesAsync();
+        }
+
+        // ── Nuevos tests: exención comercial y WhatsApp ─────────────────────────────
+
+        [Fact]
+        public async Task CanSendNotificationAsync_ExemptTenantWithActiveForcedPlan_ShouldAllowWithoutPaidSubscription()
+        {
+            // Regresión del bug: tenant exento con plan forzado Business debe poder enviar
+            // WhatsApp aunque no tenga suscripción pagada activa.
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedExemptTenantWithForcedPlanAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId);
+
+            var decision = await service.CanSendNotificationAsync(tenantId, WhatsAppNotificationTypes.Confirmation);
+
+            Assert.True(decision.CanSend);
+        }
+
+        [Fact]
+        public async Task CanSendNotificationAsync_ExemptTenantWithoutForcedPlan_ShouldDenyWithNoActiveBaseSubscription()
+        {
+            // Tenant marcado como exento pero sin plan forzado asignado: debe seguir bloqueado.
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedExemptTenantWithoutForcedPlanAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId);
+
+            var decision = await service.CanSendNotificationAsync(tenantId, WhatsAppNotificationTypes.Confirmation);
+
+            Assert.False(decision.CanSend);
+            Assert.Equal(WhatsAppErrorCodes.NoActiveBaseSubscription, decision.ErrorCode);
+        }
+
+        [Fact]
+        public async Task CanSendNotificationAsync_ExemptTenantWithInactiveForcedPlan_ShouldDenyWithNoActiveBaseSubscription()
+        {
+            // Tenant exento cuyo plan forzado fue desactivado: debe quedar bloqueado.
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedExemptTenantWithInactiveForcedPlanAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId);
+
+            var decision = await service.CanSendNotificationAsync(tenantId, WhatsAppNotificationTypes.Confirmation);
+
+            Assert.False(decision.CanSend);
+            Assert.Equal(WhatsAppErrorCodes.NoActiveBaseSubscription, decision.ErrorCode);
+        }
+
+        [Fact]
+        public async Task CanSendNotificationAsync_InactiveTenant_ShouldDenyWithNoActiveBaseSubscription()
+        {
+            // Tenant suspendido/inactivo: bloqueado aunque tenga add-on y saldo.
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedInactiveTenantAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId);
+
+            var decision = await service.CanSendNotificationAsync(tenantId, WhatsAppNotificationTypes.Confirmation);
+
+            Assert.False(decision.CanSend);
+            Assert.Equal(WhatsAppErrorCodes.NoActiveBaseSubscription, decision.ErrorCode);
+        }
+
+        [Fact]
+        public async Task CanSendNotificationAsync_ExemptTenantWithExhaustedMonthlyBalance_ShouldDenyWithMonthlyLimitExceeded()
+        {
+            // Tenant exento con plan forzado activo pero saldo mensual agotado:
+            // el bloqueo debe ser por saldo, NO por base subscription.
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedExemptTenantWithForcedPlanAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId, PlanCodes.WhatsApp400, "WhatsApp 400", 6000m, monthlyLimit: 1);
+
+            context.WhatsAppMessageLogs.Add(CreateLog(
+                tenantId,
+                WhatsAppMessageDirections.Outbound,
+                WhatsAppNotificationTypes.Confirmation,
+                WhatsAppMessageStatuses.Sent));
+            await context.SaveChangesAsync();
+
+            var decision = await service.CanSendNotificationAsync(tenantId, WhatsAppNotificationTypes.Reminder3Hours);
+
+            Assert.False(decision.CanSend);
+            Assert.Equal(WhatsAppErrorCodes.MonthlyLimitExceeded, decision.ErrorCode);
+        }
+
+        [Fact]
+        public async Task CanSendNotificationAsync_ExemptTenantWithExpiredAddon_ShouldDenyWithNoActiveWhatsAppAddon()
+        {
+            // Tenant exento con plan forzado activo pero add-on WhatsApp vencido:
+            // el bloqueo debe ser por add-on, NO por base subscription.
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedExemptTenantWithForcedPlanAsync(context, tenantId);
+            await SeedExpiredAddonAsync(context, tenantId);
+
+            var decision = await service.CanSendNotificationAsync(tenantId, WhatsAppNotificationTypes.Confirmation);
+
+            Assert.False(decision.CanSend);
+            Assert.Equal(WhatsAppErrorCodes.NoActiveWhatsAppAddon, decision.ErrorCode);
+        }
+
+        // ── Helpers de seeding para exención comercial ───────────────────────────
+
+        private static async Task SeedExemptTenantWithForcedPlanAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            Guid tenantId)
+        {
+            var planId = Guid.NewGuid();
+            context.Planes.Add(new Plan
+            {
+                Id = planId,
+                Codigo = PlanCodes.Business,
+                Nombre = "Business",
+                Moneda = "CRC",
+                PrecioMensual = 25000m,
+                MaxFuncionarios = 10,
+                Activo = true
+            });
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = "Tenant Exento Patrocinado",
+                Activo = true,
+                CommercialAccessMode = TenantCommercialAccessMode.Exempt,
+                ForcedPlanId = planId
+            });
+            await context.SaveChangesAsync();
+        }
+
+        private static async Task SeedExemptTenantWithoutForcedPlanAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            Guid tenantId)
+        {
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = "Tenant Exento Sin Plan",
+                Activo = true,
+                CommercialAccessMode = TenantCommercialAccessMode.Exempt,
+                ForcedPlanId = null
+            });
+            await context.SaveChangesAsync();
+        }
+
+        private static async Task SeedExemptTenantWithInactiveForcedPlanAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            Guid tenantId)
+        {
+            var planId = Guid.NewGuid();
+            context.Planes.Add(new Plan
+            {
+                Id = planId,
+                Codigo = PlanCodes.Business,
+                Nombre = "Business Desactivado",
+                Moneda = "CRC",
+                PrecioMensual = 25000m,
+                MaxFuncionarios = 10,
+                Activo = false   // plan desactivado — exención no es válida
+            });
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = "Tenant Exento Plan Inactivo",
+                Activo = true,
+                CommercialAccessMode = TenantCommercialAccessMode.Exempt,
+                ForcedPlanId = planId
+            });
+            await context.SaveChangesAsync();
+        }
+
+        private static async Task SeedInactiveTenantAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            Guid tenantId)
+        {
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = "Tenant Inactivo",
+                Activo = false
+            });
+            await context.SaveChangesAsync();
+        }
+
+        private static async Task SeedExpiredAddonAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            Guid tenantId)
+        {
+            var nowUtc = GetFixedNowUtc();
+            var planId = Guid.NewGuid();
+            context.Planes.Add(new Plan
+            {
+                Id = planId,
+                Codigo = PlanCodes.WhatsApp400,
+                Nombre = "WhatsApp 400",
+                Moneda = "CRC",
+                PrecioMensual = 6000m,
+                LimiteMensajesMensual = 400,
+                Activo = true
+            });
+            context.TenantSubscriptionAddons.Add(new TenantSubscriptionAddon
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                PlanId = planId,
+                AddonCode = PlanCodes.WhatsApp400,
+                Estado = EstadoSuscripcion.Activa,
+                MonthlyMessageLimit = 400,
+                FechaInicio = nowUtc.AddDays(-31),
+                FechaFin = nowUtc.AddDays(-1),   // venció ayer
+                CreatedAtUtc = nowUtc.AddDays(-31),
+                UpdatedAtUtc = nowUtc.AddDays(-1)
+            });
             await context.SaveChangesAsync();
         }
 

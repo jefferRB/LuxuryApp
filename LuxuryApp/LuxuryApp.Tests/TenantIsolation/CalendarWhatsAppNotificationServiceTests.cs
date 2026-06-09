@@ -349,12 +349,19 @@ namespace LuxuryApp.Tests.TenantIsolation
                     businessDateTimeProvider,
                     Options.Create(new TilopayRepeatOptions()),
                     NullLogger<SuscripcionService>.Instance);
+                var commercialAccessResolver = new TenantCommercialAccessResolver(
+                    context,
+                    cache,
+                    accessCache,
+                    subscriptionService,
+                    businessDateTimeProvider);
                 var settings = new TenantWhatsAppSettingsService(
                     context,
                     tenantProvider,
                     options,
                     subscriptionService,
                     businessDateTimeProvider,
+                    commercialAccessResolver,
                     NullLogger<TenantWhatsAppSettingsService>.Instance);
                 var serviceProvider = new ServiceCollection().BuildServiceProvider();
                 var tenantExecution = new TenantExecutionService(

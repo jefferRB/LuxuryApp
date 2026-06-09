@@ -367,6 +367,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             services.AddScoped<ITenantCommercialAccessCache, TenantCommercialAccessCache>();
             services.AddScoped<SuscripcionService>();
             services.Configure<TilopayRepeatOptions>(_ => { });
+            services.AddScoped<ITenantCommercialAccessResolver, TenantCommercialAccessResolver>();
             services.AddScoped<ITenantWhatsAppSettingsService, TenantWhatsAppSettingsService>();
             services.AddSingleton<TenantExecutionService>();
             return services.BuildServiceProvider();

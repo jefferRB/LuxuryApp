@@ -23,6 +23,7 @@ namespace LuxuryApp.Services.WhatsApp
         private readonly IOptionsMonitor<MetaWhatsAppOptions> _options;
         private readonly SuscripcionService _suscripcionService;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
+        private readonly ITenantCommercialAccessResolver _commercialAccessResolver;
         private readonly ILogger<TenantWhatsAppSettingsService> _logger;
 
         public TenantWhatsAppSettingsService(
@@ -31,6 +32,7 @@ namespace LuxuryApp.Services.WhatsApp
             IOptionsMonitor<MetaWhatsAppOptions> options,
             SuscripcionService suscripcionService,
             IBusinessDateTimeProvider businessDateTimeProvider,
+            ITenantCommercialAccessResolver commercialAccessResolver,
             ILogger<TenantWhatsAppSettingsService> logger)
         {
             _context = context;
@@ -38,6 +40,7 @@ namespace LuxuryApp.Services.WhatsApp
             _options = options;
             _suscripcionService = suscripcionService;
             _businessDateTimeProvider = businessDateTimeProvider;
+            _commercialAccessResolver = commercialAccessResolver;
             _logger = logger;
         }
 
@@ -145,12 +148,13 @@ namespace LuxuryApp.Services.WhatsApp
                     settings.DailyMessageLimit);
             }
 
-            var baseSubscription = await GetCurrentBaseSubscriptionAsync(tenantId, cancellationToken);
-            if (baseSubscription is null || !_suscripcionService.CanAccessApp(baseSubscription))
+            var commercialAccess = await _commercialAccessResolver.ResolveAsync(tenantId, cancellationToken: cancellationToken);
+            if (!commercialAccess.CanAccessApp)
             {
                 _logger.LogWarning(
-                    "WhatsApp sin plan base activo. TenantId {TenantId}. NotificationType {NotificationType}.",
+                    "WhatsApp sin plan base valido. TenantId {TenantId}. Razon: {Reason}. NotificationType {NotificationType}.",
                     tenantId,
+                    commercialAccess.Reason,
                     notificationType);
 
                 return TenantWhatsAppSendDecision.Denied(
@@ -158,6 +162,31 @@ namespace LuxuryApp.Services.WhatsApp
                     "Tu cuenta necesita un plan base activo de LuxuryCloud antes de enviar automatizaciones de WhatsApp.",
                     todayUsage,
                     settings.DailyMessageLimit);
+            }
+
+            if (commercialAccess.AccessSource is TenantCommercialAccessSource.TenantExempt or TenantCommercialAccessSource.TenantInternal)
+            {
+                _logger.LogInformation(
+                    "WhatsApp: suscripcion base valida por acceso patrocinado/exento con plan forzado. TenantId {TenantId}. Plan {Plan}. NotificationType {NotificationType}.",
+                    tenantId,
+                    commercialAccess.EffectivePlanName,
+                    notificationType);
+            }
+            else if (commercialAccess.AccessSource == TenantCommercialAccessSource.PromotionalGrant)
+            {
+                _logger.LogInformation(
+                    "WhatsApp: suscripcion base valida por acceso comercial temporal. TenantId {TenantId}. Plan {Plan}. NotificationType {NotificationType}.",
+                    tenantId,
+                    commercialAccess.EffectivePlanName,
+                    notificationType);
+            }
+            else
+            {
+                _logger.LogDebug(
+                    "WhatsApp: suscripcion base valida por suscripcion activa pagada. TenantId {TenantId}. Plan {Plan}. NotificationType {NotificationType}.",
+                    tenantId,
+                    commercialAccess.EffectivePlanName,
+                    notificationType);
             }
 
             var monthlyLimit = addon.MonthlyMessageLimit > 0
@@ -427,17 +456,6 @@ namespace LuxuryApp.Services.WhatsApp
                 ? addon
                 : null;
         }
-
-        private Task<Suscripcion?> GetCurrentBaseSubscriptionAsync(
-            Guid tenantId,
-            CancellationToken cancellationToken) =>
-            _context.Suscripciones
-                .AsNoTracking()
-                .Include(current => current.Plan)
-                .Where(current => current.TenantId == tenantId)
-                .OrderByDescending(current => current.FechaUltimaActualizacionUtc ?? current.FechaInicio)
-                .ThenByDescending(current => current.FechaInicio)
-                .FirstOrDefaultAsync(cancellationToken);
 
         private string NormalizeTimeZoneId(string? configuredTimeZoneId)
         {

@@ -353,13 +353,22 @@ namespace LuxuryApp.Tests.TenantIsolation
             TestTenantProvider tenantProvider,
             SuscripcionService suscripcionService)
         {
+            var cache = new MemoryCache(new MemoryCacheOptions());
+            var accessCache = new TenantCommercialAccessCache(cache);
             var businessDateTimeProvider = new FixedBusinessDateTimeProvider();
+            var commercialAccessResolver = new TenantCommercialAccessResolver(
+                context,
+                cache,
+                accessCache,
+                suscripcionService,
+                businessDateTimeProvider);
             return new TenantWhatsAppSettingsService(
                 context,
                 tenantProvider,
                 new StaticOptionsMonitor<MetaWhatsAppOptions>(new MetaWhatsAppOptions { Enabled = true }),
                 suscripcionService,
                 businessDateTimeProvider,
+                commercialAccessResolver,
                 NullLogger<TenantWhatsAppSettingsService>.Instance);
         }
 
