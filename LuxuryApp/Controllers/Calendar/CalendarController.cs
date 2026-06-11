@@ -27,9 +27,19 @@ namespace LuxuryApp.Controllers.Calendar
 
         public async Task<IActionResult> Index(CancellationToken cancellationToken)
         {
-            ViewData[TenantWhatsAppEnabledViewDataKey] = await _tenantWhatsAppFeatureService
+            var whatsAppEnabled = await _tenantWhatsAppFeatureService
                 .IsWhatsAppEnabledForCurrentTenantAsync(cancellationToken);
-            return View();
+
+            // Se mantiene en ViewData por compatibilidad; la vista usa el modelo fuertemente tipado.
+            ViewData[TenantWhatsAppEnabledViewDataKey] = whatsAppEnabled;
+
+            var stats = await _calendarQueryService.GetHeaderStatsAsync(cancellationToken);
+
+            return View(new CalendarIndexViewModel
+            {
+                TenantWhatsAppEnabled = whatsAppEnabled,
+                Stats = stats
+            });
         }
 
         [HttpPost]

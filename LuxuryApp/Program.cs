@@ -184,6 +184,7 @@ builder.Services.AddHostedService<MetaWhatsAppOptionsLoggingService>();
 builder.Services.AddScoped<ICalendarWhatsAppNotificationService, CalendarWhatsAppNotificationService>();
 builder.Services.AddScoped<ITenantWhatsAppSettingsService, TenantWhatsAppSettingsService>();
 builder.Services.AddScoped<ITenantWhatsAppFeatureService, TenantWhatsAppFeatureService>();
+builder.Services.AddScoped<IWhatsAppInboxService, WhatsAppInboxService>();
 builder.Services.AddScoped<ICalendarCommandService, CalendarCommandService>();
 builder.Services.AddScoped<ICalendarQueryService, CalendarQueryService>();
 builder.Services.AddScoped<ICobroService, CobroService>();

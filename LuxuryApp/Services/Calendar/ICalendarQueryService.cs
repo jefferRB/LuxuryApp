@@ -19,5 +19,7 @@ namespace LuxuryApp.Services.Calendar
             CancellationToken cancellationToken = default);
 
         Task<CalendarAppointmentDetailsResponse?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
+
+        Task<CalendarHeaderStatsResponse> GetHeaderStatsAsync(CancellationToken cancellationToken = default);
     }
 }

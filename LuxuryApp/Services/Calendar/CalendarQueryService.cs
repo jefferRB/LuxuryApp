@@ -286,6 +286,43 @@ namespace LuxuryApp.Services.Calendar
             };
         }
 
+        public async Task<CalendarHeaderStatsResponse> GetHeaderStatsAsync(CancellationToken cancellationToken = default)
+        {
+            // Las consultas quedan automáticamente filtradas por tenant gracias al
+            // global query filter de ITenantEntity en ApplicationDbContext.
+            var today = _businessDateTimeProvider.Today();
+            var tomorrow = today.AddDays(1);
+
+            var citasHoy = await _context.Citas
+                .AsNoTracking()
+                .CountAsync(
+                    c => c.Tipo == "CITA" && c.FechaHoraCita >= today && c.FechaHoraCita < tomorrow,
+                    cancellationToken);
+
+            // Un solo round-trip para los estados de hoy en adelante.
+            var upcomingByEstado = await _context.Citas
+                .AsNoTracking()
+                .Where(c => c.Tipo == "CITA" && c.FechaHoraCita >= today)
+                .GroupBy(c => c.EstadoConfirmacionWhatsApp)
+                .Select(group => new { Estado = group.Key, Count = group.Count() })
+                .ToListAsync(cancellationToken);
+
+            var pendientes = upcomingByEstado
+                .Where(item => item.Estado == WhatsAppConfirmationStates.Pendiente)
+                .Sum(item => item.Count);
+
+            var confirmadas = upcomingByEstado
+                .Where(item => item.Estado == WhatsAppConfirmationStates.Confirmada)
+                .Sum(item => item.Count);
+
+            return new CalendarHeaderStatsResponse
+            {
+                CitasHoy = citasHoy,
+                PendientesConfirmar = pendientes,
+                Confirmadas = confirmadas
+            };
+        }
+
         private static (DateTime StartDay, DateTime EndDay) ResolveDayRange(DateTime date)
         {
             var startDay = date.Date;

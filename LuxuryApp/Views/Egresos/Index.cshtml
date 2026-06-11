@@ -1,224 +1,298 @@
 ﻿@using LuxuryApp.Models.Finanzas
 @model EgresoIndexViewModel
 
-<div class="card border-0 shadow-lg">
-    <div class="card-header bg-dark text-white py-3">
-        <h5 class="m-0">
-            <i class="fas fa-money-bill-wave me-2"></i>Finanzas - Egresos
-        </h5>
+@{
+    ViewData["Title"] = "Egresos";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/finance-modules.css" asp-append-version="true" />
+}
+
+<div class="finance-page-shell">
+
+    <div class="finance-hero">
+        <div class="finance-hero-left">
+            <span class="finance-badge">
+                <i class="bi bi-arrow-down-circle"></i>
+                Gestión de Egresos
+            </span>
+            <h1 class="finance-title">Egresos</h1>
+            <p class="finance-subtitle">Administra tus salidas de dinero y su historial.</p>
+        </div>
+
+        <div class="finance-kpi-grid">
+            <div class="finance-kpi-card">
+                <div class="finance-kpi-icon finance-kpi-icon-violet">
+                    <i class="bi bi-bag-dash"></i>
+                </div>
+                <div>
+                    <span class="finance-kpi-label">Total egresos</span>
+                    <span class="finance-kpi-value finance-kpi-value-violet">
+                        ₡ @Model.TotalEgresos.ToString("N2")
+                    </span>
+                </div>
+            </div>
+
+            <div class="finance-kpi-card">
+                <div class="finance-kpi-icon finance-kpi-icon-cyan">
+                    <i class="bi bi-list-check"></i>
+                </div>
+                <div>
+                    <span class="finance-kpi-label">Registros</span>
+                    <span class="finance-kpi-value finance-kpi-value-cyan">
+                        @Model.CantidadRegistros
+                    </span>
+                </div>
+            </div>
+
+        </div>
     </div>
 
-    <div class="d-flex justify-content-between align-items-center mt-3 mx-3 mb-3">
+    @{
+        var egresoEfectivo = Model.Egresos.Where(e => "Efectivo".Equals(e.MetodoPago, StringComparison.OrdinalIgnoreCase)).Sum(e => e.Monto);
+        var egresoTarjeta  = Model.Egresos.Where(e => "Tarjeta".Equals(e.MetodoPago,  StringComparison.OrdinalIgnoreCase)).Sum(e => e.Monto);
+        var egresoSinpe    = Model.Egresos.Where(e => "Sinpe".Equals(e.MetodoPago,    StringComparison.OrdinalIgnoreCase)).Sum(e => e.Monto);
+    }
+    <div class="finance-secondary-kpis">
+        <span class="finance-secondary-kpi">
+            <span class="finance-secondary-kpi-label">Efectivo:</span>
+            <span class="finance-secondary-kpi-value">₡ @egresoEfectivo.ToString("N2")</span>
+        </span>
+        <span class="finance-secondary-kpi">
+            <span class="finance-secondary-kpi-label">Tarjeta:</span>
+            <span class="finance-secondary-kpi-value">₡ @egresoTarjeta.ToString("N2")</span>
+        </span>
+        <span class="finance-secondary-kpi">
+            <span class="finance-secondary-kpi-label">Sinpe:</span>
+            <span class="finance-secondary-kpi-value">₡ @egresoSinpe.ToString("N2")</span>
+        </span>
+    </div>
 
-        <a asp-action="Create" class="btn btn-dark text-white">
-            <i class="fas fa-plus me-1"></i>Nuevo Egreso
+    <div class="finance-actions">
+        <a asp-action="Create" class="finance-btn-primary">
+            <i class="bi bi-plus-lg"></i> Nuevo Egreso
         </a>
 
-        <div class="d-flex gap-2 align-items-center">
-        <button class="btn btn-outline-primary"
+        <button type="button"
+                class="finance-btn-secondary"
                 data-bs-toggle="modal"
                 data-bs-target="#modalCategorias"
                 onclick="cargarCategorias()">
-            ⚙ Gestionar Categorías
+            <i class="bi bi-gear"></i> Gestionar Categorías
         </button>
 
         <button type="submit"
                 form="formFiltros"
                 formaction="@Url.Action("ExportarExcel")"
-                class="btn btn-success shadow-sm px-4">
-            <i class="fas fa-file-excel me-1"></i> Excel
+                class="finance-btn-excel">
+            <i class="bi bi-file-earmark-excel"></i> Excel
         </button>
-        </div>
-
     </div>
 
+    <form method="get" id="formFiltros" class="finance-filters-panel">
+        <div class="finance-filters-grid">
 
-
-
-    <!-- FILTROS -->
-    <form method="get" id="formFiltros" class="row g-2 px-3 mb-3">
-
-        <!-- Vista tiempo -->
-        <div class="col-md-3">
-            <select asp-for="Filtros.VistaTiempo" class="form-select" id="vistaTiempoSelect">
-                <option value="dia">Hoy</option>
-                <option value="semana">Semana</option>
-                <option value="mes">Mes</option>
-                <option value="anio">Año</option>
-                <option value="fechas">Rango de Fechas</option>
-                <option value="todo">Todo</option>
-            </select>
-
-            <div class="d-flex gap-2 mt-2 d-none" id="rangoFechasContainer">
-                <input asp-for="Filtros.FechaInicio" type="date" class="form-control" />
-                <input asp-for="Filtros.FechaFin" type="date" class="form-control" />
+            <div class="finance-filter-group">
+                <label class="finance-filter-label">
+                    <i class="bi bi-calendar3"></i> Período
+                </label>
+                <select asp-for="Filtros.VistaTiempo"
+                        class="finance-filter-select"
+                        id="vistaTiempoSelect">
+                    <option value="dia">Hoy</option>
+                    <option value="semana">Semana</option>
+                    <option value="mes">Mes</option>
+                    <option value="anio">Año</option>
+                    <option value="fechas">Rango de Fechas</option>
+                    <option value="todo">Todo</option>
+                </select>
+                <div class="finance-date-range d-none" id="rangoFechasContainer">
+                    <input asp-for="Filtros.FechaInicio" type="date" class="finance-filter-input" />
+                    <input asp-for="Filtros.FechaFin"    type="date" class="finance-filter-input" />
+                </div>
             </div>
+
+            <div class="finance-filter-group">
+                <label class="finance-filter-label">
+                    <i class="bi bi-tag"></i> Categoría
+                </label>
+                <select asp-for="Filtros.CategoriaId"
+                        asp-items="Model.Categorias"
+                        class="finance-filter-select">
+                    <option value="">Todas las categorías</option>
+                </select>
+            </div>
+
+            <div class="finance-filter-group">
+                <label class="finance-filter-label">
+                    <i class="bi bi-credit-card"></i> Método de pago
+                </label>
+                <select asp-for="Filtros.MetodoPago"
+                        asp-items="Model.MetodosPago"
+                        class="finance-filter-select">
+                    <option value="">Todos métodos</option>
+                </select>
+            </div>
+
         </div>
-
-        <!-- Categoria -->
-        <div class="col-md-3">
-            <select asp-for="Filtros.CategoriaId"
-                    asp-items="Model.Categorias"
-                    class="form-select">
-                <option value="">Todas las categorías</option>
-            </select>
-        </div>
-
-        <!-- Metodo Pago -->
-        <div class="col-md-3">
-            <select asp-for="Filtros.MetodoPago"
-                    asp-items="Model.MetodosPago"
-                    class="form-select">
-                <option value="">Todos métodos</option>
-            </select>
-        </div>
-
-        
-
-    
     </form>
 
-    <!-- KPIs -->
-    <div class="row mx-3 mb-3">
-
-        <div class="col-md-6">
-            <div class="card border-0 shadow-sm">
-                <div class="card-body text-center">
-                    <h6 class="text-muted">
-                        Total Egresos
-                    </h6>
-                    <h3 class="fw-bold text-danger">
-                        ₡ @Model.TotalEgresos.ToString("N2")
-                    </h3>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-md-6">
-            <div class="card border-0 shadow-sm">
-                <div class="card-body text-center">
-                    <h6 class="text-muted">
-                        Cantidad Registros
-                    </h6>
-                    <h3 class="fw-bold text-primary">
-                        @Model.CantidadRegistros
-                    </h3>
-                </div>
-            </div>
-        </div>
-
-    </div>
-
-    <!-- TABLA -->
-    <div class="card-body p-0">
-        <div class="table-responsive">
-
-            <table class="table table-hover align-middle mb-0">
-
-                <thead class="table-light">
-                    <tr>
-                        <th class="ps-4">Fecha</th>
-                        <th>Categoría</th>
-                        <th>Detalle</th>
-                        <th>Monto</th>
-                        <th>Método Pago</th>
-                        <th class="text-end pe-4">Acciones</th>
-                    </tr>
-                </thead>
-
-                <tbody>
-
-                    @if (Model.Egresos.Any())
-                    {
-                        foreach (var egreso in Model.Egresos)
-                        {
-                            <tr>
-                                <td class="ps-4">
-                                    @egreso.FechaEgreso.ToString("dd/MM/yyyy HH:mm")
-                                </td>
-
-                                <td>
-                                    @egreso.CategoriaNombre
-                                </td>
-
-                                <td>
-                                    @egreso.Detalle
-                                </td>
-
-                                <td>
-                                    ₡ @egreso.Monto.ToString("N2")
-                                </td>
-
-                                <td>
-                                    @egreso.MetodoPago
-                                </td>
-
-                                <td class="text-end pe-4">
-                                    <div class="d-inline-flex gap-2">
-                                        <a asp-action="Edit"
-                                           asp-route-id="@egreso.IdEgreso"
-                                           class="btn btn-sm btn-outline-dark">
-                                            <i class="fas fa-edit me-1"></i>Editar
-                                        </a>
-
-                                        <form asp-action="Delete"
-                                              asp-route-id="@egreso.IdEgreso"
-                                              method="post"
-                                              onsubmit="return confirm('¿Eliminar este egreso? Esta accion actualizara los KPIs y dashboards.');">
-                                            @Html.AntiForgeryToken()
-                                            <button type="submit" class="btn btn-sm btn-outline-danger">
-                                                <i class="fas fa-trash me-1"></i>Eliminar
-                                            </button>
-                                        </form>
-                                    </div>
-                                </td>
-                            </tr>
-                        }
-                    }
-                    else
+    <div class="finance-table-desktop">
+        <table class="finance-table">
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Categoría</th>
+                    <th>Detalle</th>
+                    <th>Monto</th>
+                    <th>Método Pago</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (Model.Egresos.Any())
+                {
+                    foreach (var egreso in Model.Egresos)
                     {
                         <tr>
-                            <td colspan="6" class="text-center py-4 text-muted">
-                                No hay egresos registrados
+                            <td>@egreso.FechaEgreso.ToString("dd/MM/yyyy HH:mm")</td>
+
+                            <td>
+                                <span class="finance-method-badge">@egreso.CategoriaNombre</span>
+                            </td>
+
+                            <td>@egreso.Detalle</td>
+
+                            <td class="finance-monto-expense">₡ @egreso.Monto.ToString("N2")</td>
+
+                            <td><span class="finance-method-badge">@egreso.MetodoPago</span></td>
+
+                            <td>
+                                <div class="finance-actions-cell">
+                                    <a asp-action="Edit"
+                                       asp-route-id="@egreso.IdEgreso"
+                                       class="finance-btn-row-edit">
+                                        <i class="bi bi-pencil"></i> Editar
+                                    </a>
+
+                                    <form asp-action="Delete"
+                                          asp-route-id="@egreso.IdEgreso"
+                                          method="post"
+                                          onsubmit="return confirm('¿Eliminar este egreso? Esta accion actualizara los KPIs y dashboards.');">
+                                        @Html.AntiForgeryToken()
+                                        <button type="submit" class="finance-btn-row-delete">
+                                            <i class="bi bi-trash"></i> Eliminar
+                                        </button>
+                                    </form>
+                                </div>
                             </td>
                         </tr>
                     }
-
-                </tbody>
-
-            </table>
-
-        </div>
+                }
+                else
+                {
+                    <tr>
+                        <td colspan="6">
+                            <div class="finance-empty-state">
+                                <div class="finance-empty-icon">
+                                    <i class="bi bi-cash-stack"></i>
+                                </div>
+                                <p class="finance-empty-title">No hay egresos registrados</p>
+                                <p class="finance-empty-subtitle">Aún no se han registrado egresos en el rango seleccionado.</p>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
     </div>
+
+    <div class="finance-mobile-list">
+        @if (Model.Egresos.Any())
+        {
+            foreach (var egreso in Model.Egresos)
+            {
+                <div class="finance-mobile-card">
+                    <div class="finance-mobile-card-header">
+                        <span class="finance-mobile-card-date">
+                            <i class="bi bi-calendar3"></i>
+                            @egreso.FechaEgreso.ToString("dd/MM/yyyy HH:mm")
+                        </span>
+                        <span class="finance-mobile-card-monto finance-mobile-card-monto-expense">
+                            ₡ @egreso.Monto.ToString("N2")
+                        </span>
+                    </div>
+
+                    <div class="finance-mobile-card-body">
+                        <div class="finance-mobile-card-name">@egreso.CategoriaNombre</div>
+
+                        <div class="finance-mobile-card-row">
+                            <span class="finance-mobile-card-row-label">Detalle</span>
+                            <span class="finance-mobile-card-row-value">@egreso.Detalle</span>
+                        </div>
+
+                        <div class="finance-mobile-card-row">
+                            <span class="finance-mobile-card-row-label">Método</span>
+                            <span class="finance-mobile-card-row-value">
+                                <span class="finance-method-badge">@egreso.MetodoPago</span>
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="finance-mobile-card-footer">
+                        <a asp-action="Edit"
+                           asp-route-id="@egreso.IdEgreso"
+                           class="finance-btn-row-edit">
+                            <i class="bi bi-pencil"></i> Editar
+                        </a>
+
+                        <form asp-action="Delete"
+                              asp-route-id="@egreso.IdEgreso"
+                              method="post"
+                              onsubmit="return confirm('¿Eliminar este egreso? Esta accion actualizara los KPIs y dashboards.');">
+                            @Html.AntiForgeryToken()
+                            <button type="submit" class="finance-btn-row-delete">
+                                <i class="bi bi-trash"></i> Eliminar
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            }
+        }
+        else
+        {
+            <div class="finance-empty-state">
+                <div class="finance-empty-icon">
+                    <i class="bi bi-cash-stack"></i>
+                </div>
+                <p class="finance-empty-title">No hay egresos registrados</p>
+                <p class="finance-empty-subtitle">Aún no se han registrado egresos en el rango seleccionado.</p>
+            </div>
+        }
+    </div>
+
 </div>
 
-<!-- MODAL CATEGORIAS -->
 <div class="modal fade" id="modalCategorias" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
-
             <div class="modal-header bg-dark text-white">
                 <h5 class="modal-title">Gestión de Categorías</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-
             <div class="modal-body" id="contenedorCategorias">
                 Cargando categorías...
             </div>
-
         </div>
     </div>
 </div>
 
 @section Scripts {
-
     <script>
-
         function toggleRangoFechas() {
-
-            const select = document.getElementById("vistaTiempoSelect");
-            const container = document.getElementById("rangoFechasContainer");
-
+            var select = document.getElementById("vistaTiempoSelect");
+            var container = document.getElementById("rangoFechasContainer");
             if (select.value === "fechas") {
                 container.classList.remove("d-none");
             } else {
@@ -231,12 +305,11 @@
         }
 
         document.addEventListener("DOMContentLoaded", function () {
-
-            const vistaTiempo = document.getElementById("vistaTiempoSelect");
-            const categoria = document.querySelector("[name='Filtros.CategoriaId']");
-            const metodo = document.querySelector("[name='Filtros.MetodoPago']");
-            const fechaInicio = document.querySelector("[name='Filtros.FechaInicio']");
-            const fechaFin = document.querySelector("[name='Filtros.FechaFin']");
+            var vistaTiempo = document.getElementById("vistaTiempoSelect");
+            var categoria   = document.querySelector("[name='Filtros.CategoriaId']");
+            var metodo      = document.querySelector("[name='Filtros.MetodoPago']");
+            var fechaInicio = document.querySelector("[name='Filtros.FechaInicio']");
+            var fechaFin    = document.querySelector("[name='Filtros.FechaFin']");
 
             toggleRangoFechas();
 
@@ -245,14 +318,10 @@
                 enviarFiltros();
             });
 
-            categoria.addEventListener("change", enviarFiltros);
-            metodo.addEventListener("change", enviarFiltros);
-
+            categoria.addEventListener("change",   enviarFiltros);
+            metodo.addEventListener("change",      enviarFiltros);
             fechaInicio.addEventListener("change", enviarFiltros);
-            fechaFin.addEventListener("change", enviarFiltros);
-
+            fechaFin.addEventListener("change",    enviarFiltros);
         });
-
     </script>
-
 }

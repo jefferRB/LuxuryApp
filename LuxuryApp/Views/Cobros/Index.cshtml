@@ -1,428 +1,402 @@
 ﻿@using LuxuryApp.Models.Finanzas
 @model CobroIndexViewModel
 
-<div class="card border-0 shadow-lg">
-    <div class="card-header bg-dark text-white py-3">
-        <h5 class="m-0">
-            <i class="fas fa-coins me-2"></i>Finanzas - Cobros
-        </h5>
+@{
+    ViewData["Title"] = "Ingresos";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/finance-modules.css" asp-append-version="true" />
+}
+
+<div class="finance-page-shell">
+
+    @* HERO *@
+    <div class="finance-hero">
+        <div class="finance-hero-left">
+            <span class="finance-badge">
+                <i class="bi bi-cash-coin"></i>
+                Gestión de Ingresos
+            </span>
+            <h1 class="finance-title">Ingresos</h1>
+            <p class="finance-subtitle">Administra tus cobros, servicios y productos.</p>
+        </div>
+
+        <div class="finance-kpi-grid">
+            <div class="finance-kpi-card">
+                <div class="finance-kpi-icon finance-kpi-icon-green">
+                    <i class="bi bi-currency-dollar"></i>
+                </div>
+                <div>
+                    <span class="finance-kpi-label">Total generado</span>
+                    <span class="finance-kpi-value finance-kpi-value-green">
+                        ₡ @Model.TotalGenerado.ToString("N2")
+                    </span>
+                </div>
+            </div>
+
+            <div class="finance-kpi-card">
+                <div class="finance-kpi-icon finance-kpi-icon-blue">
+                    <i class="bi bi-calculator"></i>
+                </div>
+                <div>
+                    <span class="finance-kpi-label">Sin impuestos</span>
+                    <span class="finance-kpi-value finance-kpi-value-blue">
+                        ₡ @Model.TotalSinImpuestos.ToString("N2")
+                    </span>
+                </div>
+            </div>
+
+            <div class="finance-kpi-card">
+                <div class="finance-kpi-icon finance-kpi-icon-orange">
+                    <i class="bi bi-percent"></i>
+                </div>
+                <div>
+                    <span class="finance-kpi-label">Impuestos</span>
+                    <span class="finance-kpi-value finance-kpi-value-orange">
+                        ₡ @Model.TotalImpuestos.ToString("N2")
+                    </span>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <div class="d-flex justify-content-between align-items-center mt-3 mx-3 mb-3">
+    <div class="finance-secondary-kpis">
+        <span class="finance-secondary-kpi">
+            <span class="finance-secondary-kpi-label">Servicios:</span>
+            <span class="finance-secondary-kpi-value">₡ @Model.TotalServicios.ToString("N2")</span>
+        </span>
+        <span class="finance-secondary-kpi">
+            <span class="finance-secondary-kpi-label">Productos:</span>
+            <span class="finance-secondary-kpi-value">₡ @Model.TotalProductos.ToString("N2")</span>
+        </span>
+        <span class="finance-secondary-kpi">
+            <span class="finance-secondary-kpi-label">Funcionarios:</span>
+            <span class="finance-secondary-kpi-value">₡ @Model.PagoColaboradores.ToString("N2")</span>
+        </span>
+        <span class="finance-secondary-kpi">
+            <span class="finance-secondary-kpi-label">Negocio:</span>
+            <span class="finance-secondary-kpi-value">₡ @Model.GananciaNegocio.ToString("N2")</span>
+        </span>
+        <span class="finance-secondary-kpi">
+            <span class="finance-secondary-kpi-label">Efectivo:</span>
+            <span class="finance-secondary-kpi-value">₡ @Model.GananciaEfectivo.ToString("N2")</span>
+        </span>
+        <span class="finance-secondary-kpi">
+            <span class="finance-secondary-kpi-label">Tarjeta:</span>
+            <span class="finance-secondary-kpi-value">₡ @Model.GananciaTarjeta.ToString("N2")</span>
+        </span>
+        <span class="finance-secondary-kpi">
+            <span class="finance-secondary-kpi-label">Sinpe:</span>
+            <span class="finance-secondary-kpi-value">₡ @Model.GananciaSinpe.ToString("N2")</span>
+        </span>
+    </div>
 
-        <a asp-action="Create" class="btn btn-dark text-white">
-            <i class="fas fa-plus me-1"></i>Nuevo Cobro
+    <div class="finance-actions">
+        <a asp-action="Create" class="finance-btn-primary">
+            <i class="bi bi-plus-lg"></i> Nuevo Cobro
         </a>
 
-        <div class="d-flex gap-2 align-items-center">
-            <button class="btn btn-outline-primary"
-                    data-bs-toggle="modal"
-                    data-bs-target="#modalServicios"
-                    onclick="cargarServicios()">
-                ⚙ Gestionar Servicios
-            </button>
+        <button type="button"
+                class="finance-btn-secondary"
+                data-bs-toggle="modal"
+                data-bs-target="#modalServicios"
+                onclick="cargarServicios()">
+            <i class="bi bi-gear"></i> Gestionar Servicios
+        </button>
 
-            <button type="submit"
-                    form="formFiltros"
-                    formaction="@Url.Action("ExportarExcel")"
-                    class="btn btn-success shadow-sm px-4">
-                <i class="fas fa-file-excel me-1"></i> Excel
-            </button>
-        </div>
-
+        <button type="submit"
+                form="formFiltros"
+                formaction="@Url.Action("ExportarExcel")"
+                class="finance-btn-excel">
+            <i class="bi bi-file-earmark-excel"></i> Excel
+        </button>
     </div>
 
-    <form method="get" id="formFiltros" class="row g-2 px-3 mb-3">
+    <form method="get" id="formFiltros" class="finance-filters-panel">
+        <div class="finance-filters-grid">
 
-        <div class="col-md-3">
-            <select asp-for="Filtros.VistaTiempo" class="form-select" id="vistaTiempoSelect">
-
-                <option value="dia">Hoy</option>
-                <option value="semana">Semana</option>
-                <option value="mes">Mes</option>
-                <option value="anio">Año</option>
-                <option value="fechas">Rango de Fechas</option>
-                <option value="todo">Todo</option>
-
-            </select>
-
-            <div class="d-flex gap-2 mt-2" id="rangoFechasContainer" style="display:none;">
-
-                <input asp-for="Filtros.FechaInicio"
-                       type="date"
-                       class="form-control" />
-
-                <input asp-for="Filtros.FechaFin"
-                       type="date"
-                       class="form-control" />
-
-            </div>
-        </div>
-
-        <div class="col-md-3">
-            <select asp-for="Filtros.FuncionarioId"
-                    asp-items="Model.Funcionarios"
-                    class="form-select">
-                <option value="">Todos los Funcionarios</option>
-            </select>
-        </div>
-
-        <div class="col-md-3 ">
-            <select asp-for="Filtros.MetodoPago"
-                    asp-items="Model.MetodosPago"
-                    class="form-select">
-                <option value="">Todos métodos</option>
-            </select>
-        </div>
-
-        <div class="col-md-3 d-flex align-items-center justify-content-center gap-3">
-
-
-            <div class="form-check">
-                <input class="form-check-input"
-                       type="checkbox"
-                       asp-for="Filtros.MostrarServicios"
-                       id="chkServicios" />
-
-                <label class="form-check-label" for="chkServicios">
-                    ✂ Servicios
+            <div class="finance-filter-group">
+                <label class="finance-filter-label">
+                    <i class="bi bi-calendar3"></i> Período
                 </label>
+                <select asp-for="Filtros.VistaTiempo"
+                        class="finance-filter-select"
+                        id="vistaTiempoSelect">
+                    <option value="dia">Hoy</option>
+                    <option value="semana">Semana</option>
+                    <option value="mes">Mes</option>
+                    <option value="anio">Año</option>
+                    <option value="fechas">Rango de Fechas</option>
+                    <option value="todo">Todo</option>
+                </select>
+                <div class="finance-date-range d-none" id="rangoFechasContainer">
+                    <input asp-for="Filtros.FechaInicio" type="date" class="finance-filter-input" />
+                    <input asp-for="Filtros.FechaFin"    type="date" class="finance-filter-input" />
+                </div>
             </div>
 
-            <div class="form-check">
-                <input class="form-check-input"
-                       type="checkbox"
-                       asp-for="Filtros.MostrarProductos"
-                       id="chkProductos" />
-
-                <label class="form-check-label" for="chkProductos">
-                    🧴 Productos
+            <div class="finance-filter-group">
+                <label class="finance-filter-label">
+                    <i class="bi bi-person"></i> Funcionario
                 </label>
+                <select asp-for="Filtros.FuncionarioId"
+                        asp-items="Model.Funcionarios"
+                        class="finance-filter-select">
+                    <option value="">Todos los Funcionarios</option>
+                </select>
+            </div>
+
+            <div class="finance-filter-group">
+                <label class="finance-filter-label">
+                    <i class="bi bi-credit-card"></i> Método de pago
+                </label>
+                <select asp-for="Filtros.MetodoPago"
+                        asp-items="Model.MetodosPago"
+                        class="finance-filter-select">
+                    <option value="">Todos métodos</option>
+                </select>
+            </div>
+
+            <div class="finance-filter-group">
+                <label class="finance-filter-label">
+                    <i class="bi bi-funnel"></i> Tipo
+                </label>
+                <div class="finance-checkbox-group">
+                    <label class="finance-checkbox-item">
+                        <input type="checkbox"
+                               asp-for="Filtros.MostrarServicios"
+                               id="chkServicios" />
+                        ✂ Servicios
+                    </label>
+                    <label class="finance-checkbox-item">
+                        <input type="checkbox"
+                               asp-for="Filtros.MostrarProductos"
+                               id="chkProductos" />
+                        🧴 Productos
+                    </label>
+                </div>
             </div>
 
         </div>
-
     </form>
 
-    
-
-    <div class="row mx-3 mb-3 g-3">
-
-        <!-- TOTAL SERVICIOS -->
-        <div class="col">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body text-center">
-                    <h6 class="text-muted">Total en servicios</h6>
-                    <h3 class="fw-bold text-primary">
-                        ₡ @Model.TotalServicios.ToString("N2")
-                    </h3>
-                </div>
-            </div>
-        </div>
-
-        <!-- TOTAL PRODUCTOS -->
-        <div class="col">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body text-center">
-                    <h6 class="text-muted">Total en productos</h6>
-                    <h3 class="fw-bold text-info">
-                        ₡ @Model.TotalProductos.ToString("N2")
-                    </h3>
-                </div>
-            </div>
-        </div>
-
-        <!-- TOTAL GENERADO -->
-        <div class="col">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body text-center">
-                    <h6 class="text-muted">Total generado</h6>
-                    <h3 class="fw-bold text-success">
-                        ₡ @Model.TotalGenerado.ToString("N2")
-                    </h3>
-                </div>
-            </div>
-        </div>
-
-        <!-- SIN IMPUESTOS -->
-        <div class="col">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body text-center">
-                    <h6 class="text-muted">Total sin impuestos</h6>
-                    <h3 class="fw-bold text-dark">
-                        ₡ @Model.TotalSinImpuestos.ToString("N2")
-                    </h3>
-                </div>
-            </div>
-        </div>
-
-        <!-- IMPUESTOS -->
-        <div class="col">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body text-center">
-                    <h6 class="text-muted">Total de impuestos</h6>
-                    <h3 class="fw-bold text-danger">
-                        ₡ @Model.TotalImpuestos.ToString("N2")
-                    </h3>
-                </div>
-            </div>
-        </div>
-
-    </div>
-
-
-    <div class="row mx-3 mb-3 g-3">
-
-        <!-- PAGADO FUNCIONARIOS -->
-        <div class="col">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body text-center">
-                    <h6 class="text-muted">Total de funcionarios</h6>
-                    <h3 class="fw-bold text-primary">
-                        ₡ @Model.PagoColaboradores.ToString("N2")
-                    </h3>
-                </div>
-            </div>
-        </div>
-
-        <!-- GANANCIA NEGOCIO -->
-        <div class="col">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body text-center">
-                    <h6 class="text-muted">Ganancia del negocio</h6>
-                    <h3 class="fw-bold text-info">
-                        ₡ @Model.GananciaNegocio.ToString("N2")
-                    </h3>
-                </div>
-            </div>
-        </div>
-
-        <!-- EFECTIVO -->
-        <div class="col">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body text-center">
-                    <h6 class="text-muted">Monto en efectivo</h6>
-                    <h3 class="fw-bold text-success">
-                        ₡ @Model.GananciaEfectivo.ToString("N2")
-                    </h3>
-                </div>
-            </div>
-        </div>
-
-        <!-- TARJETA -->
-        <div class="col">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body text-center">
-                    <h6 class="text-muted">monto en tarjeta</h6>
-                    <h3 class="fw-bold text-dark">
-                        ₡ @Model.GananciaTarjeta.ToString("N2")
-                    </h3>
-                </div>
-            </div>
-        </div>
-
-        <!-- SINPE -->
-        <div class="col">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body text-center">
-                    <h6 class="text-muted">Monto en sinpe</h6>
-                    <h3 class="fw-bold text-danger">
-                        ₡ @Model.GananciaSinpe.ToString("N2")
-                    </h3>
-                </div>
-            </div>
-        </div>
-
-    </div>
-
-
-    <div class="card-body p-0">
-        <div class="table-responsive">
-
-            <table class="table table-hover align-middle mb-0">
-
-                <thead class="table-light">
-                    <tr>
-                        <th class="ps-4">Fecha</th>
-                        <th>Cliente</th>
-                        <th>Funcionario</th>
-                        <th>Servicio / Producto</th>
-                        <th>Monto</th>
-                        <th>Método Pago</th>
-                        <th class="text-end pe-4">Acciones</th>
-                    </tr>
-                </thead>
-
-                <tbody>
-
-                    @if (Model.Cobros.Any())
-                    {
-                        foreach (var cobro in Model.Cobros)
-                        {
-                            <tr>
-                                <td class="ps-4">
-                                    @cobro.FechaCobro.ToString("dd/MM/yyyy HH:mm")
-                                </td>
-
-                                <td class="fw-semibold">
-                                    @cobro.NombreCliente
-                                </td>
-
-                                <td>
-                                    @cobro.FuncionarioNombre
-                                </td>
-
-                                <td>
-
-                                    @if (cobro.EsServicio)
-                                    {
-                                        <span class="badge bg-primary me-2">Servicio</span>
-                                        <span>@cobro.Detalle</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge bg-warning text-dark me-2">Producto</span>
-                                        <span>@cobro.Detalle</span>
-                                    }
-
-                                </td>
-
-                                <td>
-                                    ₡ @cobro.Monto.ToString("N2")
-                                </td>
-
-                                <td>
-                                    @cobro.MetodoPago
-                                </td>
-
-                                <td class="text-end pe-4">
-                                    <div class="d-inline-flex gap-2">
-                                        <a asp-action="Edit"
-                                           asp-route-id="@cobro.IdCobro"
-                                           class="btn btn-sm btn-outline-dark">
-                                            <i class="fas fa-edit me-1"></i>Editar
-                                        </a>
-
-                                        <form asp-action="Delete"
-                                              asp-route-id="@cobro.IdCobro"
-                                              method="post"
-                                              onsubmit="return confirm('¿Eliminar este cobro? Esta accion actualizara los KPIs y dashboards.');">
-                                            @Html.AntiForgeryToken()
-                                            <button type="submit" class="btn btn-sm btn-outline-danger">
-                                                <i class="fas fa-trash me-1"></i>Eliminar
-                                            </button>
-                                        </form>
-                                    </div>
-                                </td>
-                            </tr>
-                        }
-                    }
-                    else
+    <div class="finance-table-desktop">
+        <table class="finance-table">
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Cliente</th>
+                    <th>Funcionario</th>
+                    <th>Servicio / Producto</th>
+                    <th>Monto</th>
+                    <th>Método Pago</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (Model.Cobros.Any())
+                {
+                    foreach (var cobro in Model.Cobros)
                     {
                         <tr>
-                            <td colspan="7" class="text-center py-4 text-muted">
-                                No hay cobros registrados
+                            <td>@cobro.FechaCobro.ToString("dd/MM/yyyy HH:mm")</td>
+
+                            <td class="fw-semibold">@cobro.NombreCliente</td>
+
+                            <td>@cobro.FuncionarioNombre</td>
+
+                            <td>
+                                @if (cobro.EsServicio)
+                                {
+                                    <span class="badge bg-primary me-1">Servicio</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-warning text-dark me-1">Producto</span>
+                                }
+                                @cobro.Detalle
+                            </td>
+
+                            <td class="finance-monto-income">₡ @cobro.Monto.ToString("N2")</td>
+
+                            <td><span class="finance-method-badge">@cobro.MetodoPago</span></td>
+
+                            <td>
+                                <div class="finance-actions-cell">
+                                    <a asp-action="Edit"
+                                       asp-route-id="@cobro.IdCobro"
+                                       class="finance-btn-row-edit">
+                                        <i class="bi bi-pencil"></i> Editar
+                                    </a>
+
+                                    <form asp-action="Delete"
+                                          asp-route-id="@cobro.IdCobro"
+                                          method="post"
+                                          onsubmit="return confirm('¿Eliminar este cobro? Esta accion actualizara los KPIs y dashboards.');">
+                                        @Html.AntiForgeryToken()
+                                        <button type="submit" class="finance-btn-row-delete">
+                                            <i class="bi bi-trash"></i> Eliminar
+                                        </button>
+                                    </form>
+                                </div>
                             </td>
                         </tr>
                     }
-
-                </tbody>
-
-            </table>
-
-        </div>
+                }
+                else
+                {
+                    <tr>
+                        <td colspan="7">
+                            <div class="finance-empty-state">
+                                <div class="finance-empty-icon">
+                                    <i class="bi bi-wallet2"></i>
+                                </div>
+                                <p class="finance-empty-title">No hay cobros registrados</p>
+                                <p class="finance-empty-subtitle">Aún no se han registrado cobros en el rango seleccionado.</p>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
     </div>
+
+    <div class="finance-mobile-list">
+        @if (Model.Cobros.Any())
+        {
+            foreach (var cobro in Model.Cobros)
+            {
+                <div class="finance-mobile-card">
+                    <div class="finance-mobile-card-header">
+                        <span class="finance-mobile-card-date">
+                            <i class="bi bi-calendar3"></i>
+                            @cobro.FechaCobro.ToString("dd/MM/yyyy HH:mm")
+                        </span>
+                        <span class="finance-mobile-card-monto finance-mobile-card-monto-income">
+                            ₡ @cobro.Monto.ToString("N2")
+                        </span>
+                    </div>
+
+                    <div class="finance-mobile-card-body">
+                        <div class="finance-mobile-card-name">@cobro.NombreCliente</div>
+
+                        <div class="finance-mobile-card-row">
+                            <span class="finance-mobile-card-row-label">Funcionario</span>
+                            <span class="finance-mobile-card-row-value">@cobro.FuncionarioNombre</span>
+                        </div>
+
+                        <div class="finance-mobile-card-row">
+                            <span class="finance-mobile-card-row-label">Detalle</span>
+                            <span class="finance-mobile-card-row-value">
+                                @if (cobro.EsServicio)
+                                {
+                                    <span class="badge bg-primary" style="font-size:.65rem">S</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-warning text-dark" style="font-size:.65rem">P</span>
+                                }
+                                @cobro.Detalle
+                            </span>
+                        </div>
+
+                        <div class="finance-mobile-card-row">
+                            <span class="finance-mobile-card-row-label">Método</span>
+                            <span class="finance-mobile-card-row-value">
+                                <span class="finance-method-badge">@cobro.MetodoPago</span>
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="finance-mobile-card-footer">
+                        <a asp-action="Edit"
+                           asp-route-id="@cobro.IdCobro"
+                           class="finance-btn-row-edit">
+                            <i class="bi bi-pencil"></i> Editar
+                        </a>
+
+                        <form asp-action="Delete"
+                              asp-route-id="@cobro.IdCobro"
+                              method="post"
+                              onsubmit="return confirm('¿Eliminar este cobro? Esta accion actualizara los KPIs y dashboards.');">
+                            @Html.AntiForgeryToken()
+                            <button type="submit" class="finance-btn-row-delete">
+                                <i class="bi bi-trash"></i> Eliminar
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            }
+        }
+        else
+        {
+            <div class="finance-empty-state">
+                <div class="finance-empty-icon">
+                    <i class="bi bi-wallet2"></i>
+                </div>
+                <p class="finance-empty-title">No hay cobros registrados</p>
+                <p class="finance-empty-subtitle">Aún no se han registrado cobros en el rango seleccionado.</p>
+            </div>
+        }
+    </div>
+
 </div>
 
 <div class="modal fade" id="modalServicios" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
-
             <div class="modal-header bg-dark text-white">
                 <h5 class="modal-title">Gestión de Servicios</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-
             <div class="modal-body" id="contenedorServicios">
                 Cargando servicios...
             </div>
-
         </div>
     </div>
 </div>
 
 @section Scripts {
-
     <script>
-
         function toggleRangoFechas() {
-
             const select = document.getElementById("vistaTiempoSelect");
             const container = document.getElementById("rangoFechasContainer");
-
             if (select.value === "fechas") {
                 container.classList.remove("d-none");
-            }
-            else {
+            } else {
                 container.classList.add("d-none");
             }
         }
 
-        // Ejecutar cuando carga la página
         document.addEventListener("DOMContentLoaded", function () {
-
-            const select = document.getElementById("vistaTiempoSelect");
+            const form = document.getElementById("formFiltros");
+            const filtros = form.querySelectorAll("select, input");
 
             toggleRangoFechas();
 
-            select.addEventListener("change", toggleRangoFechas);
-
-        });
-                document.addEventListener("DOMContentLoaded", function () {
-
-            const form = document.getElementById("formFiltros");
-
-            const filtros = form.querySelectorAll("select, input");
-
-            filtros.forEach(filtro => {
-
+            filtros.forEach(function (filtro) {
                 filtro.addEventListener("change", function () {
-
-                    // Si selecciona rango de fechas no enviar todavía
                     if (this.id === "vistaTiempoSelect") {
-
                         toggleRangoFechas();
-
                         if (this.value !== "fechas") {
                             form.submit();
                         }
-
                         return;
                     }
-
                     form.submit();
-
                 });
-
             });
-
         });
-                document.querySelectorAll("#rangoFechasContainer input").forEach(input => {
 
+        document.querySelectorAll("#rangoFechasContainer input").forEach(function (input) {
             input.addEventListener("change", function () {
-
-                const inicio = document.querySelector("[name='Filtros.FechaInicio']").value;
-                const fin = document.querySelector("[name='Filtros.FechaFin']").value;
-
+                var inicio = document.querySelector("[name='Filtros.FechaInicio']").value;
+                var fin = document.querySelector("[name='Filtros.FechaFin']").value;
                 if (inicio && fin) {
                     document.getElementById("formFiltros").submit();
                 }
-
             });
-
         });
-
     </script>
-
 }
-

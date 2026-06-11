@@ -53,10 +53,7 @@
     <div class="container-fluid">
         <a class="navbar-brand private-navbar-brand" asp-controller="@Model.HomeController" asp-action="@Model.HomeAction">
             <span class="private-brand-mark">L</span>
-            <span>
-                <strong>LuxuryApp</strong>
-                <small>Operacion SaaS</small>
-            </span>
+    
         </a>
 
         <button class="navbar-toggler private-navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#privateNavbar" aria-controls="privateNavbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -77,12 +74,7 @@
             </ul>
 
             <div class="private-navbar-meta">
-                @if (!string.IsNullOrWhiteSpace(Model.AccessBadgeText))
-                {
-                    <span class="private-access-chip private-access-chip-@Model.AccessBadgeTone">
-                        @Model.AccessBadgeText
-                    </span>
-                }
+               
 
                 @if (Model.IsAuthenticated)
                 {

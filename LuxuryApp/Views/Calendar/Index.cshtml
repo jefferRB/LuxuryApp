@@ -1,240 +1,218 @@
-﻿@{
-    ViewData["Title"] = "Agenda";
-}
+@using LuxuryApp.Models.Calendar
+@model CalendarIndexViewModel
 
 @{
-    var tenantWhatsAppEnabled = ViewData["TenantWhatsAppEnabled"] as bool? == true;
+    ViewData["Title"] = "Calendario";
+    var tenantWhatsAppEnabled = Model.TenantWhatsAppEnabled;
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/calendar-module.css" asp-append-version="true" />
 }
 
 <div id="calendar-antiforgery" class="d-none">
     @Html.AntiForgeryToken()
 </div>
 
-<div class="container-fluid mt-3">
-    <div class="row">
+<div class="calendar-page-shell">
 
-        <!-- Calendario (75%) -->
-        <div class="col-md-9">
-
-            <!-- FILA 1: controles principales -->
-            <div class="d-flex justify-content-between align-items-center mb-2">
-
-                <div class="btn-group" role="group">
-                    <button id="viewMonthBtn" class="btn btn-dark btn-sm active">
-                        📅 Mensual
-                    </button>
-
-                    <button id="viewDayBtn" class="btn btn-outline-dark btn-sm">
-                        📆 Diario
-                    </button>
-                </div>
-
-                <input type="date"
-                       id="dayPicker"
-                       class="form-control form-control-sm w-auto d-none">
-
-            </div>
-
-
-            <!-- FILA 2: configuración horario -->
-            <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-
-                <label class="small mb-0">Inicio</label>
-                <input type="number"
-                       id="horaInicio"
-                       class="form-control form-control-sm"
-                       style="width:65px"
-                       min="0"
-                       max="23">
-
-                <label class="small mb-0">Fin</label>
-                <input type="number"
-                       id="horaFin"
-                       class="form-control form-control-sm"
-                       style="width:65px"
-                       min="0"
-                       max="23">
-
-                <label class="small mb-0">Intervalo</label>
-                <select id="intervaloCitas"
-                        class="form-select form-select-sm"
-                        style="width:85px">
-
-                    <option value="5">5 min</option>
-                    <option value="10">10 min</option>
-                    <option value="15">15 min</option>
-                    <option value="30">30 min</option>
-
-                </select>
-
-                <button id="aplicarHorario"
-                        class="btn btn-dark btn-sm">
-                    Aplicar
-                </button>
-
-            </div>
-
-
-            <div id="calendar" class="calendar-container">
-                <!-- El calendario se renderiza con JS -->
-            </div>
-
+    @* ── HERO ───────────────────────────────────────────── *@
+    <div class="calendar-hero">
+        <div class="calendar-hero-left">
+            <span class="calendar-badge">
+                <i class="bi bi-calendar-week"></i>
+                Gestión de Calendario
+            </span>
+            <h1 class="calendar-title">Calendario</h1>
+            <p class="calendar-subtitle">Administra tus citas, agenda y seguimiento por WhatsApp.</p>
         </div>
 
-
-
-        <!-- Lista de tareas (25%) -->
-        <div class="col-md-3">
-            <div class="mb-2">
-                <select id="funcionarioFiltro" class="form-select">
-                    <option value="">Todos los funcionarios</option>
-                </select>
-            </div>
-            <div class="d-flex justify-content-between text-white align-items-center mb-2">
-                
-                <button id="toggleTareasBtn"
-                        class="btn btn-dark btn-sm "
-                        onclick="toggleTareas()">
-                    Ocultar
-                </button>
+        <div class="calendar-kpi-grid">
+            <div class="calendar-kpi-card">
+                <div class="calendar-kpi-icon calendar-kpi-icon-violet">
+                    <i class="bi bi-calendar-check"></i>
+                </div>
+                <div class="calendar-kpi-body">
+                    <span class="calendar-kpi-label">Citas hoy</span>
+                    <span class="calendar-kpi-value calendar-kpi-value-violet">@Model.Stats.CitasHoy</span>
+                </div>
             </div>
 
-            <div id="tareasContainer">
-                <ul id="listaTareas" class="list-group">
-                    <!-- Se llena por JS -->
-                </ul>
+            <div class="calendar-kpi-card">
+                <div class="calendar-kpi-icon calendar-kpi-icon-amber">
+                    <i class="bi bi-clock-history"></i>
+                </div>
+                <div class="calendar-kpi-body">
+                    <span class="calendar-kpi-label">Pendientes de confirmar</span>
+                    <span class="calendar-kpi-value calendar-kpi-value-amber">@Model.Stats.PendientesConfirmar</span>
+                    <span class="calendar-kpi-hint text-muted">Requieren acción</span>
+                </div>
             </div>
 
-        <!-------------------- Modals ------------------->
-
-        <!-- MODAL HORAS -->
-        <div class="modal fade" id="dayModal" tabindex="-1">
-            <div class="modal-dialog modal-lg">
-                <div class="modal-content">
-
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="modalTitle"></h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
-
-                    <div class="modal-body">
-                        <div id="hoursContainer" class="list-group">
-                            
-                        </div>
-                    </div>
-
+            <div class="calendar-kpi-card">
+                <div class="calendar-kpi-icon calendar-kpi-icon-green">
+                    <i class="bi bi-check2-circle"></i>
+                </div>
+                <div class="calendar-kpi-body">
+                    <span class="calendar-kpi-label">Confirmadas</span>
+                    <span class="calendar-kpi-value calendar-kpi-value-green">@Model.Stats.Confirmadas</span>
+                    <span class="calendar-kpi-hint text-muted">Próximas citas</span>
                 </div>
             </div>
         </div>
+    </div>
 
-        <!-- MODAL CREAR CITA -->
-        <div class="modal fade" id="createCitaModal" tabindex="-1">
-            <div class="modal-dialog">
-                <div class="modal-content">
+    @* ── WORKSPACE ──────────────────────────────────────── *@
+    <div class="calendar-workspace">
 
-                    <div class="modal-header">
-                        <h5 class="modal-title">Nueva cita</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
+        @* LEFT: controls + calendar grid *@
+        <div class="calendar-panel calendar-panel-left">
 
-                    <div class="modal-body">
-
-                            <div class="form-check mb-3">
-                                <input class="form-check-input" type="checkbox" id="esDescanso">
-                                <label class="form-check-label fw-bold">
-                                    Registrar descanso
-                                </label>
-                            </div>
-
-                            <div class="mb-3">
-                                <label class="form-label">Fecha y hora</label>
-                                <input type="datetime-local"
-                                       id="appointmentDate"
-                                       class="form-control">
-                            </div>
-
-                            <div id="duracionDescansoContainer" class="mb-3 d-none">
-                                <label class="form-label">Duración del descanso (minutos)</label>
-                                <input type="number"
-                                       id="duracionDescanso"
-                                       class="form-control"
-                                       value="30"
-                                       min="5"
-                                       max="180">
-                            </div>
-
-                            <input type="hidden" id="duracionMinutos" value="30" />
-
-                            <div id="camposCita">
-
-                            <div class="mb-2">
-                                <label class="form-label">Nombre del cliente</label>
-                                <div class="cliente-autocomplete-wrapper">
-                                    <input id="nombreCliente"
-                                           class="form-control cliente-autocomplete-input"
-                                           autocomplete="off"
-                                           aria-autocomplete="list"
-                                           aria-expanded="false"
-                                           aria-controls="sugerenciasClientes">
-                                    <input type="hidden" id="nombreClienteClienteId">
-                                    <div id="sugerenciasClientes"
-                                         class="cliente-autocomplete-dropdown d-none"
-                                         role="listbox"></div>
-                                </div>
-                            </div>
-
-                        <div class="mb-2">
-                            <label class="form-label">Teléfono</label>
-                            <input id="telefonoCliente" class="form-control">
-                        </div>
-
-                        <div id="clienteConsentInfo" class="small border rounded p-2 mb-2 d-none"></div>
-
-                        <div id="manualConsentContainer" class="form-check mb-3 d-none">
-                            <input class="form-check-input" type="checkbox" id="whatsAppConsentAtCreation">
-                            <input type="hidden" id="whatsAppConsentCapturedAtUtc">
-                            <label class="form-check-label" for="whatsAppConsentAtCreation">
-                                El cliente autorizó recibir mensajes de WhatsApp enviados por LuxuryCloud en nombre de este negocio para confirmaciones, cancelaciones y recordatorios de esta cita. No se usará para promociones.
-                            </label>
-                        </div>
-
-                            <div class="mb-3">
-                                <label class="form-label">Servicio</label>
-                                <select id="servicio" class="form-select"></select>
-                            </div>
-
-                        <div class="mb-3">
-                            <label class="form-label">Funcionario</label>
-                            <select id="funcionarioId" class="form-select">
-                                <option value="">Seleccione un funcionario</option>
-                            </select>
-                        </div>
-
-                            <div class="form-check mb-3">
-                                <input class="form-check-input" type="checkbox" id="duplicarCita">
-                                <label class="form-check-label">
-                                    Repetir cita en otras fechas
-                                </label>
-                            </div>
-
-                            <div id="duplicarConfig" class="d-none">
-
-                                <label class="form-label">Seleccione los días</label>
-
-                                <input type="text"
-                                       id="fechasDuplicadas"
-                                       class="form-control"
-                                       placeholder="Seleccione fechas">
-
-                            </div>
-                        </div>
-
-                        <button class="btn btn-dark w-100" onclick="guardarCita()">
-                            Guardar cita
+            <div class="calendar-controls">
+                <div class="calendar-controls-row">
+                    <div class="calendar-view-toggle" role="group">
+                        <button id="viewMonthBtn" class="btn btn-dark btn-sm active">
+                            <i class="bi bi-calendar3"></i> Mensual
+                        </button>
+                        <button id="viewDayBtn" class="btn btn-outline-dark btn-sm">
+                            <i class="bi bi-calendar-day"></i> Diario
                         </button>
                     </div>
 
+                    <input type="date" id="dayPicker" class="form-control form-control-sm w-auto d-none">
                 </div>
+
+                <div class="calendar-controls-row">
+                    <div class="calendar-control-group">
+                        <label class="calendar-control-label" for="horaInicio">Inicio</label>
+                        <input type="number" id="horaInicio" class="form-control form-control-sm" style="width:70px" min="0" max="23">
+                    </div>
+
+                    <div class="calendar-control-group">
+                        <label class="calendar-control-label" for="horaFin">Fin</label>
+                        <input type="number" id="horaFin" class="form-control form-control-sm" style="width:70px" min="0" max="23">
+                    </div>
+
+                    <div class="calendar-control-group">
+                        <label class="calendar-control-label" for="intervaloCitas">Intervalo</label>
+                        <select id="intervaloCitas" class="form-select form-select-sm" style="width:95px">
+                            <option value="5">5 min</option>
+                            <option value="10">10 min</option>
+                            <option value="15">15 min</option>
+                            <option value="30">30 min</option>
+                        </select>
+                    </div>
+
+                    <div class="calendar-control-group">
+                        <label class="calendar-control-label">&nbsp;</label>
+                        <button id="aplicarHorario" class="btn btn-dark btn-sm">Aplicar</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="calendar" class="calendar-container">
+                @* El calendario se renderiza con JS *@
+            </div>
+
+            @* ── AGENDA DEL DÍA ─────────────────────────── *@
+            <div class="day-agenda-panel">
+                <div class="day-agenda-header">
+                    <div>
+                        <h3 class="day-agenda-title" id="dayAgendaTitle">Agenda del día</h3>
+                        <span class="day-agenda-count" id="dayAgendaCount">0 citas programadas</span>
+                    </div>
+                </div>
+
+                <div class="whatsapp-inbox-empty d-none" id="dayAgendaEmpty">
+                    <div class="whatsapp-inbox-empty-icon"><i class="bi bi-calendar-x"></i></div>
+                    <div style="font-weight:700;color:var(--private-surface-text)">Sin citas</div>
+                    <div style="font-size:.82rem">No hay citas programadas para este día.</div>
+                </div>
+
+                <div style="overflow-x:auto">
+                    <table class="day-agenda-table">
+                        <thead>
+                            <tr>
+                                <th>Hora</th>
+                                <th>Cliente</th>
+                                <th>Servicio</th>
+                                <th>Funcionario</th>
+                                <th>Estado</th>
+                                <th>WhatsApp</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dayAgendaTableBody"></tbody>
+                    </table>
+                </div>
+
+                <div class="day-agenda-mobile-list" id="dayAgendaMobileList"></div>
+            </div>
+
+        </div>
+
+        @* RIGHT: WhatsApp inbox / agenda list *@
+        <div class="calendar-panel calendar-panel-right">
+            <div class="whatsapp-inbox-panel">
+
+                <div class="whatsapp-inbox-header">
+                    <h2 class="whatsapp-inbox-title">
+                        <span class="wa-mark"><i class="bi bi-whatsapp"></i></span>
+                        Bandeja WhatsApp
+                    </h2>
+                    <div class="whatsapp-inbox-toolbar">
+                        <select id="statusFiltro" class="whatsapp-inbox-filter">
+                            <option value="">Todos los estados</option>
+                            <option value="enviados">Enviados</option>
+                            <option value="confirmados">Confirmados</option>
+                            <option value="pendientes">Pendientes</option>
+                            <option value="fallidos">No entregados</option>
+                            <option value="cancelados">Cancelados</option>
+                        </select>
+                        <button id="toggleTareasBtn"
+                                class="action-icon-button"
+                                onclick="toggleTareas()"
+                                title="Ocultar / mostrar lista">
+                            Ocultar
+                        </button>
+                    </div>
+                </div>
+
+                @* Filtro por funcionario (lo llena calendar.js) *@
+                <div style="padding:0.75rem 1.25rem 0;">
+                    <select id="funcionarioFiltro" class="whatsapp-inbox-filter" style="max-width:100%;width:100%;">
+                        <option value="">Todos los funcionarios</option>
+                    </select>
+                </div>
+
+                @if (!tenantWhatsAppEnabled)
+                {
+                    <div class="whatsapp-inbox-notice">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <span>WhatsApp no está configurado para este negocio. Las acciones de envío están deshabilitadas.</span>
+                    </div>
+                }
+
+                <div class="whatsapp-status-grid">
+                    <div class="whatsapp-status-card">
+                        <span class="whatsapp-status-card-label">Enviados</span>
+                        <span class="whatsapp-status-card-value whatsapp-status-value-sent" id="waInboxEnviados">0</span>
+                    </div>
+                    <div class="whatsapp-status-card">
+                        <span class="whatsapp-status-card-label">Confirmados</span>
+                        <span class="whatsapp-status-card-value whatsapp-status-value-confirmed" id="waInboxConfirmados">0</span>
+                    </div>
+                    <div class="whatsapp-status-card">
+                        <span class="whatsapp-status-card-label">Pendientes</span>
+                        <span class="whatsapp-status-card-value whatsapp-status-value-pending" id="waInboxPendientes">0</span>
+                    </div>
+                </div>
+
+                <div id="tareasContainer">
+                    <ul id="listaTareas" class="whatsapp-thread-list list-group">
+                        @* Se llena por JS (loadUpcomingAppointments) *@
+                    </ul>
+                </div>
+
             </div>
         </div>
 
@@ -242,121 +220,228 @@
 </div>
 
 
-    <!-- MODAL EDITAR -->
-    <div class="modal fade" id="editCitaModal" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
+@* ─────────────────────────── MODALES ─────────────────────────── *@
 
-                <div class="modal-header">
-                    <h5 class="modal-title" id="editModalTitle">✏️ Editar</h5>
-                    <button class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-
-                <div class="modal-body">
-
-                    <input type="hidden" id="editCitaId" />
-                    <input type="hidden" id="editTipo" />
-
-                    <div class="mb-3">
-                        <label>Fecha y hora</label>
-                        <input type="datetime-local"
-                               class="form-control"
-                               id="editFechaHora">
-                    </div>
-
-
-                    <!-- CAMPOS DE CITA -->
-                    <div id="editCamposCita">
-
-                        <div class="mb-2">
-                            <label>Nombre del cliente</label>
-                            <div class="cliente-autocomplete-wrapper">
-                                <input class="form-control cliente-autocomplete-input"
-                                       id="editNombreCliente"
-                                       autocomplete="off"
-                                       aria-autocomplete="list"
-                                       aria-expanded="false"
-                                       aria-controls="editSugerenciasClientes">
-                                <input type="hidden" id="editNombreClienteClienteId">
-                                <div id="editSugerenciasClientes"
-                                     class="cliente-autocomplete-dropdown d-none"
-                                     role="listbox"></div>
-                            </div>
-                        </div>
-
-                        <div class="mb-2">
-                            <label>Teléfono</label>
-                            <input class="form-control" id="editTelefonoCliente">
-                        </div>
-
-                        <div id="editClienteConsentInfo" class="small border rounded p-2 mb-2 d-none"></div>
-
-                        <div id="editManualConsentContainer" class="form-check mb-2 d-none">
-                            <input class="form-check-input" type="checkbox" id="editWhatsAppConsentAtCreation">
-                            <input type="hidden" id="editWhatsAppConsentCapturedAtUtc">
-                            <label class="form-check-label" for="editWhatsAppConsentAtCreation">
-                                El cliente autorizó recibir mensajes de WhatsApp enviados por LuxuryCloud en nombre de este negocio para confirmaciones, cancelaciones y recordatorios de esta cita. No se usará para promociones.
-                            </label>
-                        </div>
-
-                        <div id="editWhatsAppStatus" class="small text-muted border rounded p-2 mb-2 d-none"></div>
-
-                        <div class="mb-3">
-                            <label>Servicio</label>
-                            <select id="editServicioId" class="form-select"></select>
-                        </div>
-
-                    </div>
-
-
-                    <!-- CAMPOS DE DESCANSO -->
-                    <div id="editCamposDescanso" class="d-none">
-
-                        <div class="mb-3">
-                            <label>Duración del descanso (minutos)</label>
-                            <input type="number"
-                                   class="form-control"
-                                   id="editDuracionDescanso"
-                                   min="5"
-                                   max="180">
-                        </div>
-
-                    </div>
-
-
-                    <div class="mb-2">
-                        <label>Funcionario</label>
-                        <select id="editFuncionarioId" class="form-select"></select>
-                    </div>
-
-                </div>
-
-                <div class="modal-footer justify-content-between">
-
-                    <button class="btn btn-danger"
-                            onclick="cancelarCita()">
-                        Eliminar
-                    </button>
-
-                    <div>
-                        <button class="btn btn-secondary"
-                                data-bs-dismiss="modal">
-                            Volver
-                        </button>
-
-                        <button class="btn btn-primary"
-                                onclick="guardarEdicion()">
-                            Guardar cambios
-                        </button>
-                    </div>
-
-                </div>
-
+@* MODAL HORAS *@
+<div class="modal fade" id="dayModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalTitle"></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="hoursContainer" class="list-group"></div>
             </div>
         </div>
     </div>
+</div>
+
+@* MODAL CREAR CITA *@
+<div class="modal fade" id="createCitaModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Nueva cita</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+
+            <div class="modal-body">
+
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="esDescanso">
+                    <label class="form-check-label fw-bold">
+                        Registrar descanso
+                    </label>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Fecha y hora</label>
+                    <input type="datetime-local" id="appointmentDate" class="form-control">
+                </div>
+
+                <div id="duracionDescansoContainer" class="mb-3 d-none">
+                    <label class="form-label">Duración del descanso (minutos)</label>
+                    <input type="number" id="duracionDescanso" class="form-control" value="30" min="5" max="180">
+                </div>
+
+                <input type="hidden" id="duracionMinutos" value="30" />
+
+                <div id="camposCita">
+
+                    <div class="mb-2">
+                        <label class="form-label">Nombre del cliente</label>
+                        <div class="cliente-autocomplete-wrapper">
+                            <input id="nombreCliente"
+                                   class="form-control cliente-autocomplete-input"
+                                   autocomplete="off"
+                                   aria-autocomplete="list"
+                                   aria-expanded="false"
+                                   aria-controls="sugerenciasClientes">
+                            <input type="hidden" id="nombreClienteClienteId">
+                            <div id="sugerenciasClientes"
+                                 class="cliente-autocomplete-dropdown d-none"
+                                 role="listbox"></div>
+                        </div>
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="form-label">Teléfono</label>
+                        <input id="telefonoCliente" class="form-control">
+                    </div>
+
+                    <div id="clienteConsentInfo" class="small border rounded p-2 mb-2 d-none"></div>
+
+                    <div id="manualConsentContainer" class="form-check mb-3 d-none">
+                        <input class="form-check-input" type="checkbox" id="whatsAppConsentAtCreation">
+                        <input type="hidden" id="whatsAppConsentCapturedAtUtc">
+                        <label class="form-check-label" for="whatsAppConsentAtCreation">
+                            El cliente autorizó recibir mensajes de WhatsApp enviados por LuxuryCloud en nombre de este negocio para confirmaciones, cancelaciones y recordatorios de esta cita. No se usará para promociones.
+                        </label>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Servicio</label>
+                        <select id="servicio" class="form-select"></select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Funcionario</label>
+                        <select id="funcionarioId" class="form-select">
+                            <option value="">Seleccione un funcionario</option>
+                        </select>
+                    </div>
+
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="duplicarCita">
+                        <label class="form-check-label">
+                            Repetir cita en otras fechas
+                        </label>
+                    </div>
+
+                    <div id="duplicarConfig" class="d-none">
+                        <label class="form-label">Seleccione los días</label>
+                        <input type="text" id="fechasDuplicadas" class="form-control" placeholder="Seleccione fechas">
+                    </div>
+                </div>
+
+                <button class="btn btn-dark w-100" onclick="guardarCita()">
+                    Guardar cita
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@* MODAL EDITAR *@
+<div class="modal fade" id="editCitaModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+
+            <div class="modal-header">
+                <h5 class="modal-title" id="editModalTitle">✏️ Editar</h5>
+                <button class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+
+            <div class="modal-body">
+
+                <input type="hidden" id="editCitaId" />
+                <input type="hidden" id="editTipo" />
+
+                <div class="mb-3">
+                    <label>Fecha y hora</label>
+                    <input type="datetime-local" class="form-control" id="editFechaHora">
+                </div>
+
+                <div id="editCamposCita">
+
+                    <div class="mb-2">
+                        <label>Nombre del cliente</label>
+                        <div class="cliente-autocomplete-wrapper">
+                            <input class="form-control cliente-autocomplete-input"
+                                   id="editNombreCliente"
+                                   autocomplete="off"
+                                   aria-autocomplete="list"
+                                   aria-expanded="false"
+                                   aria-controls="editSugerenciasClientes">
+                            <input type="hidden" id="editNombreClienteClienteId">
+                            <div id="editSugerenciasClientes"
+                                 class="cliente-autocomplete-dropdown d-none"
+                                 role="listbox"></div>
+                        </div>
+                    </div>
+
+                    <div class="mb-2">
+                        <label>Teléfono</label>
+                        <input class="form-control" id="editTelefonoCliente">
+                    </div>
+
+                    <div id="editClienteConsentInfo" class="small border rounded p-2 mb-2 d-none"></div>
+
+                    <div id="editManualConsentContainer" class="form-check mb-2 d-none">
+                        <input class="form-check-input" type="checkbox" id="editWhatsAppConsentAtCreation">
+                        <input type="hidden" id="editWhatsAppConsentCapturedAtUtc">
+                        <label class="form-check-label" for="editWhatsAppConsentAtCreation">
+                            El cliente autorizó recibir mensajes de WhatsApp enviados por LuxuryCloud en nombre de este negocio para confirmaciones, cancelaciones y recordatorios de esta cita. No se usará para promociones.
+                        </label>
+                    </div>
+
+                    <div id="editWhatsAppStatus" class="small text-muted border rounded p-2 mb-2 d-none"></div>
+
+                    <div class="mb-3">
+                        <label>Servicio</label>
+                        <select id="editServicioId" class="form-select"></select>
+                    </div>
+
+                </div>
+
+                <div id="editCamposDescanso" class="d-none">
+                    <div class="mb-3">
+                        <label>Duración del descanso (minutos)</label>
+                        <input type="number" class="form-control" id="editDuracionDescanso" min="5" max="180">
+                    </div>
+                </div>
+
+                <div class="mb-2">
+                    <label>Funcionario</label>
+                    <select id="editFuncionarioId" class="form-select"></select>
+                </div>
+
+            </div>
+
+            <div class="modal-footer justify-content-between">
+                <button class="btn btn-danger" onclick="cancelarCita()">
+                    Eliminar
+                </button>
+                <div>
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">
+                        Volver
+                    </button>
+                    <button class="btn btn-primary" onclick="guardarEdicion()">
+                        Guardar cambios
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
 
 
+@* MODAL VER CHAT / HISTORIAL WHATSAPP *@
+<div class="modal fade" id="waChatModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="waChatModalTitle">Historial de WhatsApp</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="waChatModalBody">
+                <div class="text-muted small">Cargando…</div>
+            </div>
+        </div>
+    </div>
+</div>
 
 
 @section Scripts {
@@ -366,4 +451,5 @@
         });
     </script>
     <script src="~/js/calendar.js"></script>
+    <script src="~/js/whatsapp-inbox.js"></script>
 }
