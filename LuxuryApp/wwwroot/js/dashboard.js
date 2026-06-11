@@ -79,6 +79,16 @@ document.addEventListener("DOMContentLoaded", () => {
         serviciosData
     } = window.dashboardData;
 
+    const chartGreen = {
+        backgroundColor: "rgba(25, 135, 84, 0.85)",
+        borderColor: "rgba(34, 197, 94, 1)",
+        hoverBackgroundColor: "rgba(34, 197, 94, 0.95)",
+        borderWidth: 1,
+        borderRadius: 6,
+        maxBarThickness: 42
+    };
+
+
     const chartMesEl = document.getElementById("chartMes");
     if (chartMesEl) {
         destroyExistingChart(chartMesEl);
@@ -88,7 +98,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 labels: ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"],
                 datasets: [{
                     label: "Citas",
-                    data: citasMes
+                    data: citasMes,
+                    ...chartGreen
                 }]
             },
             options: buildAxisOptions()
@@ -159,7 +170,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 labels: funcionariosLabels,
                 datasets: [{
                     label: "Citas",
-                    data: funcionariosData
+                    data: funcionariosData,
+                    ...chartGreen
                 }]
             },
             options: buildAxisOptions()
@@ -186,6 +198,88 @@ document.addEventListener("DOMContentLoaded", () => {
                 }]
             },
             options: buildAxisOptions("y")
+        }));
+    }
+
+    // ── Productos vendidos (desglose por producto) ────────
+    const productosLabels = window.dashboardData.productosLabels || [];
+    const productosData   = window.dashboardData.productosData   || [];
+
+    const chartProdEl = document.getElementById("chartProductos");
+    const prodWrap    = document.getElementById("chartProductosWrap");
+    const prodEmpty   = document.getElementById("chartProductosEmpty");
+
+    if (chartProdEl) {
+        destroyExistingChart(chartProdEl);
+        if (productosLabels.length === 0) {
+            chartProdEl.style.display = "none";
+            if (prodEmpty) prodEmpty.style.display = "flex";
+        } else {
+            if (prodEmpty) prodEmpty.style.display = "none";
+            if (prodWrap) {
+                prodWrap.style.height = Math.max(340, productosLabels.length * 42) + "px";
+            }
+            const ctxProd = chartProdEl.getContext("2d");
+            const gradProd = ctxProd.createLinearGradient(0, 0, 600, 0);
+            gradProd.addColorStop(0, "rgba(13, 148, 136, 0.9)");
+            gradProd.addColorStop(1, "rgba(13, 148, 136, 0.3)");
+            registerChart(new Chart(ctxProd, {
+                type: "bar",
+                data: {
+                    labels: productosLabels,
+                    datasets: [{
+                        label: "Productos",
+                        data: productosData,
+                        backgroundColor: gradProd
+                    }]
+                },
+                options: buildAxisOptions("y")
+            }));
+        }
+    }
+
+    // ── Servicios por Mes ─────────────────────────────────
+    const chartServMesEl = document.getElementById("chartServiciosMes");
+    if (chartServMesEl) {
+        destroyExistingChart(chartServMesEl);
+        const tokens = getChartTokens();
+        registerChart(new Chart(chartServMesEl, {
+            type: "bar",
+            data: {
+                labels: ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"],
+                datasets: [{
+                    label: "Servicios",
+                    data: citasMes,
+                    backgroundColor: tokens.chartSuccess || "rgba(22, 163, 74, 0.72)",
+                    borderColor: tokens.chartSuccess || "rgba(22, 163, 74, 1)",
+                    borderWidth: 1,
+                    borderRadius: 4
+                }]
+            },
+            options: buildAxisOptions()
+        }));
+    }
+
+    // ── Productos Vendidos por Mes ────────────────────────
+    const chartProdMesEl = document.getElementById("chartProductosMes");
+    if (chartProdMesEl) {
+        destroyExistingChart(chartProdMesEl);
+        const tokens = getChartTokens();
+        const productosPorMes = (window.dashboardData && window.dashboardData.productosPorMes) || [];
+        registerChart(new Chart(chartProdMesEl, {
+            type: "bar",
+            data: {
+                labels: ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"],
+                datasets: [{
+                    label: "Productos",
+                    data: productosPorMes,
+                    backgroundColor: tokens.chartWarning || "rgba(217, 119, 6, 0.72)",
+                    borderColor: tokens.chartWarning || "rgba(217, 119, 6, 1)",
+                    borderWidth: 1,
+                    borderRadius: 4
+                }]
+            },
+            options: buildAxisOptions()
         }));
     }
 });

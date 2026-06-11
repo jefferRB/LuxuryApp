@@ -1,117 +1,277 @@
 @model LuxuryApp.Models.Funcionarios.FuncionariosIndexViewModel
+@using System.Globalization
 
-<div class="card border-0 shadow-lg">
-    <div class="card-header bg-dark text-white py-3">
-        <h5 class="m-0">
-            <i class="fas fa-user-tie me-2"></i>Funcionarios
-        </h5>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="~/css/funcionarios.css" asp-append-version="true">
+
+@{
+    var ic = CultureInfo.InvariantCulture;
+}
+
+<!-- ── CARD PRINCIPAL (header + botones + tabla en un solo contenedor) ── -->
+<div class="kpi-card func-main-card">
+
+    <!-- ── A. HEADER ── -->
+    <div class="func-header">
+
+        <div class="func-header-left">
+            <span class="func-eyebrow">
+                <i class="bi bi-people-fill"></i>
+                Gestión de equipo
+            </span>
+            <div class="func-brand-row">
+                <div class="func-brand-icon">
+                    <i class="bi bi-person-vcard-fill"></i>
+                </div>
+                <div>
+                    <h2 class="func-title">Funcionarios</h2>
+                    <p class="func-subtitle">Administra tu equipo y su información laboral.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="func-header-stats">
+
+            <div class="func-stat-chip">
+                <span class="func-stat-top-label">Total Funcionarios</span>
+                <i class="bi bi-people func-stat-icon"></i>
+                <span class="func-stat-num">@Model.TotalFuncionarios</span>
+                <span class="func-stat-sub">registrados</span>
+            </div>
+
+            <div class="func-stat-chip func-stat-chip--active">
+                <span class="func-stat-top-label">Funcionarios Activos</span>
+                <i class="bi bi-person-check func-stat-icon"></i>
+                <span class="func-stat-num">
+                    <span class="func-stat-dot"></span>
+                    @Model.TotalActivos
+                </span>
+                <span class="func-stat-sub">activos</span>
+            </div>
+
+        </div>
+
     </div>
 
-    <div class="d-flex justify-content-between mt-3 mx-3 mb-3">
-        <a asp-action="Create" class="btn btn-dark text-white">
-            <i class="fas fa-user-plus me-1"></i>Nuevo Funcionario
-        </a>
+    <!-- ── B. BARRA DE ACCIONES ── -->
+    <div class="func-action-bar">
 
-        <a asp-action="PagosSemana" class="btn btn-success">
-            💰 Ver Pagos de la Semana
-        </a>
+        <div class="func-action-left">
+            <a asp-action="Create" class="func-btn func-btn--primary">
+                <i class="bi bi-plus-lg"></i>
+                Nuevo Funcionario
+            </a>
+            <a asp-action="PagosSemana" class="func-btn func-btn--ghost">
+                <i class="bi bi-cash-coin"></i>
+                Ver Pagos de la Semana
+            </a>
+        </div>
 
-        <button class="btn btn-outline-dark"
+        <button class="func-btn func-btn--ghost"
                 data-bs-toggle="modal"
                 data-bs-target="#modalPuestos"
                 onclick="cargarPuestos()">
-            🏷 Gestionar Puestos
+            <i class="bi bi-tags-fill"></i>
+            Gestionar Puestos
         </button>
+
     </div>
 
+    <!-- ── C. ALERTAS ── -->
     @if (TempData["Mensaje"] != null)
     {
-        <div class="alert alert-success mx-3 mb-0">
-            @TempData["Mensaje"]
+        <div class="func-alert-wrap">
+            <div class="func-alert func-alert--success">
+                <i class="bi bi-check-circle-fill"></i>
+                @TempData["Mensaje"]
+            </div>
         </div>
     }
 
     @if (TempData["Error"] != null)
     {
-        <div class="alert alert-danger mx-3 mb-0">
-            @TempData["Error"]
+        <div class="func-alert-wrap">
+            <div class="func-alert func-alert--danger">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+                @TempData["Error"]
+            </div>
         </div>
     }
 
-    <div class="mt-3 ms-3">
-        <span class="private-module-count">
-            <strong>Funcionarios registrados:</strong> @Model.TotalFuncionarios
-        </span>
-    </div>
+    <!-- ── D. TABLA ── -->
+    <div class="func-table-wrap">
+        <table class="func-table">
 
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th class="ps-4">Nombre</th>
-                        <th>Telefono</th>
-                        <th>Puesto</th>
-                        <th>% Ganancia</th>
-                        <th>% Producto</th>
-                        <th>Color</th>
-                        <th>Fecha Ingreso</th>
-                        <th>Estado</th>
-                        <th class="text-center">Acciones</th>
-                    </tr>
-                </thead>
+            <thead>
+                <tr>
+                    <th>Funcionario</th>
+                    <th>Puesto</th>
+                    <th>% Ganancia</th>
+                    <th>% Producto</th>
+                    <th>Color</th>
+                    <th>Fecha Ingreso</th>
+                    <th>Estado</th>
+                    <th class="text-center">Acciones</th>
+                </tr>
+            </thead>
 
-                <tbody>
-                    @if (Model.Funcionarios.Any())
+            <tbody>
+                @if (Model.Funcionarios.Any())
+                {
+                    foreach (var f in Model.Funcionarios)
                     {
-                        foreach (var f in Model.Funcionarios)
-                        {
-                            <tr>
-                                <td class="ps-4 fw-semibold">@f.Nombre</td>
-                                <td>@f.Telefono</td>
-                                <td>@f.NombrePuesto</td>
-                                <td>@f.PorcentajeGanancia %</td>
-                                <td>@f.PorcentajeProducto %</td>
-                                <td>
-                                    <span class="badge" style="background-color:@f.ColorCalendario;">
-                                        @f.ColorCalendario
+                        var inicial = f.Nombre.Length > 0
+                            ? char.ToUpper(f.Nombre[0]).ToString()
+                            : "?";
+                        var pctG = ((double)Math.Min(f.PorcentajeGanancia, 100)).ToString("F1", ic);
+                        var pctP = ((double)Math.Min(f.PorcentajeProducto, 100)).ToString("F1", ic);
+
+                        <tr>
+
+                            <!-- FUNCIONARIO: avatar + nombre + teléfono -->
+                            <td>
+                                <div class="func-person">
+                                    <div class="func-avatar"
+                                         style="background-color: @f.ColorCalendario">
+                                        @inicial
+                                    </div>
+                                    <div class="func-person-info">
+                                        <span class="func-name">@f.Nombre</span>
+                                        @if (!string.IsNullOrWhiteSpace(f.Telefono))
+                                        {
+                                            <span class="func-phone">
+                                                <i class="bi bi-telephone"></i>
+                                                @f.Telefono
+                                            </span>
+                                        }
+                                    </div>
+                                </div>
+                            </td>
+
+                            <!-- PUESTO -->
+                            <td>@f.NombrePuesto</td>
+
+                            <!-- % GANANCIA + barra -->
+                            <td>
+                                <div class="func-pct">
+                                    <span class="func-pct-val">@f.PorcentajeGanancia %</span>
+                                    <div class="func-bar">
+                                        <div class="func-bar-fill func-bar--blue"
+                                             style="width: @pctG%"></div>
+                                    </div>
+                                </div>
+                            </td>
+
+                            <!-- % PRODUCTO + barra -->
+                            <td>
+                                <div class="func-pct">
+                                    <span class="func-pct-val">@f.PorcentajeProducto %</span>
+                                    <div class="func-bar">
+                                        <div class="func-bar-fill func-bar--purple"
+                                             style="width: @pctP%"></div>
+                                    </div>
+                                </div>
+                            </td>
+
+                            <!-- COLOR: pill con hex -->
+                            <td>
+                                <span class="func-color-pill"
+                                      style="background-color: @f.ColorCalendario">
+                                    @f.ColorCalendario
+                                </span>
+                            </td>
+
+                            <!-- FECHA INGRESO -->
+                            <td>
+                                <span class="func-date">
+                                    <i class="bi bi-calendar3"></i>
+                                    @f.FechaIngreso.ToString("dd/MM/yyyy")
+                                </span>
+                            </td>
+
+                            <!-- ESTADO -->
+                            <td>
+                                @if (f.Activo)
+                                {
+                                    <span class="func-status func-status--active">
+                                        <span class="func-dot func-dot--green"></span>
+                                        Activo
                                     </span>
-                                </td>
-                                <td>@f.FechaIngreso.ToString("dd/MM/yyyy")</td>
-                                <td>
+                                }
+                                else
+                                {
+                                    <span class="func-status func-status--inactive">
+                                        <span class="func-dot func-dot--gray"></span>
+                                        Inactivo
+                                    </span>
+                                }
+                            </td>
+
+                            <!-- ACCIONES: Editar + Toggle activo/inactivo (SIN tres puntitos) -->
+                            <td>
+                                <div class="func-acts">
+
+                                    <a asp-action="Edit"
+                                       asp-route-id="@f.IdFuncionario"
+                                       class="func-act-btn func-act--edit"
+                                       title="Editar funcionario">
+                                        <i class="bi bi-pencil-square"></i>
+                                    </a>
+
                                     @if (f.Activo)
                                     {
-                                        <span class="badge bg-success">Activo</span>
+                                        <form asp-action="Desactivar" method="post"
+                                              class="d-inline m-0 p-0">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@f.IdFuncionario" />
+                                            <button type="submit"
+                                                    class="func-act-btn func-act--toggle-on"
+                                                    title="Desactivar"
+                                                    data-nombre="@f.Nombre"
+                                                    onclick="return confirm('¿Desactivar a ' + this.dataset.nombre + '?')">
+                                                <i class="bi bi-toggle-on"></i>
+                                            </button>
+                                        </form>
                                     }
                                     else
                                     {
-                                        <span class="badge bg-danger">Inactivo</span>
+                                        <form asp-action="Activar" method="post"
+                                              class="d-inline m-0 p-0">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@f.IdFuncionario" />
+                                            <button type="submit"
+                                                    class="func-act-btn func-act--toggle-off"
+                                                    title="Activar">
+                                                <i class="bi bi-toggle-off"></i>
+                                            </button>
+                                        </form>
                                     }
-                                </td>
-                                <td class="text-center">
-                                    <a asp-action="Edit"
-                                       asp-route-id="@f.IdFuncionario"
-                                       class="btn btn-sm btn-dark">
-                                        <i class="fas fa-edit"></i>
-                                    </a>
-                                </td>
-                            </tr>
-                        }
-                    }
-                    else
-                    {
-                        <tr>
-                            <td colspan="9" class="text-center py-4 text-muted">
-                                No hay funcionarios registrados
+
+                                </div>
                             </td>
+
                         </tr>
                     }
-                </tbody>
-            </table>
-        </div>
+                }
+                else
+                {
+                    <tr>
+                        <td colspan="8">
+                            <div class="func-empty">
+                                <i class="bi bi-people func-empty-icon"></i>
+                                <span class="func-empty-text">No hay funcionarios registrados</span>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+
+        </table>
     </div>
+
 </div>
 
+<!-- ── MODAL PUESTOS (sin cambios en lógica ni JS) ── -->
 <div class="modal fade" id="modalPuestos" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -121,7 +281,6 @@
                         class="btn-close btn-close-white"
                         data-bs-dismiss="modal"></button>
             </div>
-
             <div class="modal-body">
                 <div id="contenedorPuestos"></div>
             </div>

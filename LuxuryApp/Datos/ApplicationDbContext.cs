@@ -137,6 +137,11 @@ namespace ProyectoIdentity.Datos
 
                 entity.HasIndex(c => new { c.TenantId, c.FuncionarioId, c.FechaHoraCita })
                     .HasDatabaseName("IX_Citas_TenantId_FuncionarioId_FechaHoraCita");
+
+                entity.HasIndex(c => new { c.TenantId, c.ClienteId, c.FechaHoraCita })
+                    .IsDescending(false, false, true)
+                    .HasFilter("[ClienteId] IS NOT NULL")
+                    .HasDatabaseName("IX_Citas_TenantId_ClienteId_FechaHoraCita");
             });
 
             modelBuilder.Entity<WhatsAppMessageLog>(entity =>
@@ -289,6 +294,56 @@ namespace ProyectoIdentity.Datos
 
                 entity.HasIndex(c => new { c.TenantId, c.FuncionarioId, c.FechaCobro })
                     .HasDatabaseName("IX_Cobros_TenantId_FuncionarioId_FechaCobro");
+
+                entity.HasIndex(c => new { c.TenantId, c.ClienteId })
+                    .HasFilter("[ClienteId] IS NOT NULL")
+                    .HasDatabaseName("IX_Cobros_TenantId_ClienteId");
+
+                entity.HasOne(c => c.Cliente)
+                    .WithMany()
+                    .HasForeignKey(c => c.ClienteId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<ClienteServicioRealizado>(entity =>
+            {
+                entity.Property(r => r.Monto).HasColumnType("decimal(18,2)");
+                entity.Property(r => r.Notas).HasMaxLength(500);
+                entity.Property(r => r.Origen).HasMaxLength(30).IsRequired();
+
+                entity.HasIndex(r => new { r.TenantId, r.ClienteId, r.FechaHora })
+                    .IsDescending(false, false, true)
+                    .HasDatabaseName("IX_ClienteServiciosRealizados_TenantId_ClienteId_FechaHora");
+
+                entity.HasIndex(r => r.CobroId)
+                    .IsUnique()
+                    .HasFilter("[CobroId] IS NOT NULL")
+                    .HasDatabaseName("UX_ClienteServiciosRealizados_CobroId");
+
+                entity.HasOne(r => r.Cliente)
+                    .WithMany(c => c.ServiciosRealizados)
+                    .HasForeignKey(r => r.ClienteId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(r => r.Funcionario)
+                    .WithMany()
+                    .HasForeignKey(r => r.FuncionarioId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(r => r.Servicio)
+                    .WithMany()
+                    .HasForeignKey(r => r.ServicioId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(r => r.Cobro)
+                    .WithMany()
+                    .HasForeignKey(r => r.CobroId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(r => r.Cita)
+                    .WithMany()
+                    .HasForeignKey(r => r.CitaId)
+                    .OnDelete(DeleteBehavior.SetNull);
             });
 
             modelBuilder.Entity<Egreso>(entity =>
@@ -964,6 +1019,7 @@ namespace ProyectoIdentity.Datos
         //DataBase
         public DbSet<ClientesModel> Clientes { get; set; }
         public DbSet<ClienteVisitas> ClienteVisitas { get; set; }
+        public DbSet<ClienteServicioRealizado> ClienteServiciosRealizados { get; set; }
         //Calendar
         public DbSet<Cita> Citas { get; set; }
         public DbSet<WhatsAppMessageLog> WhatsAppMessageLogs { get; set; }

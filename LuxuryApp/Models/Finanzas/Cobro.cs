@@ -1,6 +1,7 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.Common;
+using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Productos;
 
@@ -20,6 +21,9 @@ namespace LuxuryApp.Models.Finanzas
         [Required]
         [Display(Name = "Nombre Cliente")]
         public string NombreCliente { get; set; } = string.Empty;
+
+        [Display(Name = "Cliente registrado")]
+        public int? ClienteId { get; set; }
 
         [Required]
         [Display(Name = "Funcionario")]
@@ -43,6 +47,7 @@ namespace LuxuryApp.Models.Finanzas
         // 🔗 Navegación EF
         public Funcionario? Funcionario { get; set; }
         public Servicio? Servicio { get; set; }
+        public ClientesModel? Cliente { get; set; }
         public int? ProductoId { get; set; }
         public Producto? Producto { get; set; }
         

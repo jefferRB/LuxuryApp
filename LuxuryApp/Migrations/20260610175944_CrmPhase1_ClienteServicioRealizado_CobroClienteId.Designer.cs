@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ProyectoIdentity.Datos;
 
@@ -11,9 +12,11 @@ using ProyectoIdentity.Datos;
 namespace LuxuryApp.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260610175944_CrmPhase1_ClienteServicioRealizado_CobroClienteId")]
+    partial class CrmPhase1_ClienteServicioRealizado_CobroClienteId
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -125,11 +128,6 @@ namespace LuxuryApp.Migrations
 
                     b.HasIndex("TenantId", "FuncionarioId", "FechaHoraCita")
                         .HasDatabaseName("IX_Citas_TenantId_FuncionarioId_FechaHoraCita");
-
-                    b.HasIndex("TenantId", "ClienteId", "FechaHoraCita")
-                        .IsDescending(false, false, true)
-                        .HasFilter("[ClienteId] IS NOT NULL")
-                        .HasDatabaseName("IX_Citas_TenantId_ClienteId_FechaHoraCita");
 
                     b.ToTable("Citas");
                 });

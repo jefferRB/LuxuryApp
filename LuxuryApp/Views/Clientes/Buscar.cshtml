@@ -106,8 +106,8 @@
 
                     <p><strong>Visitas Totales:</strong> @Model.TotalVisitas</p>
 
-                    <div class="mt-3 d-flex justify-content-between align-items-center">
-                        <div>
+                    <div class="mt-3 d-flex flex-wrap gap-2 justify-content-between align-items-center">
+                        <div class="d-flex flex-wrap gap-2">
                             <a asp-action="Editar"
                                asp-route-id="@Model.ClienteSeleccionado.Id"
                                class="btn btn-dark text-white">
@@ -118,14 +118,25 @@
                                     type="button"
                                     data-bs-toggle="collapse"
                                     data-bs-target="#listaVisitas">
-                                Ver historial de visitas
+                                <i class="fas fa-calendar-check me-1"></i>Citas (@Model.TotalVisitas)
                             </button>
 
-                            <a asp-action="RegistrarServicios"
-                               asp-route-id="@Model.ClienteSeleccionado.Id"
-                               class="btn btn-secondary text-white">
-                                <i class="fas fa-clipboard-list me-1"></i>Registro de Servicios Realizados
-                            </a>
+                            @if (Model.HistorialPagos.Any())
+                            {
+                                <button class="btn btn-outline-dark"
+                                        type="button"
+                                        data-bs-toggle="collapse"
+                                        data-bs-target="#listaPagos">
+                                    <i class="fas fa-receipt me-1"></i>Pagos (@Model.HistorialPagos.Count)
+                                </button>
+                            }
+
+                            <button class="btn btn-outline-light"
+                                    type="button"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#listaNotas">
+                                <i class="fas fa-clipboard-list me-1 "></i>Notas de Servicios
+                            </button>
                         </div>
 
                         <form asp-action="AgregarVisitaRapida" method="post">
@@ -137,37 +148,106 @@
                         </form>
                     </div>
 
-                    <div class="collapse mt-4" id="listaVisitas">
-                        <h6 class="fw-bold mb-2">Historial de visitas</h6>
+                                        <div class="collapse mt-4" id="listaVisitas">
+                        <h6 class="fw-bold mb-2"><i class="fas fa-calendar-check me-1"></i>Historial de citas</h6>
 
                         @if (Model.HistorialVisitas.Any())
                         {
-                            <ul class="list-group list-group-flush">
-                                @foreach (var visita in Model.HistorialVisitas)
-                                {
-                                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                                        <span class="fw-semibold">
-                                            @visita.FechaVisita.ToString("dddd dd/MM/yyyy")
-                                        </span>
-
-                                        <form asp-action="EliminarVisita"
-                                              method="post"
-                                              class="m-0"
-                                              onsubmit="return confirm('¿Eliminar esta visita?');">
-                                            @Html.AntiForgeryToken()
-                                            <input type="hidden" name="id" value="@visita.Id" />
-                                            <button type="submit" class="btn btn-sm btn-outline-danger">
-                                                x
-                                            </button>
-                                        </form>
-                                    </li>
-                                }
-                            </ul>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover mb-0">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th>Fecha</th>
+                                            <th>Hora</th>
+                                            <th>Servicio</th>
+                                            <th>Funcionario</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var cita in Model.HistorialVisitas)
+                                        {
+                                            <tr>
+                                                <td>@cita.FechaHoraCita.ToString("dd/MM/yyyy")</td>
+                                                <td>@cita.FechaHoraCita.ToString("HH:mm")</td>
+                                                <td>@(cita.NombreServicio ?? "—")</td>
+                                                <td>@(cita.NombreFuncionario ?? "—")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
                         }
                         else
                         {
-                            <div class="text-muted">No hay visitas registradas para este cliente.</div>
+                            <div class="text-muted">No hay citas registradas para este cliente.</div>
                         }
+                    </div>
+
+                                        @if (Model.HistorialPagos.Any())
+                    {
+                        <div class="collapse mt-4" id="listaPagos">
+                            <h6 class="fw-bold mb-2"><i class="fas fa-receipt me-1"></i>Historial de pagos</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover mb-0">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th>Fecha</th>
+                                            <th>Tipo</th>
+                                            <th>Detalle</th>
+                                            <th>Funcionario</th>
+                                            <th>Método</th>
+                                            <th class="text-end">Monto</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var pago in Model.HistorialPagos)
+                                        {
+                                            <tr>
+                                                <td>@pago.FechaCobro.ToString("dd/MM/yyyy HH:mm")</td>
+                                                <td>
+                                                    <span class="badge @(pago.EsServicio ? "bg-dark" : "bg-secondary")">
+                                                        @(pago.EsServicio ? "Servicio" : "Producto")
+                                                    </span>
+                                                </td>
+                                                <td>@(pago.Detalle ?? "—")</td>
+                                                <td>@(pago.NombreFuncionario ?? "—")</td>
+                                                <td>@pago.MetodoPago</td>
+                                                <td class="text-end fw-semibold">₡ @pago.Monto.ToString("N0")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                    <tfoot class="table-dark">
+                                        <tr>
+                                            <td colspan="5" class="text-end fw-bold">Total</td>
+                                            <td class="text-end fw-bold">₡ @Model.HistorialPagos.Sum(p => p.Monto).ToString("N0")</td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="collapse mt-4" id="listaNotas">
+                        <h6 class="fw-bold mb-2"><i class="fas fa-clipboard-list me-1"></i>Notas de Servicios</h6>
+
+                        @if (!string.IsNullOrWhiteSpace(Model.NotasServicio))
+                        {
+                            <div class="border rounded p-3 bg-transparent text-white text-pre-wrap luxury-notes-display">
+                                @Model.NotasServicio
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-muted">No hay notas de servicios registradas.</div>
+                        }
+
+                        <div class="mt-2">
+                            <a asp-action="RegistrarServicios"
+                               asp-route-id="@Model.ClienteSeleccionado!.Id"
+                               class="btn btn-sm btn-secondary">
+                                <i class="fas fa-edit me-1"></i>Editar notas
+                            </a>
+                        </div>
                     </div>
                 </div>
             </div>

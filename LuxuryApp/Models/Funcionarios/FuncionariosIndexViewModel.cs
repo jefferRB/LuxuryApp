@@ -6,5 +6,7 @@ namespace LuxuryApp.Models.Funcionarios
             Array.Empty<FuncionarioIndexItemViewModel>();
 
         public int TotalFuncionarios => Funcionarios.Count;
+
+        public int TotalActivos => Funcionarios.Count(f => f.Activo);
     }
 }

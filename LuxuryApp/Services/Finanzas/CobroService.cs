@@ -1,4 +1,5 @@
 using System.Data;
+using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Productos;
 using LuxuryApp.Services.BusinessTime;
@@ -64,6 +65,17 @@ namespace LuxuryApp.Services.Finanzas
 
                         _context.Cobros.Add(cobroServicio);
                         await _context.SaveChangesAsync(cancellationToken);
+
+                        if (normalizedRequest.ActualizarNotasServicio &&
+                            normalizedRequest.ClienteId.HasValue &&
+                            !string.IsNullOrWhiteSpace(normalizedRequest.NotasServicioTexto))
+                        {
+                            await TryActualizarNotasServicioAsync(
+                                normalizedRequest.ClienteId.Value,
+                                normalizedRequest.NotasServicioTexto,
+                                cancellationToken);
+                            await _context.SaveChangesAsync(cancellationToken);
+                        }
                     }
                     else
                     {
@@ -140,6 +152,7 @@ namespace LuxuryApp.Services.Finanzas
 
                 cobro.FechaCobro = normalizedRequest.FechaCobro;
                 cobro.NombreCliente = normalizedRequest.NombreCliente;
+                cobro.ClienteId = normalizedRequest.ClienteId;
                 cobro.FuncionarioId = normalizedRequest.FuncionarioId;
                 cobro.Monto = normalizedRequest.Monto;
                 cobro.MetodoPago = normalizedRequest.MetodoPago;
@@ -391,6 +404,7 @@ namespace LuxuryApp.Services.Finanzas
             {
                 FechaCobro = request.FechaCobro,
                 NombreCliente = request.NombreCliente,
+                ClienteId = request.ClienteId,
                 FuncionarioId = request.FuncionarioId,
                 ServicioId = servicioId,
                 ProductoId = productoId,
@@ -399,11 +413,30 @@ namespace LuxuryApp.Services.Finanzas
                 Observaciones = request.Observaciones
             };
 
+        private async Task TryActualizarNotasServicioAsync(
+            int clienteId,
+            string notasTexto,
+            CancellationToken cancellationToken)
+        {
+            var cliente = await _context.Clientes
+                .FirstOrDefaultAsync(c => c.Id == clienteId, cancellationToken);
+
+            if (cliente is null)
+            {
+                return;
+            }
+
+            cliente.DescripcionServiciosRealizados = notasTexto;
+        }
+
         private CobroCreateRequest NormalizeRequest(CobroCreateRequest request) =>
             new()
             {
                 FechaCobro = NormalizeCobroDateTime(request.FechaCobro),
                 NombreCliente = CollapseWhitespace(request.NombreCliente),
+                ClienteId = request.ClienteId.HasValue && request.ClienteId.Value > 0
+                    ? request.ClienteId
+                    : null,
                 FuncionarioId = request.FuncionarioId,
                 ServicioId = request.ServicioId,
                 ProductoId = request.ProductoId,
@@ -413,7 +446,11 @@ namespace LuxuryApp.Services.Finanzas
                     : request.MetodoPago.Trim().ToUpperInvariant(),
                 Observaciones = string.IsNullOrWhiteSpace(request.Observaciones)
                     ? null
-                    : request.Observaciones.Trim()
+                    : request.Observaciones.Trim(),
+                ActualizarNotasServicio = request.ActualizarNotasServicio,
+                NotasServicioTexto = string.IsNullOrWhiteSpace(request.NotasServicioTexto)
+                    ? null
+                    : request.NotasServicioTexto.Trim()
             };
 
         private CobroUpdateRequest NormalizeRequest(CobroUpdateRequest request) =>
@@ -422,6 +459,9 @@ namespace LuxuryApp.Services.Finanzas
                 IdCobro = request.IdCobro,
                 FechaCobro = NormalizeCobroDateTime(request.FechaCobro),
                 NombreCliente = CollapseWhitespace(request.NombreCliente),
+                ClienteId = request.ClienteId.HasValue && request.ClienteId.Value > 0
+                    ? request.ClienteId
+                    : null,
                 FuncionarioId = request.FuncionarioId,
                 ServicioId = request.ServicioId,
                 Monto = Math.Round(request.Monto, 2, MidpointRounding.AwayFromZero),

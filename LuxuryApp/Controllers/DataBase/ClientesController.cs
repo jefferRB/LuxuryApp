@@ -33,12 +33,7 @@ namespace LuxuryApp.Controllers.DataBase
                 FechaUltimaVisita = cliente.FechaUltimaVisita
             };
 
-        private static readonly Expression<Func<ClienteVisitas, ClienteVisitaItemViewModel>> ClienteVisitaProjection = visita =>
-            new ClienteVisitaItemViewModel
-            {
-                Id = visita.Id,
-                FechaVisita = visita.FechaVisita
-            };
+        private const int HistorialCitasMaxRows = 100;
 
         private readonly ApplicationDbContext _context;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
@@ -232,16 +227,49 @@ namespace LuxuryApp.Controllers.DataBase
             {
                 var cliente = clientes[0];
 
-                var historial = await _context.ClienteVisitas
+                var historialCitas = await _context.Citas
                     .AsNoTracking()
-                    .Where(v => v.ClienteId == cliente.Id)
-                    .OrderByDescending(v => v.FechaVisita)
-                    .Select(ClienteVisitaProjection)
+                    .Where(c => c.ClienteId == cliente.Id)
+                    .OrderByDescending(c => c.FechaHoraCita)
+                    .Take(HistorialCitasMaxRows)
+                    .Select(c => new CitaVisitaItemViewModel
+                    {
+                        Id = c.Id,
+                        FechaHoraCita = c.FechaHoraCita,
+                        NombreServicio = c.Servicio != null ? c.Servicio.Nombre : null,
+                        NombreFuncionario = c.Funcionario != null ? c.Funcionario.Nombre : null
+                    })
+                    .ToListAsync();
+
+                var notasServicio = await _context.Clientes
+                    .AsNoTracking()
+                    .Where(c => c.Id == cliente.Id)
+                    .Select(c => c.DescripcionServiciosRealizados)
+                    .FirstOrDefaultAsync();
+
+                var historialPagos = await _context.Cobros
+                    .AsNoTracking()
+                    .Where(c => c.ClienteId == cliente.Id)
+                    .OrderByDescending(c => c.FechaCobro)
+                    .Select(c => new CobroClienteHistorialItemViewModel
+                    {
+                        IdCobro = c.IdCobro,
+                        FechaCobro = c.FechaCobro,
+                        Detalle = c.ServicioId != null
+                            ? (c.Servicio != null ? c.Servicio.Nombre : "Servicio")
+                            : (c.Producto != null ? c.Producto.NombreProducto : "Producto"),
+                        NombreFuncionario = c.Funcionario != null ? c.Funcionario.Nombre : null,
+                        MetodoPago = c.MetodoPago,
+                        Monto = c.Monto,
+                        EsServicio = c.ServicioId != null
+                    })
                     .ToListAsync();
 
                 model.ClienteSeleccionado = cliente;
-                model.TotalVisitas = historial.Count;
-                model.HistorialVisitas = historial;
+                model.TotalVisitas = historialCitas.Count;
+                model.HistorialVisitas = historialCitas;
+                model.NotasServicio = notasServicio;
+                model.HistorialPagos = historialPagos;
             }
 
             return View(model);
@@ -652,6 +680,23 @@ namespace LuxuryApp.Controllers.DataBase
                 .ToListAsync();
 
             return Ok(clientes);
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> ObtenerNotasServicio(int clienteId)
+        {
+            if (clienteId <= 0)
+            {
+                return Ok(new { descripcion = (string?)null });
+            }
+
+            var descripcion = await _context.Clientes
+                .AsNoTracking()
+                .Where(c => c.Id == clienteId)
+                .Select(c => c.DescripcionServiciosRealizados)
+                .FirstOrDefaultAsync();
+
+            return Ok(new { descripcion });
         }
 
         private async Task ValidateTelefonoDisponibleAsync(string numeroTelefono, int? clienteIdActual = null)

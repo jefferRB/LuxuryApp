@@ -15,6 +15,7 @@
         <form asp-action="Edit" asp-route-id="@Model.Cobro.IdCobro" method="post">
             @Html.AntiForgeryToken()
             <input asp-for="Cobro.IdCobro" type="hidden" />
+            <input asp-for="Cobro.ClienteId" type="hidden" />
             @if (esProducto)
             {
                 <input asp-for="Cobro.ProductoId" type="hidden" />

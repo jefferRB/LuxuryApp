@@ -1,6 +1,7 @@
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Payments;
 using LuxuryApp.Services.SaaS;
+using LuxuryApp.Services.Tenant;
 using LuxuryApp.Services.Tilopay;
 using LuxuryApp.Tests.Support;
 using Microsoft.AspNetCore.WebUtilities;
@@ -2774,6 +2775,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 context,
                 new PaymentProviderResolver(provider is null ? Array.Empty<IPaymentProvider>() : new[] { provider }),
                 CreateSubscriptionService(context, repeatOptions),
+                new TenantExecutionContextAccessor(),
                 Options.Create(new OpcionesPago
                 {
                     ProveedorPredeterminado = PaymentProviderType.Tilopay

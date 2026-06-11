@@ -85,6 +85,8 @@ namespace LuxuryApp.Services.Informacion
                     Name = group.Key,
                     Total = group.Count()
                 })
+                .OrderByDescending(x => x.Total)
+                .ThenBy(x => x.Name)
                 .ToListAsync(cancellationToken);
 
             var funcionariosMes = await citasMes
@@ -101,6 +103,19 @@ namespace LuxuryApp.Services.Informacion
             var citasAnuales = await citas
                 .Where(c => c.FechaHoraCita >= selection.YearStart && c.FechaHoraCita < selection.YearEnd)
                 .GroupBy(c => c.FechaHoraCita.Month)
+                .Select(group => new CountByMonthProjection
+                {
+                    Month = group.Key,
+                    Total = group.Count()
+                })
+                .ToListAsync(cancellationToken);
+
+            var cobrosAnuales = await _context.Cobros
+                .AsNoTracking()
+                .Where(c => c.ProductoId != null
+                         && c.FechaCobro >= selection.YearStart
+                         && c.FechaCobro < selection.YearEnd)
+                .GroupBy(c => c.FechaCobro.Month)
                 .Select(group => new CountByMonthProjection
                 {
                     Month = group.Key,
@@ -139,7 +154,14 @@ namespace LuxuryApp.Services.Informacion
                 FuncionariosCitas = funcionariosMes.Select(x => x.Total).ToList(),
                 ServiciosNombres = serviciosMes.Select(x => x.Name).ToList(),
                 ServiciosCantidad = serviciosMes.Select(x => x.Total).ToList(),
-                CitasPorMes = ComposeYearSeries(citasAnuales)
+                ProductosVendidosNombres = productosMes
+                    .Select(x => string.IsNullOrEmpty(x.Name) ? "Producto sin nombre" : x.Name)
+                    .ToList(),
+                ProductosVendidosCantidad = productosMes.Select(x => x.Total).ToList(),
+                CitasPorMes = ComposeYearSeries(citasAnuales),
+                ProductosVendidosPorMes = ComposeYearSeries(cobrosAnuales),
+                CantidadServiciosMes = serviciosMes.Sum(x => x.Total),
+                CantidadProductosMes = productosMes.Sum(x => x.Total)
             };
 
             ApplyHistoricalMonthExtremes(vm, citasPorMesHistorico);

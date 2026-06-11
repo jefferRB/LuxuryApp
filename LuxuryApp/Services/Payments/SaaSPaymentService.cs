@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.SaaS;
+using LuxuryApp.Services.Tenant;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
@@ -18,6 +19,7 @@ namespace LuxuryApp.Services.Payments
         private readonly ApplicationDbContext _db;
         private readonly PaymentProviderResolver _providerResolver;
         private readonly SuscripcionService _suscripcionService;
+        private readonly ITenantExecutionContextAccessor _tenantExecutionContextAccessor;
         private readonly ILogger<SaaSPaymentService> _logger;
         private readonly OpcionesPago _paymentOptions;
         private readonly OpcionesTilopay _tilopayOptions;
@@ -28,6 +30,7 @@ namespace LuxuryApp.Services.Payments
             ApplicationDbContext db,
             PaymentProviderResolver providerResolver,
             SuscripcionService suscripcionService,
+            ITenantExecutionContextAccessor tenantExecutionContextAccessor,
             IOptions<OpcionesPago> paymentOptions,
             IOptions<OpcionesTilopay> tilopayOptions,
             IOptions<TilopayRepeatOptions> tilopayRepeatOptions,
@@ -37,6 +40,7 @@ namespace LuxuryApp.Services.Payments
             _db = db;
             _providerResolver = providerResolver;
             _suscripcionService = suscripcionService;
+            _tenantExecutionContextAccessor = tenantExecutionContextAccessor;
             _logger = logger;
             _paymentOptions = paymentOptions.Value;
             _tilopayOptions = tilopayOptions.Value;
@@ -394,6 +398,11 @@ namespace LuxuryApp.Services.Payments
                 .Include(payment => payment.Plan)
                 .FirstOrDefaultAsync(payment => payment.Id == request.PaymentId, cancellationToken)
                 ?? throw new InvalidOperationException("No existe el pending recurrente solicitado.");
+
+            // Establecer tenant scope para que SESSION_CONTEXT quede correcto en SQL Server.
+            // Es crítico para que el BLOCK PREDICATE de TenantWhatsAppSettings permita INSERT/UPDATE
+            // cuando este método se invoca desde un webhook (sin usuario autenticado).
+            using var tenantScope = _tenantExecutionContextAccessor.BeginScope(intento.TenantId);
 
             if (intento.Proveedor != PaymentProviderType.Tilopay)
             {
@@ -1377,13 +1386,21 @@ namespace LuxuryApp.Services.Payments
             }
             catch (Exception ex)
             {
+                // Desconectar entidades que no se pudieron guardar para que no bloqueen
+                // el intento de persistir el estado de error del evento.
+                foreach (var entry in _db.ChangeTracker.Entries().ToList())
+                {
+                    if (!ReferenceEquals(entry.Entity, evento))
+                        entry.State = EntityState.Detached;
+                }
+
                 evento.EstadoProcesamiento = "Error";
                 evento.Error = Trim(ex.Message, 500);
                 evento.FechaProcesamientoUtc = DateTime.UtcNow;
 
                 try
                 {
-                    await _db.SaveChangesAsync(cancellationToken);
+                    await _db.SaveChangesAsync(CancellationToken.None);
                 }
                 catch (Exception persistEx)
                 {

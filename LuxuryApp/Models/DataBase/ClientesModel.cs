@@ -51,6 +51,8 @@ namespace LuxuryApp.Models.DataBase
 
         public ICollection<Cita> Citas { get; set; } = new List<Cita>();
 
+        public ICollection<ClienteServicioRealizado> ServiciosRealizados { get; set; } = new List<ClienteServicioRealizado>();
+
         [NotMapped]
         public DateTime ProximaVisita => FechaUltimaVisita.AddDays(FrecuenciaVisita);
     }

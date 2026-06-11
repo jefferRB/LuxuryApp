@@ -3,6 +3,7 @@ using LuxuryApp.Controllers.Platform;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Payments;
+using LuxuryApp.Services.Tenant;
 using LuxuryApp.Tests.Support;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
@@ -111,6 +112,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                     new FixedBusinessDateTimeProvider(),
                     Options.Create(repeatOptions),
                     NullLogger<LuxuryApp.Services.SaaS.SuscripcionService>.Instance),
+                new TenantExecutionContextAccessor(),
                 Options.Create(new OpcionesPago
                 {
                     ProveedorPredeterminado = PaymentProviderType.Tilopay

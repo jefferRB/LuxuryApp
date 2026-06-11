@@ -1,6 +1,7 @@
 using ClosedXML.Excel;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Services.BusinessTime;
+using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.Finanzas;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -47,7 +48,9 @@ namespace LuxuryApp.Controllers.Finanzas
 
             try
             {
-                await _cobroService.RegistrarAsync(MapRequest(vm.Cobro));
+                var actualizarNotas = ContractAcceptanceBindingHelper.IsAccepted(Request.Form, "ActualizarNotasServicio");
+                var notasTexto = Request.Form["NotasServicioTexto"].FirstOrDefault();
+                await _cobroService.RegistrarAsync(MapRequest(vm.Cobro, actualizarNotas, notasTexto));
                 TempData["Mensaje"] = "Cobro registrado correctamente.";
                 return RedirectToAction(nameof(Index));
             }
@@ -307,17 +310,20 @@ namespace LuxuryApp.Controllers.Finanzas
                 $"LuxeReporteCobros_{generatedAt:yyyyMMdd_HHmm}.xlsx");
         }
 
-        private static CobroCreateRequest MapRequest(Cobro cobro) =>
+        private static CobroCreateRequest MapRequest(Cobro cobro, bool actualizarNotas, string? notasTexto) =>
             new()
             {
                 FechaCobro = cobro.FechaCobro,
                 NombreCliente = cobro.NombreCliente,
+                ClienteId = cobro.ClienteId,
                 FuncionarioId = cobro.FuncionarioId,
                 ServicioId = cobro.ServicioId,
                 ProductoId = cobro.ProductoId,
                 Monto = cobro.Monto,
                 MetodoPago = cobro.MetodoPago,
-                Observaciones = cobro.Observaciones
+                Observaciones = cobro.Observaciones,
+                ActualizarNotasServicio = actualizarNotas,
+                NotasServicioTexto = notasTexto
             };
 
         private static CobroUpdateRequest MapUpdateRequest(Cobro cobro) =>
@@ -326,6 +332,7 @@ namespace LuxuryApp.Controllers.Finanzas
                 IdCobro = cobro.IdCobro,
                 FechaCobro = cobro.FechaCobro,
                 NombreCliente = cobro.NombreCliente,
+                ClienteId = cobro.ClienteId,
                 FuncionarioId = cobro.FuncionarioId,
                 ServicioId = cobro.ServicioId,
                 Monto = cobro.Monto,

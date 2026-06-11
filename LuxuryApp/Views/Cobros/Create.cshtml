@@ -22,13 +22,25 @@
 
             <div class="mb-3">
                 <label asp-for="Cobro.NombreCliente" class="form-label"></label>
-                <input asp-for="Cobro.NombreCliente" class="form-control" placeholder="Nombre del cliente" />
+                <div class="cliente-autocomplete-wrapper" id="cobro-cliente-wrapper">
+                    <input asp-for="Cobro.NombreCliente"
+                           id="cobro-cliente-nombre"
+                           class="form-control"
+                           placeholder="Nombre del cliente (escribe para buscar registrados)"
+                           autocomplete="off" />
+                    <input asp-for="Cobro.ClienteId"
+                           id="Cobro_ClienteId"
+                           type="hidden" />
+                    <div class="cliente-autocomplete-dropdown d-none"
+                         id="cobro-cliente-dropdown"
+                         role="listbox"></div>
+                </div>
                 <span asp-validation-for="Cobro.NombreCliente" class="text-danger"></span>
             </div>
 
             <div class="mb-3">
                 <label asp-for="Cobro.FuncionarioId" class="form-label"></label>
-                <select asp-for="Cobro.FuncionarioId" class="form-select" asp-items="Model.Funcionarios">
+                <select asp-for="Cobro.FuncionarioId" id="cobro-funcionario-select" class="form-select" asp-items="Model.Funcionarios">
                     <option value="">Seleccione Funcionario</option>
                 </select>
             </div>
@@ -85,6 +97,32 @@
                 </select>
             </div>
 
+            <div class="mb-3 card border-0 bg-dark bg-opacity-10 p-3 rounded" id="historial-servicios-section" style="display:none">
+                <div class="form-check">
+                    <input type="checkbox"
+                           id="ActualizarNotasServicio"
+                           name="ActualizarNotasServicio"
+                           class="form-check-input"
+                           value="true" />
+                    <input type="hidden" name="ActualizarNotasServicio" value="false" />
+                    <label class="form-check-label fw-semibold" for="ActualizarNotasServicio">
+                        <i class="fas fa-clipboard-list me-1"></i>Actualizar notas de servicio del cliente
+                    </label>
+                </div>
+                <small class="text-muted mt-1 d-block">
+                    Actualiza las notas de servicio en el perfil del cliente vinculado a este cobro.
+                </small>
+                <div id="notas-servicio-container" class="mt-3" style="display:none">
+                    <label class="form-label fw-semibold">Notas de Servicio</label>
+                    <textarea id="NotasServicioTexto"
+                              name="NotasServicioTexto"
+                              class="form-control"
+                              rows="4"
+                              placeholder="Ingrese las notas de servicio..."></textarea>
+                    <small class="text-muted">Este texto reemplazará las notas actuales del cliente.</small>
+                </div>
+            </div>
+
             <button type="submit" class="btn btn-dark">
                 <i class="fas fa-save me-1"></i>Guardar Cobro
             </button>
@@ -95,3 +133,203 @@
         </form>
     </div>
 </div>
+
+@section Scripts {
+<script>
+(function () {
+    'use strict';
+
+    var DEBOUNCE_MS = 300;
+    var MIN_LENGTH = 3;
+
+    var wrapper        = document.getElementById('cobro-cliente-wrapper');
+    var input          = document.getElementById('cobro-cliente-nombre');
+    var hiddenId       = document.getElementById('Cobro_ClienteId');
+    var dropdown       = document.getElementById('cobro-cliente-dropdown');
+    var tipoSelect     = document.getElementById('TipoItem');
+    var servicioSel    = document.getElementById('ServicioId');
+    var funcSel        = document.getElementById('cobro-funcionario-select');
+    var histSection    = document.getElementById('historial-servicios-section');
+    var histCheck      = document.getElementById('ActualizarNotasServicio');
+    var notasContainer = document.getElementById('notas-servicio-container');
+    var notasTextarea  = document.getElementById('NotasServicioTexto');
+
+    if (!input || !hiddenId || !dropdown) return;
+
+    var debounceTimer = null;
+    var abortController = null;
+    var cachedNotas = null;
+
+    /* ── autocomplete ────────────────────────────────────── */
+
+    function showDropdown() { dropdown.classList.remove('d-none'); }
+    function hideDropdown() { dropdown.classList.add('d-none'); dropdown.innerHTML = ''; }
+
+    function clearClienteId() {
+        hiddenId.value = '';
+        cachedNotas = null;
+        updateHistorialSection();
+    }
+
+    function setCliente(id, nombre) {
+        input.value = nombre;
+        hiddenId.value = id;
+        hideDropdown();
+        fetchNotasCliente(id);
+        updateHistorialSection();
+    }
+
+    async function fetchNotasCliente(clienteId) {
+        cachedNotas = null;
+        try {
+            var resp = await fetch('/Clientes/ObtenerNotasServicio?clienteId=' + encodeURIComponent(clienteId));
+            if (!resp.ok) return;
+            var data = await resp.json();
+            cachedNotas = data.descripcion || '';
+        } catch (e) {
+            console.warn('[CobrosNotas]', e);
+        }
+    }
+
+    function buildItem(cliente) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'cliente-autocomplete-item';
+        btn.setAttribute('role', 'option');
+
+        var name = document.createElement('span');
+        name.className = 'cliente-autocomplete-name';
+        name.textContent = cliente.nombre || 'Cliente';
+
+        var phone = document.createElement('span');
+        phone.className = 'cliente-autocomplete-phone';
+        phone.textContent = cliente.telefono || '';
+
+        btn.appendChild(name);
+        btn.appendChild(phone);
+
+        btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+        btn.addEventListener('click', function () { setCliente(String(cliente.id), cliente.nombre || ''); });
+
+        return btn;
+    }
+
+    function buildManualBtn() {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'cliente-autocomplete-manual';
+        btn.textContent = 'Escribir manualmente / ocultar sugerencias';
+
+        btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+        btn.addEventListener('click', function () {
+            clearClienteId();
+            hideDropdown();
+            input.focus();
+        });
+
+        return btn;
+    }
+
+    function renderResults(clientes) {
+        dropdown.innerHTML = '';
+
+        if (!clientes.length) {
+            var empty = document.createElement('div');
+            empty.className = 'cliente-autocomplete-empty';
+            empty.textContent = 'Sin coincidencias';
+            dropdown.appendChild(empty);
+        } else {
+            clientes.forEach(function (c) { dropdown.appendChild(buildItem(c)); });
+        }
+
+        dropdown.appendChild(buildManualBtn());
+        showDropdown();
+    }
+
+    async function fetchSuggestions(term) {
+        if (abortController) abortController.abort();
+        abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+
+        try {
+            var resp = await fetch('/Clientes/Autocompletado?term=' + encodeURIComponent(term),
+                { signal: abortController ? abortController.signal : undefined });
+
+            if (!resp.ok) return;
+            var data = await resp.json();
+
+            if (input.value.trim() === term) {
+                renderResults(data);
+            }
+        } catch (e) {
+            if (e && e.name !== 'AbortError') {
+                console.warn('[CobrosAutocomplete]', e);
+            }
+        }
+    }
+
+    input.addEventListener('input', function () {
+        var term = input.value.trim();
+
+        clearClienteId();
+
+        clearTimeout(debounceTimer);
+        hideDropdown();
+
+        if (term.length < MIN_LENGTH) return;
+
+        debounceTimer = setTimeout(function () { fetchSuggestions(term); }, DEBOUNCE_MS);
+    });
+
+    input.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { hideDropdown(); }
+    });
+
+    input.addEventListener('blur', function () {
+        setTimeout(function () {
+            if (!wrapper.contains(document.activeElement)) {
+                hideDropdown();
+            }
+        }, 150);
+    });
+
+    /* ── notas section ───────────────────────────────────── */
+
+    function updateHistorialSection() {
+        if (!histSection || !histCheck) return;
+
+        var tieneCliente  = hiddenId.value !== '';
+        var esServicio    = tipoSelect && tipoSelect.value === 'servicio';
+        var tieneServicio = servicioSel && servicioSel.value !== '';
+        var tieneFuncion  = funcSel && funcSel.value !== '';
+        var mostrar       = tieneCliente && esServicio && tieneServicio && tieneFuncion;
+
+        histSection.style.display = mostrar ? '' : 'none';
+
+        if (!mostrar) {
+            histCheck.checked = false;
+            if (notasContainer) notasContainer.style.display = 'none';
+        }
+    }
+
+    if (histCheck) {
+        histCheck.addEventListener('change', function () {
+            if (!notasContainer || !notasTextarea) return;
+            if (histCheck.checked) {
+                notasContainer.style.display = '';
+                if (notasTextarea.value === '' && cachedNotas !== null) {
+                    notasTextarea.value = cachedNotas;
+                }
+            } else {
+                notasContainer.style.display = 'none';
+            }
+        });
+    }
+
+    if (tipoSelect)  tipoSelect.addEventListener('change',  updateHistorialSection);
+    if (servicioSel) servicioSel.addEventListener('change', updateHistorialSection);
+    if (funcSel)     funcSel.addEventListener('change',     updateHistorialSection);
+
+    updateHistorialSection();
+}());
+</script>
+}

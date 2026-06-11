@@ -31,6 +31,9 @@
         public List<string> ServiciosNombres { get; set; } = new();
         public List<int> ServiciosCantidad { get; set; } = new();
 
+        public List<string> ProductosVendidosNombres { get; set; } = new();
+        public List<int> ProductosVendidosCantidad { get; set; } = new();
+
         public string ProductoMasVendido { get; set; } = string.Empty;
         public int TotalProductoMasVendido { get; set; }
         public string ProductoMenosVendido { get; set; } = string.Empty;
@@ -39,11 +42,14 @@
         public string FuncionarioMasCitas { get; set; } = string.Empty;
         public int TotalFuncionarioCitas { get; set; }
 
-        
+        // KPIs mensuales calculados
+        public int CantidadServiciosMes { get; set; }
+        public int CantidadProductosMes { get; set; }
 
         // GRAFICOS
 
         public List<int> CitasPorMes { get; set; } = new();
+        public List<int> ProductosVendidosPorMes { get; set; } = new();
 
         public List<string> SemanaDias { get; set; } = new();
         public List<int> SemanaCitas { get; set; } = new();

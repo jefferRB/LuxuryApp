@@ -107,6 +107,7 @@ namespace LuxuryApp.Services.Finanzas
                     IdCobro = c.IdCobro,
                     FechaCobro = c.FechaCobro,
                     NombreCliente = c.NombreCliente,
+                    ClienteId = c.ClienteId,
                     FuncionarioId = c.FuncionarioId,
                     ServicioId = c.ServicioId,
                     ProductoId = c.ProductoId,
