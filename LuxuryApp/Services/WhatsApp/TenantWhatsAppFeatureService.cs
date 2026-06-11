@@ -26,5 +26,17 @@ namespace LuxuryApp.Services.WhatsApp
                 _tenantProvider.GetTenantId(),
                 cancellationToken);
         }
+
+        public async Task<bool> HasWhatsAppAddonAsync(CancellationToken cancellationToken = default)
+        {
+            if (!_tenantProvider.HasTenant())
+            {
+                return false;
+            }
+
+            return await _tenantWhatsAppSettingsService.HasActiveWhatsAppAddonAsync(
+                _tenantProvider.GetTenantId(),
+                cancellationToken);
+        }
     }
 }

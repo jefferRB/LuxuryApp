@@ -102,6 +102,15 @@ namespace LuxuryApp.Services.WhatsApp
             return settings.IsEnabled;
         }
 
+        public async Task<bool> HasActiveWhatsAppAddonAsync(
+            Guid tenantId,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureCurrentTenant(tenantId);
+            var addon = await GetActiveAddonAsync(tenantId, cancellationToken);
+            return addon is not null;
+        }
+
         public async Task<TenantWhatsAppSendDecision> CanSendNotificationAsync(
             Guid tenantId,
             string notificationType,

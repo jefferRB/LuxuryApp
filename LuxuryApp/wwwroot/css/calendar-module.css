@@ -577,6 +577,40 @@ html[data-luxury-surface-theme="glass"] .day-agenda-panel {
 .wa-inbox-toast-success { background: linear-gradient(135deg, #16a34a, #15803d); }
 .wa-inbox-toast-error   { background: linear-gradient(135deg, #dc2626, #b91c1c); }
 
+/* ── TODAY APPOINTMENTS PANEL ──────────────────────────────── */
+.today-apt-subtitle {
+    margin: 0.2rem 0 0;
+    font-size: 0.78rem;
+    color: var(--private-muted-text);
+    line-height: 1.4;
+}
+
+.today-apt-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: 8px;
+    background: rgba(124, 58, 237, 0.16);
+    border: 1px solid rgba(124, 58, 237, 0.3);
+    color: #a78bfa;
+    font-size: 1rem;
+}
+
+html.surface-glass .today-apt-mark,
+html[data-luxury-surface-theme="glass"] .today-apt-mark {
+    background: rgba(91, 124, 255, 0.18);
+    border-color: rgba(139, 233, 255, 0.28);
+    color: #8be9ff;
+}
+
+.today-apt-empty-icon {
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.16), rgba(91, 124, 255, 0.16));
+    border-color: rgba(124, 58, 237, 0.24);
+    color: #a78bfa;
+}
+
 /* ── RESPONSIVE ────────────────────────────────────────────── */
 
 /* Tablet: stack workspace, KPIs auto-fit */

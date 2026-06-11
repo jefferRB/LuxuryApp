@@ -27,16 +27,30 @@ namespace LuxuryApp.Controllers.Calendar
 
         public async Task<IActionResult> Index(CancellationToken cancellationToken)
         {
+            var hasAddon = await _tenantWhatsAppFeatureService
+                .HasWhatsAppAddonAsync(cancellationToken);
+
             var whatsAppEnabled = await _tenantWhatsAppFeatureService
                 .IsWhatsAppEnabledForCurrentTenantAsync(cancellationToken);
 
-            // Se mantiene en ViewData por compatibilidad; la vista usa el modelo fuertemente tipado.
             ViewData[TenantWhatsAppEnabledViewDataKey] = whatsAppEnabled;
 
-            var stats = await _calendarQueryService.GetHeaderStatsAsync(cancellationToken);
+            // Tenants sin add-on solo necesitan el conteo simple; evita la query
+            // de agrupación por EstadoConfirmacionWhatsApp que es irrelevante para ellos.
+            CalendarHeaderStatsResponse stats;
+            if (hasAddon)
+            {
+                stats = await _calendarQueryService.GetHeaderStatsAsync(cancellationToken);
+            }
+            else
+            {
+                var citasHoy = await _calendarQueryService.GetCitasHoyCountAsync(cancellationToken);
+                stats = new CalendarHeaderStatsResponse { CitasHoy = citasHoy };
+            }
 
             return View(new CalendarIndexViewModel
             {
+                HasWhatsAppAddon = hasAddon,
                 TenantWhatsAppEnabled = whatsAppEnabled,
                 Stats = stats
             });

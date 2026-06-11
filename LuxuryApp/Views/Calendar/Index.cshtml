@@ -4,6 +4,7 @@
 @{
     ViewData["Title"] = "Calendario";
     var tenantWhatsAppEnabled = Model.TenantWhatsAppEnabled;
+    var hasWhatsAppAddon = Model.HasWhatsAppAddon;
 }
 
 @section Styles {
@@ -24,7 +25,16 @@
                 Gestión de Calendario
             </span>
             <h1 class="calendar-title">Calendario</h1>
-            <p class="calendar-subtitle">Administra tus citas, agenda y seguimiento por WhatsApp.</p>
+            <p class="calendar-subtitle">
+                @if (hasWhatsAppAddon)
+                {
+                    @:Administra tus citas, agenda y seguimiento por WhatsApp.
+                }
+                else
+                {
+                    @:Administra tus citas y agenda del negocio.
+                }
+            </p>
         </div>
 
         <div class="calendar-kpi-grid">
@@ -38,34 +48,37 @@
                 </div>
             </div>
 
-            <div class="calendar-kpi-card">
-                <div class="calendar-kpi-icon calendar-kpi-icon-amber">
-                    <i class="bi bi-clock-history"></i>
+            @if (hasWhatsAppAddon)
+            {
+                <div class="calendar-kpi-card">
+                    <div class="calendar-kpi-icon calendar-kpi-icon-amber">
+                        <i class="bi bi-clock-history"></i>
+                    </div>
+                    <div class="calendar-kpi-body">
+                        <span class="calendar-kpi-label">Pendientes de confirmar</span>
+                        <span class="calendar-kpi-value calendar-kpi-value-amber">@Model.Stats.PendientesConfirmar</span>
+                        <span class="calendar-kpi-hint text-muted">Requieren acción</span>
+                    </div>
                 </div>
-                <div class="calendar-kpi-body">
-                    <span class="calendar-kpi-label">Pendientes de confirmar</span>
-                    <span class="calendar-kpi-value calendar-kpi-value-amber">@Model.Stats.PendientesConfirmar</span>
-                    <span class="calendar-kpi-hint text-muted">Requieren acción</span>
-                </div>
-            </div>
 
-            <div class="calendar-kpi-card">
-                <div class="calendar-kpi-icon calendar-kpi-icon-green">
-                    <i class="bi bi-check2-circle"></i>
+                <div class="calendar-kpi-card">
+                    <div class="calendar-kpi-icon calendar-kpi-icon-green">
+                        <i class="bi bi-check2-circle"></i>
+                    </div>
+                    <div class="calendar-kpi-body">
+                        <span class="calendar-kpi-label">Confirmadas</span>
+                        <span class="calendar-kpi-value calendar-kpi-value-green">@Model.Stats.Confirmadas</span>
+                        <span class="calendar-kpi-hint text-muted">Próximas citas</span>
+                    </div>
                 </div>
-                <div class="calendar-kpi-body">
-                    <span class="calendar-kpi-label">Confirmadas</span>
-                    <span class="calendar-kpi-value calendar-kpi-value-green">@Model.Stats.Confirmadas</span>
-                    <span class="calendar-kpi-hint text-muted">Próximas citas</span>
-                </div>
-            </div>
+            }
         </div>
     </div>
 
     @* ── WORKSPACE ──────────────────────────────────────── *@
     <div class="calendar-workspace">
 
-        @* LEFT: controls + calendar grid *@
+        @* LEFT: controls + calendar grid (+ agenda del día solo con WhatsApp) *@
         <div class="calendar-panel calendar-panel-left">
 
             <div class="calendar-controls">
@@ -114,60 +127,126 @@
                 @* El calendario se renderiza con JS *@
             </div>
 
-            @* ── AGENDA DEL DÍA ─────────────────────────── *@
-            <div class="day-agenda-panel">
-                <div class="day-agenda-header">
-                    <div>
-                        <h3 class="day-agenda-title" id="dayAgendaTitle">Agenda del día</h3>
-                        <span class="day-agenda-count" id="dayAgendaCount">0 citas programadas</span>
+            @* ── AGENDA DEL DÍA — solo para tenants con WhatsApp ─── *@
+            @if (hasWhatsAppAddon)
+            {
+                <div class="day-agenda-panel">
+                    <div class="day-agenda-header">
+                        <div>
+                            <h3 class="day-agenda-title" id="dayAgendaTitle">Agenda del día</h3>
+                            <span class="day-agenda-count" id="dayAgendaCount">0 citas programadas</span>
+                        </div>
                     </div>
-                </div>
 
-                <div class="whatsapp-inbox-empty d-none" id="dayAgendaEmpty">
-                    <div class="whatsapp-inbox-empty-icon"><i class="bi bi-calendar-x"></i></div>
-                    <div style="font-weight:700;color:var(--private-surface-text)">Sin citas</div>
-                    <div style="font-size:.82rem">No hay citas programadas para este día.</div>
-                </div>
+                    <div class="whatsapp-inbox-empty d-none" id="dayAgendaEmpty">
+                        <div class="whatsapp-inbox-empty-icon"><i class="bi bi-calendar-x"></i></div>
+                        <div style="font-weight:700;color:var(--private-surface-text)">Sin citas</div>
+                        <div style="font-size:.82rem">No hay citas programadas para este día.</div>
+                    </div>
 
-                <div style="overflow-x:auto">
-                    <table class="day-agenda-table">
-                        <thead>
-                            <tr>
-                                <th>Hora</th>
-                                <th>Cliente</th>
-                                <th>Servicio</th>
-                                <th>Funcionario</th>
-                                <th>Estado</th>
-                                <th>WhatsApp</th>
-                            </tr>
-                        </thead>
-                        <tbody id="dayAgendaTableBody"></tbody>
-                    </table>
-                </div>
+                    <div style="overflow-x:auto">
+                        <table class="day-agenda-table">
+                            <thead>
+                                <tr>
+                                    <th>Hora</th>
+                                    <th>Cliente</th>
+                                    <th>Servicio</th>
+                                    <th>Funcionario</th>
+                                    <th>Estado</th>
+                                    <th>WhatsApp</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dayAgendaTableBody"></tbody>
+                        </table>
+                    </div>
 
-                <div class="day-agenda-mobile-list" id="dayAgendaMobileList"></div>
-            </div>
+                    <div class="day-agenda-mobile-list" id="dayAgendaMobileList"></div>
+                </div>
+            }
 
         </div>
 
-        @* RIGHT: WhatsApp inbox / agenda list *@
+        @* RIGHT: WhatsApp inbox o Citas de hoy *@
         <div class="calendar-panel calendar-panel-right">
-            <div class="whatsapp-inbox-panel">
+            @if (hasWhatsAppAddon)
+            {
+                @* ── PANEL BANDEJA WHATSAPP ── *@
+                <div class="whatsapp-inbox-panel">
 
-                <div class="whatsapp-inbox-header">
-                    <h2 class="whatsapp-inbox-title">
-                        <span class="wa-mark"><i class="bi bi-whatsapp"></i></span>
-                        Bandeja WhatsApp
-                    </h2>
-                    <div class="whatsapp-inbox-toolbar">
-                        <select id="statusFiltro" class="whatsapp-inbox-filter">
-                            <option value="">Todos los estados</option>
-                            <option value="enviados">Enviados</option>
-                            <option value="confirmados">Confirmados</option>
-                            <option value="pendientes">Pendientes</option>
-                            <option value="fallidos">No entregados</option>
-                            <option value="cancelados">Cancelados</option>
+                    <div class="whatsapp-inbox-header">
+                        <h2 class="whatsapp-inbox-title">
+                            <span class="wa-mark"><i class="bi bi-whatsapp"></i></span>
+                            Bandeja WhatsApp
+                        </h2>
+                        <div class="whatsapp-inbox-toolbar">
+                            <select id="statusFiltro" class="whatsapp-inbox-filter">
+                                <option value="">Todos los estados</option>
+                                <option value="enviados">Enviados</option>
+                                <option value="confirmados">Confirmados</option>
+                                <option value="pendientes">Pendientes</option>
+                                <option value="fallidos">No entregados</option>
+                                <option value="cancelados">Cancelados</option>
+                            </select>
+                            <button id="toggleTareasBtn"
+                                    class="action-icon-button"
+                                    onclick="toggleTareas()"
+                                    title="Ocultar / mostrar lista">
+                                Ocultar
+                            </button>
+                        </div>
+                    </div>
+
+                    @* Filtro por funcionario (lo llena calendar.js) *@
+                    <div style="padding:0.75rem 1.25rem 0;">
+                        <select id="funcionarioFiltro" class="whatsapp-inbox-filter" style="max-width:100%;width:100%;">
+                            <option value="">Todos los funcionarios</option>
                         </select>
+                    </div>
+
+                    @if (!tenantWhatsAppEnabled)
+                    {
+                        <div class="whatsapp-inbox-notice">
+                            <i class="bi bi-exclamation-triangle"></i>
+                            <span>WhatsApp no está configurado para este negocio. Las acciones de envío están deshabilitadas.</span>
+                        </div>
+                    }
+
+                    <div class="whatsapp-status-grid">
+                        <div class="whatsapp-status-card">
+                            <span class="whatsapp-status-card-label">Enviados</span>
+                            <span class="whatsapp-status-card-value whatsapp-status-value-sent" id="waInboxEnviados">0</span>
+                        </div>
+                        <div class="whatsapp-status-card">
+                            <span class="whatsapp-status-card-label">Confirmados</span>
+                            <span class="whatsapp-status-card-value whatsapp-status-value-confirmed" id="waInboxConfirmados">0</span>
+                        </div>
+                        <div class="whatsapp-status-card">
+                            <span class="whatsapp-status-card-label">Pendientes</span>
+                            <span class="whatsapp-status-card-value whatsapp-status-value-pending" id="waInboxPendientes">0</span>
+                        </div>
+                    </div>
+
+                    <div id="tareasContainer">
+                        <ul id="listaTareas" class="whatsapp-thread-list list-group">
+                            @* Se llena por JS (whatsapp-inbox.js) *@
+                        </ul>
+                    </div>
+
+                </div>
+            }
+            else
+            {
+                @* ── PANEL CITAS DE HOY (sin add-on WhatsApp) ── *@
+                <div class="whatsapp-inbox-panel">
+
+                    <div class="whatsapp-inbox-header">
+                        <div>
+                            <h2 class="whatsapp-inbox-title">
+                                <span class="today-apt-mark"><i class="bi bi-calendar-check"></i></span>
+                                Citas de hoy
+                            </h2>
+                            <p class="today-apt-subtitle">Clientes agendados para hoy.</p>
+                        </div>
                         <button id="toggleTareasBtn"
                                 class="action-icon-button"
                                 onclick="toggleTareas()"
@@ -175,45 +254,22 @@
                             Ocultar
                         </button>
                     </div>
-                </div>
 
-                @* Filtro por funcionario (lo llena calendar.js) *@
-                <div style="padding:0.75rem 1.25rem 0;">
-                    <select id="funcionarioFiltro" class="whatsapp-inbox-filter" style="max-width:100%;width:100%;">
-                        <option value="">Todos los funcionarios</option>
-                    </select>
-                </div>
-
-                @if (!tenantWhatsAppEnabled)
-                {
-                    <div class="whatsapp-inbox-notice">
-                        <i class="bi bi-exclamation-triangle"></i>
-                        <span>WhatsApp no está configurado para este negocio. Las acciones de envío están deshabilitadas.</span>
+                    @* Filtro por funcionario (lo llena calendar.js) *@
+                    <div style="padding:0.75rem 1.25rem 0;">
+                        <select id="funcionarioFiltro" class="whatsapp-inbox-filter" style="max-width:100%;width:100%;">
+                            <option value="">Todos los funcionarios</option>
+                        </select>
                     </div>
-                }
 
-                <div class="whatsapp-status-grid">
-                    <div class="whatsapp-status-card">
-                        <span class="whatsapp-status-card-label">Enviados</span>
-                        <span class="whatsapp-status-card-value whatsapp-status-value-sent" id="waInboxEnviados">0</span>
+                    <div id="tareasContainer">
+                        <ul id="listaTareas" class="whatsapp-thread-list list-group">
+                            @* Se llena por JS (appointments-panel.js) *@
+                        </ul>
                     </div>
-                    <div class="whatsapp-status-card">
-                        <span class="whatsapp-status-card-label">Confirmados</span>
-                        <span class="whatsapp-status-card-value whatsapp-status-value-confirmed" id="waInboxConfirmados">0</span>
-                    </div>
-                    <div class="whatsapp-status-card">
-                        <span class="whatsapp-status-card-label">Pendientes</span>
-                        <span class="whatsapp-status-card-value whatsapp-status-value-pending" id="waInboxPendientes">0</span>
-                    </div>
+
                 </div>
-
-                <div id="tareasContainer">
-                    <ul id="listaTareas" class="whatsapp-thread-list list-group">
-                        @* Se llena por JS (loadUpcomingAppointments) *@
-                    </ul>
-                </div>
-
-            </div>
+            }
         </div>
 
     </div>
@@ -427,29 +483,39 @@
     </div>
 </div>
 
-
-@* MODAL VER CHAT / HISTORIAL WHATSAPP *@
-<div class="modal fade" id="waChatModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="waChatModalTitle">Historial de WhatsApp</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body" id="waChatModalBody">
-                <div class="text-muted small">Cargando…</div>
+@* MODAL VER CHAT / HISTORIAL WHATSAPP — solo para tenants con add-on *@
+@if (hasWhatsAppAddon)
+{
+    <div class="modal fade" id="waChatModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="waChatModalTitle">Historial de WhatsApp</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="waChatModalBody">
+                    <div class="text-muted small">Cargando…</div>
+                </div>
             </div>
         </div>
     </div>
-</div>
+}
 
 
 @section Scripts {
     <script>
         window.LUXURY_CALENDAR_CONFIG = Object.assign({}, window.LUXURY_CALENDAR_CONFIG, {
-            tenantWhatsAppEnabled: @(tenantWhatsAppEnabled ? "true" : "false")
+            tenantWhatsAppEnabled: @(tenantWhatsAppEnabled ? "true" : "false"),
+            hasWhatsAppAddon: @(hasWhatsAppAddon ? "true" : "false")
         });
     </script>
     <script src="~/js/calendar.js"></script>
-    <script src="~/js/whatsapp-inbox.js"></script>
+    @if (hasWhatsAppAddon)
+    {
+        <script src="~/js/whatsapp-inbox.js"></script>
+    }
+    else
+    {
+        <script src="~/js/appointments-panel.js"></script>
+    }
 }

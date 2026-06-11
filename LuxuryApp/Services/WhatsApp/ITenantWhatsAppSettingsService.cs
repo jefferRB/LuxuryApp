@@ -26,6 +26,10 @@ namespace LuxuryApp.Services.WhatsApp
             Guid tenantId,
             CancellationToken cancellationToken = default);
 
+        Task<bool> HasActiveWhatsAppAddonAsync(
+            Guid tenantId,
+            CancellationToken cancellationToken = default);
+
         Task UpdateSettingsAsync(
             Guid tenantId,
             TenantWhatsAppSettingsUpdateDto dto,

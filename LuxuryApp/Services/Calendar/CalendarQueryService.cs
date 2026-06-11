@@ -286,6 +286,17 @@ namespace LuxuryApp.Services.Calendar
             };
         }
 
+        public async Task<int> GetCitasHoyCountAsync(CancellationToken cancellationToken = default)
+        {
+            var today = _businessDateTimeProvider.Today();
+            var tomorrow = today.AddDays(1);
+            return await _context.Citas
+                .AsNoTracking()
+                .CountAsync(
+                    c => c.Tipo == "CITA" && c.FechaHoraCita >= today && c.FechaHoraCita < tomorrow,
+                    cancellationToken);
+        }
+
         public async Task<CalendarHeaderStatsResponse> GetHeaderStatsAsync(CancellationToken cancellationToken = default)
         {
             // Las consultas quedan automáticamente filtradas por tenant gracias al

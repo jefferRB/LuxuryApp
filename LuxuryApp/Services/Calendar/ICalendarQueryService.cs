@@ -20,6 +20,8 @@ namespace LuxuryApp.Services.Calendar
 
         Task<CalendarAppointmentDetailsResponse?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
 
+        Task<int> GetCitasHoyCountAsync(CancellationToken cancellationToken = default);
+
         Task<CalendarHeaderStatsResponse> GetHeaderStatsAsync(CancellationToken cancellationToken = default);
     }
 }

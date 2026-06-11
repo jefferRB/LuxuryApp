@@ -35,6 +35,12 @@ namespace LuxuryApp.Controllers.WhatsApp
                 return BadRequest("La fecha solicitada no es valida.");
             }
 
+            var hasAddon = await _tenantWhatsAppFeatureService.HasWhatsAppAddonAsync(cancellationToken);
+            if (!hasAddon)
+            {
+                return Forbid();
+            }
+
             var whatsAppEnabled = await _tenantWhatsAppFeatureService
                 .IsWhatsAppEnabledForCurrentTenantAsync(cancellationToken);
 
@@ -48,6 +54,12 @@ namespace LuxuryApp.Controllers.WhatsApp
             if (citaId <= 0)
             {
                 return NotFound();
+            }
+
+            var hasAddon = await _tenantWhatsAppFeatureService.HasWhatsAppAddonAsync(cancellationToken);
+            if (!hasAddon)
+            {
+                return Forbid();
             }
 
             var logs = await _inboxService.GetCitaChatAsync(citaId, cancellationToken);
