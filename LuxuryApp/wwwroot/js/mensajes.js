@@ -22,6 +22,15 @@ function formatearDia(fecha) {
     return fechaMsg.toLocaleDateString();
 }
 
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
 const conversaciones = [
     {
         nombre: "Juan Pérez",
@@ -88,18 +97,20 @@ function cargarChats() {
 
     conversaciones.forEach((chat, index) => {
 
-        const inicial = chat.nombre.charAt(0);
+        const inicial = escapeHtml(chat.nombre.charAt(0));
         const noLeidos = contarNoLeidos(chat);
         const tieneNoLeidos = noLeidos > 0;
 
         const ultimoMensaje = chat.mensajes[chat.mensajes.length - 1];
+        const nombre = escapeHtml(chat.nombre);
+        const ultimoTexto = escapeHtml(ultimoMensaje.texto);
 
         contenedor.innerHTML += `
         <div class="chat-item ${tieneNoLeidos ? "chat-nuevo" : ""}" onclick="abrirChat(${index})">
             <div class="chat-avatar">${inicial}</div>
             <div>
-                <strong>${chat.nombre}</strong><br>
-                <small>${ultimoMensaje.texto}</small>
+                <strong>${nombre}</strong><br>
+                <small>${ultimoTexto}</small>
             </div>
                 ${noLeidos > 0 ? `<div class="badge-no-leidos">${noLeidos}</div>` : ""}
                 
@@ -114,7 +125,7 @@ function abrirChat(index) {
     marcarMensajesLeidos(chatActual);
 
     document.getElementById("chatHeader").innerHTML =
-        `<strong>${chatActual.nombre}</strong><br><small>${chatActual.telefono}</small>`;
+        `<strong>${escapeHtml(chatActual.nombre)}</strong><br><small>${escapeHtml(chatActual.telefono)}</small>`;
 
     ordenarConversaciones();
     cargarChats();
@@ -137,12 +148,16 @@ function renderMensajes() {
     chatActual.mensajes.forEach((msg, index) => {
 
         const dia = formatearDia(msg.fecha);
+        const safeDia = escapeHtml(dia);
+        const safeTexto = escapeHtml(msg.texto);
+        const safeReplyTexto = msg.replyTo ? escapeHtml(msg.replyTo.texto) : "";
+        const safeTipo = msg.tipo === "sent" ? "sent" : "received";
 
         // ⭐ Separador día
         if (dia !== ultimoDia) {
             contenedor.innerHTML += `
                 <div class="chat-day">
-                    ${dia}
+                    ${safeDia}
                 </div>`;
             ultimoDia = dia;
         }
@@ -157,16 +172,16 @@ function renderMensajes() {
         }
 
         contenedor.innerHTML += `
-<div class="message ${msg.tipo}">
+<div class="message ${safeTipo}">
     
     ${msg.replyTo ? `
         <div class="reply-preview">
-            ${msg.replyTo.texto}
+            ${safeReplyTexto}
         </div>
     ` : ""}
 
     <div class="message-content">
-        ${msg.texto}
+        ${safeTexto}
     </div>
 
     <div class="message-actions">
@@ -307,7 +322,7 @@ function mostrarReplyPreview() {
 
     document.getElementById("replyPreviewContainer").innerHTML = `
         <div class="reply-box">
-            <span>${mensajeReply.texto}</span>
+            <span>${escapeHtml(mensajeReply.texto)}</span>
             <button onclick="cancelarReply()">✖</button>
         </div>
     `;

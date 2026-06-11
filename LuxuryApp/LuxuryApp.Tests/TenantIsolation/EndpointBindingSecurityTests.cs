@@ -537,6 +537,52 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
+        public void MutatingControllerActions_ShouldRequireAntiforgeryOrExplicitIgnore()
+        {
+            var mutatingHttpAttributes = new[]
+            {
+                typeof(HttpPostAttribute),
+                typeof(HttpPutAttribute),
+                typeof(HttpPatchAttribute),
+                typeof(HttpDeleteAttribute)
+            };
+
+            var protectionAttributes = new[]
+            {
+                typeof(ValidateAntiForgeryTokenAttribute),
+                typeof(AutoValidateAntiforgeryTokenAttribute),
+                typeof(IgnoreAntiforgeryTokenAttribute)
+            };
+
+            var controllerTypes = typeof(BillingController).Assembly
+                .GetTypes()
+                .Where(type => typeof(ControllerBase).IsAssignableFrom(type) && !type.IsAbstract);
+
+            var violations = controllerTypes
+                .SelectMany(type => type.GetMethods()
+                    .Where(method => method.DeclaringType == type)
+                    .Where(method => method.GetCustomAttributes(inherit: true)
+                        .Any(attribute => mutatingHttpAttributes.Contains(attribute.GetType())))
+                    .Select(method => new
+                    {
+                        Type = type,
+                        Method = method,
+                        Attributes = type.GetCustomAttributes(inherit: true)
+                            .Concat(method.GetCustomAttributes(inherit: true))
+                            .ToArray()
+                    }))
+                .Where(item => !item.Attributes.Any(attribute =>
+                    protectionAttributes.Contains(attribute.GetType())))
+                .Select(item => $"{item.Type.FullName}.{item.Method.Name}")
+                .OrderBy(name => name)
+                .ToArray();
+
+            Assert.True(
+                violations.Length == 0,
+                "Acciones mutadoras sin antiforgery o exclusión explícita: " + string.Join(", ", violations));
+        }
+
+        [Fact]
         public void IgnoreQueryFilters_ShouldOnlyExistInApprovedInfrastructureFiles()
         {
             var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));

@@ -88,6 +88,13 @@ builder.Services.ConfigureApplicationCookie(options =>
 {
     options.LoginPath = new PathString("/Accounts/Acceso");
     options.AccessDeniedPath = new PathString("/Accounts/Bloqueado");
+    options.Cookie.HttpOnly = true;
+    options.Cookie.SameSite = SameSiteMode.Lax;
+    options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
+        ? CookieSecurePolicy.SameAsRequest
+        : CookieSecurePolicy.Always;
+    options.ExpireTimeSpan = TimeSpan.FromHours(8);
+    options.SlidingExpiration = true;
     options.Events.OnValidatePrincipal = async context =>
     {
         await SecurityStampValidator.ValidatePrincipalAsync(context);
@@ -235,6 +242,20 @@ if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Home/Error");
     app.UseHsts();
+    app.Use(async (context, next) =>
+    {
+        context.Response.OnStarting(() =>
+        {
+            var headers = context.Response.Headers;
+            headers["X-Content-Type-Options"] = "nosniff";
+            headers["X-Frame-Options"] = "DENY";
+            headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+            headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
+            return Task.CompletedTask;
+        });
+
+        await next();
+    });
 }
 //linux nginx
 app.UseForwardedHeaders();

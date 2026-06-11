@@ -1,5 +1,6 @@
 using MailKit.Net.Smtp;
 using MailKit.Security;
+using System.Text.Encodings.Web;
 using Microsoft.Extensions.Options;
 using MimeKit;
 using MimeKit.Text;
@@ -72,8 +73,11 @@ namespace LuxuryApp.Services.Account
             }
         }
 
-        private static string BuildResetEmailHtml(string displayName, string resetLink)
+        internal static string BuildResetEmailHtml(string displayName, string resetLink)
         {
+            var safeDisplayName = HtmlEncoder.Default.Encode(displayName);
+            var safeResetLink = HtmlEncoder.Default.Encode(resetLink);
+
             return $"""
                 <!DOCTYPE html>
                 <html lang="es">
@@ -94,7 +98,7 @@ namespace LuxuryApp.Services.Account
                           </tr>
                           <tr>
                             <td style="padding:36px 32px 24px;">
-                              <p style="margin:0 0 16px;font-size:16px;color:#333333;">Hola, <strong>{displayName}</strong>,</p>
+                              <p style="margin:0 0 16px;font-size:16px;color:#333333;">Hola, <strong>{safeDisplayName}</strong>,</p>
                               <p style="margin:0 0 24px;font-size:15px;color:#555555;line-height:1.6;">
                                 Recibimos una solicitud para restablecer la contraseña de tu cuenta en LuxuryCloud.
                                 Haz clic en el botón a continuación para establecer una nueva contraseña.
@@ -102,7 +106,7 @@ namespace LuxuryApp.Services.Account
                               <table cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
                                 <tr>
                                   <td style="background:#111111;border-radius:6px;padding:0;">
-                                    <a href="{resetLink}"
+                                    <a href="{safeResetLink}"
                                        style="display:inline-block;padding:14px 28px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;border-radius:6px;">
                                       Restablecer contraseña
                                     </a>
@@ -112,7 +116,7 @@ namespace LuxuryApp.Services.Account
                               <p style="margin:0 0 12px;font-size:13px;color:#888888;line-height:1.5;">
                                 Si no puedes hacer clic en el botón, copia y pega este enlace en tu navegador:
                               </p>
-                              <p style="margin:0 0 24px;font-size:12px;color:#aaaaaa;word-break:break-all;">{resetLink}</p>
+                              <p style="margin:0 0 24px;font-size:12px;color:#aaaaaa;word-break:break-all;">{safeResetLink}</p>
                               <hr style="border:none;border-top:1px solid #eeeeee;margin:24px 0;" />
                               <p style="margin:0;font-size:13px;color:#999999;line-height:1.5;">
                                 Este enlace es válido por 24 horas. Si no solicitaste este cambio, puedes ignorar este mensaje;

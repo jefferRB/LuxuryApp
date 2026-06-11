@@ -169,6 +169,7 @@ namespace LuxuryApp.Controllers.DataBase
         }
 
         [HttpGet, HttpPost]
+        [AutoValidateAntiforgeryToken]
         public async Task<IActionResult> Buscar(string criterio)
         {
             if (string.IsNullOrWhiteSpace(criterio))
