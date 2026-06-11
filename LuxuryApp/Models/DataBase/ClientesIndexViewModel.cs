@@ -7,6 +7,8 @@ namespace LuxuryApp.Models.DataBase
         public int PageSize { get; init; }
         public int TotalCount { get; init; }
         public IReadOnlyList<int> PageSizeOptions { get; init; } = new[] { 10, 20, 50 };
+        public int ClientesNuevosEsteMes { get; init; }
+        public int VisitasEsteMes { get; init; }
 
         public int TotalPages => TotalCount == 0
             ? 1

@@ -595,3 +595,161 @@
     .func-brand-icon { width: 2.75rem; height: 2.75rem; font-size: 1.2rem; }
     .func-title { font-size: 1.35rem; }
 }
+
+/* ==========================================================
+   MOBILE CARDS — visible solo por debajo de breakpoint lg
+   Clases scoped: .employees-mobile-list, .employee-mobile-*
+   No afectan ninguna otra vista ni la tabla desktop.
+   ========================================================== */
+
+.employees-mobile-list {
+    width: 100%;
+    padding: 0.75rem 1rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    box-sizing: border-box;
+    /* Sin overflow-x — las cards no deben desbordarse */
+}
+
+.employee-mobile-card {
+    width: 100%;
+    background: var(--private-row-bg, rgba(15, 23, 42, 0.04));
+    border: 1px solid rgba(99, 102, 241, 0.22);
+    border-radius: 1rem;
+    padding: 1rem 1rem 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    box-sizing: border-box;
+    overflow: hidden; /* impide que hijos desborden la card */
+}
+
+/* ── HEADER de card: avatar + nombre + estado ── */
+.employee-mobile-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.employee-mobile-avatar {
+    width: 2.75rem !important;
+    height: 2.75rem !important;
+    font-size: 1.1rem !important;
+    flex-shrink: 0;
+}
+
+.employee-mobile-identity {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+}
+
+.employee-mobile-identity .func-name {
+    white-space: normal; /* nombres largos pueden partir en móvil */
+    overflow: visible;
+    text-overflow: unset;
+}
+
+.employee-mobile-status-wrap {
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+/* ── META: puesto / fecha / color ── */
+.employee-mobile-meta {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.6rem;
+    border-top: 1px solid var(--private-table-border, rgba(15, 23, 42, 0.08));
+    padding-top: 0.75rem;
+}
+
+@media (max-width: 479.98px) {
+    .employee-mobile-meta {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+.employee-mobile-meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+}
+
+.employee-mobile-label {
+    font-size: 0.62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--private-muted-text, #64748b);
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.employee-mobile-value {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--private-surface-text, #111827);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ── BARRAS de porcentaje ── */
+.employee-mobile-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    border-top: 1px solid var(--private-table-border, rgba(15, 23, 42, 0.08));
+    padding-top: 0.75rem;
+}
+
+.employee-mobile-bar-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.employee-mobile-bar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.employee-mobile-bar-track {
+    height: 5px !important; /* más visible en móvil */
+    min-width: unset;
+    width: 100%;
+}
+
+/* ── ACCIONES ── */
+.employee-mobile-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    border-top: 1px solid var(--private-table-border, rgba(15, 23, 42, 0.08));
+    padding-top: 0.75rem;
+    flex-wrap: wrap;
+}
+
+/* Botones de acción en móvil: más anchos y con etiqueta de texto */
+.employee-mobile-act-btn {
+    width: auto !important;
+    height: 2.2rem !important;
+    padding: 0 0.85rem !important;
+    border-radius: 0.65rem !important;
+    font-size: 0.82rem !important;
+    gap: 0.35rem !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    white-space: nowrap;
+    flex-shrink: 0;
+    min-width: 5rem;
+    justify-content: center;
+}

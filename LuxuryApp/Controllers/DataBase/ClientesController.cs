@@ -70,12 +70,18 @@ namespace LuxuryApp.Controllers.DataBase
                     .Select(ClienteSummaryProjection)
                     .ToListAsync();
 
+            var today = _businessDateTimeProvider.Today();
+            var visitasEsteMes = await _context.ClienteVisitas
+                .AsNoTracking()
+                .CountAsync(v => v.FechaVisita.Year == today.Year && v.FechaVisita.Month == today.Month);
+
             return View(new ClientesIndexViewModel
             {
                 Clientes = clientes,
                 PageNumber = normalizedPageNumber,
                 PageSize = normalizedPageSize,
-                TotalCount = totalCount
+                TotalCount = totalCount,
+                VisitasEsteMes = visitasEsteMes
             });
         }
 

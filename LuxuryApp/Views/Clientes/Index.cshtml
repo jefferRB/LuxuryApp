@@ -1,44 +1,86 @@
 @model LuxuryApp.Models.DataBase.ClientesIndexViewModel
+@using System.Globalization
 
-<div class="card border-0 shadow-lg">
-    <div class="card-header bg-dark text-white py-3">
-        <h5 class="m-0">
-            <i class="fas fa-users me-2"></i>Clientes
-        </h5>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="~/css/crm-shared.css" asp-append-version="true">
+<link rel="stylesheet" href="~/css/clientes.css" asp-append-version="true">
+
+@{
+    var ic = CultureInfo.InvariantCulture;
+    const int FreqMax = 90;
+}
+
+<!-- ── CONTENEDOR PRINCIPAL ── -->
+<div class="crm-shell">
+
+    <!-- ── A. HEADER: título izquierda / KPIs derecha ── -->
+    <div class="crm-page-header">
+
+        <div class="crm-page-header-left">
+            <span class="crm-eyebrow">
+                <i class="bi bi-people-fill"></i>
+                Gestión de Clientes
+            </span>
+            <h1 class="crm-page-title">Clientes</h1>
+            <p class="crm-page-subtitle">Administra tus clientes, historial y datos de contacto.</p>
+        </div>
+
+        <div class="crm-stats-grid">
+
+            <div class="crm-stat-card crm-stat-card--blue">
+                <div class="crm-stat-icon-wrap crm-stat-icon-wrap--blue">
+                    <i class="bi bi-people-fill"></i>
+                </div>
+                <div class="crm-stat-body">
+                    <span class="crm-stat-label">Total Clientes</span>
+                    <span class="crm-stat-num crm-stat-num--blue">@Model.TotalCount</span>
+                    <span class="crm-stat-sub">registrados</span>
+                </div>
+            </div>
+
+            <div class="crm-stat-card crm-stat-card--teal">
+                <div class="crm-stat-icon-wrap crm-stat-icon-wrap--teal">
+                    <i class="bi bi-person-plus-fill"></i>
+                </div>
+                <div class="crm-stat-body">
+                    <span class="crm-stat-label">Nuevos Este Mes</span>
+                    <span class="crm-stat-num crm-stat-num--teal">@Model.ClientesNuevosEsteMes</span>
+                    <span class="crm-stat-sub">este mes</span>
+                </div>
+            </div>
+
+            <div class="crm-stat-card crm-stat-card--purple">
+                <div class="crm-stat-icon-wrap crm-stat-icon-wrap--purple">
+                    <i class="bi bi-graph-up-arrow"></i>
+                </div>
+                <div class="crm-stat-body">
+                    <span class="crm-stat-label">Visitas Este Mes</span>
+                    <span class="crm-stat-num crm-stat-num--purple">@Model.VisitasEsteMes</span>
+                    <span class="crm-stat-sub">visitas</span>
+                </div>
+            </div>
+
+        </div>
+
     </div>
 
-    <div class="d-flex justify-content-between mt-3 mx-3 mb-3">
-        <a asp-action="Create" class="btn btn-dark text-white">
-            <i class="fas fa-user-plus me-1"></i>Nuevo Cliente
-        </a>
-        <a asp-action="Buscar" class="btn btn-dark text-white">
-            <i class="fas fa-search me-1"></i>Buscar Cliente
-        </a>
-    </div>
-
-    @if (TempData["Mensaje"] != null)
-    {
-        <div class="alert alert-success mx-3 mb-0">
-            @TempData["Mensaje"]
+    <!-- ── B. ACCIONES PRINCIPALES ── -->
+    <div class="crm-action-bar">
+        <div class="crm-action-left">
+            <a asp-action="Create" class="crm-btn crm-btn--primary">
+                <i class="bi bi-plus-lg"></i>
+                Nuevo Cliente
+            </a>
+            <a asp-action="Buscar" class="crm-btn crm-btn--outline">
+                <i class="bi bi-search"></i>
+                Buscar Cliente
+            </a>
         </div>
-    }
-
-    @if (TempData["Error"] != null)
-    {
-        <div class="alert alert-danger mx-3 mb-0">
-            @TempData["Error"]
-        </div>
-    }
-
-    <div class="d-flex justify-content-between align-items-center mt-3 mx-3">
-        <span class="private-module-count">
-            <strong>Clientes registrados:</strong> @Model.TotalCount
-        </span>
-
-        <form asp-action="Index" method="get" class="d-flex align-items-center gap-2">
+        <form asp-action="Index" method="get" class="crm-pagesize-form">
             <input type="hidden" name="pageNumber" value="1" />
-            <label for="pageSize" class="form-label mb-0 text-muted">Mostrar</label>
-            <select id="pageSize" name="pageSize" class="form-select form-select-sm" style="width: auto;" onchange="this.form.submit()">
+            <label for="pageSize" class="crm-pagesize-label">Mostrar</label>
+            <select id="pageSize" name="pageSize" class="crm-pagesize-select"
+                    onchange="this.form.submit()">
                 @foreach (var size in Model.PageSizeOptions)
                 {
                     <option value="@size" selected="@(size == Model.PageSize ? "selected" : null)">@size</option>
@@ -47,104 +89,352 @@
         </form>
     </div>
 
-    <p></p>
+    <!-- ── C. ALERTAS ── -->
+    @if (TempData["Mensaje"] != null)
+    {
+        <div class="crm-alert-wrap">
+            <div class="crm-alert crm-alert--success">
+                <i class="bi bi-check-circle-fill"></i>
+                @TempData["Mensaje"]
+            </div>
+        </div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="crm-alert-wrap">
+            <div class="crm-alert crm-alert--danger">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+                @TempData["Error"]
+            </div>
+        </div>
+    }
 
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th class="ps-4"><i class="fas fa-user me-1"></i> Nombre</th>
-                        <th><i class="fas fa-envelope me-1"></i> Correo Electronico</th>
-                        <th><i class="fas fa-phone me-1"></i> Numero Telefono</th>
-                        <th><i class="fas fa-chart-line me-1"></i> Frecuencia de Visita</th>
-                        <th><i class="fas fa-calendar-day me-1"></i> Ultima Visita</th>
-                        <th><i class="fas fa-calendar-check me-1"></i> Proxima Visita</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @if (Model.Clientes.Any())
+    <!-- ── D. TABLA DESKTOP (lg en adelante) ── -->
+    <div class="crm-table-wrapper d-none d-lg-block">
+        <table class="crm-table">
+            <thead>
+                <tr>
+                    <th>
+                        <span class="crm-th-content">
+                            Cliente
+                            <span class="crm-sort-arrows" aria-hidden="true">
+                                <i class="bi bi-chevron-up"></i><i class="bi bi-chevron-down"></i>
+                            </span>
+                        </span>
+                    </th>
+                    <th>
+                        <span class="crm-th-content">
+                            Correo Electrónico
+                            <span class="crm-sort-arrows" aria-hidden="true">
+                                <i class="bi bi-chevron-up"></i><i class="bi bi-chevron-down"></i>
+                            </span>
+                        </span>
+                    </th>
+                    <th>
+                        <span class="crm-th-content">
+                            Teléfono
+                            <span class="crm-sort-arrows" aria-hidden="true">
+                                <i class="bi bi-chevron-up"></i><i class="bi bi-chevron-down"></i>
+                            </span>
+                        </span>
+                    </th>
+                    <th>
+                        <span class="crm-th-content">
+                            Frecuencia de Visita
+                            <span class="crm-sort-arrows" aria-hidden="true">
+                                <i class="bi bi-chevron-up"></i><i class="bi bi-chevron-down"></i>
+                            </span>
+                        </span>
+                    </th>
+                    <th>
+                        <span class="crm-th-content">
+                            Última Visita
+                            <span class="crm-sort-arrows" aria-hidden="true">
+                                <i class="bi bi-chevron-up"></i><i class="bi bi-chevron-down"></i>
+                            </span>
+                        </span>
+                    </th>
+                    <th>
+                        <span class="crm-th-content">
+                            Próxima Visita
+                            <span class="crm-sort-arrows" aria-hidden="true">
+                                <i class="bi bi-chevron-up"></i><i class="bi bi-chevron-down"></i>
+                            </span>
+                        </span>
+                    </th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (Model.Clientes.Any())
+                {
+                    foreach (var c in Model.Clientes)
                     {
-                        foreach (var cliente in Model.Clientes)
-                        {
-                            <tr>
-                                <td class="ps-4 fw-semibold">@cliente.Nombre</td>
-                                <td>
-                                    @if (!string.IsNullOrEmpty(cliente.CorreoElectronico))
-                                    {
-                                        <a href="mailto:@cliente.CorreoElectronico" class="text-decoration-none">
-                                            @cliente.CorreoElectronico
-                                        </a>
-                                    }
-                                </td>
-                                <td>
-                                    @if (!string.IsNullOrEmpty(cliente.NumeroTelefono))
-                                    {
-                                        <form asp-action="Buscar" method="post" style="display:inline;">
-                                            <input type="hidden" name="criterio" value="@cliente.NumeroTelefono" />
-                                            <button type="submit" class="btn btn-link p-0 text-decoration-none">
-                                                @cliente.NumeroTelefono
-                                            </button>
-                                        </form>
-                                    }
-                                </td>
-                                <td>@cliente.FrecuenciaVisita</td>
-                                <td>@cliente.FechaUltimaVisita.ToString("dd/MM/yyyy")</td>
-                                <td>@cliente.ProximaVisita.ToString("dd/MM/yyyy")</td>
-                            </tr>
-                        }
-                    }
-                    else
-                    {
+                        var inicial = c.Nombre.Length > 0 ? char.ToUpper(c.Nombre[0]).ToString() : "?";
+                        var freqPct = Math.Min((double)c.FrecuenciaVisita / FreqMax * 100, 100).ToString("F1", ic);
+
                         <tr>
-                            <td colspan="6" class="text-center py-4 text-muted">
-                                <i class="fas fa-info-circle me-2"></i>No hay clientes registrados
+                            <!-- CLIENTE -->
+                            <td>
+                                <div class="clientes-person">
+                                    <div class="clientes-avatar clientes-avatar--color-@(c.Id % 8)">@inicial</div>
+                                    <div class="clientes-person-info">
+                                        <span class="crm-name">@c.Nombre</span>
+                                        <span class="crm-id-badge">ID: #@c.Id</span>
+                                    </div>
+                                </div>
+                            </td>
+                            <!-- CORREO -->
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(c.CorreoElectronico))
+                                {
+                                    <span class="crm-meta-inline">
+                                        <i class="bi bi-envelope"></i>
+                                        @c.CorreoElectronico
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="crm-empty-field">Sin correo</span>
+                                }
+                            </td>
+                            <!-- TELÉFONO -->
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(c.NumeroTelefono))
+                                {
+                                    <form asp-action="Buscar" method="post" class="d-inline m-0 p-0">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="criterio" value="@c.NumeroTelefono" />
+                                        <button type="submit" class="crm-link-btn">
+                                            <i class="bi bi-telephone"></i>
+                                            @c.NumeroTelefono
+                                        </button>
+                                    </form>
+                                }
+                                else
+                                {
+                                    <span class="crm-empty-field">Sin teléfono</span>
+                                }
+                            </td>
+                            <!-- FRECUENCIA -->
+                            <td>
+                                <div class="clientes-freq">
+                                    <span class="crm-freq-val">@c.FrecuenciaVisita días</span>
+                                    <div class="clientes-freq-bar">
+                                        <div class="clientes-freq-fill" style="width: @freqPct%"></div>
+                                    </div>
+                                </div>
+                            </td>
+                            <!-- ÚLTIMA VISITA -->
+                            <td>
+                                <span class="crm-date">
+                                    <i class="bi bi-calendar3"></i>
+                                    @c.FechaUltimaVisita.ToString("dd/MM/yyyy")
+                                </span>
+                            </td>
+                            <!-- PRÓXIMA VISITA -->
+                            <td>
+                                <span class="crm-date">
+                                    <i class="bi bi-calendar-check"></i>
+                                    @c.ProximaVisita.ToString("dd/MM/yyyy")
+                                </span>
+                            </td>
+                            <!-- ACCIONES: etiquetadas como en prototipo Egresos -->
+                            <td>
+                                <div class="crm-acts">
+                                    <a asp-action="Editar"
+                                       asp-route-id="@c.Id"
+                                       class="crm-act-labeled crm-act--edit"
+                                       title="Editar @c.Nombre">
+                                        <i class="bi bi-pencil-square"></i>
+                                        <span>Editar</span>
+                                    </a>
+                                    <a asp-action="Eliminar"
+                                       asp-route-id="@c.Id"
+                                       class="crm-act-labeled crm-act--delete"
+                                       title="Eliminar @c.Nombre"
+                                       data-nombre="@c.Nombre"
+                                       onclick="return confirm('¿Eliminar a ' + this.dataset.nombre + '? Esta acción no se puede deshacer.')">
+                                        <i class="bi bi-trash3"></i>
+                                        <span>Eliminar</span>
+                                    </a>
+                                </div>
                             </td>
                         </tr>
                     }
-                </tbody>
-            </table>
-        </div>
+                }
+                else
+                {
+                    <tr>
+                        <td colspan="7">
+                            <div class="crm-empty">
+                                <i class="bi bi-people crm-empty-icon"></i>
+                                <span class="crm-empty-text">No hay clientes registrados</span>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
     </div>
 
-    <div class="d-flex justify-content-between align-items-center px-3 py-3 border-top">
-        <span class="text-muted small">
-            Mostrando @Model.StartItem-@Model.EndItem de @Model.TotalCount
-        </span>
+    <!-- ── E. CARDS MÓVIL (por debajo de lg) ── -->
+    <div class="crm-mobile-list d-lg-none">
+        @if (Model.Clientes.Any())
+        {
+            foreach (var c in Model.Clientes)
+            {
+                var inicialM = c.Nombre.Length > 0 ? char.ToUpper(c.Nombre[0]).ToString() : "?";
+                var freqPctM = Math.Min((double)c.FrecuenciaVisita / FreqMax * 100, 100).ToString("F1", ic);
 
-        <div class="btn-group btn-group-sm" role="group" aria-label="Paginacion de clientes">
+                <div class="crm-mobile-card">
+
+                    <!-- Cabecera: avatar + nombre + acciones -->
+                    <div class="crm-mobile-card-header">
+                        <div class="clientes-avatar clientes-avatar--color-@(c.Id % 8) crm-mobile-avatar">
+                            @inicialM
+                        </div>
+                        <div class="crm-mobile-identity">
+                            <span class="crm-name">@c.Nombre</span>
+                            <span class="crm-id-badge">ID: #@c.Id</span>
+                        </div>
+                        <div class="crm-mobile-card-acts">
+                            <a asp-action="Editar"
+                               asp-route-id="@c.Id"
+                               class="crm-act-labeled crm-act--edit crm-act--compact"
+                               title="Editar">
+                                <i class="bi bi-pencil-square"></i>
+                                <span>Editar</span>
+                            </a>
+                            <a asp-action="Eliminar"
+                               asp-route-id="@c.Id"
+                               class="crm-act-labeled crm-act--delete crm-act--compact"
+                               title="Eliminar"
+                               data-nombre="@c.Nombre"
+                               onclick="return confirm('¿Eliminar a ' + this.dataset.nombre + '? Esta acción no se puede deshacer.')">
+                                <i class="bi bi-trash3"></i>
+                                <span>Eliminar</span>
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- Meta: correo + teléfono -->
+                    <div class="crm-mobile-meta-grid">
+                        <div class="crm-mobile-field">
+                            <span class="crm-mobile-field-label">
+                                <i class="bi bi-envelope"></i> Correo
+                            </span>
+                            <span class="crm-mobile-field-value">
+                                @(string.IsNullOrWhiteSpace(c.CorreoElectronico) ? "Sin correo" : c.CorreoElectronico)
+                            </span>
+                        </div>
+                        <div class="crm-mobile-field">
+                            <span class="crm-mobile-field-label">
+                                <i class="bi bi-telephone"></i> Teléfono
+                            </span>
+                            @if (!string.IsNullOrWhiteSpace(c.NumeroTelefono))
+                            {
+                                <form asp-action="Buscar" method="post" class="d-inline m-0 p-0">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="criterio" value="@c.NumeroTelefono" />
+                                    <button type="submit" class="crm-link-btn">@c.NumeroTelefono</button>
+                                </form>
+                            }
+                            else
+                            {
+                                <span class="crm-empty-field">Sin teléfono</span>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- Fechas -->
+                    <div class="crm-mobile-meta-grid">
+                        <div class="crm-mobile-field">
+                            <span class="crm-mobile-field-label">
+                                <i class="bi bi-calendar3"></i> Última visita
+                            </span>
+                            <span class="crm-mobile-field-value">@c.FechaUltimaVisita.ToString("dd/MM/yyyy")</span>
+                        </div>
+                        <div class="crm-mobile-field">
+                            <span class="crm-mobile-field-label">
+                                <i class="bi bi-calendar-check"></i> Próxima visita
+                            </span>
+                            <span class="crm-mobile-field-value">@c.ProximaVisita.ToString("dd/MM/yyyy")</span>
+                        </div>
+                    </div>
+
+                    <!-- Frecuencia -->
+                    <div class="clientes-mobile-freq">
+                        <div class="clientes-mobile-freq-header">
+                            <span class="crm-mobile-field-label">
+                                <i class="bi bi-arrow-repeat"></i> Frecuencia
+                            </span>
+                            <span class="crm-freq-val">@c.FrecuenciaVisita días</span>
+                        </div>
+                        <div class="clientes-freq-bar" style="height:5px; margin-top:0.3rem;">
+                            <div class="clientes-freq-fill" style="width: @freqPctM%"></div>
+                        </div>
+                    </div>
+
+                </div>
+            }
+        }
+        else
+        {
+            <div class="crm-empty">
+                <i class="bi bi-people crm-empty-icon"></i>
+                <span class="crm-empty-text">No hay clientes registrados</span>
+            </div>
+        }
+    </div>
+
+    <!-- ── F. PAGINACIÓN ── -->
+    <div class="crm-pagination">
+        <span class="crm-pagination-info">
+            @if (Model.TotalCount == 0)
+            {
+                <text>Sin clientes registrados</text>
+            }
+            else
+            {
+                <text>Mostrando @Model.StartItem a @Model.EndItem de @Model.TotalCount clientes</text>
+            }
+        </span>
+        <div class="crm-page-btns">
             @if (Model.HasPreviousPage)
             {
                 <a asp-action="Index"
                    asp-route-pageNumber="@(Model.PageNumber - 1)"
                    asp-route-pageSize="@Model.PageSize"
-                   class="btn btn-outline-dark">
-                    Anterior
+                   class="crm-page-btn" aria-label="Página anterior">
+                    <i class="bi bi-arrow-left"></i>
                 </a>
             }
             else
             {
-                <span class="btn btn-outline-secondary disabled">Anterior</span>
+                <span class="crm-page-btn crm-page-btn--disabled" aria-disabled="true">
+                    <i class="bi bi-arrow-left"></i>
+                </span>
             }
 
-            <span class="btn btn-outline-secondary disabled">
-                Pagina @Model.PageNumber de @Model.TotalPages
-            </span>
-            </span>
+            <span class="crm-page-current">@Model.PageNumber</span>
 
             @if (Model.HasNextPage)
             {
                 <a asp-action="Index"
                    asp-route-pageNumber="@(Model.PageNumber + 1)"
                    asp-route-pageSize="@Model.PageSize"
-                   class="btn btn-outline-dark">
-                    Siguiente
+                   class="crm-page-btn" aria-label="Página siguiente">
+                    <i class="bi bi-arrow-right"></i>
                 </a>
             }
             else
             {
-                <span class="btn btn-outline-secondary disabled">Siguiente</span>
+                <span class="crm-page-btn crm-page-btn--disabled" aria-disabled="true">
+                    <i class="bi bi-arrow-right"></i>
+                </span>
             }
         </div>
     </div>
+
 </div>

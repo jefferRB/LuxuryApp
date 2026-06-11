@@ -98,8 +98,8 @@
         </div>
     }
 
-    <!-- ── D. TABLA ── -->
-    <div class="func-table-wrap">
+    <!-- ── D. TABLA (desktop / laptop — visible desde lg) ── -->
+    <div class="func-table-wrap employees-desktop-table d-none d-lg-block">
         <table class="func-table">
 
             <thead>
@@ -267,6 +267,157 @@
             </tbody>
 
         </table>
+    </div>
+
+    <!-- ── E. CARDS MÓVIL (visible solo por debajo de lg) ── -->
+    <div class="employees-mobile-list d-lg-none">
+        @if (Model.Funcionarios.Any())
+        {
+            foreach (var f in Model.Funcionarios)
+            {
+                var inicialM = f.Nombre.Length > 0
+                    ? char.ToUpper(f.Nombre[0]).ToString()
+                    : "?";
+                var pctGM = ((double)Math.Min(f.PorcentajeGanancia, 100)).ToString("F1", ic);
+                var pctPM = ((double)Math.Min(f.PorcentajeProducto, 100)).ToString("F1", ic);
+
+                <div class="employee-mobile-card">
+
+                    <!-- HEADER: avatar + nombre + estado -->
+                    <div class="employee-mobile-header">
+                        <div class="func-avatar employee-mobile-avatar"
+                             style="background-color: @f.ColorCalendario">
+                            @inicialM
+                        </div>
+                        <div class="employee-mobile-identity">
+                            <span class="func-name">@f.Nombre</span>
+                            @if (!string.IsNullOrWhiteSpace(f.Telefono))
+                            {
+                                <span class="func-phone">
+                                    <i class="bi bi-telephone"></i>
+                                    @f.Telefono
+                                </span>
+                            }
+                        </div>
+                        <div class="employee-mobile-status-wrap">
+                            @if (f.Activo)
+                            {
+                                <span class="func-status func-status--active">
+                                    <span class="func-dot func-dot--green"></span>
+                                    Activo
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="func-status func-status--inactive">
+                                    <span class="func-dot func-dot--gray"></span>
+                                    Inactivo
+                                </span>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- META: puesto + fecha + color -->
+                    <div class="employee-mobile-meta">
+                        <div class="employee-mobile-meta-item">
+                            <span class="employee-mobile-label">
+                                <i class="bi bi-briefcase"></i> Puesto
+                            </span>
+                            <span class="employee-mobile-value">@f.NombrePuesto</span>
+                        </div>
+                        <div class="employee-mobile-meta-item">
+                            <span class="employee-mobile-label">
+                                <i class="bi bi-calendar3"></i> Ingreso
+                            </span>
+                            <span class="employee-mobile-value">@f.FechaIngreso.ToString("dd/MM/yyyy")</span>
+                        </div>
+                        <div class="employee-mobile-meta-item">
+                            <span class="employee-mobile-label">
+                                <i class="bi bi-palette"></i> Color
+                            </span>
+                            <span class="func-color-pill"
+                                  style="background-color: @f.ColorCalendario">
+                                @f.ColorCalendario
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- BARRAS: % Ganancia y % Producto -->
+                    <div class="employee-mobile-bars">
+                        <div class="employee-mobile-bar-row">
+                            <div class="employee-mobile-bar-header">
+                                <span class="employee-mobile-label">% Ganancia</span>
+                                <span class="func-pct-val">@f.PorcentajeGanancia %</span>
+                            </div>
+                            <div class="func-bar employee-mobile-bar-track">
+                                <div class="func-bar-fill func-bar--blue"
+                                     style="width: @pctGM%"></div>
+                            </div>
+                        </div>
+                        <div class="employee-mobile-bar-row">
+                            <div class="employee-mobile-bar-header">
+                                <span class="employee-mobile-label">% Producto</span>
+                                <span class="func-pct-val">@f.PorcentajeProducto %</span>
+                            </div>
+                            <div class="func-bar employee-mobile-bar-track">
+                                <div class="func-bar-fill func-bar--purple"
+                                     style="width: @pctPM%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ACCIONES -->
+                    <div class="employee-mobile-actions">
+                        <a asp-action="Edit"
+                           asp-route-id="@f.IdFuncionario"
+                           class="func-act-btn func-act--edit employee-mobile-act-btn"
+                           title="Editar funcionario">
+                            <i class="bi bi-pencil-square"></i>
+                            <span>Editar</span>
+                        </a>
+
+                        @if (f.Activo)
+                        {
+                            <form asp-action="Desactivar" method="post"
+                                  class="d-inline m-0 p-0">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="id" value="@f.IdFuncionario" />
+                                <button type="submit"
+                                        class="func-act-btn func-act--toggle-on employee-mobile-act-btn"
+                                        title="Desactivar"
+                                        data-nombre="@f.Nombre"
+                                        onclick="return confirm('¿Desactivar a ' + this.dataset.nombre + '?')">
+                                    <i class="bi bi-toggle-on"></i>
+                                    <span>Desactivar</span>
+                                </button>
+                            </form>
+                        }
+                        else
+                        {
+                            <form asp-action="Activar" method="post"
+                                  class="d-inline m-0 p-0">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="id" value="@f.IdFuncionario" />
+                                <button type="submit"
+                                        class="func-act-btn func-act--toggle-off employee-mobile-act-btn"
+                                        title="Activar">
+                                    <i class="bi bi-toggle-off"></i>
+                                    <span>Activar</span>
+                                </button>
+                            </form>
+                        }
+                    </div>
+
+                </div>
+            }
+        }
+        else
+        {
+            <div class="func-empty">
+                <i class="bi bi-people func-empty-icon"></i>
+                <span class="func-empty-text">No hay funcionarios registrados</span>
+            </div>
+        }
     </div>
 
 </div>
