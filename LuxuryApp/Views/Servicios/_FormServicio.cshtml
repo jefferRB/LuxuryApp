@@ -1,47 +1,68 @@
-﻿@model LuxuryApp.Models.Finanzas.Servicio
+@model LuxuryApp.Models.Finanzas.Servicio
 
 <form id="formServicio">
 
     @Html.AntiForgeryToken()
-    <input asp-for="Id" type="hidden" />
+    <input type="hidden" asp-for="Id" />
 
-    <div class="mb-2">
-        <label class="form-label">Nombre del servicio</label>
-        <input asp-for="Nombre" class="form-control" />
-        <span asp-validation-for="Nombre" class="text-danger"></span>
-    </div>
-
-    <div class="mb-2">
-        <label class="form-label">Precio</label>
-
-        <div class="input-group">
-            <span class="input-group-text">₡</span>
-
-            <input asp-for="Precio"
-                   class="form-control money-input"
-                   type="text"
-                   autocomplete="off" />
+    <div style="margin-bottom:1rem;">
+        <label asp-for="Nombre" class="finance-form-label">
+            Nombre del servicio <span class="finance-required">*</span>
+        </label>
+        <div class="finance-input-wrap" style="margin-top:0.35rem;">
+            <span class="finance-input-icon"><i class="bi bi-scissors"></i></span>
+            <input asp-for="Nombre"
+                   class="finance-form-control"
+                   placeholder="Ej. Corte con máquina, Tinte..." />
         </div>
-
-        <span asp-validation-for="Precio" class="text-danger"></span>
+        <span asp-validation-for="Nombre" class="finance-field-error"></span>
     </div>
 
-    <div class="mb-2">
-        <label class="form-label">Duración (minutos)</label>
-
-        <input asp-for="DuracionMinutos"
-               class="form-control"
-               type="number"
-               min="1"
-               placeholder="Ej: 45" />
-
-        <span asp-validation-for="DuracionMinutos" class="text-danger"></span>
+    <div style="margin-bottom:1rem;">
+        <label asp-for="Precio" class="finance-form-label">
+            Precio <span class="finance-required">*</span>
+        </label>
+        <div class="finance-input-wrap" style="margin-top:0.35rem;">
+            <span class="finance-input-icon" style="font-weight:700;font-size:1rem;">₡</span>
+            <input asp-for="Precio"
+                   class="finance-form-control money-input"
+                   type="text"
+                   inputmode="numeric"
+                   autocomplete="off"
+                   placeholder="0" />
+        </div>
+        <span asp-validation-for="Precio" class="finance-field-error"></span>
     </div>
 
-    <button type="button"
-            class="btn btn-success"
-            onclick="guardarServicio()">
-        Guardar
-    </button>
+    <div style="margin-bottom:1rem;">
+        <label asp-for="DuracionMinutos" class="finance-form-label">
+            Duración (minutos, opcional)
+        </label>
+        <div class="finance-input-wrap" style="margin-top:0.35rem;">
+            <span class="finance-input-icon"><i class="bi bi-clock"></i></span>
+            <input asp-for="DuracionMinutos"
+                   class="finance-form-control"
+                   type="number"
+                   min="1"
+                   placeholder="Ej: 45" />
+        </div>
+        <span asp-validation-for="DuracionMinutos" class="finance-field-error"></span>
+    </div>
+
+    <div style="display:flex;gap:0.65rem;justify-content:flex-end;margin-top:0.75rem;">
+        <button type="button"
+                class="finance-btn-back"
+                style="font-size:0.875rem;padding:0.55rem 1rem;"
+                onclick="cerrarFormServicio()">
+            Cancelar
+        </button>
+        <button type="button"
+                class="finance-btn-save"
+                style="font-size:0.875rem;padding:0.55rem 1.2rem;"
+                onclick="guardarServicio()">
+            <i class="bi bi-floppy2-fill"></i>
+            @(Model.Id > 0 ? "Guardar Cambios" : "Guardar Servicio")
+        </button>
+    </div>
 
 </form>

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Payments;
+using LuxuryApp.Services.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
@@ -117,26 +118,26 @@ namespace LuxuryApp.Controllers
             var diagnostics = ExtractDiagnostics(body);
 
             _logger.LogInformation(
-                "Tilopay webhook recibido en Development. TraceIdentifier {TraceIdentifier}. TimestampUtc {TimestampUtc}. Method {Method}. Path {Path}. Event {Event}. Query {Query}. Headers {Headers}. RawBody {RawBody}. TransactionId {TransactionId}. OrderId {OrderId}. Auth {Auth}. PlanId {PlanId}. PlanCode {PlanCode}. SubscriberId {SubscriberId}. Email {Email}. Amount {Amount}. Currency {Currency}. Status {Status}. CorrelationToken {CorrelationToken}.",
+                "Tilopay webhook recibido en Development. TraceIdentifier {TraceIdentifier}. TimestampUtc {TimestampUtc}. Method {Method}. Path {Path}. Event {Event}. RedactedQuery {RedactedQuery}. Headers {Headers}. PayloadBytes {PayloadBytes}. TransactionIdSuffix {TransactionIdSuffix}. OrderIdSuffix {OrderIdSuffix}. AuthSuffix {AuthSuffix}. PlanId {PlanId}. PlanCode {PlanCode}. SubscriberIdSuffix {SubscriberIdSuffix}. MaskedEmail {MaskedEmail}. HasAmount {HasAmount}. Currency {Currency}. Status {Status}. CorrelationTokenSuffix {CorrelationTokenSuffix}.",
                 correlationId,
                 DateTime.UtcNow,
                 Request.Method,
                 Request.Path.Value,
                 incomingEvent,
-                JsonSerializer.Serialize(GetSafeQuery()),
+                SensitiveDataMasker.RedactQueryString(Request.QueryString.Value),
                 JsonSerializer.Serialize(GetSafeHeaders()),
-                RedactPayloadForLog(body),
-                diagnostics.TransactionId,
-                diagnostics.OrderId,
-                diagnostics.AuthorizationCode,
+                Encoding.UTF8.GetByteCount(body),
+                SensitiveDataMasker.MaskReference(diagnostics.TransactionId),
+                SensitiveDataMasker.MaskReference(diagnostics.OrderId),
+                SensitiveDataMasker.MaskToken(diagnostics.AuthorizationCode),
                 diagnostics.PlanId,
                 diagnostics.PlanCode,
-                diagnostics.SubscriberId,
-                diagnostics.Email,
-                diagnostics.Amount,
+                SensitiveDataMasker.MaskReference(diagnostics.SubscriberId),
+                SensitiveDataMasker.MaskEmail(diagnostics.Email),
+                !string.IsNullOrWhiteSpace(diagnostics.Amount),
                 diagnostics.Currency,
                 diagnostics.Status,
-                diagnostics.CorrelationToken);
+                SensitiveDataMasker.MaskReference(diagnostics.CorrelationToken));
         }
 
         private void LogDevelopmentWebhookResult(
@@ -153,32 +154,32 @@ namespace LuxuryApp.Controllers
             var diagnostics = ExtractDiagnostics(body);
 
             _logger.LogInformation(
-                "Tilopay webhook procesado en Development. TraceIdentifier {TraceIdentifier}. Event {Event}. EventId {EventId}. Reference {Reference}. Duplicate {Duplicate}. Processed {Processed}. EstadoPago {EstadoPago}. Message {Message}. TransactionId {TransactionId}. OrderId {OrderId}. Auth {Auth}. PlanId {PlanId}. PlanCode {PlanCode}. SubscriberId {SubscriberId}. Email {Email}. Amount {Amount}. Currency {Currency}. Status {Status}. CorrelationToken {CorrelationToken}.",
+                "Tilopay webhook procesado en Development. TraceIdentifier {TraceIdentifier}. Event {Event}. EventIdSuffix {EventIdSuffix}. ReferenceSuffix {ReferenceSuffix}. Duplicate {Duplicate}. Processed {Processed}. EstadoPago {EstadoPago}. MessagePresent {MessagePresent}. TransactionIdSuffix {TransactionIdSuffix}. OrderIdSuffix {OrderIdSuffix}. AuthSuffix {AuthSuffix}. PlanId {PlanId}. PlanCode {PlanCode}. SubscriberIdSuffix {SubscriberIdSuffix}. MaskedEmail {MaskedEmail}. HasAmount {HasAmount}. Currency {Currency}. Status {Status}. CorrelationTokenSuffix {CorrelationTokenSuffix}.",
                 correlationId,
                 incomingEvent,
-                result.EventId,
-                result.Reference,
+                SensitiveDataMasker.MaskReference(result.EventId),
+                SensitiveDataMasker.MaskReference(result.Reference),
                 result.IsDuplicate,
                 result.IsProcessed,
                 result.EstadoPago,
-                result.Message,
-                diagnostics.TransactionId,
-                diagnostics.OrderId,
-                diagnostics.AuthorizationCode,
+                !string.IsNullOrWhiteSpace(result.Message),
+                SensitiveDataMasker.MaskReference(diagnostics.TransactionId),
+                SensitiveDataMasker.MaskReference(diagnostics.OrderId),
+                SensitiveDataMasker.MaskToken(diagnostics.AuthorizationCode),
                 diagnostics.PlanId,
                 diagnostics.PlanCode,
-                diagnostics.SubscriberId,
-                diagnostics.Email,
-                diagnostics.Amount,
+                SensitiveDataMasker.MaskReference(diagnostics.SubscriberId),
+                SensitiveDataMasker.MaskEmail(diagnostics.Email),
+                !string.IsNullOrWhiteSpace(diagnostics.Amount),
                 diagnostics.Currency,
                 diagnostics.Status,
-                diagnostics.CorrelationToken);
+                SensitiveDataMasker.MaskReference(diagnostics.CorrelationToken));
         }
 
         private Dictionary<string, string> GetSafeQuery() =>
             Request.Query.ToDictionary(
                 pair => pair.Key,
-                pair => IsSensitiveProperty(pair.Key) ? "***redacted***" : pair.Value.ToString(),
+                pair => SensitiveDataMasker.IsSensitiveKey(pair.Key) ? SensitiveDataMasker.Redacted : pair.Value.ToString(),
                 StringComparer.OrdinalIgnoreCase);
 
         private Dictionary<string, string> GetSafeHeaders()
@@ -333,13 +334,7 @@ namespace LuxuryApp.Controllers
         }
 
         private static bool IsSensitiveProperty(string propertyName) =>
-            propertyName.Contains("cvv", StringComparison.OrdinalIgnoreCase) ||
-            propertyName.Contains("cvc", StringComparison.OrdinalIgnoreCase) ||
-            propertyName.Contains("pan", StringComparison.OrdinalIgnoreCase) ||
-            propertyName.Contains("token", StringComparison.OrdinalIgnoreCase) ||
-            propertyName.Contains("card", StringComparison.OrdinalIgnoreCase) ||
-            propertyName.Contains("authorization", StringComparison.OrdinalIgnoreCase) ||
-            propertyName.Contains("password", StringComparison.OrdinalIgnoreCase);
+            SensitiveDataMasker.IsSensitiveKey(propertyName);
 
         private static bool SecureEquals(string left, string right)
         {

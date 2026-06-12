@@ -1,3 +1,5 @@
+using LuxuryApp.Services.Security;
+
 namespace LuxuryApp.Services.Payments
 {
     public class PublicCallbackHealthService
@@ -30,16 +32,18 @@ namespace LuxuryApp.Services.Payments
                 var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
                 _logger.LogError(
-                    "La URL publica de callbacks no respondio correctamente. Url {HealthUrl}. Status {StatusCode}. Body {Body}",
-                    healthUrl,
+                    "La URL publica de callbacks no respondio correctamente. Url {HealthUrl}. Status {StatusCode}. BodyLength {BodyLength}",
+                    SensitiveDataMasker.RedactUrl(healthUrl),
                     response.StatusCode,
-                    body);
+                    body.Length);
 
                 throw new InvalidOperationException(
                     $"La URL publica de callbacks no esta accesible ({(int)response.StatusCode}). Corrige el tunel o proxy antes de iniciar un cobro real.");
             }
 
-            _logger.LogInformation("La URL publica de callbacks respondio correctamente. Url {HealthUrl}", healthUrl);
+            _logger.LogInformation(
+                "La URL publica de callbacks respondio correctamente. Url {HealthUrl}",
+                SensitiveDataMasker.RedactUrl(healthUrl));
         }
     }
 }

@@ -161,6 +161,8 @@ namespace LuxuryApp.Services.Calendar
         {
             var normalizedRequest = NormalizeRequest(request);
             CalendarAppointmentResponse? response = null;
+            var rescheduleAfterUpdate = false;
+            var newFechaHoraCita = default(DateTime);
 
             var executionStrategy = _context.Database.CreateExecutionStrategy();
 
@@ -215,11 +217,32 @@ namespace LuxuryApp.Services.Calendar
                         funcionario.ColorCalendario,
                         servicio?.Nombre);
 
+                    if (string.Equals(cita.Tipo, "CITA", StringComparison.Ordinal))
+                    {
+                        rescheduleAfterUpdate = true;
+                        newFechaHoraCita = cita.FechaHoraCita;
+                    }
+
                     _logger.LogInformation(
                         "Se actualizo la cita {CitaId} del funcionario {FuncionarioId}.",
                         cita.Id,
                         funcionario.IdFuncionario);
                 });
+
+                if (rescheduleAfterUpdate)
+                {
+                    try
+                    {
+                        await _notificationService.RescheduleConfirmationIfPendingAsync(id, newFechaHoraCita, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(
+                            ex,
+                            "La cita {CitaId} se actualizo correctamente, pero fallo la reprogramacion de WhatsApp.",
+                            id);
+                    }
+                }
 
                 return response ?? throw new InvalidOperationException("No fue posible construir la respuesta de la cita actualizada.");
             }
@@ -243,6 +266,8 @@ namespace LuxuryApp.Services.Calendar
         {
             var normalizedRequest = NormalizeMoveRequest(request);
             var executionStrategy = _context.Database.CreateExecutionStrategy();
+            var newFechaHoraCita = default(DateTime);
+            var isCita = false;
 
             try
             {
@@ -283,12 +308,30 @@ namespace LuxuryApp.Services.Calendar
                     await _context.SaveChangesAsync(cancellationToken);
                     await transaction.CommitAsync(cancellationToken);
 
+                    isCita = string.Equals(cita.Entity.Tipo, "CITA", StringComparison.Ordinal);
+                    newFechaHoraCita = normalizedRequest.FechaHoraCita;
+
                     _logger.LogInformation(
                         "Se movio la cita {CitaId} al funcionario {FuncionarioId} para {FechaHoraCita:yyyy-MM-dd HH:mm}.",
                         cita.Entity.Id,
                         funcionario.IdFuncionario,
                         normalizedRequest.FechaHoraCita);
                 });
+
+                if (isCita)
+                {
+                    try
+                    {
+                        await _notificationService.RescheduleConfirmationIfPendingAsync(id, newFechaHoraCita, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(
+                            ex,
+                            "La cita {CitaId} se movio correctamente, pero fallo la reprogramacion de WhatsApp.",
+                            id);
+                    }
+                }
             }
             catch (CalendarValidationException)
             {
@@ -314,6 +357,19 @@ namespace LuxuryApp.Services.Calendar
             if (cita is null)
             {
                 throw new InvalidOperationException("La cita indicada no existe o no pertenece al tenant actual.");
+            }
+
+            // Cancelar mensajes pendientes antes de eliminar para evitar envíos post-eliminación.
+            try
+            {
+                await _notificationService.CancelPendingNotificationsAsync(id, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Fallo cancelar notificaciones WhatsApp pendientes para la cita {CitaId} antes de eliminarla.",
+                    id);
             }
 
             _context.Citas.Remove(cita);

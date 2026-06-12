@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.SaaS;
+using LuxuryApp.Services.Security;
 using LuxuryApp.Services.Tenant;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
@@ -82,7 +83,7 @@ namespace LuxuryApp.Services.Payments
                 ["TenantId"] = tenantId,
                 ["PlanId"] = planId,
                 ["Provider"] = providerType,
-                ["Reference"] = reference
+                ["Reference"] = SensitiveDataMasker.MaskReference(reference)
             });
 
             var intento = new PagoSuscripcion
@@ -186,7 +187,10 @@ namespace LuxuryApp.Services.Payments
                 intento.FechaActualizacionUtc = DateTime.UtcNow;
                 await _db.SaveChangesAsync(cancellationToken);
 
-                _logger.LogError(ex, "Error creando checkout para la referencia {Reference}.", reference);
+                _logger.LogError(
+                    ex,
+                    "Error creando checkout para la referencia {Reference}.",
+                    SensitiveDataMasker.MaskReference(reference));
                 throw;
             }
         }
@@ -259,7 +263,7 @@ namespace LuxuryApp.Services.Payments
                 ["PlanId"] = planId,
                 ["RecurringPlanId"] = repeatRegistration.Plan.TilopayPlanId,
                 ["PlanCode"] = repeatRegistration.Plan.Code,
-                ["CorrelationToken"] = correlationToken,
+                ["CorrelationToken"] = SensitiveDataMasker.MaskReference(correlationToken),
                 ["ExpectedFirstChargeAmount"] = repeatRegistration.Plan.ExpectedFirstChargeAmount,
                 ["ExpectedCurrency"] = string.IsNullOrWhiteSpace(repeatRegistration.Plan.Currency)
                     ? "CRC"
@@ -354,13 +358,13 @@ namespace LuxuryApp.Services.Payments
             await _db.SaveChangesAsync(cancellationToken);
 
             _logger.LogInformation(
-                "Signup recurrente preparado correctamente. TenantId {TenantId}. PlanCode {PlanCode}. TilopayPlanId {TilopayPlanId}. ExpectedFirstChargeAmount {ExpectedFirstChargeAmount}. CheckoutUrl {CheckoutUrl}. CorrelationToken {CorrelationToken}. HostedLinkDefinesAmount {HostedLinkDefinesAmount}.",
+                "Signup recurrente preparado correctamente. TenantId {TenantId}. PlanCode {PlanCode}. TilopayPlanId {TilopayPlanId}. ExpectedFirstChargeAmount {ExpectedFirstChargeAmount}. CheckoutUrl {CheckoutUrl}. CorrelationTokenSuffix {CorrelationTokenSuffix}. HostedLinkDefinesAmount {HostedLinkDefinesAmount}.",
                 tenantId,
                 repeatRegistration.Plan.Code,
                 repeatRegistration.Plan.TilopayPlanId,
                 repeatRegistration.Plan.ExpectedFirstChargeAmount,
                 SanitizeRecurringCheckoutUrlForLog(redirectUrl),
-                correlationToken,
+                SensitiveDataMasker.MaskReference(correlationToken),
                 true);
 
             _logger.LogInformation(
@@ -593,10 +597,10 @@ namespace LuxuryApp.Services.Payments
             using var scope = _logger.BeginScope(new Dictionary<string, object?>
             {
                 ["Provider"] = webhook.ProviderType,
-                ["EventId"] = webhook.EventId,
-                ["Reference"] = webhook.Reference,
-                ["ProviderOrderNumber"] = webhook.ProviderOrderNumber,
-                ["ProviderCheckoutId"] = webhook.ProviderCheckoutId,
+                ["EventId"] = SensitiveDataMasker.MaskReference(webhook.EventId),
+                ["Reference"] = SensitiveDataMasker.MaskReference(webhook.Reference),
+                ["ProviderOrderNumber"] = SensitiveDataMasker.MaskReference(webhook.ProviderOrderNumber),
+                ["ProviderCheckoutId"] = SensitiveDataMasker.MaskReference(webhook.ProviderCheckoutId),
                 ["CorrelationId"] = correlationId
             });
 
@@ -610,8 +614,8 @@ namespace LuxuryApp.Services.Payments
             if (existingEvent is not null && IsTerminal(existingEvent))
             {
                 _logger.LogWarning(
-                    "Webhook duplicado ignorado. EventId {EventId}. Estado {Estado}.",
-                    existingEvent.ProveedorEventId,
+                "Webhook duplicado ignorado. EventIdSuffix {EventIdSuffix}. Estado {Estado}.",
+                    SensitiveDataMasker.MaskReference(existingEvent.ProveedorEventId),
                     existingEvent.EstadoProcesamiento);
 
                 return new PaymentWebhookProcessingResult
@@ -899,11 +903,11 @@ namespace LuxuryApp.Services.Payments
             using var scope = _logger.BeginScope(new Dictionary<string, object?>
             {
                 ["Provider"] = webhook.ProviderType,
-                ["EventId"] = webhook.EventId,
+                ["EventId"] = SensitiveDataMasker.MaskReference(webhook.EventId),
                 ["RecurringPlanId"] = webhook.RecurringPlanId,
                 ["PlanCode"] = webhook.PlanCode,
-                ["ProviderSubscriberId"] = webhook.ProviderSubscriberId,
-                ["Reference"] = webhook.Reference,
+                ["ProviderSubscriberId"] = SensitiveDataMasker.MaskReference(webhook.ProviderSubscriberId),
+                ["Reference"] = SensitiveDataMasker.MaskReference(webhook.Reference),
                 ["CorrelationId"] = correlationId
             });
 
@@ -917,8 +921,8 @@ namespace LuxuryApp.Services.Payments
             if (existingEvent is not null && IsTerminal(existingEvent))
             {
                 _logger.LogWarning(
-                    "Webhook recurrente duplicado ignorado. EventId {EventId}. Estado {Estado}.",
-                    existingEvent.ProveedorEventId,
+                "Webhook recurrente duplicado ignorado. EventIdSuffix {EventIdSuffix}. Estado {Estado}.",
+                    SensitiveDataMasker.MaskReference(existingEvent.ProveedorEventId),
                     existingEvent.EstadoProcesamiento);
 
                 return new PaymentWebhookProcessingResult
@@ -959,10 +963,10 @@ namespace LuxuryApp.Services.Payments
                 cancellationToken);
 
             _logger.LogInformation(
-                "Correlacion webhook recurrente Tilopay. EventId {EventId}. EventType {EventType}. Reference {Reference}. PlanCode {PlanCode}. IncomingRecurringPlanId {IncomingRecurringPlanId}. ResolvedRecurringPlanId {ResolvedRecurringPlanId}. TenantId {TenantId}. PlanId {PlanId}. PaymentAttemptId {PaymentAttemptId}. IsUnmatched {IsUnmatched}. RequiresManualReview {RequiresManualReview}. Reason {Reason}.",
-                webhook.EventId,
+                "Correlacion webhook recurrente Tilopay. EventIdSuffix {EventIdSuffix}. EventType {EventType}. ReferenceSuffix {ReferenceSuffix}. PlanCode {PlanCode}. IncomingRecurringPlanId {IncomingRecurringPlanId}. ResolvedRecurringPlanId {ResolvedRecurringPlanId}. TenantId {TenantId}. PlanId {PlanId}. PaymentAttemptId {PaymentAttemptId}. IsUnmatched {IsUnmatched}. RequiresManualReview {RequiresManualReview}. ReasonPresent {ReasonPresent}.",
+                SensitiveDataMasker.MaskReference(webhook.EventId),
                 webhook.EventType,
-                webhook.Reference,
+                SensitiveDataMasker.MaskReference(webhook.Reference),
                 webhook.PlanCode,
                 webhook.RecurringPlanId,
                 resolvedRecurringPlanId,
@@ -971,7 +975,7 @@ namespace LuxuryApp.Services.Payments
                 correlation.PaymentAttempt?.Id,
                 correlation.IsUnmatched,
                 correlation.RequiresManualReview,
-                correlation.ManualReviewReason);
+                !string.IsNullOrWhiteSpace(correlation.ManualReviewReason));
 
             LogDevelopmentRecurringCorrelation(webhook, correlation, resolvedRecurringPlanId);
 
@@ -1728,9 +1732,9 @@ namespace LuxuryApp.Services.Payments
             await _db.SaveChangesAsync(cancellationToken);
 
             _logger.LogWarning(
-                "Webhook recurrente Tilopay sin correlacion. EventId {EventId}. Reason {Reason}.",
-                evento.ProveedorEventId,
-                reason);
+                "Webhook recurrente Tilopay sin correlacion. EventIdSuffix {EventIdSuffix}. ReasonPresent {ReasonPresent}.",
+                SensitiveDataMasker.MaskReference(evento.ProveedorEventId),
+                !string.IsNullOrWhiteSpace(reason));
         }
 
         private async Task<RecurringCorrelationResolution> ResolveRecurringCorrelationAsync(
@@ -2421,9 +2425,9 @@ namespace LuxuryApp.Services.Payments
             await _db.SaveChangesAsync(cancellationToken);
 
             _logger.LogWarning(
-                "Webhook Tilopay recurrente requiere revision manual. EventId {EventId}. Reason {Reason}.",
-                evento.ProveedorEventId,
-                reason);
+                "Webhook Tilopay recurrente requiere revision manual. EventIdSuffix {EventIdSuffix}. ReasonPresent {ReasonPresent}.",
+                SensitiveDataMasker.MaskReference(evento.ProveedorEventId),
+                !string.IsNullOrWhiteSpace(reason));
         }
 
         private static bool IsRecurringApproved(PaymentProviderWebhookData webhook)
@@ -2573,12 +2577,7 @@ namespace LuxuryApp.Services.Payments
         }
 
         private static bool IsSensitiveProperty(string propertyName) =>
-            propertyName.Contains("cvv", StringComparison.OrdinalIgnoreCase) ||
-            propertyName.Contains("cvc", StringComparison.OrdinalIgnoreCase) ||
-            propertyName.Contains("pan", StringComparison.OrdinalIgnoreCase) ||
-            propertyName.Contains("token", StringComparison.OrdinalIgnoreCase) ||
-            propertyName.Contains("cardnumber", StringComparison.OrdinalIgnoreCase) ||
-            propertyName.Contains("creditcardnumber", StringComparison.OrdinalIgnoreCase);
+            SensitiveDataMasker.IsSensitiveKey(propertyName);
 
         private static string BuildCheckoutAuditPayload(
             string successUrl,
@@ -2805,20 +2804,20 @@ namespace LuxuryApp.Services.Payments
             }
 
             _logger.LogInformation(
-                "Tilopay repeat correlacion Development. Event {Event}. EventId {EventId}. PlanIdTilopay {PlanIdTilopay}. Email {Email}. Amount {Amount}. OrderNumber {OrderNumber}. Auth {Auth}. PendingFound {PendingFound}. PaymentAttemptId {PaymentAttemptId}. TenantId {TenantId}. PlanId {PlanId}. CorrelationStatus {CorrelationStatus}. Reason {Reason}.",
+                "Tilopay repeat correlacion Development. Event {Event}. EventIdSuffix {EventIdSuffix}. PlanIdTilopay {PlanIdTilopay}. MaskedEmail {MaskedEmail}. HasAmount {HasAmount}. OrderNumberSuffix {OrderNumberSuffix}. AuthSuffix {AuthSuffix}. PendingFound {PendingFound}. PaymentAttemptId {PaymentAttemptId}. TenantId {TenantId}. PlanId {PlanId}. CorrelationStatus {CorrelationStatus}. ReasonPresent {ReasonPresent}.",
                 webhook.EventType,
-                webhook.EventId,
+                SensitiveDataMasker.MaskReference(webhook.EventId),
                 resolvedRecurringPlanId,
-                webhook.CustomerEmail,
-                webhook.Amount,
-                webhook.ProviderOrderNumber,
-                webhook.AuthorizationCode,
+                SensitiveDataMasker.MaskEmail(webhook.CustomerEmail),
+                webhook.Amount.HasValue,
+                SensitiveDataMasker.MaskReference(webhook.ProviderOrderNumber),
+                SensitiveDataMasker.MaskToken(webhook.AuthorizationCode),
                 correlation.PaymentAttempt is not null,
                 correlation.PaymentAttempt?.Id,
                 correlation.TenantId,
                 correlation.PlanId,
                 correlation.Status,
-                correlation.ManualReviewReason);
+                !string.IsNullOrWhiteSpace(correlation.ManualReviewReason));
         }
 
         private void LogDevelopmentRecurringRegistration(
@@ -2834,12 +2833,12 @@ namespace LuxuryApp.Services.Payments
             }
 
             _logger.LogInformation(
-                "Tilopay repeat registro Development. Event {Event}. CorrelationId {CorrelationId}. PlanIdTilopay {PlanIdTilopay}. Email {Email}. Amount {Amount}. NextPaymentDateUtc {NextPaymentDateUtc}. FreeTrial {FreeTrial}. TenantId {TenantId}. PlanId {PlanId}. PaymentId {PaymentId}.",
+                "Tilopay repeat registro Development. Event {Event}. CorrelationId {CorrelationId}. PlanIdTilopay {PlanIdTilopay}. MaskedEmail {MaskedEmail}. HasAmount {HasAmount}. NextPaymentDateUtc {NextPaymentDateUtc}. FreeTrial {FreeTrial}. TenantId {TenantId}. PlanId {PlanId}. PaymentId {PaymentId}.",
                 webhook.EventType,
                 correlationId,
                 webhook.RecurringPlanId,
-                webhook.CustomerEmail,
-                webhook.Amount,
+                SensitiveDataMasker.MaskEmail(webhook.CustomerEmail),
+                webhook.Amount.HasValue,
                 webhook.NextBillingDateUtc,
                 webhook.HasFreeTrial,
                 tenantId,
@@ -2871,13 +2870,13 @@ namespace LuxuryApp.Services.Payments
                 .FirstOrDefaultAsync(cancellationToken);
 
             _logger.LogInformation(
-                "Tilopay repeat resultado Development. Event {Event}. PlanIdTilopay {PlanIdTilopay}. Email {Email}. Amount {Amount}. OrderNumber {OrderNumber}. Auth {Auth}. TenantId {TenantId}. PlanId {PlanId}. PaymentId {PaymentId}. SubscriptionId {SubscriptionId}. PaymentStatus {PaymentStatus}. SubscriptionStatus {SubscriptionStatus}.",
+                "Tilopay repeat resultado Development. Event {Event}. PlanIdTilopay {PlanIdTilopay}. MaskedEmail {MaskedEmail}. HasAmount {HasAmount}. OrderNumberSuffix {OrderNumberSuffix}. AuthSuffix {AuthSuffix}. TenantId {TenantId}. PlanId {PlanId}. PaymentId {PaymentId}. SubscriptionId {SubscriptionId}. PaymentStatus {PaymentStatus}. SubscriptionStatus {SubscriptionStatus}.",
                 webhook.EventType,
                 webhook.RecurringPlanId,
-                webhook.CustomerEmail,
-                webhook.Amount,
-                webhook.ProviderOrderNumber,
-                webhook.AuthorizationCode,
+                SensitiveDataMasker.MaskEmail(webhook.CustomerEmail),
+                webhook.Amount.HasValue,
+                SensitiveDataMasker.MaskReference(webhook.ProviderOrderNumber),
+                SensitiveDataMasker.MaskToken(webhook.AuthorizationCode),
                 tenantId,
                 planId,
                 intento?.Id,
@@ -2888,21 +2887,7 @@ namespace LuxuryApp.Services.Payments
 
         private static string SanitizeSensitiveUrl(string url)
         {
-            if (string.IsNullOrWhiteSpace(url))
-            {
-                return string.Empty;
-            }
-
-            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
-            {
-                var separatorIndex = url.IndexOf('?', StringComparison.Ordinal);
-                return separatorIndex >= 0 ? url[..separatorIndex] : url;
-            }
-
-            return new UriBuilder(uri)
-            {
-                Query = string.Empty
-            }.Uri.ToString();
+            return SensitiveDataMasker.RedactUrl(url);
         }
 
         private static string SanitizeRecurringCheckoutUrlForLog(string url)
@@ -2913,28 +2898,7 @@ namespace LuxuryApp.Services.Payments
                 return SanitizeSensitiveUrl(url);
             }
 
-            var query = QueryHelpers.ParseQuery(uri.Query);
-            if (query.Count == 0)
-            {
-                return uri.ToString();
-            }
-
-            var sanitizedQuery = new List<KeyValuePair<string, string?>>();
-            foreach (var pair in query)
-            {
-                sanitizedQuery.Add(new KeyValuePair<string, string?>(
-                    pair.Key,
-                    string.Equals(pair.Key, "lc_email", StringComparison.OrdinalIgnoreCase)
-                        ? "***redacted***"
-                        : pair.Value.ToString()));
-            }
-
-            var builder = new UriBuilder(uri)
-            {
-                Query = QueryString.Create(sanitizedQuery).Value?.TrimStart('?') ?? string.Empty
-            };
-
-            return builder.Uri.ToString();
+            return SensitiveDataMasker.RedactUrl(uri.ToString());
         }
 
         private static string Trim(string value, int maxLength) =>

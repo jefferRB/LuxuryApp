@@ -339,6 +339,24 @@ namespace LuxuryApp.Controllers.Funcionarios
                 return RedirectToAction(nameof(PagosSemana), new { fecha = inicioSemana.ToString("yyyy-MM-dd") });
             }
 
+            var resumenValidacion = await _liquidacionSemanalService.ObtenerResumenSemanaAsync(
+                inicioSemana,
+                finSemana,
+                HttpContext.RequestAborted);
+
+            var funcionarioResumen = resumenValidacion.Funcionarios
+                .FirstOrDefault(f => f.FuncionarioId == funcionarioId);
+
+            var montoPendiente = funcionarioResumen?.MontoPendiente ?? 0m;
+
+            if (monto > montoPendiente)
+            {
+                TempData["Error"] = montoPendiente <= 0
+                    ? "Este funcionario no tiene monto pendiente en la semana seleccionada."
+                    : "El monto a pagar no puede ser mayor al pendiente del funcionario.";
+                return RedirectToAction(nameof(PagosSemana), new { fecha = inicioSemana.ToString("yyyy-MM-dd") });
+            }
+
             try
             {
                 await _liquidacionSemanalService.RegistrarPagoAsync(

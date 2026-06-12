@@ -134,5 +134,9 @@ namespace LuxuryApp.Tests.Support
         public Task ScheduleDueRemindersAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task ProcessPendingNotificationsAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task RescheduleConfirmationIfPendingAsync(int citaId, DateTime newFechaHoraCita, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task CancelPendingNotificationsAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

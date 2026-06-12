@@ -8,12 +8,14 @@ function obtenerPuestoToken() {
 }
 
 function renderPuestoMessage(message, type) {
-    const alertType = type || "danger";
+    var cls  = (type === "success") ? "func-alert--success" : "func-alert--danger";
+    var icon = (type === "success") ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill";
     $("#puestosMessageContainer").html(
-        `<div class="alert alert-${alertType} alert-dismissible fade show" role="alert">
-            ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>`);
+        '<div class="func-alert ' + cls + '" role="alert" style="margin-bottom:0.85rem;">' +
+            '<i class="bi ' + icon + '"></i>' +
+            '<span>' + message + '</span>' +
+        '</div>'
+    );
 }
 
 function togglePuesto(id) {
@@ -34,12 +36,21 @@ function togglePuesto(id) {
 }
 
 function mostrarFormularioPuesto(id) {
-    const url = id ? `/Puestos/FormPuesto?id=${id}` : "/Puestos/FormPuesto";
-    $("#formPuestoContainer").load(url);
+    var url = id ? "/Puestos/FormPuesto?id=" + id : "/Puestos/FormPuesto";
+    var container = $("#formPuestoContainer");
+    container.show();
+    container.load(url);
+    container[0].scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function cerrarFormPuesto() {
+    var container = $("#formPuestoContainer");
+    container.hide();
+    container.html("");
 }
 
 function guardarPuesto() {
-    const form = $("#formPuesto");
+    var form = $("#formPuesto");
     $("#puestosMessageContainer").html("");
 
     $.ajax({
@@ -56,7 +67,7 @@ function guardarPuesto() {
                 return;
             }
 
-            $("#formPuestoContainer").html("");
+            cerrarFormPuesto();
             cargarPuestos();
         },
         error: function (response) {
@@ -70,11 +81,19 @@ function guardarPuesto() {
     });
 }
 
-function eliminarPuesto(id) {
-    if (!confirm("¿Seguro que deseas eliminar este puesto? Esta acción no se puede deshacer.")) {
+function confirmarEliminarPuesto(id, nombre) {
+    var idInput = document.getElementById("eliminarPuestoId");
+    var nombreEl = document.getElementById("eliminarPuestoNombre");
+    if (!idInput || !nombreEl) {
         return;
     }
+    idInput.value = id;
+    nombreEl.textContent = nombre;
+    var modal = new bootstrap.Modal(document.getElementById("modalEliminarPuesto"));
+    modal.show();
+}
 
+function eliminarPuesto(id) {
     $("#puestosMessageContainer").html("");
 
     $.ajax({
@@ -85,8 +104,9 @@ function eliminarPuesto(id) {
             "RequestVerificationToken": obtenerPuestoToken()
         }
     }).done(function () {
-        $("#formPuestoContainer").html("");
+        cerrarFormPuesto();
         cargarPuestos();
+        renderPuestoMessage("Puesto eliminado correctamente.", "success");
     }).fail(function (response) {
         renderPuestoMessage(response.responseText || "No fue posible eliminar el puesto.");
     });

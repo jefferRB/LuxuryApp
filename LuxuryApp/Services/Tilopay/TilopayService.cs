@@ -5,6 +5,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Payments;
+using LuxuryApp.Services.Security;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using Polly;
@@ -82,7 +83,7 @@ namespace LuxuryApp.Services.Tilopay
                 ["Provider"] = ProviderType,
                 ["TenantId"] = request.TenantId,
                 ["PlanId"] = request.PlanId,
-                ["Reference"] = request.Reference
+                ["Reference"] = SensitiveDataMasker.MaskReference(request.Reference)
             });
 
             var accessToken = await GetApiTokenAsync(cancellationToken);
@@ -112,9 +113,9 @@ namespace LuxuryApp.Services.Tilopay
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogError(
-                    "Tilopay createLinkPayment devolvió error. Status {StatusCode}. Body {Body}",
+                    "Tilopay createLinkPayment devolvió error. Status {StatusCode}. BodyLength {BodyLength}",
                     response.StatusCode,
-                    raw);
+                    raw.Length);
 
                 throw new InvalidOperationException("Tilopay no pudo generar el checkout.");
             }
@@ -126,17 +127,17 @@ namespace LuxuryApp.Services.Tilopay
                 string.IsNullOrWhiteSpace(result.url))
             {
                 _logger.LogError(
-                    "Tilopay createLinkPayment respondió sin URL utilizable. Type {Type}. Message {Message}. Body {Body}",
+                    "Tilopay createLinkPayment respondió sin URL utilizable. Type {Type}. Message {Message}. BodyLength {BodyLength}",
                     result.type,
                     result.message,
-                    raw);
+                    raw.Length);
 
                 throw new InvalidOperationException("Tilopay no devolvió un checkout válido.");
             }
 
             _logger.LogInformation(
-                "Checkout Tilopay generado correctamente. Reference {Reference}. LinkId {LinkId}",
-                request.Reference,
+                "Checkout Tilopay generado correctamente. ReferenceSuffix {ReferenceSuffix}. LinkId {LinkId}",
+                SensitiveDataMasker.MaskReference(request.Reference),
                 result.id);
 
             return new PaymentCheckoutResult
@@ -286,9 +287,9 @@ namespace LuxuryApp.Services.Tilopay
             using var scope = _logger.BeginScope(new Dictionary<string, object?>
             {
                 ["Provider"] = ProviderType,
-                ["Reference"] = request.Reference,
-                ["ProviderOrderNumber"] = request.ProviderOrderNumber,
-                ["LookupReference"] = lookupReference,
+                ["Reference"] = SensitiveDataMasker.MaskReference(request.Reference),
+                ["ProviderOrderNumber"] = SensitiveDataMasker.MaskReference(request.ProviderOrderNumber),
+                ["LookupReference"] = SensitiveDataMasker.MaskReference(lookupReference),
                 ["MerchantId"] = request.MerchantId ?? _options.MerchantId
             });
 
@@ -318,9 +319,9 @@ namespace LuxuryApp.Services.Tilopay
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogError(
-                    "Tilopay consult devolvió error. Status {StatusCode}. Body {Body}",
+                    "Tilopay consult devolvió error. Status {StatusCode}. BodyLength {BodyLength}",
                     response.StatusCode,
-                    raw);
+                    raw.Length);
 
                 throw new InvalidOperationException("Tilopay no permitió validar el pago.");
             }
@@ -332,9 +333,9 @@ namespace LuxuryApp.Services.Tilopay
             if (!string.Equals(consult.type, "200", StringComparison.OrdinalIgnoreCase) || tx is null)
             {
                 _logger.LogWarning(
-                    "Tilopay consult no encontró transacción para la referencia {Reference}. Body {Body}",
-                    request.Reference,
-                    raw);
+                    "Tilopay consult no encontró transacción para la referencia {ReferenceSuffix}. BodyLength {BodyLength}",
+                    SensitiveDataMasker.MaskReference(request.Reference),
+                    raw.Length);
 
                 return new PaymentVerificationResult
                 {
@@ -401,9 +402,9 @@ namespace LuxuryApp.Services.Tilopay
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogError(
-                    "Tilopay login devolvió error. Status {StatusCode}. Body {Body}",
+                    "Tilopay login devolvió error. Status {StatusCode}. BodyLength {BodyLength}",
                     response.StatusCode,
-                    raw);
+                    raw.Length);
 
                 throw new InvalidOperationException("No fue posible autenticarse contra Tilopay.");
             }

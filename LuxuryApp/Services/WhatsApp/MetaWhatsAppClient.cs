@@ -261,13 +261,10 @@ namespace LuxuryApp.Services.WhatsApp
             var json = JsonSerializer.Serialize(payload, JsonOptions);
 
             _logger.LogInformation(
-                "Meta WhatsApp request prepared. Endpoint {Endpoint}. AuthorizationScheme {AuthorizationScheme}. AccessTokenPresent {AccessTokenPresent}. AccessTokenLength {AccessTokenLength}. AccessTokenPrefix {AccessTokenPrefix}. AccessTokenSuffix {AccessTokenSuffix}.",
+                "Meta WhatsApp request prepared. Endpoint {Endpoint}. AuthorizationScheme {AuthorizationScheme}. AccessTokenPresent {AccessTokenPresent}.",
                 endpoint,
                 "Bearer",
-                !string.IsNullOrWhiteSpace(options.AccessToken),
-                options.AccessToken.Length,
-                snapshotPrefix(options.AccessToken),
-                snapshotSuffix(options.AccessToken));
+                !string.IsNullOrWhiteSpace(options.AccessToken));
 
             using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
             {
@@ -285,7 +282,7 @@ namespace LuxuryApp.Services.WhatsApp
                 {
                     var error = ExtractMetaError(response.StatusCode, body, response.Headers.WwwAuthenticate.ToString());
                     _logger.LogWarning(
-                        "Meta WhatsApp request failed. Endpoint {Endpoint}. StatusCode {StatusCode}. ErrorType {ErrorType}. ErrorCode {ErrorCode}. ErrorSubcode {ErrorSubcode}. FbTraceId {FbTraceId}. ErrorMessage {ErrorMessage}. ResponseBody {ResponseBody}",
+                        "Meta WhatsApp request failed. Endpoint {Endpoint}. StatusCode {StatusCode}. ErrorType {ErrorType}. ErrorCode {ErrorCode}. ErrorSubcode {ErrorSubcode}. FbTraceId {FbTraceId}. ErrorMessage {ErrorMessage}. ResponseBodyLength {ResponseBodyLength}",
                         endpoint,
                         (int)response.StatusCode,
                         error.Type,
@@ -293,7 +290,7 @@ namespace LuxuryApp.Services.WhatsApp
                         error.Subcode,
                         error.FbTraceId,
                         error.Message,
-                        safeBody);
+                        body.Length);
 
                     return MetaWhatsAppSendResult.Failed(
                         error.Code,
@@ -341,11 +338,6 @@ namespace LuxuryApp.Services.WhatsApp
                     endpoint: endpoint.ToString());
             }
 
-            static string snapshotPrefix(string token) =>
-                token[..Math.Min(6, token.Length)];
-
-            static string snapshotSuffix(string token) =>
-                token[^Math.Min(4, token.Length)..];
         }
 
         private async Task<MetaWhatsAppEndpointProbeResult> ProbePhoneNumberAsync(

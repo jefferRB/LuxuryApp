@@ -123,7 +123,7 @@ namespace LuxuryApp.Services.Calendar
 
         public async Task ProcessPendingNotificationsAsync(CancellationToken cancellationToken = default)
         {
-            var nowUtc = DateTime.UtcNow;
+            var nowUtc = _businessDateTimeProvider.NowOffset().UtcDateTime;
             var staleProcessingCutoffUtc = nowUtc.AddMinutes(-10);
 
             await _context.WhatsAppMessageLogs
@@ -402,6 +402,22 @@ namespace LuxuryApp.Services.Calendar
                 return;
             }
 
+            // Calcular cuándo enviar la confirmación: 24h antes de la cita, o de inmediato si ya está dentro de ese margen.
+            DateTime? scheduledSendAtUtc = null;
+            if (notificationType == WhatsAppNotificationTypes.Confirmation)
+            {
+                var (isPast, sendAtUtc) = CalculateConfirmationSchedule(cita.FechaHoraCita);
+                if (isPast)
+                {
+                    _logger.LogInformation(
+                        "Confirmacion WhatsApp omitida: la cita ya venció. TenantId {TenantId}. CitaId {CitaId}. FechaHoraCita {FechaHoraCita:yyyy-MM-dd HH:mm}.",
+                        cita.TenantId, cita.Id, cita.FechaHoraCita);
+                    return;
+                }
+
+                scheduledSendAtUtc = sendAtUtc;
+            }
+
             await using var transaction = await _context.Database.BeginTransactionAsync(
                 IsolationLevel.Serializable,
                 cancellationToken);
@@ -450,19 +466,33 @@ namespace LuxuryApp.Services.Calendar
                 TemplateName = ResolveTemplateName(options, notificationType),
                 Status = WhatsAppMessageStatuses.Pending,
                 PayloadJson = BuildQueuedPayloadJson(cita, notificationType),
-                CreatedAtUtc = _businessDateTimeProvider.NowOffset().UtcDateTime
+                CreatedAtUtc = _businessDateTimeProvider.NowOffset().UtcDateTime,
+                NextAttemptAtUtc = scheduledSendAtUtc
             });
 
             await _context.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
-            _logger.LogInformation(
-                "Notificacion WhatsApp encolada. TenantId {TenantId}. CitaId {CitaId}. NotificationType {NotificationType}. UsoDiario {TodayUsage}. LimiteDiario {DailyMessageLimit}.",
-                cita.TenantId,
-                cita.Id,
-                notificationType,
-                decision.TodayUsage + 1,
-                decision.DailyMessageLimit);
+            if (notificationType == WhatsAppNotificationTypes.Confirmation && scheduledSendAtUtc.HasValue)
+            {
+                _logger.LogInformation(
+                    "Confirmacion WhatsApp programada para {ScheduledSendAtUtc:yyyy-MM-dd HH:mm} UTC (24h antes de la cita). TenantId {TenantId}. CitaId {CitaId}. UsoDiario {TodayUsage}. LimiteDiario {DailyMessageLimit}.",
+                    scheduledSendAtUtc.Value,
+                    cita.TenantId,
+                    cita.Id,
+                    decision.TodayUsage + 1,
+                    decision.DailyMessageLimit);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Notificacion WhatsApp encolada para envio inmediato. TenantId {TenantId}. CitaId {CitaId}. NotificationType {NotificationType}. UsoDiario {TodayUsage}. LimiteDiario {DailyMessageLimit}.",
+                    cita.TenantId,
+                    cita.Id,
+                    notificationType,
+                    decision.TodayUsage + 1,
+                    decision.DailyMessageLimit);
+            }
         }
 
         private async Task RegisterSkippedOutboundAsync(
@@ -732,6 +762,27 @@ namespace LuxuryApp.Services.Calendar
                 return;
             }
 
+            // Omitir confirmaciones si la cita ya venció al momento de enviarla.
+            if (message.NotificationType == WhatsAppNotificationTypes.Confirmation)
+            {
+                var (isPast, _) = CalculateConfirmationSchedule(cita.FechaHoraCita);
+                if (isPast)
+                {
+                    MarkSkipped(
+                        message,
+                        cita,
+                        WhatsAppMessageStatuses.SkippedNotEligible,
+                        WhatsAppErrorCodes.AppointmentExpired,
+                        "La cita ya venció al momento de enviar la confirmacion.",
+                        nowUtc);
+                    _logger.LogInformation(
+                        "Confirmacion WhatsApp omitida al procesar: cita ya vencida. TenantId {TenantId}. CitaId {CitaId}. FechaHoraCita {FechaHoraCita:yyyy-MM-dd HH:mm}.",
+                        cita.TenantId, cita.Id, cita.FechaHoraCita);
+                    await _context.SaveChangesAsync(cancellationToken);
+                    return;
+                }
+            }
+
             var tenantName = await _context.Tenants
                 .AsNoTracking()
                 .Where(tenant => tenant.Id == cita.TenantId)
@@ -778,6 +829,90 @@ namespace LuxuryApp.Services.Calendar
             }
 
             await _context.SaveChangesAsync(cancellationToken);
+        }
+
+        public async Task RescheduleConfirmationIfPendingAsync(
+            int citaId,
+            DateTime newFechaHoraCita,
+            CancellationToken cancellationToken = default)
+        {
+            var (isPast, sendAtUtc) = CalculateConfirmationSchedule(newFechaHoraCita);
+
+            if (isPast)
+            {
+                await CancelPendingNotificationsAsync(citaId, cancellationToken);
+                return;
+            }
+
+            var updated = await _context.WhatsAppMessageLogs
+                .Where(message =>
+                    message.CitaId == citaId &&
+                    message.Direction == WhatsAppMessageDirections.Outbound &&
+                    message.NotificationType == WhatsAppNotificationTypes.Confirmation &&
+                    message.Status == WhatsAppMessageStatuses.Pending)
+                .ExecuteUpdateAsync(updates => updates
+                    .SetProperty(message => message.NextAttemptAtUtc, sendAtUtc),
+                    cancellationToken);
+
+            if (updated > 0)
+            {
+                if (sendAtUtc.HasValue)
+                {
+                    _logger.LogInformation(
+                        "Confirmacion WhatsApp reprogramada a {ScheduledSendAtUtc:yyyy-MM-dd HH:mm} UTC. CitaId {CitaId}.",
+                        sendAtUtc.Value, citaId);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Confirmacion WhatsApp reprogramada para envio inmediato (cita dentro de 24h). CitaId {CitaId}.",
+                        citaId);
+                }
+            }
+        }
+
+        public async Task CancelPendingNotificationsAsync(
+            int citaId,
+            CancellationToken cancellationToken = default)
+        {
+            var nowUtc = _businessDateTimeProvider.NowOffset().UtcDateTime;
+
+            var cancelled = await _context.WhatsAppMessageLogs
+                .Where(message =>
+                    message.CitaId == citaId &&
+                    message.Direction == WhatsAppMessageDirections.Outbound &&
+                    (message.Status == WhatsAppMessageStatuses.Pending ||
+                     message.Status == WhatsAppMessageStatuses.Processing))
+                .ExecuteUpdateAsync(updates => updates
+                    .SetProperty(message => message.Status, WhatsAppMessageStatuses.Cancelled)
+                    .SetProperty(message => message.ErrorCode, WhatsAppErrorCodes.CitaCancellada)
+                    .SetProperty(message => message.ErrorMessage, "La cita fue eliminada o cancelada.")
+                    .SetProperty(message => message.ProcessedAtUtc, nowUtc)
+                    .SetProperty(message => message.NextAttemptAtUtc, (DateTime?)null),
+                    cancellationToken);
+
+            if (cancelled > 0)
+            {
+                _logger.LogInformation(
+                    "Notificaciones WhatsApp pendientes canceladas por eliminacion de cita. CitaId {CitaId}. Mensajes cancelados: {Count}.",
+                    citaId, cancelled);
+            }
+        }
+
+        private (bool IsPast, DateTime? ScheduledSendAtUtc) CalculateConfirmationSchedule(DateTime fechaHoraCita)
+        {
+            var nowOffset = _businessDateTimeProvider.NowOffset();
+            var nowUtc = nowOffset.UtcDateTime;
+            var crOffset = nowOffset.Offset;
+            var citaUtc = new DateTimeOffset(fechaHoraCita, crOffset).UtcDateTime;
+
+            if (citaUtc <= nowUtc)
+            {
+                return (true, null);
+            }
+
+            var sendAtUtc = citaUtc.AddHours(-24);
+            return (false, sendAtUtc > nowUtc ? sendAtUtc : (DateTime?)null);
         }
 
         private static bool IsNotifiableAppointment(Cita cita, out string reason)

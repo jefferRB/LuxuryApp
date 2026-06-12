@@ -1,6 +1,7 @@
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using System.Text.Encodings.Web;
+using LuxuryApp.Services.Security;
 using Microsoft.Extensions.Options;
 using MimeKit;
 using MimeKit.Text;
@@ -27,12 +28,13 @@ namespace LuxuryApp.Services.Account
             CancellationToken cancellationToken = default)
         {
             var opts = _emailOptions.Value;
+            var maskedEmail = SensitiveDataMasker.MaskEmail(toEmail);
 
             if (string.IsNullOrWhiteSpace(opts.SmtpPassword))
             {
                 _logger.LogWarning(
-                    "Email:SmtpPassword no configurado. Email de restablecimiento no enviado para {Email}.",
-                    toEmail);
+                    "Email:SmtpPassword no configurado. Email de restablecimiento no enviado para {MaskedEmail}.",
+                    maskedEmail);
                 return;
             }
 
@@ -60,15 +62,15 @@ namespace LuxuryApp.Services.Account
                 await client.DisconnectAsync(quit: true, cancellationToken);
 
                 _logger.LogInformation(
-                    "Email de restablecimiento de contraseña enviado a {Email}.",
-                    toEmail);
+                    "Email de restablecimiento de contraseña enviado a {MaskedEmail}.",
+                    maskedEmail);
             }
             catch (Exception ex)
             {
                 _logger.LogError(
                     ex,
-                    "Error al enviar email de restablecimiento para {Email}.",
-                    toEmail);
+                    "Error al enviar email de restablecimiento para {MaskedEmail}.",
+                    maskedEmail);
                 throw;
             }
         }

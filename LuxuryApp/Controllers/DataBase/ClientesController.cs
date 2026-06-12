@@ -3,6 +3,7 @@ using System.Security.Claims;
 using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.WhatsApp;
 using LuxuryApp.Services.BusinessTime;
+using LuxuryApp.Services.Security;
 using LuxuryApp.Services.WhatsApp;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -91,7 +92,7 @@ namespace LuxuryApp.Controllers.DataBase
             var cliente = new ClientesModel
             {
                 FechaUltimaVisita = _businessDateTimeProvider.Today(),
-                FrecuenciaVisita = 30
+                FrecuenciaVisita = 15
             };
 
             await SetTenantWhatsAppEnabledViewDataAsync(cancellationToken);
@@ -156,13 +157,19 @@ namespace LuxuryApp.Controllers.DataBase
             }
             catch (DbUpdateException ex)
             {
-                _logger.LogError(ex, "Error al crear cliente para telefono {NumeroTelefono}.", cliente.NumeroTelefono);
+                _logger.LogError(
+                    ex,
+                    "Error al crear cliente para telefono {MaskedNumeroTelefono}.",
+                    SensitiveDataMasker.MaskPhone(cliente.NumeroTelefono));
                 ModelState.AddModelError(string.Empty, "No fue posible guardar el cliente. Revisa los datos e intentalo de nuevo.");
                 return View(cliente);
             }
             catch (InvalidOperationException ex)
             {
-                _logger.LogError(ex, "Guard bloqueo la creacion del cliente {NumeroTelefono}.", cliente.NumeroTelefono);
+                _logger.LogError(
+                    ex,
+                    "Guard bloqueo la creacion del cliente {MaskedNumeroTelefono}.",
+                    SensitiveDataMasker.MaskPhone(cliente.NumeroTelefono));
                 ModelState.AddModelError(string.Empty, "No fue posible guardar el cliente por una validacion de seguridad o consistencia.");
                 return View(cliente);
             }
@@ -733,7 +740,7 @@ namespace LuxuryApp.Controllers.DataBase
 
         private async Task<ServicioRealizadoViewModel?> BuildRegistrarServiciosViewModelAsync(int clienteId)
         {
-            return await _context.Clientes
+            var vm = await _context.Clientes
                 .AsNoTracking()
                 .Where(c => c.Id == clienteId)
                 .Select(c => new ServicioRealizadoViewModel
@@ -741,9 +748,19 @@ namespace LuxuryApp.Controllers.DataBase
                     ClienteId = c.Id,
                     NumeroTelefono = c.NumeroTelefono,
                     NombreCliente = c.Nombre,
-                    DescripcionServicios = c.DescripcionServiciosRealizados
+                    DescripcionServicios = c.DescripcionServiciosRealizados,
+                    FechaUltimaVisita = c.FechaUltimaVisita
                 })
                 .FirstOrDefaultAsync();
+
+            if (vm != null)
+            {
+                vm.TotalVisitas = await _context.ClienteVisitas
+                    .AsNoTracking()
+                    .CountAsync(v => v.ClienteId == clienteId);
+            }
+
+            return vm;
         }
 
         private static IQueryable<ClientesModel> ApplyExactPhoneSearch(

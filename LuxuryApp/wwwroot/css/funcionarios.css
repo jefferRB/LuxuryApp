@@ -753,3 +753,1055 @@
     min-width: 5rem;
     justify-content: center;
 }
+
+/* ==========================================================
+   FORM VIEWS — Create / Edit
+   Clases: func-form-body, func-form-grid, func-field, func-input-*
+   func-select, func-color-*, func-pct-bar-*, func-actions,
+   func-danger-zone, func-info-box, func-validation-summary
+   ========================================================== */
+
+/* ── FORM BODY ─────────────────────────────────────────────── */
+.func-form-body {
+    padding: 0 2rem 2rem;
+}
+
+.func-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem 1.75rem;
+}
+
+.func-form-full { grid-column: 1 / -1; }
+
+.func-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.func-label {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--private-surface-text, #111827);
+    letter-spacing: 0.01em;
+}
+
+.func-required { color: #ef4444; }
+
+.func-input-wrap { position: relative; }
+
+.func-input-icon {
+    position: absolute;
+    left: 0.85rem;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.95rem;
+    color: var(--private-muted-text, #64748b);
+    pointer-events: none;
+    line-height: 1;
+    z-index: 1;
+}
+
+.func-input {
+    width: 100%;
+    padding: 0.65rem 0.875rem 0.65rem 2.5rem;
+    font-size: 0.9rem;
+    color: var(--private-surface-text, #111827);
+    background: var(--private-row-bg, rgba(15,23,42,0.04));
+    border: 1px solid var(--private-surface-border, rgba(15,23,42,0.14));
+    border-radius: 0.75rem;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    box-sizing: border-box;
+}
+
+.func-input:focus {
+    border-color: var(--private-chart-accent, #2563eb);
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+    background: var(--private-surface-bg, #fff);
+}
+
+.func-select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%2364748b' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.875rem center;
+    background-size: 0.9rem;
+    padding-right: 2.5rem;
+}
+
+/* Color picker */
+.func-color-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.func-color-swatch {
+    flex-shrink: 0;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 0.6rem;
+    border: 1px solid var(--private-surface-border, rgba(15,23,42,0.14));
+    cursor: pointer;
+    padding: 0.15rem;
+    background: none;
+}
+
+.func-color-preview-pill {
+    flex: 1;
+    height: 2.75rem;
+    border-radius: 0.75rem;
+    display: flex;
+    align-items: center;
+    padding: 0 0.875rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.45);
+    letter-spacing: 0.04em;
+    transition: background 0.15s;
+    gap: 0.5rem;
+    border: 1.5px solid rgba(255,255,255,0.18);
+}
+
+/* Percentage bar preview */
+.func-pct-bar-preview {
+    height: 4px;
+    background: var(--private-surface-border, rgba(15,23,42,0.1));
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 0.1rem;
+}
+
+.func-pct-bar-preview-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.3s ease;
+}
+
+.func-pct-bar--blue   { background: linear-gradient(90deg, #2563eb, #60a5fa); }
+.func-pct-bar--purple { background: linear-gradient(90deg, #7c3aed, #a78bfa); }
+
+/* Field error */
+.func-field-error {
+    font-size: 0.78rem;
+    color: #ef4444;
+    display: block;
+}
+
+/* Validation summary */
+.func-validation-summary {
+    background: rgba(220,38,38,0.08);
+    border: 1px solid rgba(220,38,38,0.22);
+    border-radius: 0.75rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1.25rem;
+    font-size: 0.85rem;
+    color: #dc2626;
+}
+
+/* Info box */
+.func-info-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    padding: 0.85rem 1rem;
+    background: rgba(37,99,235,0.07);
+    border: 1px solid rgba(37,99,235,0.2);
+    border-radius: 0.75rem;
+    font-size: 0.82rem;
+    color: var(--private-muted-text, #64748b);
+    margin-top: 1.25rem;
+    line-height: 1.55;
+}
+
+.func-info-box > i {
+    color: var(--private-chart-accent, #2563eb);
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+    font-size: 0.95rem;
+}
+
+/* Actions row */
+.func-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 1.75rem;
+}
+
+/* Danger zone (separador rojo para acciones destructivas en Edit) */
+.func-danger-zone {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    flex-wrap: wrap;
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid rgba(220,38,38,0.15);
+}
+
+.func-danger-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: #ef4444;
+    opacity: 0.6;
+    margin-right: 0.25rem;
+}
+
+/* Button variants: danger / warning / success */
+.func-btn--danger {
+    color: #dc2626;
+    border-color: rgba(220,38,38,0.25);
+    background: rgba(220,38,38,0.07);
+}
+.func-btn--danger:hover {
+    background: rgba(220,38,38,0.14);
+    border-color: rgba(220,38,38,0.4);
+    color: #dc2626;
+}
+
+.func-btn--warning {
+    color: #d97706;
+    border-color: rgba(217,119,6,0.25);
+    background: rgba(217,119,6,0.07);
+}
+.func-btn--warning:hover {
+    background: rgba(217,119,6,0.14);
+    border-color: rgba(217,119,6,0.4);
+    color: #d97706;
+}
+
+.func-btn--success {
+    color: #16a34a;
+    border-color: rgba(22,163,74,0.25);
+    background: rgba(22,163,74,0.07);
+}
+.func-btn--success:hover {
+    background: rgba(22,163,74,0.14);
+    border-color: rgba(22,163,74,0.4);
+    color: #16a34a;
+}
+
+/* ── STATUS BADGE for header ────────────────────────────── */
+.func-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.28rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.func-status-badge--active {
+    background: rgba(22,163,74,0.11);
+    color: var(--private-chart-success, #16a34a);
+    border: 1px solid rgba(22,163,74,0.26);
+}
+
+.func-status-badge--inactive {
+    background: rgba(100,116,139,0.1);
+    color: var(--private-muted-text, #64748b);
+    border: 1px solid rgba(100,116,139,0.2);
+}
+
+/* ==========================================================
+   PREMIUM MODALS — Desactivar / Eliminar / Pago
+   ========================================================== */
+
+.func-modal .modal-content {
+    border: 1px solid var(--private-surface-border, rgba(15,23,42,0.14));
+    border-radius: 1.1rem;
+    background: var(--private-surface-bg, #fff);
+    box-shadow: 0 25px 60px rgba(15,23,42,0.22);
+    overflow: hidden;
+}
+
+.func-modal .modal-header {
+    border-bottom: 1px solid var(--private-surface-border, rgba(15,23,42,0.1));
+    padding: 1.1rem 1.5rem;
+    background: var(--private-surface-bg, #fff);
+}
+
+.func-modal-title {
+    font-size: 1rem;
+    font-weight: 800;
+    color: var(--private-surface-text, #111827);
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin: 0;
+}
+
+.func-modal-title--danger  { color: #dc2626; }
+.func-modal-title--warning { color: #d97706; }
+.func-modal-title--green   { color: #16a34a; }
+
+.func-modal .modal-body {
+    padding: 1.5rem;
+    background: var(--private-surface-bg, #fff);
+    color: var(--private-surface-text, #111827);
+}
+
+.func-modal .modal-footer {
+    border-top: 1px solid var(--private-surface-border, rgba(15,23,42,0.1));
+    padding: 0.9rem 1.5rem;
+    background: var(--private-surface-bg, #fff);
+    gap: 0.65rem;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+}
+
+.func-modal-person {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.9rem 1rem;
+    background: var(--private-row-bg, rgba(15,23,42,0.04));
+    border: 1px solid var(--private-surface-border, rgba(15,23,42,0.1));
+    border-radius: 0.75rem;
+    margin-bottom: 1.1rem;
+}
+
+.func-modal-person-name {
+    font-weight: 700;
+    font-size: 0.93rem;
+    color: var(--private-surface-text, #111827);
+    display: block;
+}
+
+.func-modal-person-sub {
+    font-size: 0.74rem;
+    color: var(--private-muted-text, #64748b);
+    display: block;
+    margin-top: 0.08rem;
+}
+
+.func-modal-warning-box {
+    display: flex;
+    gap: 0.6rem;
+    padding: 0.8rem 1rem;
+    background: rgba(220,38,38,0.07);
+    border: 1px solid rgba(220,38,38,0.2);
+    border-radius: 0.75rem;
+    font-size: 0.83rem;
+    color: #dc2626;
+    line-height: 1.5;
+    margin-bottom: 0.75rem;
+}
+
+.func-modal-warning-box--amber {
+    background: rgba(217,119,6,0.07);
+    border-color: rgba(217,119,6,0.2);
+    color: #d97706;
+}
+
+.func-modal-warning-box > i { flex-shrink: 0; margin-top: 0.1rem; }
+
+.func-modal-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-bottom: 0.9rem;
+}
+
+.func-modal-field:last-child { margin-bottom: 0; }
+
+.func-modal-label {
+    font-size: 0.73rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--private-muted-text, #64748b);
+}
+
+.func-modal-input {
+    width: 100%;
+    padding: 0.6rem 0.875rem;
+    font-size: 0.9rem;
+    color: var(--private-surface-text, #111827);
+    background: var(--private-row-bg, rgba(15,23,42,0.04));
+    border: 1px solid var(--private-surface-border, rgba(15,23,42,0.14));
+    border-radius: 0.75rem;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    box-sizing: border-box;
+}
+
+.func-modal-input:focus {
+    border-color: var(--private-chart-accent, #2563eb);
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+}
+
+.func-modal-input[readonly] {
+    opacity: 0.65;
+    cursor: default;
+}
+
+.func-modal-select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%2364748b' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.875rem center;
+    background-size: 0.9rem;
+    padding-right: 2.5rem;
+}
+
+.func-modal-hint {
+    font-size: 0.73rem;
+    color: var(--private-muted-text, #64748b);
+    margin-top: 0.15rem;
+}
+
+/* ── MODAL PUESTOS OVERRIDE ──────────────────────────────── */
+#modalPuestos .modal-content {
+    border: 1px solid var(--private-surface-border, rgba(15,23,42,0.14));
+    border-radius: 1.1rem;
+    background: var(--private-surface-bg, #fff);
+    overflow: hidden;
+}
+
+#modalPuestos .modal-header {
+    background: linear-gradient(135deg, rgba(37,99,235,0.08), rgba(124,58,237,0.08));
+    border-bottom: 1px solid var(--private-surface-border, rgba(15,23,42,0.1));
+    padding: 1.1rem 1.5rem;
+}
+
+#modalPuestos .modal-title {
+    font-size: 1rem;
+    font-weight: 800;
+    color: var(--private-surface-text, #111827);
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+#modalPuestos .modal-body {
+    padding: 1.5rem;
+    background: var(--private-surface-bg, #fff);
+    color: var(--private-surface-text, #111827);
+}
+
+/* ── BTN-CLOSE OVERRIDE (modals sin bg-dark) ─────────────── */
+.func-modal .btn-close,
+#modalPuestos .btn-close {
+    filter: none;
+    opacity: 0.5;
+}
+
+.func-modal .btn-close:hover,
+#modalPuestos .btn-close:hover { opacity: 0.8; }
+
+/* ==========================================================
+   PAGOS SEMANA — func-week-nav, func-pagos-controls,
+   func-pagos-kpi-grid, func-pagos-kpi, func-day-cards,
+   func-pagos-subtable, amount helpers
+   ========================================================== */
+
+/* ── WEEK NAVIGATION ─────────────────────────────────────── */
+.func-week-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0 2rem 1.5rem;
+    flex-wrap: wrap;
+}
+
+.func-week-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.18rem;
+    flex: 1;
+    text-align: center;
+}
+
+.func-week-label {
+    font-size: 0.62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--private-muted-text, #64748b);
+}
+
+.func-week-range {
+    font-size: 1rem;
+    font-weight: 800;
+    color: var(--private-surface-text, #111827);
+    white-space: nowrap;
+}
+
+/* ── CONTROLS BAR ────────────────────────────────────────── */
+.func-pagos-controls {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.85rem;
+    flex-wrap: wrap;
+    padding: 0 2rem 1.5rem;
+    border-bottom: 1px solid var(--private-table-border, rgba(15,23,42,0.08));
+}
+
+.func-pagos-control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.func-pagos-control-label {
+    font-size: 0.67rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--private-muted-text, #64748b);
+    white-space: nowrap;
+}
+
+.func-pagos-sep {
+    width: 1px;
+    background: var(--private-surface-border, rgba(15,23,42,0.14));
+    height: 2.75rem;
+    align-self: flex-end;
+    flex-shrink: 0;
+}
+
+/* ── KPI GRID ────────────────────────────────────────────── */
+.func-pagos-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+    padding: 1.5rem 2rem;
+    border-bottom: 1px solid var(--private-table-border, rgba(15,23,42,0.08));
+}
+
+.func-pagos-kpi {
+    display: flex;
+    flex-direction: column;
+    gap: 0.28rem;
+    padding: 0.9rem 1.1rem;
+    background: var(--private-row-bg, rgba(15,23,42,0.04));
+    border: 1px solid var(--private-surface-border, rgba(15,23,42,0.1));
+    border-radius: 0.85rem;
+    transition: border-color 0.15s;
+}
+
+.func-pagos-kpi-label {
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--private-muted-text, #64748b);
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.func-pagos-kpi-value {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: var(--private-surface-text, #111827);
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.func-pagos-kpi--blue   { border-color: rgba(37,99,235,0.18); }
+.func-pagos-kpi--blue   .func-pagos-kpi-value { color: var(--private-chart-accent, #2563eb); }
+.func-pagos-kpi--teal   { border-color: rgba(8,145,178,0.18); }
+.func-pagos-kpi--teal   .func-pagos-kpi-value { color: #0891b2; }
+.func-pagos-kpi--green  { border-color: rgba(22,163,74,0.18); }
+.func-pagos-kpi--green  .func-pagos-kpi-value { color: var(--private-chart-success, #16a34a); }
+.func-pagos-kpi--red    { border-color: rgba(220,38,38,0.18); }
+.func-pagos-kpi--red    .func-pagos-kpi-value { color: #dc2626; }
+.func-pagos-kpi--amber  { border-color: rgba(217,119,6,0.18); }
+.func-pagos-kpi--amber  .func-pagos-kpi-value { color: #d97706; }
+.func-pagos-kpi--purple { border-color: rgba(124,58,237,0.18); }
+.func-pagos-kpi--purple .func-pagos-kpi-value { color: #7c3aed; }
+
+/* ── EMPLOYEE ROW IN PAGOS TABLE ─────────────────────────── */
+.func-pagos-employee-name {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.func-pagos-expand-btn {
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 0.4rem;
+    border: 1px solid var(--private-surface-border, rgba(15,23,42,0.14));
+    background: var(--private-row-bg, rgba(15,23,42,0.04));
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    color: var(--private-muted-text, #64748b);
+    cursor: pointer;
+    transition: background 0.13s ease, transform 0.2s ease;
+    flex-shrink: 0;
+    padding: 0;
+}
+
+.func-pagos-expand-btn:hover {
+    background: var(--private-row-hover-bg, rgba(15,23,42,0.08));
+}
+
+/* Pagar button */
+.func-pagos-pay-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.35rem 0.8rem;
+    border-radius: 0.55rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    background: rgba(22,163,74,0.1);
+    color: var(--private-chart-success, #16a34a);
+    border: 1px solid rgba(22,163,74,0.25);
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+}
+
+.func-pagos-pay-btn:hover {
+    background: rgba(22,163,74,0.18);
+}
+
+/* Detail collapsible row */
+.func-pagos-detail > td {
+    padding: 0 !important;
+    background: var(--private-row-bg, rgba(15,23,42,0.025));
+    border-bottom: 1px solid var(--private-table-border, rgba(15,23,42,0.08));
+}
+
+.func-pagos-detail-inner {
+    padding: 1.25rem 2rem;
+}
+
+.func-pagos-detail-title {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--private-muted-text, #64748b);
+    margin-bottom: 0.65rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+/* ── DAY CARDS ────────────────────────────────────────────── */
+.func-day-cards {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.45rem;
+    margin-bottom: 1.5rem;
+}
+
+.func-day-card {
+    padding: 0.6rem 0.4rem;
+    background: var(--private-surface-bg, #fff);
+    border: 1px solid var(--private-surface-border, rgba(15,23,42,0.1));
+    border-radius: 0.65rem;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.22rem;
+}
+
+.func-day-name {
+    font-size: 0.56rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--private-muted-text, #64748b);
+}
+
+.func-day-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    border-radius: 50%;
+    background: rgba(37,99,235,0.1);
+    font-size: 0.63rem;
+    font-weight: 800;
+    color: var(--private-chart-accent, #2563eb);
+}
+
+.func-day-amount {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--private-chart-success, #16a34a);
+}
+
+/* ── SUBTABLE (products / payment history) ────────────────── */
+.func-pagos-subtable {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    margin-top: 0.5rem;
+    border-radius: 0.65rem;
+    overflow: hidden;
+}
+
+.func-pagos-subtable thead tr {
+    background: var(--private-table-head-bg, rgba(15,23,42,0.05));
+    border-top: 1px solid var(--private-table-border, rgba(15,23,42,0.08));
+    border-bottom: 1px solid var(--private-table-border, rgba(15,23,42,0.08));
+}
+
+.func-pagos-subtable thead th {
+    padding: 0.5rem 0.85rem;
+    font-size: 0.62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--private-muted-text, #64748b);
+    border: none;
+}
+
+.func-pagos-subtable tbody td {
+    padding: 0.55rem 0.85rem;
+    border-bottom: 1px solid var(--private-table-border, rgba(15,23,42,0.06));
+    color: var(--private-surface-text, #111827);
+    border-left: none;
+    border-right: none;
+    border-top: none;
+}
+
+.func-pagos-subtable tbody tr:last-child td { border-bottom: none; }
+
+/* Amount color helpers */
+.func-amount--green { color: var(--private-chart-success, #16a34a); font-weight: 700; }
+.func-amount--red   { color: #dc2626; font-weight: 700; }
+.func-amount--blue  { color: var(--private-chart-accent, #2563eb); font-weight: 700; }
+.func-amount--muted { color: var(--private-muted-text, #64748b); }
+
+/* ── RESPONSIVE ADDITIONS ────────────────────────────────── */
+@media (max-width: 991.98px) {
+    .func-pagos-kpi-grid {
+        grid-template-columns: repeat(2, 1fr);
+        padding: 1.25rem 1.75rem;
+    }
+    .func-week-nav         { padding: 0 1.75rem 1.25rem; }
+    .func-pagos-controls   { padding: 0 1.75rem 1.25rem; }
+    .func-pagos-detail-inner { padding: 1rem 1.75rem; }
+    .func-pagos-sep        { display: none; }
+}
+
+@media (max-width: 767.98px) {
+    .func-form-grid        { grid-template-columns: 1fr; }
+    .func-form-full        { grid-column: 1; }
+    .func-form-body        { padding: 0 1.25rem 1.5rem; }
+    .func-week-nav         { padding: 0 1.25rem 1.25rem; }
+    .func-week-center      { width: 100%; order: -1; }
+    .func-pagos-controls   { padding: 0 1.25rem 1.25rem; flex-direction: column; align-items: stretch; }
+    .func-pagos-controls .func-btn { justify-content: center; }
+    .func-pagos-kpi-grid   { grid-template-columns: 1fr 1fr; padding: 1rem 1.25rem; gap: 0.6rem; }
+    .func-actions          { flex-direction: column; align-items: stretch; }
+    .func-actions .func-btn { justify-content: center; }
+    .func-danger-zone      { flex-direction: column; align-items: stretch; }
+    .func-danger-zone .func-btn { justify-content: center; }
+    .func-day-cards        { grid-template-columns: repeat(4, 1fr); }
+    .func-pagos-detail-inner { padding: 1rem 1.25rem; }
+}
+
+@media (max-width: 575.98px) {
+    .func-form-body          { padding: 0 1rem 1.25rem; }
+    .func-week-nav           { padding: 0 1rem 1.1rem; }
+    .func-pagos-controls     { padding: 0 1rem 1.1rem; }
+    .func-pagos-kpi-grid     { padding: 0.85rem 1rem; gap: 0.5rem; }
+    .func-pagos-kpi-value    { font-size: 0.98rem; }
+    .func-pagos-detail-inner { padding: 0.85rem 1rem; }
+    .func-day-cards          { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* ==========================================================
+   PUESTOS MODAL CONTENT — staff-pos-*
+   Scoped to partial loaded inside #modalPuestos
+   ========================================================== */
+
+.staff-pos-action-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.1rem;
+}
+
+.staff-pos-count {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--private-muted-text, #64748b);
+}
+
+.staff-pos-form-container {
+    background: var(--private-row-bg, rgba(15, 23, 42, 0.04));
+    border: 1px solid var(--private-surface-border, rgba(15, 23, 42, 0.12));
+    border-radius: 0.85rem;
+    padding: 1.1rem 1.25rem;
+    margin-bottom: 1.1rem;
+}
+
+.staff-pos-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Override 2rem padding from .func-table inside the compact modal */
+.staff-pos-table thead th:first-child,
+.staff-pos-table tbody td:first-child { padding-left: 0.75rem; }
+.staff-pos-table thead th:last-child,
+.staff-pos-table tbody td:last-child  { padding-right: 0.75rem; }
+
+.staff-pos-detalle {
+    font-size: 0.82rem;
+    color: var(--private-muted-text, #64748b);
+    max-width: 18rem;
+    word-wrap: break-word;
+    white-space: normal;
+    line-height: 1.45;
+}
+
+.staff-pos-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+/* Compact variant of func-btn for action columns */
+.staff-pos-act-btn {
+    padding: 0.28rem 0.65rem !important;
+    font-size: 0.77rem !important;
+    border-radius: 0.55rem !important;
+    gap: 0.3rem !important;
+    line-height: 1.3 !important;
+    white-space: nowrap !important;
+}
+
+/* Mobile cards for puestos */
+.staff-pos-card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.staff-pos-card {
+    background: var(--private-row-bg, rgba(15, 23, 42, 0.04));
+    border: 1px solid var(--private-surface-border, rgba(15, 23, 42, 0.12));
+    border-radius: 0.85rem;
+    padding: 0.9rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.staff-pos-card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.staff-pos-card-name {
+    font-size: 0.93rem;
+    font-weight: 700;
+    color: var(--private-surface-text, #111827);
+    line-height: 1.3;
+}
+
+.staff-pos-card-detalle {
+    font-size: 0.8rem;
+    color: var(--private-muted-text, #64748b);
+    margin: 0.2rem 0 0;
+    line-height: 1.45;
+}
+
+.staff-pos-card-status { flex-shrink: 0; }
+
+.staff-pos-card-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.45rem;
+    border-top: 1px solid var(--private-table-border, rgba(15, 23, 42, 0.08));
+    padding-top: 0.75rem;
+}
+
+.staff-pos-card-actions .func-btn { justify-content: center; }
+
+@media (max-width: 399.98px) {
+    .staff-pos-card-actions { grid-template-columns: 1fr; }
+}
+
+/* ==========================================================
+   PAYMENT MODAL ENHANCEMENTS — func-pago-*
+   ========================================================== */
+
+.func-pago-summary {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.85rem;
+    padding: 0.9rem 1rem;
+    background: rgba(37, 99, 235, 0.06);
+    border: 1px solid rgba(37, 99, 235, 0.18);
+    border-radius: 0.85rem;
+    margin-bottom: 1.1rem;
+}
+
+.func-pago-summary-avatar {
+    flex-shrink: 0;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    font-weight: 800;
+    color: #fff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.func-pago-summary-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.func-pago-summary-name {
+    font-size: 0.93rem;
+    font-weight: 700;
+    color: var(--private-surface-text, #111827);
+    display: block;
+}
+
+.func-pago-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.35rem 0.75rem;
+    margin-top: 0.55rem;
+}
+
+.func-pago-summary-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.08rem;
+}
+
+.func-pago-summary-label {
+    font-size: 0.58rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--private-muted-text, #64748b);
+}
+
+.func-pago-summary-val {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--private-surface-text, #111827);
+}
+
+.func-pago-summary-val--green { color: var(--private-chart-success, #16a34a); }
+.func-pago-summary-val--amber { color: #d97706; }
+
+/* Icon inside modal inputs */
+.func-modal-input-wrap { position: relative; }
+
+.func-modal-input-icon {
+    position: absolute;
+    left: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.88rem;
+    color: var(--private-muted-text, #64748b);
+    pointer-events: none;
+    z-index: 1;
+    line-height: 1;
+}
+
+.func-modal-input-icon--top {
+    top: 0.72rem;
+    transform: none;
+}
+
+.func-modal-input--with-icon { padding-left: 2.25rem !important; }
+
+/* Prominent monto field */
+.func-modal-input--prominent {
+    font-size: 1.1rem !important;
+    font-weight: 700 !important;
+    padding: 0.72rem 0.875rem 0.72rem 2.25rem !important;
+    border-color: rgba(22, 163, 74, 0.3) !important;
+    color: var(--private-chart-success, #16a34a) !important;
+}
+
+.func-modal-input--prominent:focus {
+    border-color: var(--private-chart-success, #16a34a) !important;
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12) !important;
+}
+
+/* Modal body scroll for small screens */
+#modalPago .modal-body,
+#modalPuestos .modal-body {
+    max-height: calc(100vh - 200px);
+    overflow-y: auto;
+}
+
+/* MAX button inside monto input */
+.func-modal-max-btn {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 0.18rem 0.5rem;
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border-radius: 0.4rem;
+    background: rgba(37, 99, 235, 0.1);
+    color: var(--private-chart-accent, #2563eb);
+    border: 1px solid rgba(37, 99, 235, 0.22);
+    cursor: pointer;
+    transition: background 0.15s ease, opacity 0.15s ease;
+    line-height: 1.4;
+    white-space: nowrap;
+    z-index: 2;
+}
+
+.func-modal-max-btn:hover:not(:disabled) {
+    background: rgba(37, 99, 235, 0.18);
+    border-color: rgba(37, 99, 235, 0.35);
+}
+
+.func-modal-max-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+/* Extra right padding on input when MAX button is present */
+.func-modal-input--with-max {
+    padding-right: 3.5rem !important;
+}
+
+@media (max-width: 575.98px) {
+    .func-pago-summary-grid    { grid-template-columns: repeat(2, 1fr); }
+    .staff-pos-card-actions    { grid-template-columns: 1fr; }
+    #modalPago .modal-body,
+    #modalPuestos .modal-body  { max-height: calc(100vh - 140px); }
+}

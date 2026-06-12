@@ -4,6 +4,7 @@ using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Account;
 using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.PublicSite;
+using LuxuryApp.Services.Security;
 using LuxuryApp.Services.Tenant;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Authorization;
@@ -193,9 +194,9 @@ namespace LuxuryApp.Controllers.Identity
 
                 _logger.LogError(
                     ex,
-                    "Error en registro SaaS. CorrelationId {CorrelationId}. Email {Email}.",
+                    "Error en registro SaaS. CorrelationId {CorrelationId}. MaskedEmail {MaskedEmail}.",
                     correlationId,
-                    model.Email);
+                    SensitiveDataMasker.MaskEmail(model.Email));
 
                 ModelState.AddModelError(
                     string.Empty,

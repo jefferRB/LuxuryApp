@@ -1,4 +1,4 @@
-﻿@using LuxuryApp.Models.Finanzas
+@using LuxuryApp.Models.Finanzas
 @model CobroIndexViewModel
 
 @{
@@ -61,6 +61,7 @@
         </div>
     </div>
 
+    @* KPIs secundarios *@
     <div class="finance-secondary-kpis">
         <span class="finance-secondary-kpi">
             <span class="finance-secondary-kpi-label">Servicios:</span>
@@ -92,6 +93,7 @@
         </span>
     </div>
 
+    @* Botones de acción *@
     <div class="finance-actions">
         <a asp-action="Create" class="finance-btn-primary">
             <i class="bi bi-plus-lg"></i> Nuevo Cobro
@@ -113,6 +115,7 @@
         </button>
     </div>
 
+    @* Filtros *@
     <form method="get" id="formFiltros" class="finance-filters-panel">
         <div class="finance-filters-grid">
 
@@ -181,6 +184,27 @@
         </div>
     </form>
 
+    @* Alertas TempData *@
+    @if (TempData["Mensaje"] != null)
+    {
+        <div style="padding:0 2rem 0.5rem;">
+            <div class="svc-alert svc-alert--success">
+                <i class="bi bi-check-circle-fill"></i>
+                @TempData["Mensaje"]
+            </div>
+        </div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div style="padding:0 2rem 0.5rem;">
+            <div class="svc-alert svc-alert--danger">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+                @TempData["Error"]
+            </div>
+        </div>
+    }
+
+    @* Tabla desktop *@
     <div class="finance-table-desktop">
         <table class="finance-table">
             <thead>
@@ -209,18 +233,26 @@
                             <td>
                                 @if (cobro.EsServicio)
                                 {
-                                    <span class="badge bg-primary me-1">Servicio</span>
+                                    <span class="badge"
+                                          style="background:rgba(37,99,235,0.15);color:var(--private-chart-accent);border:1px solid rgba(37,99,235,0.25);font-size:.68rem;font-weight:700;letter-spacing:.04em;padding:.2rem .55rem;border-radius:999px;">
+                                        Servicio
+                                    </span>
                                 }
                                 else
                                 {
-                                    <span class="badge bg-warning text-dark me-1">Producto</span>
+                                    <span class="badge"
+                                          style="background:rgba(217,119,6,0.15);color:#d97706;border:1px solid rgba(217,119,6,0.25);font-size:.68rem;font-weight:700;letter-spacing:.04em;padding:.2rem .55rem;border-radius:999px;">
+                                        Producto
+                                    </span>
                                 }
                                 @cobro.Detalle
                             </td>
 
                             <td class="finance-monto-income">₡ @cobro.Monto.ToString("N2")</td>
 
-                            <td><span class="finance-method-badge">@cobro.MetodoPago</span></td>
+                            <td>
+                                <span class="finance-method-badge">@cobro.MetodoPago</span>
+                            </td>
 
                             <td>
                                 <div class="finance-actions-cell">
@@ -230,15 +262,19 @@
                                         <i class="bi bi-pencil"></i> Editar
                                     </a>
 
-                                    <form asp-action="Delete"
-                                          asp-route-id="@cobro.IdCobro"
-                                          method="post"
-                                          onsubmit="return confirm('¿Eliminar este cobro? Esta accion actualizara los KPIs y dashboards.');">
-                                        @Html.AntiForgeryToken()
-                                        <button type="submit" class="finance-btn-row-delete">
-                                            <i class="bi bi-trash"></i> Eliminar
-                                        </button>
-                                    </form>
+                                    <button type="button"
+                                            class="finance-btn-row-delete"
+                                            onclick="abrirEliminarCobro(this)"
+                                            data-id="@cobro.IdCobro"
+                                            data-cliente="@Html.Raw(cobro.NombreCliente)"
+                                            data-funcionario="@Html.Raw(cobro.FuncionarioNombre)"
+                                            data-servicio="@Html.Raw(cobro.Detalle)"
+                                            data-tipo="@(cobro.EsServicio ? "Servicio" : "Producto")"
+                                            data-monto="₡ @cobro.Monto.ToString("N2")"
+                                            data-fecha="@cobro.FechaCobro.ToString("dd/MM/yyyy HH:mm")"
+                                            data-action="@Url.Action("Delete", new { id = cobro.IdCobro })">
+                                        <i class="bi bi-trash"></i> Eliminar
+                                    </button>
                                 </div>
                             </td>
                         </tr>
@@ -262,6 +298,7 @@
         </table>
     </div>
 
+    @* Mobile cards *@
     <div class="finance-mobile-list">
         @if (Model.Cobros.Any())
         {
@@ -291,11 +328,11 @@
                             <span class="finance-mobile-card-row-value">
                                 @if (cobro.EsServicio)
                                 {
-                                    <span class="badge bg-primary" style="font-size:.65rem">S</span>
+                                    <span style="font-size:.65rem;background:rgba(37,99,235,.14);color:var(--private-chart-accent);border:1px solid rgba(37,99,235,.22);padding:.1rem .4rem;border-radius:999px;font-weight:700;">S</span>
                                 }
                                 else
                                 {
-                                    <span class="badge bg-warning text-dark" style="font-size:.65rem">P</span>
+                                    <span style="font-size:.65rem;background:rgba(217,119,6,.14);color:#d97706;border:1px solid rgba(217,119,6,.22);padding:.1rem .4rem;border-radius:999px;font-weight:700;">P</span>
                                 }
                                 @cobro.Detalle
                             </span>
@@ -316,15 +353,19 @@
                             <i class="bi bi-pencil"></i> Editar
                         </a>
 
-                        <form asp-action="Delete"
-                              asp-route-id="@cobro.IdCobro"
-                              method="post"
-                              onsubmit="return confirm('¿Eliminar este cobro? Esta accion actualizara los KPIs y dashboards.');">
-                            @Html.AntiForgeryToken()
-                            <button type="submit" class="finance-btn-row-delete">
-                                <i class="bi bi-trash"></i> Eliminar
-                            </button>
-                        </form>
+                        <button type="button"
+                                class="finance-btn-row-delete"
+                                onclick="abrirEliminarCobro(this)"
+                                data-id="@cobro.IdCobro"
+                                data-cliente="@Html.Raw(cobro.NombreCliente)"
+                                data-funcionario="@Html.Raw(cobro.FuncionarioNombre)"
+                                data-servicio="@Html.Raw(cobro.Detalle)"
+                                data-tipo="@(cobro.EsServicio ? "Servicio" : "Producto")"
+                                data-monto="₡ @cobro.Monto.ToString("N2")"
+                                data-fecha="@cobro.FechaCobro.ToString("dd/MM/yyyy HH:mm")"
+                                data-action="@Url.Action("Delete", new { id = cobro.IdCobro })">
+                            <i class="bi bi-trash"></i> Eliminar
+                        </button>
                     </div>
                 </div>
             }
@@ -343,15 +384,164 @@
 
 </div>
 
-<div class="modal fade" id="modalServicios" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+<!-- ═══════════════════════════════════════════════════════════
+     MODAL: ELIMINAR COBRO
+     ═══════════════════════════════════════════════════════════ -->
+<div class="modal fade finance-delete-modal" id="modalEliminarCobro" tabindex="-1"
+     aria-labelledby="lblEliminarCobro" aria-modal="true">
+    <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
-            <div class="modal-header bg-dark text-white">
-                <h5 class="modal-title">Gestión de Servicios</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            <div class="modal-header">
+                <h5 class="finance-delete-modal-title" id="lblEliminarCobro">
+                    <div class="finance-delete-modal-icon">
+                        <i class="bi bi-trash3-fill"></i>
+                    </div>
+                    Eliminar Cobro
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
-            <div class="modal-body" id="contenedorServicios">
-                Cargando servicios...
+            <div class="modal-body">
+                <p class="finance-delete-intro">
+                    ¿Estás seguro que deseas eliminar este cobro? Esta acción no se puede deshacer.
+                </p>
+                <div class="finance-delete-summary">
+                    <div class="finance-delete-summary-row">
+                        <span class="finance-delete-summary-label">
+                            <i class="bi bi-person"></i> Cliente
+                        </span>
+                        <span class="finance-delete-summary-value" id="deleteCobro_Cliente"></span>
+                    </div>
+                    <div class="finance-delete-summary-row">
+                        <span class="finance-delete-summary-label">
+                            <i class="bi bi-person-badge"></i> Funcionario
+                        </span>
+                        <span class="finance-delete-summary-value" id="deleteCobro_Funcionario"></span>
+                    </div>
+                    <div class="finance-delete-summary-row">
+                        <span class="finance-delete-summary-label">
+                            <i class="bi bi-tag"></i> Servicio
+                        </span>
+                        <span class="finance-delete-summary-value" id="deleteCobro_Servicio"></span>
+                    </div>
+                    <div class="finance-delete-summary-row">
+                        <span class="finance-delete-summary-label">
+                            <i class="bi bi-currency-exchange"></i> Monto
+                        </span>
+                        <span class="finance-delete-summary-value" id="deleteCobro_Monto"></span>
+                    </div>
+                    <div class="finance-delete-summary-row">
+                        <span class="finance-delete-summary-label">
+                            <i class="bi bi-calendar3"></i> Fecha
+                        </span>
+                        <span class="finance-delete-summary-value" id="deleteCobro_Fecha"></span>
+                    </div>
+                </div>
+                <div class="finance-delete-warning-box">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <span>Esta acción es permanente. Se eliminará el cobro y se actualizarán los indicadores de ingresos y dashboards.</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="finance-btn-back" data-bs-dismiss="modal">
+                    <i class="bi bi-x-lg"></i> Cancelar
+                </button>
+                <form id="deleteCobroForm" method="post" action="" style="margin:0;">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="finance-btn-danger-form">
+                        <i class="bi bi-trash3-fill"></i> Eliminar
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     MODAL: GESTIONAR SERVICIOS
+     ═══════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="modalServicios" tabindex="-1" aria-labelledby="lblModalServicios">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header"
+                 style="background:linear-gradient(135deg,rgba(37,99,235,0.08),rgba(124,58,237,0.08));border-bottom:1px solid var(--private-surface-border,rgba(15,23,42,0.1));">
+                <div style="display:flex;align-items:center;gap:0.65rem;">
+                    <div style="flex-shrink:0;display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.65rem;background:linear-gradient(135deg,rgba(37,99,235,0.18),rgba(124,58,237,0.18));font-size:1.05rem;color:var(--private-chart-accent,#2563eb);">
+                        <i class="bi bi-scissors"></i>
+                    </div>
+                    <div>
+                        <h5 class="modal-title" id="lblModalServicios"
+                            style="font-size:1rem;font-weight:800;color:var(--private-surface-text,#111827);margin:0;">
+                            Gestionar Servicios
+                        </h5>
+                        <p style="font-size:0.76rem;color:var(--private-muted-text,#64748b);margin:0;">
+                            Administra los servicios disponibles para tus cobros.
+                        </p>
+                    </div>
+                </div>
+                <button type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                        aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div id="serviciosMessageContainer"></div>
+                <div id="contenedorServicios">
+                    <div class="svc-empty">
+                        <i class="bi bi-scissors svc-empty-icon"></i>
+                        <span class="svc-empty-text">Cargando servicios...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     MODAL: CONFIRMAR ELIMINAR SERVICIO
+     ═══════════════════════════════════════════════════════════ -->
+<div class="modal fade finance-delete-modal" id="modalEliminarServicio" tabindex="-1"
+     aria-labelledby="lblEliminarServicio" aria-modal="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="finance-delete-modal-title" id="lblEliminarServicio">
+                    <div class="finance-delete-modal-icon">
+                        <i class="bi bi-scissors"></i>
+                    </div>
+                    Eliminar Servicio
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div style="display:flex;align-items:center;gap:0.75rem;padding:0.85rem 1rem;border-radius:12px;background:var(--private-row-bg);border:1px solid var(--private-surface-border);margin-bottom:1rem;">
+                    <div style="width:2.5rem;height:2.5rem;border-radius:0.6rem;background:rgba(220,38,38,0.1);display:flex;align-items:center;justify-content:center;font-size:1.15rem;color:#dc2626;flex-shrink:0;">
+                        <i class="bi bi-scissors"></i>
+                    </div>
+                    <div>
+                        <span style="display:block;font-weight:700;font-size:0.925rem;color:var(--private-surface-text);"
+                              id="eliminarServicioNombre"></span>
+                        <span style="font-size:0.78rem;color:var(--private-muted-text);">Servicio</span>
+                    </div>
+                </div>
+                <div class="finance-delete-warning-box">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <span>
+                        Esta acción es permanente y no se puede deshacer.
+                        Solo es posible si el servicio no tiene cobros ni citas asociadas.
+                    </span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <input type="hidden" id="eliminarServicioId" value="" />
+                <button type="button" class="finance-btn-back" data-bs-dismiss="modal">
+                    Cancelar
+                </button>
+                <button type="button"
+                        class="finance-btn-danger-form"
+                        onclick="var id=document.getElementById('eliminarServicioId').value; bootstrap.Modal.getInstance(document.getElementById('modalEliminarServicio')).hide(); eliminarServicio(id);">
+                    <i class="bi bi-trash3-fill"></i>
+                    Eliminar
+                </button>
             </div>
         </div>
     </div>
@@ -359,19 +549,16 @@
 
 @section Scripts {
     <script>
+        /* ── filtros ─────────────────────────────────────────── */
         function toggleRangoFechas() {
-            const select = document.getElementById("vistaTiempoSelect");
-            const container = document.getElementById("rangoFechasContainer");
-            if (select.value === "fechas") {
-                container.classList.remove("d-none");
-            } else {
-                container.classList.add("d-none");
-            }
+            var select = document.getElementById("vistaTiempoSelect");
+            var container = document.getElementById("rangoFechasContainer");
+            container.classList.toggle("d-none", select.value !== "fechas");
         }
 
         document.addEventListener("DOMContentLoaded", function () {
-            const form = document.getElementById("formFiltros");
-            const filtros = form.querySelectorAll("select, input");
+            var form = document.getElementById("formFiltros");
+            var filtros = form.querySelectorAll("select, input");
 
             toggleRangoFechas();
 
@@ -379,9 +566,7 @@
                 filtro.addEventListener("change", function () {
                     if (this.id === "vistaTiempoSelect") {
                         toggleRangoFechas();
-                        if (this.value !== "fechas") {
-                            form.submit();
-                        }
+                        if (this.value !== "fechas") form.submit();
                         return;
                     }
                     form.submit();
@@ -392,11 +577,20 @@
         document.querySelectorAll("#rangoFechasContainer input").forEach(function (input) {
             input.addEventListener("change", function () {
                 var inicio = document.querySelector("[name='Filtros.FechaInicio']").value;
-                var fin = document.querySelector("[name='Filtros.FechaFin']").value;
-                if (inicio && fin) {
-                    document.getElementById("formFiltros").submit();
-                }
+                var fin    = document.querySelector("[name='Filtros.FechaFin']").value;
+                if (inicio && fin) document.getElementById("formFiltros").submit();
             });
         });
+
+        /* ── eliminar cobro (modal premium) ─────────────────── */
+        function abrirEliminarCobro(btn) {
+            document.getElementById('deleteCobro_Cliente').textContent    = btn.dataset.cliente    || '—';
+            document.getElementById('deleteCobro_Funcionario').textContent = btn.dataset.funcionario || '—';
+            document.getElementById('deleteCobro_Servicio').textContent   = btn.dataset.servicio   || '—';
+            document.getElementById('deleteCobro_Monto').textContent      = btn.dataset.monto      || '—';
+            document.getElementById('deleteCobro_Fecha').textContent      = btn.dataset.fecha      || '—';
+            document.getElementById('deleteCobroForm').action             = btn.dataset.action;
+            new bootstrap.Modal(document.getElementById('modalEliminarCobro')).show();
+        }
     </script>
 }

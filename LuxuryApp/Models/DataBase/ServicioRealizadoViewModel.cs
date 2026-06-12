@@ -10,5 +10,8 @@ namespace LuxuryApp.Models.DataBase
 
         [StringLength(2000)]
         public string? DescripcionServicios { get; set; }
+
+        public DateTime FechaUltimaVisita { get; set; }
+        public int TotalVisitas { get; set; }
     }
 }

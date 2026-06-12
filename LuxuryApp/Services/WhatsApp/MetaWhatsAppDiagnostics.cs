@@ -15,11 +15,7 @@ namespace LuxuryApp.Services.WhatsApp
         bool SendConfirmationOnCreate,
         bool SendReminderBeforeAppointment,
         bool AccessTokenPresent,
-        int AccessTokenLength,
-        string AccessTokenPrefix,
-        string AccessTokenSuffix,
-        bool AppSecretPresent,
-        int AppSecretLength)
+        bool AppSecretPresent)
     {
         public static MetaWhatsAppConfigurationSnapshot Create(MetaWhatsAppOptions options)
         {
@@ -37,22 +33,8 @@ namespace LuxuryApp.Services.WhatsApp
                 normalized.SendConfirmationOnCreate,
                 normalized.SendReminderBeforeAppointment,
                 AccessTokenPresent: !string.IsNullOrWhiteSpace(normalized.AccessToken),
-                AccessTokenLength: normalized.AccessToken.Length,
-                AccessTokenPrefix: GetPrefix(normalized.AccessToken, 6),
-                AccessTokenSuffix: GetSuffix(normalized.AccessToken, 4),
-                AppSecretPresent: !string.IsNullOrWhiteSpace(normalized.AppSecret),
-                AppSecretLength: normalized.AppSecret.Length);
+                AppSecretPresent: !string.IsNullOrWhiteSpace(normalized.AppSecret));
         }
-
-        private static string GetPrefix(string value, int count) =>
-            string.IsNullOrEmpty(value)
-                ? string.Empty
-                : value[..Math.Min(count, value.Length)];
-
-        private static string GetSuffix(string value, int count) =>
-            string.IsNullOrEmpty(value)
-                ? string.Empty
-                : value[^Math.Min(count, value.Length)..];
     }
 
     public sealed record MetaWhatsAppEndpointProbeResult(
@@ -170,7 +152,7 @@ namespace LuxuryApp.Services.WhatsApp
             var snapshot = MetaWhatsAppConfigurationSnapshot.Create(options);
 
             logger.LogInformation(
-                "Meta WhatsApp configuration {Reason}. Enabled {Enabled}. GraphApiVersion {GraphApiVersion}. BaseUrl {BaseUrl}. PhoneNumberId {PhoneNumberId}. WhatsAppBusinessAccountId {WhatsAppBusinessAccountId}. ConfirmationTemplateName {ConfirmationTemplateName}. ReminderTemplateName {ReminderTemplateName}. DefaultCountryCode {DefaultCountryCode}. RequestTimeoutSeconds {RequestTimeoutSeconds}. SendConfirmationOnCreate {SendConfirmationOnCreate}. SendReminderBeforeAppointment {SendReminderBeforeAppointment}. AccessTokenPresent {AccessTokenPresent}. AccessTokenLength {AccessTokenLength}. AccessTokenPrefix {AccessTokenPrefix}. AccessTokenSuffix {AccessTokenSuffix}. AppSecretPresent {AppSecretPresent}. AppSecretLength {AppSecretLength}.",
+                "Meta WhatsApp configuration {Reason}. Enabled {Enabled}. GraphApiVersion {GraphApiVersion}. BaseUrl {BaseUrl}. PhoneNumberId {PhoneNumberId}. WhatsAppBusinessAccountId {WhatsAppBusinessAccountId}. ConfirmationTemplateName {ConfirmationTemplateName}. ReminderTemplateName {ReminderTemplateName}. DefaultCountryCode {DefaultCountryCode}. RequestTimeoutSeconds {RequestTimeoutSeconds}. SendConfirmationOnCreate {SendConfirmationOnCreate}. SendReminderBeforeAppointment {SendReminderBeforeAppointment}. AccessTokenPresent {AccessTokenPresent}. AppSecretPresent {AppSecretPresent}.",
                 reason,
                 snapshot.Enabled,
                 snapshot.GraphApiVersion,
@@ -184,11 +166,7 @@ namespace LuxuryApp.Services.WhatsApp
                 snapshot.SendConfirmationOnCreate,
                 snapshot.SendReminderBeforeAppointment,
                 snapshot.AccessTokenPresent,
-                snapshot.AccessTokenLength,
-                snapshot.AccessTokenPrefix,
-                snapshot.AccessTokenSuffix,
-                snapshot.AppSecretPresent,
-                snapshot.AppSecretLength);
+                snapshot.AppSecretPresent);
         }
     }
 }

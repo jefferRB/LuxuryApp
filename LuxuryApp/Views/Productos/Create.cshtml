@@ -1,26 +1,75 @@
 @model LuxuryApp.Models.Productos.ProductoViewModel
 
-<div class="card border-0 shadow-lg">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="~/css/productos.css" asp-append-version="true">
 
-    <div class="card-header bg-dark text-white py-3">
-        <h5 class="m-0">Registrar Producto</h5>
+<div class="kpi-card prod-form-shell">
+
+    <!-- ── CABECERA ── -->
+    <div class="prod-form-header">
+        <div class="prod-brand-row">
+            <div class="prod-brand-icon">
+                <i class="bi bi-box-seam-fill"></i>
+            </div>
+            <div>
+                <span class="prod-eyebrow">GESTIÓN DE PRODUCTOS</span>
+                <h1 class="prod-title">Registrar Producto</h1>
+            </div>
+        </div>
+        <hr class="prod-form-divider" />
     </div>
 
-    <div class="card-body">
+    <!-- ── CUERPO ── -->
+    <div class="prod-form-body">
 
-        <form asp-action="Create" method="post">
-            <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
+        <form asp-action="Create" method="post" id="formCrearProducto">
+
+            @if (!ViewData.ModelState.IsValid && ViewData.ModelState.Values.Any(v => v.Errors.Count > 0))
+            {
+                <div class="prod-validation-summary" role="alert">
+                    <div asp-validation-summary="ModelOnly"></div>
+                </div>
+            }
 
             <partial name="_ProductoForm" model="Model" />
 
-            <button class="btn btn-dark">Guardar</button>
+            <!-- Info Box: Control de Stock -->
+            <div class="prod-info-box">
+                <div class="prod-info-box-icon">
+                    <i class="bi bi-shield-check"></i>
+                </div>
+                <div class="prod-info-box-body">
+                    <div class="prod-info-box-title">Control de Stock</div>
+                    <p class="prod-info-box-text">
+                        El sistema mostrará una alerta cuando la <strong>cantidad en inventario</strong>
+                        caiga por debajo del <strong>stock mínimo</strong> definido.
+                        Esto te ayuda a reponer productos antes de quedarte sin existencias.
+                    </p>
+                </div>
+            </div>
 
-            <a asp-action="Index" class="btn btn-secondary">
-                Volver
-            </a>
+            <!-- Acciones -->
+            <div class="prod-form-actions">
+                <button type="submit" class="prod-btn prod-btn--primary">
+                    <i class="bi bi-floppy2-fill"></i>
+                    Guardar Producto
+                </button>
+                <a asp-action="Index" class="prod-btn prod-btn--secondary">
+                    <i class="bi bi-arrow-left"></i>
+                    Volver
+                </a>
+                <button type="reset" class="prod-btn prod-btn--ghost prod-form-actions-end">
+                    <i class="bi bi-x-circle"></i>
+                    Limpiar formulario
+                </button>
+            </div>
 
         </form>
 
     </div>
 
 </div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

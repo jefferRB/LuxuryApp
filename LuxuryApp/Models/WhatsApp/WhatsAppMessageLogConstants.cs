@@ -39,6 +39,7 @@ namespace LuxuryApp.Models.WhatsApp
         public const string SkippedSubscriptionRequired = "SkippedSubscriptionRequired";
         public const string SkippedMonthlyLimitExceeded = "SkippedMonthlyLimitExceeded";
         public const string SkippedUserDisabled = "SkippedUserDisabled";
+        public const string Cancelled = "Cancelled";
     }
 
     public static class WhatsAppErrorCodes
@@ -56,6 +57,8 @@ namespace LuxuryApp.Models.WhatsApp
         public const string MonthlyLimitExceeded = "MonthlyLimitExceeded";
         public const string InsufficientBalance = "InsufficientBalance";
         public const string UserDisabled = "UserDisabled";
+        public const string AppointmentExpired = "AppointmentExpired";
+        public const string CitaCancellada = "CitaCancellada";
     }
 
     public static class WhatsAppConfirmationStates

@@ -1,137 +1,259 @@
 @model LuxuryApp.Models.Finanzas.CobroViewModel
 
 @{
-    var esProducto = Model.Cobro.ProductoId.HasValue && !Model.Cobro.ServicioId.HasValue;
+    ViewData["Title"] = "Registrar Cobro";
+    var esProducto       = Model.Cobro.ProductoId.HasValue && !Model.Cobro.ServicioId.HasValue;
+    var selectedServicio = !esProducto ? "selected" : null;
+    var selectedProducto = esProducto  ? "selected" : null;
+    var disabledServicio = esProducto  ? "disabled" : null;
+    var disabledProducto = esProducto  ? null : "disabled";
 }
 
-<div class="card border-0 shadow-lg">
-    <div class="card-header bg-dark text-white py-3">
-        <h5 class="m-0">
-            <i class="fas fa-cash-register me-2"></i>Registrar Cobro
-        </h5>
+@section Styles {
+    <link rel="stylesheet" href="~/css/finance-modules.css" asp-append-version="true" />
+}
+
+<div class="finance-page-shell">
+
+    <!-- ── HERO ── -->
+    <div class="finance-hero">
+        <div class="finance-hero-left">
+            <span class="finance-badge">
+                <i class="bi bi-cash-coin"></i>
+                GESTIÓN DE INGRESOS
+            </span>
+            <h1 class="finance-title">Registrar Cobro</h1>
+            <p class="finance-subtitle">Registra un nuevo cobro de servicios o productos.</p>
+        </div>
     </div>
 
-    <div class="card-body">
-        <form asp-action="Create" method="post">
-            <div asp-validation-summary="All" class="text-danger"></div>
+    <!-- ── FORM ── -->
+    <form asp-action="Create" method="post" id="formCrearCobro">
+        @Html.AntiForgeryToken()
 
-            <div class="mb-3">
-                <label asp-for="Cobro.FechaCobro" class="form-label"></label>
-                <input asp-for="Cobro.FechaCobro" class="form-control" type="datetime-local" step="60" />
+        <!-- BODY -->
+        <div class="finance-form-body">
+
+            <!-- Info box -->
+            <div class="finance-form-info-box">
+                <i class="bi bi-info-circle-fill"></i>
+                El cliente puede buscarse entre los registrados escribiendo su nombre.
             </div>
 
-            <div class="mb-3">
-                <label asp-for="Cobro.NombreCliente" class="form-label"></label>
-                <div class="cliente-autocomplete-wrapper" id="cobro-cliente-wrapper">
-                    <input asp-for="Cobro.NombreCliente"
-                           id="cobro-cliente-nombre"
-                           class="form-control"
-                           placeholder="Nombre del cliente (escribe para buscar registrados)"
-                           autocomplete="off" />
-                    <input asp-for="Cobro.ClienteId"
-                           id="Cobro_ClienteId"
-                           type="hidden" />
-                    <div class="cliente-autocomplete-dropdown d-none"
-                         id="cobro-cliente-dropdown"
-                         role="listbox"></div>
+            @if (!ViewData.ModelState.IsValid && ViewData.ModelState.Values.Any(v => v.Errors.Count > 0))
+            {
+                <div class="finance-validation-summary" role="alert">
+                    <div asp-validation-summary="ModelOnly"></div>
                 </div>
-                <span asp-validation-for="Cobro.NombreCliente" class="text-danger"></span>
-            </div>
+            }
 
-            <div class="mb-3">
-                <label asp-for="Cobro.FuncionarioId" class="form-label"></label>
-                <select asp-for="Cobro.FuncionarioId" id="cobro-funcionario-select" class="form-select" asp-items="Model.Funcionarios">
-                    <option value="">Seleccione Funcionario</option>
-                </select>
-            </div>
+            <div class="finance-form-grid">
 
-            <div class="mb-3">
-                <label class="form-label">Tipo</label>
-                <select id="TipoItem" name="TipoItem" class="form-select">
-                    <option value="servicio" selected="@(esProducto ? null : "selected")">Servicio</option>
-                    <option value="producto" selected="@(esProducto ? "selected" : null)">Producto</option>
-                </select>
-            </div>
-
-            <div class="mb-3 @(esProducto ? "d-none" : string.Empty)" id="ServicioContainer">
-                <label asp-for="Cobro.ServicioId" class="form-label"></label>
-                <select asp-for="Cobro.ServicioId"
-                        class="form-select"
-                        asp-items="Model.Servicios"
-                        id="ServicioId"
-                        disabled="@(esProducto ? "disabled" : null)">
-                    <option value="">Seleccione servicio</option>
-                </select>
-            </div>
-
-            <div class="mb-3 @(esProducto ? string.Empty : "d-none")" id="ProductoContainer">
-                <label class="form-label">Producto</label>
-                <select asp-for="Cobro.ProductoId"
-                        class="form-select"
-                        asp-items="Model.Productos"
-                        id="ProductoId"
-                        disabled="@(esProducto ? null : "disabled")">
-                    <option value="">Seleccione producto</option>
-                </select>
-            </div>
-
-            <div class="mb-3">
-                <label asp-for="Cobro.Monto" class="form-label"></label>
-                <div class="input-group">
-                    <span class="input-group-text">₡</span>
-
-                    <input asp-for="Cobro.Monto"
-                           class="form-control money-input"
-                           id="Monto"
-                           type="number"
-                           step="0.01"
-                           autocomplete="off" />
-                </div>
-                <span asp-validation-for="Cobro.Monto" class="text-danger"></span>
-            </div>
-
-            <div class="mb-3">
-                <label asp-for="Cobro.MetodoPago" class="form-label"></label>
-                <select asp-for="Cobro.MetodoPago" class="form-select" asp-items="Model.MetodosPago">
-                    <option value="">Seleccione método de pago</option>
-                </select>
-            </div>
-
-            <div class="mb-3 card border-0 bg-dark bg-opacity-10 p-3 rounded" id="historial-servicios-section" style="display:none">
-                <div class="form-check">
-                    <input type="checkbox"
-                           id="ActualizarNotasServicio"
-                           name="ActualizarNotasServicio"
-                           class="form-check-input"
-                           value="true" />
-                    <input type="hidden" name="ActualizarNotasServicio" value="false" />
-                    <label class="form-check-label fw-semibold" for="ActualizarNotasServicio">
-                        <i class="fas fa-clipboard-list me-1"></i>Actualizar notas de servicio del cliente
+                <!-- Fecha -->
+                <div class="finance-form-field">
+                    <label asp-for="Cobro.FechaCobro" class="finance-form-label">
+                        Fecha <span class="finance-required">*</span>
                     </label>
+                    <div class="finance-input-wrap">
+                        <span class="finance-input-icon"><i class="bi bi-calendar3"></i></span>
+                        <input asp-for="Cobro.FechaCobro"
+                               class="finance-form-control"
+                               type="datetime-local"
+                               step="60" />
+                    </div>
+                    <span asp-validation-for="Cobro.FechaCobro" class="finance-field-error"></span>
                 </div>
-                <small class="text-muted mt-1 d-block">
-                    Actualiza las notas de servicio en el perfil del cliente vinculado a este cobro.
-                </small>
-                <div id="notas-servicio-container" class="mt-3" style="display:none">
-                    <label class="form-label fw-semibold">Notas de Servicio</label>
-                    <textarea id="NotasServicioTexto"
-                              name="NotasServicioTexto"
-                              class="form-control"
-                              rows="4"
-                              placeholder="Ingrese las notas de servicio..."></textarea>
-                    <small class="text-muted">Este texto reemplazará las notas actuales del cliente.</small>
+
+                <!-- Nombre Cliente -->
+                <div class="finance-form-field">
+                    <label asp-for="Cobro.NombreCliente" class="finance-form-label">
+                        Nombre Cliente <span class="finance-required">*</span>
+                    </label>
+                    <div class="cliente-autocomplete-wrapper" id="cobro-cliente-wrapper">
+                        <div class="finance-input-wrap">
+                            <span class="finance-input-icon"><i class="bi bi-person"></i></span>
+                            <input asp-for="Cobro.NombreCliente"
+                                   id="cobro-cliente-nombre"
+                                   class="finance-form-control"
+                                   placeholder="Escribe para buscar un cliente registrado..."
+                                   autocomplete="off"
+                                   style="padding-right:2.25rem;" />
+                            <span style="position:absolute;right:0.875rem;color:var(--private-muted-text);font-size:0.85rem;pointer-events:none;">
+                                <i class="bi bi-search"></i>
+                            </span>
+                        </div>
+                        <input asp-for="Cobro.ClienteId" id="Cobro_ClienteId" type="hidden" />
+                        <div class="cliente-autocomplete-dropdown d-none"
+                             id="cobro-cliente-dropdown"
+                             role="listbox"></div>
+                    </div>
+                    <span asp-validation-for="Cobro.NombreCliente" class="finance-field-error"></span>
                 </div>
+
+                <!-- Funcionario -->
+                <div class="finance-form-field">
+                    <label asp-for="Cobro.FuncionarioId" class="finance-form-label">
+                        Funcionario <span class="finance-required">*</span>
+                    </label>
+                    <div class="finance-input-wrap">
+                        <span class="finance-input-icon"><i class="bi bi-person-badge"></i></span>
+                        <select asp-for="Cobro.FuncionarioId"
+                                id="cobro-funcionario-select"
+                                class="finance-form-control"
+                                asp-items="Model.Funcionarios">
+                            <option value="">Seleccione funcionario</option>
+                        </select>
+                    </div>
+                    <span asp-validation-for="Cobro.FuncionarioId" class="finance-field-error"></span>
+                </div>
+
+                <!-- Tipo -->
+                <div class="finance-form-field">
+                    <label class="finance-form-label">Tipo <span class="finance-required">*</span></label>
+                    <div class="finance-input-wrap">
+                        <span class="finance-input-icon"><i class="bi bi-list-task"></i></span>
+                        <select id="TipoItem" name="TipoItem" class="finance-form-control">
+                            <option value="servicio" selected="@selectedServicio">Servicio</option>
+                            <option value="producto" selected="@selectedProducto">Producto</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Servicio -->
+                <div class="finance-form-field @(esProducto ? "d-none" : "")" id="ServicioContainer">
+                    <label asp-for="Cobro.ServicioId" class="finance-form-label">
+                        Servicio o Producto <span class="finance-required">*</span>
+                    </label>
+                    <div class="finance-input-wrap">
+                        <span class="finance-input-icon"><i class="bi bi-box-seam"></i></span>
+                        <select asp-for="Cobro.ServicioId"
+                                class="finance-form-control"
+                                asp-items="Model.Servicios"
+                                id="ServicioId"
+                                disabled="@disabledServicio">
+                            <option value="">Seleccione servicio o producto</option>
+                        </select>
+                    </div>
+                    <span asp-validation-for="Cobro.ServicioId" class="finance-field-error"></span>
+                </div>
+
+                <!-- Producto -->
+                <div class="finance-form-field @(esProducto ? "" : "d-none")" id="ProductoContainer">
+                    <label class="finance-form-label">
+                        Servicio o Producto <span class="finance-required">*</span>
+                    </label>
+                    <div class="finance-input-wrap">
+                        <span class="finance-input-icon"><i class="bi bi-box-seam"></i></span>
+                        <select asp-for="Cobro.ProductoId"
+                                class="finance-form-control"
+                                asp-items="Model.Productos"
+                                id="ProductoId"
+                                disabled="@disabledProducto">
+                            <option value="">Seleccione servicio o producto</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Monto -->
+                <div class="finance-form-field">
+                    <label asp-for="Cobro.Monto" class="finance-form-label">
+                        Monto <span class="finance-required">*</span>
+                    </label>
+                    <div class="finance-input-wrap">
+                        <span class="finance-input-icon" style="font-weight:700;font-size:1rem;">₡</span>
+                        <input asp-for="Cobro.Monto"
+                               class="finance-form-control"
+                               id="Monto"
+                               type="number"
+                               step="0.01"
+                               min="0"
+                               autocomplete="off"
+                               placeholder="0.00" />
+                    </div>
+                    <span asp-validation-for="Cobro.Monto" class="finance-field-error"></span>
+                </div>
+
+                <!-- Método de Pago -->
+                <div class="finance-form-field">
+                    <label asp-for="Cobro.MetodoPago" class="finance-form-label">
+                        Método de Pago <span class="finance-required">*</span>
+                    </label>
+                    <div class="finance-input-wrap">
+                        <span class="finance-input-icon"><i class="bi bi-credit-card"></i></span>
+                        <select asp-for="Cobro.MetodoPago"
+                                class="finance-form-control"
+                                asp-items="Model.MetodosPago">
+                            <option value="">Seleccione método de pago</option>
+                        </select>
+                    </div>
+                    <span asp-validation-for="Cobro.MetodoPago" class="finance-field-error"></span>
+                </div>
+
+                <!-- Observaciones -->
+                <div class="finance-form-field finance-form-full">
+                    <label asp-for="Cobro.Observaciones" class="finance-form-label">Observaciones</label>
+                    <div class="finance-input-wrap">
+                        <span class="finance-input-icon finance-input-icon--top"><i class="bi bi-chat-text"></i></span>
+                        <textarea asp-for="Cobro.Observaciones"
+                                  class="finance-form-control"
+                                  rows="3"
+                                  placeholder="Agrega observaciones adicionales (opcional)"
+                                  style="resize:vertical;"></textarea>
+                    </div>
+                </div>
+
+                <!-- Historial de servicio (condicional) -->
+                <div class="finance-form-field finance-form-full"
+                     id="historial-servicios-section"
+                     style="display:none;">
+                    <div class="finance-historial-section">
+                        <div class="finance-historial-check-row">
+                            <input type="checkbox"
+                                   id="ActualizarNotasServicio"
+                                   name="ActualizarNotasServicio"
+                                   value="true" />
+                            <input type="hidden" name="ActualizarNotasServicio" value="false" />
+                            <label class="finance-historial-check-label" for="ActualizarNotasServicio">
+                                <i class="bi bi-clipboard-list me-1"></i>
+                                Actualizar notas de servicio del cliente
+                            </label>
+                        </div>
+                        <p class="finance-historial-help">
+                            Actualiza las notas de servicio en el perfil del cliente vinculado a este cobro.
+                        </p>
+                        <div id="notas-servicio-container" style="display:none; margin-top:0.75rem;">
+                            <label class="finance-form-label" style="margin-bottom:0.35rem;">Notas de Servicio</label>
+                            <textarea id="NotasServicioTexto"
+                                      name="NotasServicioTexto"
+                                      class="finance-form-control finance-form-control--no-icon"
+                                      rows="4"
+                                      placeholder="Ingrese las notas de servicio..."></textarea>
+                            <p class="finance-historial-help" style="margin-top:0.35rem;">
+                                Este texto reemplazará las notas actuales del cliente.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
             </div>
+        </div>
 
-            <button type="submit" class="btn btn-dark">
-                <i class="fas fa-save me-1"></i>Guardar Cobro
+        <!-- FOOTER -->
+        <div class="finance-form-footer">
+            <div class="finance-form-footer-left">
+                <button type="submit" class="finance-btn-save">
+                    <i class="bi bi-floppy2-fill"></i> Guardar Cobro
+                </button>
+                <a asp-action="Index" class="finance-btn-back">
+                    <i class="bi bi-arrow-left"></i> Volver
+                </a>
+            </div>
+            <button type="reset" class="finance-btn-clear">
+                <i class="bi bi-eraser"></i> Limpiar formulario
             </button>
+        </div>
 
-            <a asp-action="Index" class="btn btn-secondary">
-                <i class="fas fa-arrow-left me-1"></i>Volver
-            </a>
-        </form>
-    </div>
+    </form>
 </div>
 
 @section Scripts {
@@ -160,8 +282,7 @@
     var abortController = null;
     var cachedNotas = null;
 
-    /* ── autocomplete ────────────────────────────────────── */
-
+    /* ── autocomplete ─────────────────────────────────────── */
     function showDropdown() { dropdown.classList.remove('d-none'); }
     function hideDropdown() { dropdown.classList.add('d-none'); dropdown.innerHTML = ''; }
 
@@ -207,10 +328,8 @@
 
         btn.appendChild(name);
         btn.appendChild(phone);
-
         btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
         btn.addEventListener('click', function () { setCliente(String(cliente.id), cliente.nombre || ''); });
-
         return btn;
     }
 
@@ -219,20 +338,13 @@
         btn.type = 'button';
         btn.className = 'cliente-autocomplete-manual';
         btn.textContent = 'Escribir manualmente / ocultar sugerencias';
-
         btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
-        btn.addEventListener('click', function () {
-            clearClienteId();
-            hideDropdown();
-            input.focus();
-        });
-
+        btn.addEventListener('click', function () { clearClienteId(); hideDropdown(); input.focus(); });
         return btn;
     }
 
     function renderResults(clientes) {
         dropdown.innerHTML = '';
-
         if (!clientes.length) {
             var empty = document.createElement('div');
             empty.className = 'cliente-autocomplete-empty';
@@ -241,7 +353,6 @@
         } else {
             clientes.forEach(function (c) { dropdown.appendChild(buildItem(c)); });
         }
-
         dropdown.appendChild(buildManualBtn());
         showDropdown();
     }
@@ -249,34 +360,23 @@
     async function fetchSuggestions(term) {
         if (abortController) abortController.abort();
         abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
-
         try {
             var resp = await fetch('/Clientes/Autocompletado?term=' + encodeURIComponent(term),
                 { signal: abortController ? abortController.signal : undefined });
-
             if (!resp.ok) return;
             var data = await resp.json();
-
-            if (input.value.trim() === term) {
-                renderResults(data);
-            }
+            if (input.value.trim() === term) renderResults(data);
         } catch (e) {
-            if (e && e.name !== 'AbortError') {
-                console.warn('[CobrosAutocomplete]', e);
-            }
+            if (e && e.name !== 'AbortError') console.warn('[CobrosAutocomplete]', e);
         }
     }
 
     input.addEventListener('input', function () {
         var term = input.value.trim();
-
         clearClienteId();
-
         clearTimeout(debounceTimer);
         hideDropdown();
-
         if (term.length < MIN_LENGTH) return;
-
         debounceTimer = setTimeout(function () { fetchSuggestions(term); }, DEBOUNCE_MS);
     });
 
@@ -286,25 +386,64 @@
 
     input.addEventListener('blur', function () {
         setTimeout(function () {
-            if (!wrapper.contains(document.activeElement)) {
-                hideDropdown();
-            }
+            if (!wrapper.contains(document.activeElement)) hideDropdown();
         }, 150);
     });
 
-    /* ── notas section ───────────────────────────────────── */
+    /* ── tipo toggle ──────────────────────────────────────── */
+    var servicioContainer = document.getElementById('ServicioContainer');
+    var productoContainer = document.getElementById('ProductoContainer');
+    var productoSel       = document.getElementById('ProductoId');
+    var montoInput        = document.getElementById('Monto');
 
+    if (tipoSelect) {
+        tipoSelect.addEventListener('change', function () {
+            var esServicio = this.value === 'servicio';
+            if (servicioContainer) servicioContainer.classList.toggle('d-none', !esServicio);
+            if (productoContainer) productoContainer.classList.toggle('d-none', esServicio);
+            if (servicioSel) { servicioSel.disabled = !esServicio; servicioSel.value = ''; }
+            if (productoSel) { productoSel.disabled = esServicio; productoSel.value = ''; }
+            if (montoInput) montoInput.value = '';
+            updateHistorialSection();
+        });
+    }
+
+    if (servicioSel) {
+        servicioSel.addEventListener('change', function () {
+            var id = this.value;
+            if (id && montoInput) {
+                fetch('/Cobros/ObtenerPrecioServicio?id=' + encodeURIComponent(id))
+                    .then(function (r) { return r.ok ? r.json() : null; })
+                    .then(function (d) { if (d && montoInput) montoInput.value = d.precio; })
+                    .catch(function () {});
+            }
+            updateHistorialSection();
+        });
+    }
+
+    if (productoSel) {
+        productoSel.addEventListener('change', function () {
+            var id = this.value;
+            if (id && montoInput) {
+                fetch('/Cobros/ObtenerPrecioProducto?id=' + encodeURIComponent(id))
+                    .then(function (r) { return r.ok ? r.json() : null; })
+                    .then(function (d) { if (d && montoInput) montoInput.value = d.precio; })
+                    .catch(function () {});
+            }
+        });
+    }
+
+    if (funcSel) funcSel.addEventListener('change', updateHistorialSection);
+
+    /* ── historial section ────────────────────────────────── */
     function updateHistorialSection() {
         if (!histSection || !histCheck) return;
-
         var tieneCliente  = hiddenId.value !== '';
         var esServicio    = tipoSelect && tipoSelect.value === 'servicio';
         var tieneServicio = servicioSel && servicioSel.value !== '';
         var tieneFuncion  = funcSel && funcSel.value !== '';
         var mostrar       = tieneCliente && esServicio && tieneServicio && tieneFuncion;
-
         histSection.style.display = mostrar ? '' : 'none';
-
         if (!mostrar) {
             histCheck.checked = false;
             if (notasContainer) notasContainer.style.display = 'none';
@@ -324,10 +463,6 @@
             }
         });
     }
-
-    if (tipoSelect)  tipoSelect.addEventListener('change',  updateHistorialSection);
-    if (servicioSel) servicioSel.addEventListener('change', updateHistorialSection);
-    if (funcSel)     funcSel.addEventListener('change',     updateHistorialSection);
 
     updateHistorialSection();
 }());

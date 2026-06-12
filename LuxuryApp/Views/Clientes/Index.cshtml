@@ -249,15 +249,15 @@
                                         <i class="bi bi-pencil-square"></i>
                                         <span>Editar</span>
                                     </a>
-                                    <a asp-action="Eliminar"
-                                       asp-route-id="@c.Id"
-                                       class="crm-act-labeled crm-act--delete"
-                                       title="Eliminar @c.Nombre"
-                                       data-nombre="@c.Nombre"
-                                       onclick="return confirm('¿Eliminar a ' + this.dataset.nombre + '? Esta acción no se puede deshacer.')">
+                                    <button type="button"
+                                            class="crm-act-labeled crm-act--delete"
+                                            title="Eliminar @c.Nombre"
+                                            data-id="@c.Id"
+                                            data-nombre="@c.Nombre"
+                                            onclick="abrirEliminarCliente(this)">
                                         <i class="bi bi-trash3"></i>
                                         <span>Eliminar</span>
-                                    </a>
+                                    </button>
                                 </div>
                             </td>
                         </tr>
@@ -306,15 +306,15 @@
                                 <i class="bi bi-pencil-square"></i>
                                 <span>Editar</span>
                             </a>
-                            <a asp-action="Eliminar"
-                               asp-route-id="@c.Id"
-                               class="crm-act-labeled crm-act--delete crm-act--compact"
-                               title="Eliminar"
-                               data-nombre="@c.Nombre"
-                               onclick="return confirm('¿Eliminar a ' + this.dataset.nombre + '? Esta acción no se puede deshacer.')">
+                            <button type="button"
+                                    class="crm-act-labeled crm-act--delete crm-act--compact"
+                                    title="Eliminar"
+                                    data-id="@c.Id"
+                                    data-nombre="@c.Nombre"
+                                    onclick="abrirEliminarCliente(this)">
                                 <i class="bi bi-trash3"></i>
                                 <span>Eliminar</span>
-                            </a>
+                            </button>
                         </div>
                     </div>
 
@@ -438,3 +438,54 @@
     </div>
 
 </div>
+
+<!-- Formulario oculto para eliminar -->
+<form id="formEliminarCliente" asp-action="Eliminar" method="post" style="display:none;">
+    @Html.AntiForgeryToken()
+    <input type="hidden" id="eliminarClienteId" name="id" value="" />
+</form>
+
+<!-- Modal premium: Eliminar Cliente -->
+<div class="modal fade clt-modal" id="modalEliminarCliente" tabindex="-1" aria-labelledby="modalEliminarClienteLabelIdx" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title clt-modal-title clt-modal-title--danger" id="modalEliminarClienteLabelIdx">
+                    <i class="bi bi-trash3-fill"></i> Eliminar Cliente
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="clt-modal-person">
+                    <div class="clt-modal-person-name" id="eliminarClienteNombreIdx"></div>
+                    <div class="clt-modal-person-sub">Cliente</div>
+                </div>
+                <div class="clt-modal-warning-box clt-modal-warning-box--amber">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <span>Esta acción es permanente. Se eliminarán todos los datos del cliente y no se puede deshacer.</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="clt-modal-btn--ghost" data-bs-dismiss="modal">
+                    <i class="bi bi-x-lg"></i> Cancelar
+                </button>
+                <button type="button" class="clt-modal-btn--danger" onclick="document.getElementById('formEliminarCliente').submit()">
+                    <i class="bi bi-trash3-fill"></i> Eliminar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+    function abrirEliminarCliente(btn) {
+        var id = btn.getAttribute("data-id");
+        var nombre = btn.getAttribute("data-nombre");
+        document.getElementById("eliminarClienteId").value = id;
+        document.getElementById("eliminarClienteNombreIdx").textContent = nombre;
+        var modal = new bootstrap.Modal(document.getElementById("modalEliminarCliente"));
+        modal.show();
+    }
+    </script>
+}

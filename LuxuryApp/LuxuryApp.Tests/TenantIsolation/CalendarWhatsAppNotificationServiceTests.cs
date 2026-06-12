@@ -289,6 +289,180 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(1, monthlyUsage);
         }
 
+        [Fact]
+        public async Task QueueConfirmation_WhenCitaIsFarInFuture_ShouldScheduleFor24HoursBeforeCita()
+        {
+            // Cita 3 días en el futuro → NextAttemptAtUtc debe ser ~24h antes de la cita.
+            using var fixture = await Fixture.CreateAsync();
+            var citaFechaHora = new DateTime(2026, 5, 29, 10, 0, 0); // 3 días después de FixedNowLocal
+            var cita = await fixture.SeedCitaAsync(fechaHora: citaFechaHora);
+
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            Assert.Equal(WhatsAppMessageStatuses.Pending, message.Status);
+            Assert.NotNull(message.NextAttemptAtUtc);
+
+            // 24h antes: 2026-05-28 10:00 CR = 2026-05-28 16:00 UTC
+            var expectedScheduleUtc = new DateTimeOffset(new DateTime(2026, 5, 28, 10, 0, 0), TimeSpan.FromHours(-6)).UtcDateTime;
+            Assert.Equal(expectedScheduleUtc, message.NextAttemptAtUtc!.Value, TimeSpan.FromSeconds(1));
+            Assert.Equal(0, fixture.MetaClient.SendCount);
+        }
+
+        [Fact]
+        public async Task QueueConfirmation_WhenCitaIsWithin24Hours_ShouldQueueForImmediateSending()
+        {
+            // Cita mañana a las 09:00 (menos de 24h) → NextAttemptAtUtc debe ser null (enviar de inmediato).
+            using var fixture = await Fixture.CreateAsync();
+            var citaFechaHora = new DateTime(2026, 5, 27, 9, 0, 0); // ~22.5h desde FixedNowLocal
+            var cita = await fixture.SeedCitaAsync(fechaHora: citaFechaHora);
+
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            Assert.Equal(WhatsAppMessageStatuses.Pending, message.Status);
+            Assert.Null(message.NextAttemptAtUtc);
+        }
+
+        [Fact]
+        public async Task QueueConfirmation_WhenCitaIsInPast_ShouldNotCreateMessage()
+        {
+            // Cita ayer → no debe crearse ningún mensaje.
+            using var fixture = await Fixture.CreateAsync();
+            var citaFechaHora = new DateTime(2026, 5, 25, 10, 0, 0); // ayer
+            var cita = await fixture.SeedCitaAsync(fechaHora: citaFechaHora);
+
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+
+            var messageCount = await fixture.Context.WhatsAppMessageLogs.CountAsync();
+            Assert.Equal(0, messageCount);
+            Assert.Equal(0, fixture.MetaClient.SendCount);
+        }
+
+        [Fact]
+        public async Task QueueConfirmation_MultipleWeeklyAppointments_ShouldNotSendAnyImmediately()
+        {
+            // Simula citas semanales por 4 semanas: ninguna debe enviarse de inmediato.
+            using var fixture = await Fixture.CreateAsync();
+
+            var fechas = new[]
+            {
+                new DateTime(2026, 6, 2, 10, 0, 0),   // 7 días desde FixedNowLocal
+                new DateTime(2026, 6, 9, 10, 0, 0),   // 14 días
+                new DateTime(2026, 6, 16, 10, 0, 0),  // 21 días
+                new DateTime(2026, 6, 23, 10, 0, 0)   // 28 días
+            };
+
+            foreach (var fecha in fechas)
+            {
+                var cita = await fixture.SeedCitaAsync(phone: $"8888{fecha.Day:D4}", fechaHora: fecha);
+                await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+            }
+
+            // Ninguna debe estar lista para envío inmediato.
+            await fixture.Notifications.ProcessPendingNotificationsAsync();
+
+            Assert.Equal(0, fixture.MetaClient.SendCount);
+
+            var messages = await fixture.Context.WhatsAppMessageLogs.ToListAsync();
+            Assert.Equal(4, messages.Count);
+            Assert.All(messages, m =>
+            {
+                Assert.Equal(WhatsAppMessageStatuses.Pending, m.Status);
+                Assert.NotNull(m.NextAttemptAtUtc);
+            });
+        }
+
+        [Fact]
+        public async Task ProcessPendingNotifications_WhenScheduleTimeNotReached_ShouldNotSend()
+        {
+            // Cita en 7 días: el worker no debe enviarla todavía.
+            using var fixture = await Fixture.CreateAsync();
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 6, 2, 10, 0, 0));
+
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+            await fixture.Notifications.ProcessPendingNotificationsAsync();
+
+            Assert.Equal(0, fixture.MetaClient.SendCount);
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            Assert.Equal(WhatsAppMessageStatuses.Pending, message.Status);
+        }
+
+        [Fact]
+        public async Task RescheduleConfirmationIfPending_WhenCitaMovedFarther_ShouldUpdateScheduledTime()
+        {
+            // Cita dentro de 3 días, luego se mueve a 10 días: NextAttemptAtUtc debe actualizarse.
+            using var fixture = await Fixture.CreateAsync();
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 29, 10, 0, 0));
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+
+            var originalMessage = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            Assert.NotNull(originalMessage.NextAttemptAtUtc);
+
+            var newFechaHora = new DateTime(2026, 6, 5, 10, 0, 0); // 10 días desde FixedNowLocal
+            await fixture.Notifications.RescheduleConfirmationIfPendingAsync(cita.Id, newFechaHora);
+
+            fixture.Context.ChangeTracker.Clear();
+            var updatedMessage = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            var expectedNewSchedule = new DateTimeOffset(new DateTime(2026, 6, 4, 10, 0, 0), TimeSpan.FromHours(-6)).UtcDateTime;
+            Assert.Equal(WhatsAppMessageStatuses.Pending, updatedMessage.Status);
+            Assert.Equal(expectedNewSchedule, updatedMessage.NextAttemptAtUtc!.Value, TimeSpan.FromSeconds(1));
+        }
+
+        [Fact]
+        public async Task RescheduleConfirmationIfPending_WhenCitaMovedToWithin24Hours_ShouldClearSchedule()
+        {
+            // Cita en 3 días, luego se mueve a dentro de 20h: NextAttemptAtUtc debe ser null.
+            using var fixture = await Fixture.CreateAsync();
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 29, 10, 0, 0));
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+
+            var newFechaHora = new DateTime(2026, 5, 27, 6, 0, 0); // 19.5h desde FixedNowLocal
+            await fixture.Notifications.RescheduleConfirmationIfPendingAsync(cita.Id, newFechaHora);
+
+            fixture.Context.ChangeTracker.Clear();
+            var updatedMessage = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            Assert.Equal(WhatsAppMessageStatuses.Pending, updatedMessage.Status);
+            Assert.Null(updatedMessage.NextAttemptAtUtc);
+        }
+
+        [Fact]
+        public async Task CancelPendingNotifications_ShouldMarkMessageAsCancelled()
+        {
+            // Cita en 3 días, luego se cancela: mensaje debe quedar como Cancelled.
+            using var fixture = await Fixture.CreateAsync();
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 29, 10, 0, 0));
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+
+            await fixture.Notifications.CancelPendingNotificationsAsync(cita.Id);
+
+            fixture.Context.ChangeTracker.Clear();
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            Assert.Equal(WhatsAppMessageStatuses.Cancelled, message.Status);
+            Assert.Equal(WhatsAppErrorCodes.CitaCancellada, message.ErrorCode);
+            Assert.Null(message.NextAttemptAtUtc);
+            Assert.Equal(0, fixture.MetaClient.SendCount);
+        }
+
+        [Fact]
+        public async Task QueueConfirmation_AfterCancelledMessage_ShouldAllowNewMessage()
+        {
+            // Un mensaje cancelado no debe bloquear la creación de uno nuevo (idempotencia correcta).
+            using var fixture = await Fixture.CreateAsync();
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 29, 10, 0, 0));
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+            await fixture.Notifications.CancelPendingNotificationsAsync(cita.Id);
+
+            // Re-encolar (simula cita restaurada o nuevo intento)
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+
+            fixture.Context.ChangeTracker.Clear();
+            var messages = await fixture.Context.WhatsAppMessageLogs.ToListAsync();
+            Assert.Equal(2, messages.Count);
+            Assert.Single(messages, m => m.Status == WhatsAppMessageStatuses.Cancelled);
+            Assert.Single(messages, m => m.Status == WhatsAppMessageStatuses.Pending);
+        }
+
         private sealed class Fixture : IDisposable
         {
             private readonly Microsoft.Data.Sqlite.SqliteConnection _connection;

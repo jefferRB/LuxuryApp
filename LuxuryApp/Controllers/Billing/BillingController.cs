@@ -6,6 +6,7 @@ using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.Payments;
 using LuxuryApp.Services.PublicSite;
 using LuxuryApp.Services.SaaS;
+using LuxuryApp.Services.Security;
 using LuxuryApp.Services.WhatsApp;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -264,11 +265,11 @@ namespace LuxuryApp.Controllers
             if (matchingPayments.Count > 1)
             {
                 _logger.LogError(
-                    "Billing/Exito detecto una correlacion ambigua. UserId {UserId}. TenantId {TenantId}. RequestedReference {RequestedReference}. CheckoutId {CheckoutId}. Matches {Matches}.",
+                    "Billing/Exito detecto una correlacion ambigua. UserId {UserId}. TenantId {TenantId}. RequestedReferenceSuffix {RequestedReferenceSuffix}. CheckoutIdSuffix {CheckoutIdSuffix}. Matches {Matches}.",
                     user.Id,
                     user.TenantId,
-                    requestedReference,
-                    checkoutId,
+                    SensitiveDataMasker.MaskReference(requestedReference),
+                    SensitiveDataMasker.MaskReference(checkoutId),
                     matchingPayments.Count);
 
                 return BuildRestrictedCheckoutResult(
@@ -282,12 +283,12 @@ namespace LuxuryApp.Controllers
             if (pago is not null && pago.TenantId != user.TenantId)
             {
                 _logger.LogWarning(
-                    "Billing/Exito rechazo un retorno cross-tenant. UserId {UserId}. CurrentTenantId {CurrentTenantId}. PaymentTenantId {PaymentTenantId}. RequestedReference {RequestedReference}. CheckoutId {CheckoutId}. PaymentId {PaymentId}.",
+                    "Billing/Exito rechazo un retorno cross-tenant. UserId {UserId}. CurrentTenantId {CurrentTenantId}. PaymentTenantId {PaymentTenantId}. RequestedReferenceSuffix {RequestedReferenceSuffix}. CheckoutIdSuffix {CheckoutIdSuffix}. PaymentId {PaymentId}.",
                     user.Id,
                     user.TenantId,
                     pago.TenantId,
-                    requestedReference,
-                    checkoutId,
+                    SensitiveDataMasker.MaskReference(requestedReference),
+                    SensitiveDataMasker.MaskReference(checkoutId),
                     pago.Id);
 
                 return BuildRestrictedCheckoutResult(
@@ -379,10 +380,10 @@ namespace LuxuryApp.Controllers
                         latestPayment?.ReferenciaInterna);
 
                     _logger.LogInformation(
-                        "Billing/CheckoutReturn sin referencia explicita. TenantId {TenantId}. FallbackPaymentId {PaymentId}. ResolvedReference {ResolvedReference}.",
+                        "Billing/CheckoutReturn sin referencia explicita. TenantId {TenantId}. FallbackPaymentId {PaymentId}. ResolvedReferenceSuffix {ResolvedReferenceSuffix}.",
                         user.TenantId,
                         latestPayment?.Id,
-                        resolvedReference);
+                        SensitiveDataMasker.MaskReference(resolvedReference));
                 }
 
                 return await Exito(
@@ -396,12 +397,12 @@ namespace LuxuryApp.Controllers
             {
                 _logger.LogError(
                     ex,
-                    "Error preparando Billing/CheckoutReturn. TraceIdentifier {TraceIdentifier}. OrderNumber {OrderNumber}. Reference {Reference}. LcRef {LcRef}. CorrelationToken {CorrelationToken}.",
+                    "Error preparando Billing/CheckoutReturn. TraceIdentifier {TraceIdentifier}. OrderNumberSuffix {OrderNumberSuffix}. ReferenceSuffix {ReferenceSuffix}. LcRefSuffix {LcRefSuffix}. CorrelationTokenSuffix {CorrelationTokenSuffix}.",
                     HttpContext.TraceIdentifier,
-                    orderNumber,
-                    reference,
-                    lc_ref,
-                    correlationToken);
+                    SensitiveDataMasker.MaskReference(orderNumber),
+                    SensitiveDataMasker.MaskReference(reference),
+                    SensitiveDataMasker.MaskReference(lc_ref),
+                    SensitiveDataMasker.MaskReference(correlationToken));
 
                 Response.StatusCode = StatusCodes.Status200OK;
 
@@ -823,8 +824,8 @@ namespace LuxuryApp.Controllers
                 _logger.LogInformation(
                     "URLs de callback construidas para checkout. TenantId {TenantId}. SuccessUrl {SuccessUrl}. CancelUrl {CancelUrl}. WebhookUrl {WebhookUrl}. PublicBaseUrl {PublicBaseUrl}",
                     user.TenantId,
-                    successUrl,
-                    cancelUrl,
+                    SensitiveDataMasker.RedactUrl(successUrl),
+                    SensitiveDataMasker.RedactUrl(cancelUrl),
                     SanitizeWebhookUrl(webhookUrl),
                     string.IsNullOrWhiteSpace(_paymentOptions.PublicBaseUrl) ? "<request-host>" : _paymentOptions.PublicBaseUrl);
 
@@ -1129,18 +1130,7 @@ namespace LuxuryApp.Controllers
 
         private string SanitizeWebhookUrl(string webhookUrl)
         {
-            if (!Uri.TryCreate(webhookUrl, UriKind.Absolute, out var uri))
-            {
-                return webhookUrl;
-            }
-
-            var queryName = Uri.EscapeDataString(_tilopayOptions.WebhookAccessTokenQueryParameter);
-            var builder = new UriBuilder(uri)
-            {
-                Query = $"{queryName}=***"
-            };
-
-            return builder.Uri.ToString();
+            return SensitiveDataMasker.RedactUrl(webhookUrl);
         }
     }
 }

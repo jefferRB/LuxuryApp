@@ -19,5 +19,9 @@ namespace LuxuryApp.Services.Calendar
         Task ScheduleDueRemindersAsync(CancellationToken cancellationToken = default);
 
         Task ProcessPendingNotificationsAsync(CancellationToken cancellationToken = default);
+
+        Task RescheduleConfirmationIfPendingAsync(int citaId, DateTime newFechaHoraCita, CancellationToken cancellationToken = default);
+
+        Task CancelPendingNotificationsAsync(int citaId, CancellationToken cancellationToken = default);
     }
 }

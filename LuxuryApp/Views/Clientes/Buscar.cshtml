@@ -1,256 +1,622 @@
 @model LuxuryApp.Models.DataBase.BuscarClienteViewModel
 
-<div class="card border-0 shadow-lg">
-    <div class="card-header bg-dark text-white py-3">
-        <h5 class="m-0">
-            <i class="fas fa-search me-2"></i>Buscar Cliente por Numero de Telefono
-        </h5>
+@{
+    var isInitialState = string.IsNullOrWhiteSpace(Model.Criterio);
+    var hasSingleResult = Model.ClienteSeleccionado != null;
+    var hasMultipleResults = !hasSingleResult && Model.ClientesEncontrados.Count > 1;
+    var isNoResults = !isInitialState && !hasSingleResult && !hasMultipleResults;
+
+    string badgeText;
+    string pageTitle;
+    string pageSubtitle;
+
+    if (hasSingleResult)
+    {
+        badgeText   = "PERFIL DEL CLIENTE";
+        pageTitle   = "Detalle del Cliente";
+        pageSubtitle = "Consulta y gestiona la información completa y el historial del cliente.";
+    }
+    else if (hasMultipleResults || isNoResults)
+    {
+        badgeText   = "BÚSQUEDA DE CLIENTES";
+        pageTitle   = "Resultados de búsqueda";
+        pageSubtitle = hasMultipleResults
+            ? "Se encontraron clientes que coinciden con tu búsqueda."
+            : "No se encontraron clientes que coincidan con tu búsqueda.";
+    }
+    else
+    {
+        badgeText   = "BÚSQUEDA DE CLIENTES";
+        pageTitle   = "Buscar Cliente";
+        pageSubtitle = "Encuentra clientes por teléfono o nombre y continúa su flujo de atención.";
+    }
+}
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="~/css/crm-shared.css" asp-append-version="true">
+<link rel="stylesheet" href="~/css/clientes.css" asp-append-version="true">
+
+<div class="clt-shell">
+
+    <!-- ── CABECERA ── -->
+    <div class="clt-header-section" style="padding-bottom:@(hasSingleResult ? "1.5rem" : "1.25rem")">
+        <div class="clt-header-left">
+            <span class="clt-badge"><i class="bi bi-@(hasSingleResult ? "person-badge-fill" : "search")"></i> @badgeText</span>
+            <h1 class="clt-page-title">@pageTitle</h1>
+            <p class="clt-page-subtitle">@pageSubtitle</p>
+        </div>
     </div>
 
-    <div class="card-body">
-        <form asp-action="Buscar" method="post">
-            <div class="mb-3">
-                <label asp-for="Criterio" class="form-label">Telefono o Nombre</label>
-                <input asp-for="Criterio"
-                       class="form-control"
-                       placeholder="Ejemplo: 88889999 o Juan Perez" />
-            </div>
+    <!-- ── ALERTAS ── -->
+    @if (TempData["Mensaje"] != null)
+    {
+        <div class="clt-alert-success" style="margin:0 2rem 0.5rem;" role="alert">
+            <i class="bi bi-check-circle-fill"></i>
+            @TempData["Mensaje"]
+        </div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="clt-alert-error" style="margin:0 2rem 0.5rem;" role="alert">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            @TempData["Error"]
+        </div>
+    }
 
-            <button type="submit" class="btn btn-dark text-white">
-                <i class="fas fa-search me-1"></i>Buscar
-            </button>
-            <a asp-action="Index" class="btn btn-secondary">
-                <i class="fas fa-arrow-left me-1"></i>Volver al Listado
-            </a>
-        </form>
+    <!-- ════════════════════════════════════════════════════
+         ESTADO 1 — Búsqueda inicial (sin criterio)
+         ════════════════════════════════════════════════════ -->
+    @if (isInitialState)
+    {
+        <div class="clt-body-section">
+            <p class="clt-search-card-title">
+                <i class="bi bi-person-search"></i>
+                Buscar cliente
+            </p>
 
-        <hr />
-
-        @if (Model.ClientesEncontrados.Count > 1)
-        {
-            <div class="row mt-4">
-                @foreach (var cliente in Model.ClientesEncontrados)
-                {
-                    <div class="col-md-6 col-lg-4 mb-3">
-                        <div class="card shadow-sm h-100">
-                            <div class="card-body">
-                                <h5 class="card-title">
-                                    <i class="fas fa-user me-2"></i>@cliente.Nombre
-                                </h5>
-
-                                <p class="mb-1"><strong>Telefono:</strong> @cliente.NumeroTelefono</p>
-                                <p class="mb-1"><strong>Correo:</strong> @(string.IsNullOrWhiteSpace(cliente.CorreoElectronico) ? "No registrado" : cliente.CorreoElectronico)</p>
-                                <p class="mb-1">
-                                    <strong>Ultima visita:</strong>
-                                    @cliente.FechaUltimaVisita.ToShortDateString()
-                                </p>
-
-                                <form asp-action="Buscar" method="post" class="mt-3">
-                                    <input type="hidden" name="criterio" value="@cliente.NumeroTelefono" />
-                                    <button class="btn btn-dark btn-sm w-100">
-                                        <i class="fas fa-eye me-1"></i>Ver detalle
-                                    </button>
-                                </form>
-                            </div>
+            <form asp-action="Buscar" method="post" id="clt-search-form">
+                @Html.AntiForgeryToken()
+                <div class="clt-field" style="margin-bottom:0.35rem;">
+                    <label for="clt-search-input" class="clt-label">Teléfono o Nombre</label>
+                </div>
+                <div class="clt-search-row">
+                    <div class="clt-search-input-wrap">
+                        <div class="clt-input-wrap">
+                            <span class="clt-input-icon"><i class="bi bi-search"></i></span>
+                            <input asp-for="Criterio"
+                                   id="clt-search-input"
+                                   class="clt-input"
+                                   placeholder="Ej: 88889999 o Juan Pérez"
+                                   autocomplete="off"
+                                   aria-label="Buscar por teléfono o nombre" />
                         </div>
                     </div>
+                    <div class="clt-search-btns">
+                        <button type="submit" class="crm-btn crm-btn--primary">
+                            <i class="bi bi-search"></i> Buscar
+                        </button>
+                        <a asp-action="Index" class="crm-btn crm-btn--outline">
+                            <i class="bi bi-list-ul"></i> Volver al listado
+                        </a>
+                    </div>
+                </div>
+                <p class="clt-search-hint">
+                    <i class="bi bi-stars"></i>
+                    Empieza a escribir para ver sugerencias automáticas.
+                </p>
+            </form>
+        </div>
+
+        <!-- Búsquedas recientes -->
+        <div class="clt-body-section" id="clt-recents-section" style="display:none;">
+            <div class="clt-recents-header-row">
+                <p class="clt-recents-title">
+                    <i class="bi bi-clock-history"></i>
+                    Búsquedas recientes
+                </p>
+                <button type="button" class="crm-btn crm-btn--outline" id="clt-clear-history"
+                        style="font-size:0.78rem;padding:0.35rem 0.85rem;" aria-label="Limpiar historial">
+                    <i class="bi bi-trash3"></i> Limpiar historial
+                </button>
+            </div>
+            <p class="clt-recents-subtitle">Accede rápidamente a tus últimas búsquedas</p>
+            <div class="clt-recents-grid" id="clt-recents-grid"></div>
+        </div>
+
+        <!-- Info box -->
+        <div class="clt-body-section">
+            <div class="clt-info-box">
+                <i class="bi bi-lightning-charge-fill"></i>
+                <div>
+                    <strong>Acceso rápido y eficiente.</strong><br />
+                    Busca por número de teléfono o nombre para encontrar al cliente y continuar con su historial, citas, pagos y servicios.
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- ════════════════════════════════════════════════════
+         ESTADO 2 y 4 — Múltiples resultados o sin resultados
+         (siempre muestro barra de búsqueda arriba)
+         ════════════════════════════════════════════════════ -->
+    @if (hasMultipleResults || isNoResults)
+    {
+        <div class="clt-body-section">
+            <form asp-action="Buscar" method="post" id="clt-search-form">
+                @Html.AntiForgeryToken()
+                <div class="clt-search-row">
+                    <div class="clt-search-input-wrap">
+                        <div class="clt-input-wrap">
+                            <span class="clt-input-icon"><i class="bi bi-search"></i></span>
+                            <input asp-for="Criterio"
+                                   id="clt-search-input"
+                                   class="clt-input"
+                                   placeholder="Ej: 88889999 o Juan Pérez"
+                                   autocomplete="off"
+                                   aria-label="Buscar por teléfono o nombre" />
+                        </div>
+                    </div>
+                    <div class="clt-search-btns">
+                        <button type="submit" class="crm-btn crm-btn--primary">
+                            <i class="bi bi-search"></i> Buscar
+                        </button>
+                        <a asp-action="Index" class="crm-btn crm-btn--outline">
+                            <i class="bi bi-list-ul"></i> Volver al listado
+                        </a>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Búsquedas recientes (oculto si no hay) -->
+        <div class="clt-body-section" id="clt-recents-section" style="display:none;">
+            <div class="clt-recents-header-row">
+                <p class="clt-recents-title">
+                    <i class="bi bi-clock-history"></i>
+                    Búsquedas recientes
+                </p>
+                <button type="button" class="crm-btn crm-btn--outline" id="clt-clear-history"
+                        style="font-size:0.78rem;padding:0.35rem 0.85rem;">
+                    <i class="bi bi-trash3"></i> Limpiar historial
+                </button>
+            </div>
+            <div class="clt-recents-grid" id="clt-recents-grid"></div>
+        </div>
+    }
+
+    @if (hasMultipleResults)
+    {
+        <!-- Contador -->
+        <div class="clt-results-count-row">
+            <span class="clt-results-count">
+                <i class="bi bi-people-fill"></i>
+                @Model.ClientesEncontrados.Count resultado@(Model.ClientesEncontrados.Count != 1 ? "s" : "") encontrado@(Model.ClientesEncontrados.Count != 1 ? "s" : "")
+                @if (Model.ResultadosLimitados)
+                {
+                    <span style="font-weight:400;color:var(--private-muted-text,#64748b);font-size:0.8rem;">(limitado)</span>
+                }
+            </span>
+        </div>
+
+        <!-- Grid de cards -->
+        <div class="clt-results-grid">
+            @foreach (var cliente in Model.ClientesEncontrados)
+            {
+                var ini = cliente.Nombre.Length > 0 ? char.ToUpper(cliente.Nombre[0]).ToString() : "?";
+                var colorIdx = cliente.Id % 8;
+                <div class="clt-result-card">
+                    <div class="clt-result-card-header">
+                        <div class="clt-result-avatar clientes-avatar--color-@colorIdx">@ini</div>
+                        <div class="clt-result-card-meta">
+                            <span class="clt-result-name">@cliente.Nombre</span>
+                            <span class="clt-result-field">
+                                <i class="bi bi-telephone"></i>
+                                @cliente.NumeroTelefono
+                            </span>
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(cliente.CorreoElectronico))
+                    {
+                        <span class="clt-result-field">
+                            <i class="bi bi-envelope"></i>
+                            @cliente.CorreoElectronico
+                        </span>
+                    }
+                    <span class="clt-result-field">
+                        <i class="bi bi-calendar3"></i>
+                        Última visita: @cliente.FechaUltimaVisita.ToString("dd/MM/yyyy")
+                    </span>
+
+                    <form asp-action="Buscar" method="post">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="criterio" value="@cliente.NumeroTelefono" />
+                        <button type="submit" class="crm-btn crm-btn--outline" style="width:100%;justify-content:center;">
+                            <i class="bi bi-eye"></i> Ver detalle
+                        </button>
+                    </form>
+                </div>
+            }
+        </div>
+    }
+
+    @if (isNoResults)
+    {
+        <div class="clt-section">
+            <div class="clt-empty-state">
+                <i class="bi bi-person-x"></i>
+                <span class="clt-empty-title">No se encontraron clientes</span>
+                <span class="clt-empty-text">
+                    @Model.Mensaje
+                </span>
+                <div style="margin-top:0.75rem;">
+                    <a asp-action="Create" class="crm-btn crm-btn--primary">
+                        <i class="bi bi-person-plus"></i> Registrar nuevo cliente
+                    </a>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- ════════════════════════════════════════════════════
+         ESTADO 3 — Detalle del cliente (1 resultado)
+         ════════════════════════════════════════════════════ -->
+    @if (hasSingleResult)
+    {
+        var c = Model.ClienteSeleccionado!;
+        var ini = c.Nombre.Length > 0 ? char.ToUpper(c.Nombre[0]).ToString() : "?";
+        var colorIdx = c.Id % 8;
+        var totalCitas = Model.TotalVisitas;
+        var totalPagos = Model.HistorialPagos.Count;
+
+        <!-- Banda de perfil -->
+        <div class="clt-profile-band">
+            <div class="clt-profile-avatar clientes-avatar--color-@colorIdx">@ini</div>
+
+            <div class="clt-profile-identity">
+                <p class="clt-profile-name">@c.Nombre</p>
+                <span class="clt-profile-contact">
+                    <i class="bi bi-telephone"></i> @c.NumeroTelefono
+                </span>
+                @if (!string.IsNullOrWhiteSpace(c.CorreoElectronico))
+                {
+                    <span class="clt-profile-contact">
+                        <i class="bi bi-envelope"></i> @c.CorreoElectronico
+                    </span>
                 }
             </div>
-        }
 
-        @if (!string.IsNullOrWhiteSpace(Model.Mensaje))
-        {
-            <div class="alert @(Model.ResultadosLimitados ? "alert-info" : "alert-warning") mt-3">@Model.Mensaje</div>
-        }
-
-        @if (TempData["Error"] != null)
-        {
-            <div class="alert alert-danger alert-dismissible fade show mt-3" role="alert">
-                <i class="fas fa-exclamation-circle me-2"></i>@TempData["Error"]
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            <div class="clt-profile-kpis">
+                <div class="clt-profile-kpi">
+                    <i class="bi bi-arrow-repeat clt-profile-kpi-icon"></i>
+                    <span class="clt-profile-kpi-val">@c.FrecuenciaVisita días</span>
+                    <span class="clt-profile-kpi-label">Frecuencia</span>
+                </div>
+                <div class="clt-profile-kpi">
+                    <i class="bi bi-calendar3 clt-profile-kpi-icon"></i>
+                    <span class="clt-profile-kpi-val">@c.FechaUltimaVisita.ToString("dd/MM/yyyy")</span>
+                    <span class="clt-profile-kpi-label">Última visita</span>
+                </div>
+                <div class="clt-profile-kpi">
+                    <i class="bi bi-calendar-check clt-profile-kpi-icon"></i>
+                    <span class="clt-profile-kpi-val">@c.ProximaVisita.ToString("dd/MM/yyyy")</span>
+                    <span class="clt-profile-kpi-label">Próxima cita</span>
+                </div>
+                <div class="clt-profile-kpi">
+                    <i class="bi bi-graph-up-arrow clt-profile-kpi-icon"></i>
+                    <span class="clt-profile-kpi-val">@totalCitas</span>
+                    <span class="clt-profile-kpi-label">Visitas totales</span>
+                </div>
             </div>
-        }
+        </div>
 
-        @if (TempData["Mensaje"] != null)
-        {
-            <div class="alert alert-success alert-dismissible fade show mt-3" role="alert">
-                <i class="fas fa-check-circle me-2"></i>@TempData["Mensaje"]
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        <!-- Barra de acciones / tabs -->
+        <div class="clt-tab-row">
+            <div class="clt-tab-left">
+                <a asp-action="Editar" asp-route-id="@c.Id" class="crm-btn crm-btn--primary">
+                    <i class="bi bi-pencil-square"></i> Editar Cliente
+                </a>
+                <button type="button" class="crm-btn crm-btn--outline" data-bs-toggle="collapse" data-bs-target="#clt-sec-citas" aria-expanded="false" aria-controls="clt-sec-citas">
+                    <i class="bi bi-calendar-week"></i> Citas (@totalCitas)
+                </button>
+                @if (totalPagos > 0)
+                {
+                    <button type="button" class="crm-btn crm-btn--outline" data-bs-toggle="collapse" data-bs-target="#clt-sec-pagos" aria-expanded="false" aria-controls="clt-sec-pagos">
+                        <i class="bi bi-receipt"></i> Pagos (@totalPagos)
+                    </button>
+                }
+                <button type="button" class="crm-btn crm-btn--outline" data-bs-toggle="collapse" data-bs-target="#clt-sec-notas" aria-expanded="false" aria-controls="clt-sec-notas">
+                    <i class="bi bi-clipboard-check"></i> Notas de Servicios
+                </button>
             </div>
-        }
 
-        @if (Model.ClienteSeleccionado != null)
-        {
-            <div class="card mt-4 border-5 shadow-sm">
-                <div class="card-body">
-                    <h5 class="card-title">
-                        <i class="fas fa-user me-2"></i>@Model.ClienteSeleccionado.Nombre
-                    </h5>
+    
+        </div>
 
-                    <p class="mb-1"><strong>Telefono:</strong> @Model.ClienteSeleccionado.NumeroTelefono</p>
-                    <p class="mb-1"><strong>Correo Electronico:</strong> @(string.IsNullOrWhiteSpace(Model.ClienteSeleccionado.CorreoElectronico) ? "No registrado" : Model.ClienteSeleccionado.CorreoElectronico)</p>
-                    <p class="mb-1"><strong>Frecuencia de Visita:</strong> @Model.ClienteSeleccionado.FrecuenciaVisita dias</p>
-                    <p class="mb-1"><strong>Fecha Ultima Visita:</strong> @Model.ClienteSeleccionado.FechaUltimaVisita.ToShortDateString()</p>
+        <!-- ── HISTORIAL DE CITAS ── -->
+        <div class="clt-section collapse" id="clt-sec-citas">
+            <p class="clt-section-title">
+                <i class="bi bi-calendar-week"></i>
+                Historial de citas
+            </p>
 
-                    <p class="mb-1">
-                        <strong>Fecha De Cumpleanos:</strong>
-                        @(Model.ClienteSeleccionado.FechaCumpleanos.HasValue
-                            ? Model.ClienteSeleccionado.FechaCumpleanos.Value.ToString("dd/MM/yyyy")
-                            : "No registrado")
-                    </p>
-
-                    <p class="mb-1">
-                        <strong>Proxima Cita:</strong>
-                        @Model.ClienteSeleccionado.ProximaVisita.ToShortDateString()
-                    </p>
-
-                    <p><strong>Visitas Totales:</strong> @Model.TotalVisitas</p>
-
-                    <div class="mt-3 d-flex flex-wrap gap-2 justify-content-between align-items-center">
-                        <div class="d-flex flex-wrap gap-2">
-                            <a asp-action="Editar"
-                               asp-route-id="@Model.ClienteSeleccionado.Id"
-                               class="btn btn-dark text-white">
-                                <i class="fas fa-edit me-1"></i>Editar Cliente
-                            </a>
-
-                            <button class="btn btn-outline-dark"
-                                    type="button"
-                                    data-bs-toggle="collapse"
-                                    data-bs-target="#listaVisitas">
-                                <i class="fas fa-calendar-check me-1"></i>Citas (@Model.TotalVisitas)
-                            </button>
-
-                            @if (Model.HistorialPagos.Any())
+            @if (Model.HistorialVisitas.Any())
+            {
+                <!-- Desktop -->
+                <div class="clt-history-table-wrap d-none d-md-block">
+                    <table class="clt-history-table">
+                        <thead>
+                            <tr>
+                                <th>FECHA</th>
+                                <th>HORA</th>
+                                <th>SERVICIO</th>
+                                <th>FUNCIONARIO</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var cita in Model.HistorialVisitas)
                             {
-                                <button class="btn btn-outline-dark"
-                                        type="button"
-                                        data-bs-toggle="collapse"
-                                        data-bs-target="#listaPagos">
-                                    <i class="fas fa-receipt me-1"></i>Pagos (@Model.HistorialPagos.Count)
-                                </button>
+                                <tr>
+                                    <td>@cita.FechaHoraCita.ToString("dd/MM/yyyy")</td>
+                                    <td>@cita.FechaHoraCita.ToString("hh:mm tt")</td>
+                                    <td>@(cita.NombreServicio ?? "—")</td>
+                                    <td>@(cita.NombreFuncionario ?? "—")</td>
+                                </tr>
                             }
+                        </tbody>
+                    </table>
+                </div>
 
-                            <button class="btn btn-outline-light"
-                                    type="button"
-                                    data-bs-toggle="collapse"
-                                    data-bs-target="#listaNotas">
-                                <i class="fas fa-clipboard-list me-1 "></i>Notas de Servicios
-                            </button>
-                        </div>
-
-                        <form asp-action="AgregarVisitaRapida" method="post">
-                            @Html.AntiForgeryToken()
-                            <input type="hidden" name="id" value="@Model.ClienteSeleccionado.Id" />
-                            <button type="submit" class="btn btn-success">
-                                <i class="fas fa-calendar-plus me-1"></i>Agregar visita
-                            </button>
-                        </form>
-                    </div>
-
-                                        <div class="collapse mt-4" id="listaVisitas">
-                        <h6 class="fw-bold mb-2"><i class="fas fa-calendar-check me-1"></i>Historial de citas</h6>
-
-                        @if (Model.HistorialVisitas.Any())
-                        {
-                            <div class="table-responsive">
-                                <table class="table table-sm table-hover mb-0">
-                                    <thead class="table-dark">
-                                        <tr>
-                                            <th>Fecha</th>
-                                            <th>Hora</th>
-                                            <th>Servicio</th>
-                                            <th>Funcionario</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var cita in Model.HistorialVisitas)
-                                        {
-                                            <tr>
-                                                <td>@cita.FechaHoraCita.ToString("dd/MM/yyyy")</td>
-                                                <td>@cita.FechaHoraCita.ToString("HH:mm")</td>
-                                                <td>@(cita.NombreServicio ?? "—")</td>
-                                                <td>@(cita.NombreFuncionario ?? "—")</td>
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="text-muted">No hay citas registradas para este cliente.</div>
-                        }
-                    </div>
-
-                                        @if (Model.HistorialPagos.Any())
+                <!-- Mobile -->
+                <div class="clt-history-cards d-md-none">
+                    @foreach (var cita in Model.HistorialVisitas)
                     {
-                        <div class="collapse mt-4" id="listaPagos">
-                            <h6 class="fw-bold mb-2"><i class="fas fa-receipt me-1"></i>Historial de pagos</h6>
-                            <div class="table-responsive">
-                                <table class="table table-sm table-hover mb-0">
-                                    <thead class="table-dark">
-                                        <tr>
-                                            <th>Fecha</th>
-                                            <th>Tipo</th>
-                                            <th>Detalle</th>
-                                            <th>Funcionario</th>
-                                            <th>Método</th>
-                                            <th class="text-end">Monto</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var pago in Model.HistorialPagos)
-                                        {
-                                            <tr>
-                                                <td>@pago.FechaCobro.ToString("dd/MM/yyyy HH:mm")</td>
-                                                <td>
-                                                    <span class="badge @(pago.EsServicio ? "bg-dark" : "bg-secondary")">
-                                                        @(pago.EsServicio ? "Servicio" : "Producto")
-                                                    </span>
-                                                </td>
-                                                <td>@(pago.Detalle ?? "—")</td>
-                                                <td>@(pago.NombreFuncionario ?? "—")</td>
-                                                <td>@pago.MetodoPago</td>
-                                                <td class="text-end fw-semibold">₡ @pago.Monto.ToString("N0")</td>
-                                            </tr>
-                                        }
-                                    </tbody>
-                                    <tfoot class="table-dark">
-                                        <tr>
-                                            <td colspan="5" class="text-end fw-bold">Total</td>
-                                            <td class="text-end fw-bold">₡ @Model.HistorialPagos.Sum(p => p.Monto).ToString("N0")</td>
-                                        </tr>
-                                    </tfoot>
-                                </table>
+                        <div class="clt-history-card">
+                            <div class="clt-history-card-header">
+                                <span class="clt-history-card-label">FECHA</span>
+                                <strong>@cita.FechaHoraCita.ToString("dd/MM/yyyy") — @cita.FechaHoraCita.ToString("hh:mm tt")</strong>
+                            </div>
+                            <div class="clt-history-card-row">
+                                <div class="clt-history-card-field">
+                                    <span class="clt-history-card-label">SERVICIO</span>
+                                    <span class="clt-history-card-val">@(cita.NombreServicio ?? "—")</span>
+                                </div>
+                                <div class="clt-history-card-field">
+                                    <span class="clt-history-card-label">FUNCIONARIO</span>
+                                    <span class="clt-history-card-val">@(cita.NombreFuncionario ?? "—")</span>
+                                </div>
                             </div>
                         </div>
                     }
+                </div>
+            }
+            else
+            {
+                <div class="clt-empty-state" style="padding:2rem 1rem;">
+                    <i class="bi bi-calendar3"></i>
+                    <span class="clt-empty-title">Sin citas registradas</span>
+                    <span class="clt-empty-text">Este cliente no tiene citas en el historial.</span>
+                </div>
+            }
+        </div>
 
-                    <div class="collapse mt-4" id="listaNotas">
-                        <h6 class="fw-bold mb-2"><i class="fas fa-clipboard-list me-1"></i>Notas de Servicios</h6>
+        <!-- ── HISTORIAL DE PAGOS ── -->
+        @if (Model.HistorialPagos.Any())
+        {
+            <div class="clt-section collapse" id="clt-sec-pagos">
+                <p class="clt-section-title">
+                    <i class="bi bi-receipt"></i>
+                    Historial de pagos
+                </p>
 
-                        @if (!string.IsNullOrWhiteSpace(Model.NotasServicio))
-                        {
-                            <div class="border rounded p-3 bg-transparent text-white text-pre-wrap luxury-notes-display">
-                                @Model.NotasServicio
+                <!-- Desktop -->
+                <div class="clt-history-table-wrap d-none d-md-block">
+                    <table class="clt-history-table">
+                        <thead>
+                            <tr>
+                                <th>FECHA</th>
+                                <th>TIPO</th>
+                                <th>DETALLE</th>
+                                <th>FUNCIONARIO</th>
+                                <th>MÉTODO</th>
+                                <th style="text-align:right;">MONTO</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var pago in Model.HistorialPagos)
+                            {
+                                <tr>
+                                    <td>@pago.FechaCobro.ToString("dd/MM/yyyy")</td>
+                                    <td>
+                                        <span class="clt-badge-servicio @(pago.EsServicio ? "clt-badge-servicio--s" : "clt-badge-servicio--p")">
+                                            @(pago.EsServicio ? "Servicio" : "Producto")
+                                        </span>
+                                    </td>
+                                    <td>@(pago.Detalle ?? "—")</td>
+                                    <td>@(pago.NombreFuncionario ?? "—")</td>
+                                    <td>@pago.MetodoPago</td>
+                                    <td style="text-align:right;" class="clt-amount-green">
+                                        ₡ @pago.Monto.ToString("N0")
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot>
+                            <tr style="border-top:2px solid var(--private-table-border,rgba(15,23,42,0.1));">
+                                <td colspan="5" style="text-align:right;font-weight:700;font-size:0.82rem;padding:0.65rem 0.75rem;color:var(--private-muted-text,#64748b);">TOTAL</td>
+                                <td style="text-align:right;padding:0.65rem 0.75rem;" class="clt-amount-green">
+                                    ₡ @Model.HistorialPagos.Sum(p => p.Monto).ToString("N0")
+                                </td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <!-- Mobile -->
+                <div class="clt-history-cards d-md-none">
+                    @foreach (var pago in Model.HistorialPagos)
+                    {
+                        <div class="clt-history-card">
+                            <div class="clt-history-card-header">
+                                <span class="clt-badge-servicio @(pago.EsServicio ? "clt-badge-servicio--s" : "clt-badge-servicio--p")">
+                                    @(pago.EsServicio ? "Servicio" : "Producto")
+                                </span>
+                                <strong class="clt-amount-green">₡ @pago.Monto.ToString("N0")</strong>
                             </div>
-                        }
-                        else
-                        {
-                            <div class="text-muted">No hay notas de servicios registradas.</div>
-                        }
-
-                        <div class="mt-2">
-                            <a asp-action="RegistrarServicios"
-                               asp-route-id="@Model.ClienteSeleccionado!.Id"
-                               class="btn btn-sm btn-secondary">
-                                <i class="fas fa-edit me-1"></i>Editar notas
-                            </a>
+                            <div class="clt-history-card-row">
+                                <div class="clt-history-card-field">
+                                    <span class="clt-history-card-label">FECHA</span>
+                                    <span class="clt-history-card-val">@pago.FechaCobro.ToString("dd/MM/yyyy")</span>
+                                </div>
+                                <div class="clt-history-card-field">
+                                    <span class="clt-history-card-label">MÉTODO</span>
+                                    <span class="clt-history-card-val">@pago.MetodoPago</span>
+                                </div>
+                            </div>
+                            <div class="clt-history-card-row">
+                                <div class="clt-history-card-field">
+                                    <span class="clt-history-card-label">DETALLE</span>
+                                    <span class="clt-history-card-val">@(pago.Detalle ?? "—")</span>
+                                </div>
+                                <div class="clt-history-card-field">
+                                    <span class="clt-history-card-label">FUNCIONARIO</span>
+                                    <span class="clt-history-card-val">@(pago.NombreFuncionario ?? "—")</span>
+                                </div>
+                            </div>
                         </div>
-                    </div>
+                    }
                 </div>
             </div>
         }
-    </div>
+
+        <!-- ── NOTAS DE SERVICIOS ── -->
+        <div class="clt-section collapse" id="clt-sec-notas">
+            <p class="clt-section-title">
+                <i class="bi bi-clipboard-check"></i>
+                Notas de Servicios
+            </p>
+
+            @if (!string.IsNullOrWhiteSpace(Model.NotasServicio))
+            {
+                <div class="clt-notes-display">@Model.NotasServicio</div>
+            }
+            else
+            {
+                <div class="clt-empty-state" style="padding:1.5rem 1rem;">
+                    <i class="bi bi-clipboard"></i>
+                    <span class="clt-empty-title">Sin notas de servicios</span>
+                    <span class="clt-empty-text">No hay notas de servicios registradas para este cliente.</span>
+                </div>
+            }
+
+            <div style="margin-top:0.85rem;">
+                <a asp-action="RegistrarServicios" asp-route-id="@c.Id" class="crm-btn crm-btn--outline">
+                    <i class="bi bi-pencil-square"></i>
+                    @(string.IsNullOrWhiteSpace(Model.NotasServicio) ? "Agregar notas" : "Editar notas")
+                </a>
+            </div>
+        </div>
+    }
+
 </div>
+
+@section Scripts {
+    <script>
+        (function () {
+            var STORAGE_KEY = "lux_recent_searches_v1";
+            var MAX_RECENTS = 6;
+
+            function loadRecents() {
+                try {
+                    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+                } catch (e) {
+                    return [];
+                }
+            }
+
+            function saveRecents(list) {
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+                } catch (e) {}
+            }
+
+            function addRecent(text) {
+                if (!text || text.trim().length < 2) return;
+                text = text.trim();
+                var isPhone = /^[\d\s\+\-\(\)\.\/]{4,}$/.test(text.replace(/[^\d\s\+\-\(\)\.\/]/g, "")) && /\d{4}/.test(text);
+                var type = isPhone ? "phone" : "name";
+                var recents = loadRecents().filter(function (r) { return r.text !== text; });
+                recents.unshift({ text: text, type: type, ts: Date.now() });
+                recents = recents.slice(0, MAX_RECENTS);
+                saveRecents(recents);
+            }
+
+            function formatTime(ts) {
+                var d = new Date(ts);
+                var now = new Date();
+                var diffMs = now - d;
+                var diffDays = Math.floor(diffMs / 86400000);
+                if (diffDays === 0) return "Hoy, " + d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
+                if (diffDays === 1) return "Ayer, " + d.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" });
+                return d.toLocaleDateString("es-CR", { day: "2-digit", month: "2-digit", year: "numeric" });
+            }
+
+            function renderRecents() {
+                var section = document.getElementById("clt-recents-section");
+                var grid = document.getElementById("clt-recents-grid");
+                if (!section || !grid) return;
+
+                var recents = loadRecents();
+                if (recents.length === 0) { section.style.display = "none"; return; }
+
+                section.style.display = "";
+                grid.innerHTML = "";
+
+                recents.forEach(function (r) {
+                    var btn = document.createElement("button");
+                    btn.type = "button";
+                    btn.className = "clt-recent-chip";
+                    var isPhone = r.type === "phone";
+                    btn.innerHTML =
+                        '<span class="clt-recent-chip-icon clt-recent-chip-icon--' + (isPhone ? "phone" : "name") + '">' +
+                            '<i class="bi bi-' + (isPhone ? "telephone" : "person") + '"></i>' +
+                        '</span>' +
+                        '<span class="clt-recent-chip-body">' +
+                            '<span class="clt-recent-chip-text">' + escapeHtml(r.text) + '</span>' +
+                            '<span class="clt-recent-chip-meta">' + (isPhone ? "Teléfono" : "Nombre") + " · " + formatTime(r.ts) + '</span>' +
+                        '</span>';
+
+                    btn.addEventListener("click", function () {
+                        var input = document.getElementById("clt-search-input");
+                        if (input) {
+                            input.value = r.text;
+                            var form = document.getElementById("clt-search-form");
+                            if (form) form.submit();
+                        }
+                    });
+                    grid.appendChild(btn);
+                });
+            }
+
+            function escapeHtml(str) {
+                return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+            }
+
+            // Guardar búsqueda actual si hay criterio
+            var criterio = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Criterio ?? ""));
+            if (criterio && criterio.length >= 2) {
+                addRecent(criterio);
+            }
+
+            renderRecents();
+
+            // Limpiar historial
+            var btnClear = document.getElementById("clt-clear-history");
+            if (btnClear) {
+                btnClear.addEventListener("click", function () {
+                    saveRecents([]);
+                    renderRecents();
+                });
+            }
+        })();
+    </script>
+}

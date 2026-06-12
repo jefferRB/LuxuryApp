@@ -654,3 +654,690 @@ html[data-luxury-surface-theme="glass"] .finance-mobile-card {
     .finance-table-desktop { display: none !important; }
     .finance-mobile-list   { display: flex; }
 }
+
+/* ================================================================
+   FORM VIEWS — Create / Edit  (finance-form-*)
+   Usados en Cobros/Create.cshtml y Cobros/Edit.cshtml
+   ================================================================ */
+
+.finance-form-body {
+    padding: 1.75rem 2rem;
+    border-bottom: 1px solid var(--private-surface-border);
+}
+
+.finance-form-info-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    padding: 0.85rem 1rem;
+    border-radius: 10px;
+    border: 1px solid rgba(37, 99, 235, 0.22);
+    background: rgba(37, 99, 235, 0.07);
+    margin-bottom: 1.5rem;
+    font-size: 0.875rem;
+    color: var(--private-surface-text);
+    line-height: 1.5;
+}
+
+.finance-form-info-box i {
+    color: var(--private-chart-accent, #2563eb);
+    font-size: 1rem;
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+}
+
+.finance-validation-summary {
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    border: 1px solid rgba(220, 38, 38, 0.3);
+    background: rgba(220, 38, 38, 0.08);
+    color: #ef4444;
+    font-size: 0.85rem;
+    margin-bottom: 1.25rem;
+}
+
+.finance-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem 1.5rem;
+}
+
+.finance-form-full { grid-column: 1 / -1; }
+
+.finance-form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.finance-form-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--private-muted-text);
+    letter-spacing: 0.03em;
+}
+
+.finance-required { color: #ef4444; margin-left: 0.15rem; }
+
+.finance-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.finance-input-icon {
+    position: absolute;
+    left: 0.875rem;
+    color: var(--private-muted-text);
+    font-size: 0.95rem;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.finance-input-icon--top {
+    top: 0.75rem;
+    align-self: flex-start;
+}
+
+.finance-form-control {
+    width: 100%;
+    padding: 0.72rem 0.875rem 0.72rem 2.5rem;
+    border: 1px solid var(--private-input-border);
+    border-radius: 10px;
+    background: var(--private-input-bg);
+    color: var(--private-input-text);
+    font-size: 0.875rem;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    appearance: auto;
+    line-height: 1.5;
+}
+
+.finance-form-control--no-icon { padding-left: 0.875rem; }
+
+.finance-form-control:focus {
+    outline: none;
+    border-color: var(--private-chart-accent, #2563eb);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.finance-form-control::placeholder {
+    color: var(--private-muted-text);
+    font-size: 0.85rem;
+    opacity: 0.7;
+}
+
+.finance-form-control[type="datetime-local"],
+.finance-form-control[type="date"] { color-scheme: dark; }
+
+.finance-form-control[type="datetime-local"]::-webkit-calendar-picker-indicator,
+.finance-form-control[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1) brightness(1.4);
+    cursor: pointer;
+}
+
+.finance-field-error { font-size: 0.78rem; color: #ef4444; }
+
+/* ── HISTORIAL SERVICIO (Create) ─────────────────────────── */
+.finance-historial-section {
+    padding: 1rem 1.1rem;
+    border-radius: 12px;
+    border: 1px solid var(--private-surface-border);
+    background: var(--private-row-bg);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.finance-historial-check-row {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+}
+
+.finance-historial-check-row input[type="checkbox"] {
+    accent-color: #2563eb;
+    width: 1rem;
+    height: 1rem;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.finance-historial-check-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--private-surface-text);
+    cursor: pointer;
+}
+
+.finance-historial-help {
+    font-size: 0.8rem;
+    color: var(--private-muted-text);
+    line-height: 1.4;
+    margin: 0;
+}
+
+/* ── FORM FOOTER ─────────────────────────────────────────── */
+.finance-form-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding: 1.5rem 2rem;
+}
+
+.finance-form-footer-left {
+    display: flex;
+    gap: 0.65rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.finance-btn-save {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.65rem 1.5rem;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 0;
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    color: #fff;
+    box-shadow: 0 6px 18px rgba(37, 99, 235, 0.28);
+    text-decoration: none;
+    transition: opacity 0.18s, transform 0.18s, box-shadow 0.18s;
+    line-height: 1.4;
+}
+
+.finance-btn-save:hover {
+    color: #fff;
+    opacity: 0.9;
+    transform: translateY(-1px);
+    box-shadow: 0 10px 26px rgba(37, 99, 235, 0.35);
+}
+
+.finance-btn-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.65rem 1.25rem;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--private-input-border);
+    background: var(--private-input-bg);
+    color: var(--private-surface-text);
+    text-decoration: none;
+    transition: background-color 0.15s, border-color 0.15s, transform 0.15s;
+    line-height: 1.4;
+}
+
+.finance-btn-back:hover {
+    border-color: rgba(96, 165, 250, 0.45);
+    background: rgba(37, 99, 235, 0.07);
+    color: var(--private-surface-text);
+    transform: translateY(-1px);
+}
+
+.finance-btn-clear {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.65rem 1.25rem;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--private-input-border);
+    background: transparent;
+    color: var(--private-muted-text);
+    text-decoration: none;
+    transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+    line-height: 1.4;
+}
+
+.finance-btn-clear:hover {
+    background: var(--private-row-hover-bg);
+    color: var(--private-surface-text);
+    border-color: rgba(96, 165, 250, 0.3);
+}
+
+.finance-btn-danger-form {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.65rem 1.25rem;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid rgba(220, 38, 38, 0.32);
+    background: rgba(220, 38, 38, 0.08);
+    color: var(--private-chart-danger, #dc2626);
+    text-decoration: none;
+    transition: background-color 0.15s, border-color 0.15s, transform 0.15s;
+    line-height: 1.4;
+}
+
+.finance-btn-danger-form:hover {
+    background: rgba(220, 38, 38, 0.15);
+    border-color: rgba(220, 38, 38, 0.5);
+    color: var(--private-chart-danger, #dc2626);
+    transform: translateY(-1px);
+}
+
+/* ── AUTOCOMPLETE DROPDOWN ───────────────────────────────── */
+.cliente-autocomplete-wrapper { position: relative; }
+
+.cliente-autocomplete-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 1055;
+    border: 1px solid var(--private-input-border);
+    border-radius: 10px;
+    background: var(--private-surface-bg-strong, #0b122a);
+    box-shadow: 0 8px 24px rgba(2, 6, 23, 0.4);
+    overflow: hidden;
+    max-height: 14rem;
+    overflow-y: auto;
+}
+
+.cliente-autocomplete-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    width: 100%;
+    padding: 0.6rem 0.875rem;
+    background: transparent;
+    border: 0;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.12s;
+    border-bottom: 1px solid var(--private-table-border);
+}
+
+.cliente-autocomplete-item:last-of-type { border-bottom: 0; }
+.cliente-autocomplete-item:hover { background: var(--private-row-hover-bg); }
+
+.cliente-autocomplete-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--private-surface-text);
+}
+
+.cliente-autocomplete-phone { font-size: 0.75rem; color: var(--private-muted-text); }
+
+.cliente-autocomplete-empty {
+    padding: 0.75rem 0.875rem;
+    font-size: 0.85rem;
+    color: var(--private-muted-text);
+    text-align: center;
+}
+
+.cliente-autocomplete-manual {
+    display: block;
+    width: 100%;
+    padding: 0.55rem 0.875rem;
+    background: rgba(37, 99, 235, 0.06);
+    border: 0;
+    border-top: 1px solid var(--private-table-border);
+    font-size: 0.78rem;
+    color: var(--private-chart-accent);
+    cursor: pointer;
+    text-align: center;
+    transition: background-color 0.12s;
+}
+
+.cliente-autocomplete-manual:hover { background: rgba(37, 99, 235, 0.12); }
+
+/* ================================================================
+   DELETE COBRO MODAL
+   ================================================================ */
+
+.finance-delete-modal .modal-content {
+    background: var(--private-surface-bg);
+    border: 1px solid var(--private-surface-border);
+    border-radius: 16px;
+    overflow: hidden;
+}
+
+.finance-delete-modal .modal-header {
+    background: linear-gradient(135deg, rgba(220,38,38,0.08), rgba(185,28,28,0.05));
+    border-bottom: 1px solid var(--private-surface-border);
+    padding: 1.25rem 1.5rem;
+}
+
+.finance-delete-modal-title {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: #dc2626;
+    margin: 0;
+}
+
+.finance-delete-modal-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 8px;
+    background: rgba(220, 38, 38, 0.12);
+    font-size: 1rem;
+    color: #dc2626;
+}
+
+.finance-delete-modal .modal-body { padding: 1.25rem 1.5rem; }
+
+.finance-delete-modal .modal-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--private-surface-border);
+    display: flex;
+    gap: 0.65rem;
+    justify-content: flex-end;
+    background: transparent;
+}
+
+.finance-delete-intro {
+    font-size: 0.9rem;
+    color: var(--private-surface-text);
+    margin: 0 0 1rem;
+    line-height: 1.5;
+}
+
+.finance-delete-summary {
+    border-radius: 12px;
+    border: 1px solid var(--private-surface-border);
+    background: var(--private-row-bg);
+    overflow: hidden;
+    margin-bottom: 1rem;
+}
+
+.finance-delete-summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.65rem 1rem;
+    border-bottom: 1px solid var(--private-table-border);
+    font-size: 0.875rem;
+}
+
+.finance-delete-summary-row:last-child { border-bottom: 0; }
+
+.finance-delete-summary-label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--private-muted-text);
+    font-weight: 500;
+    flex-shrink: 0;
+    font-size: 0.82rem;
+}
+
+.finance-delete-summary-value {
+    font-weight: 700;
+    color: var(--private-surface-text);
+    text-align: right;
+    font-size: 0.875rem;
+}
+
+.finance-delete-warning-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.85rem 1rem;
+    border-radius: 10px;
+    border: 1px solid rgba(217, 119, 6, 0.28);
+    background: rgba(217, 119, 6, 0.08);
+    font-size: 0.835rem;
+    color: var(--private-surface-text);
+    line-height: 1.5;
+}
+
+.finance-delete-warning-box i {
+    color: #d97706;
+    font-size: 1rem;
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+}
+
+/* ================================================================
+   GESTIONAR SERVICIOS MODAL — svc-*
+   ================================================================ */
+
+.svc-action-bar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.25rem;
+}
+
+.svc-count {
+    font-size: 0.8rem;
+    color: var(--private-muted-text);
+    font-weight: 500;
+}
+
+.svc-form-container {
+    border: 1px solid var(--private-surface-border);
+    border-radius: 12px;
+    background: var(--private-row-bg);
+    padding: 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.svc-table-wrap {
+    border-radius: 12px;
+    border: 1px solid var(--private-surface-border);
+    overflow: hidden;
+}
+
+.svc-table { width: 100%; border-collapse: collapse; }
+
+.svc-table thead th {
+    padding: 0.7rem 1rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--private-muted-text);
+    background: var(--private-table-head-bg);
+    border-bottom: 1px solid var(--private-table-border);
+    white-space: nowrap;
+}
+
+.svc-table thead th:first-child { padding-left: 1.25rem; }
+.svc-table thead th:last-child  { padding-right: 1.25rem; text-align: right; }
+
+.svc-table tbody tr {
+    border-bottom: 1px solid var(--private-table-border);
+    transition: background-color 0.13s;
+}
+
+.svc-table tbody tr:last-child { border-bottom: 0; }
+.svc-table tbody tr:hover { background: var(--private-row-hover-bg); }
+
+.svc-table tbody td {
+    padding: 0.8rem 1rem;
+    font-size: 0.875rem;
+    color: var(--private-surface-text);
+    vertical-align: middle;
+}
+
+.svc-table tbody td:first-child { padding-left: 1.25rem; }
+.svc-table tbody td:last-child  { padding-right: 1.25rem; }
+
+.svc-name  { font-weight: 700; color: var(--private-surface-text); }
+
+.svc-sub {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--private-muted-text);
+    font-weight: 400;
+    margin-top: 0.1rem;
+}
+
+.svc-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.svc-act-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.28rem 0.65rem;
+    border-radius: 7px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: background-color 0.13s, transform 0.13s;
+    white-space: nowrap;
+    background: transparent;
+}
+
+.svc-act-btn--edit {
+    border-color: rgba(37, 99, 235, 0.28);
+    background: rgba(37, 99, 235, 0.06);
+    color: var(--private-chart-accent);
+}
+.svc-act-btn--edit:hover { background: rgba(37, 99, 235, 0.14); transform: translateY(-1px); }
+
+.svc-act-btn--toggle {
+    border-color: rgba(217, 119, 6, 0.28);
+    background: rgba(217, 119, 6, 0.06);
+    color: #d97706;
+}
+.svc-act-btn--toggle:hover { background: rgba(217, 119, 6, 0.14); transform: translateY(-1px); }
+
+.svc-act-btn--activate {
+    border-color: rgba(22, 163, 74, 0.28);
+    background: rgba(22, 163, 74, 0.06);
+    color: var(--private-chart-success);
+}
+.svc-act-btn--activate:hover { background: rgba(22, 163, 74, 0.14); transform: translateY(-1px); }
+
+.svc-act-btn--delete {
+    border-color: rgba(220, 38, 38, 0.28);
+    background: rgba(220, 38, 38, 0.06);
+    color: var(--private-chart-danger);
+}
+.svc-act-btn--delete:hover { background: rgba(220, 38, 38, 0.14); transform: translateY(-1px); }
+
+.svc-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.22rem 0.65rem;
+    border-radius: 999px;
+}
+
+.svc-status--active {
+    background: rgba(22, 163, 74, 0.1);
+    border: 1px solid rgba(22, 163, 74, 0.22);
+    color: var(--private-chart-success);
+}
+
+.svc-status--inactive {
+    background: rgba(100, 116, 139, 0.1);
+    border: 1px solid rgba(100, 116, 139, 0.22);
+    color: var(--private-muted-text);
+}
+
+.svc-dot { width: 0.45rem; height: 0.45rem; border-radius: 50%; flex-shrink: 0; }
+.svc-dot--green { background: var(--private-chart-success); }
+.svc-dot--gray  { background: var(--private-muted-text); }
+
+.svc-card-list { display: flex; flex-direction: column; gap: 0.65rem; }
+
+.svc-card {
+    border: 1px solid var(--private-surface-border);
+    border-radius: 12px;
+    background: var(--private-row-bg);
+    overflow: hidden;
+}
+
+.svc-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.85rem 1rem 0.45rem;
+}
+
+.svc-card-name  { font-weight: 700; font-size: 0.925rem; color: var(--private-surface-text); }
+.svc-card-sub   { font-size: 0.78rem; color: var(--private-muted-text); margin-top: 0.1rem; }
+
+.svc-card-actions {
+    display: flex;
+    gap: 0.4rem;
+    padding: 0.6rem 1rem;
+    border-top: 1px solid var(--private-surface-border);
+    flex-wrap: wrap;
+}
+
+.svc-card-actions .svc-act-btn { flex: 1; justify-content: center; }
+
+.svc-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2.5rem 1rem;
+    text-align: center;
+    gap: 0.4rem;
+}
+
+.svc-empty-icon { font-size: 2rem; color: var(--private-muted-text); margin-bottom: 0.25rem; }
+.svc-empty-text { font-size: 0.925rem; font-weight: 600; color: var(--private-surface-text); }
+
+.svc-alert {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.7rem 1rem;
+    border-radius: 9px;
+    font-size: 0.845rem;
+    font-weight: 500;
+    margin-bottom: 0.85rem;
+}
+
+.svc-alert--success {
+    background: rgba(22, 163, 74, 0.1);
+    border: 1px solid rgba(22, 163, 74, 0.24);
+    color: var(--private-chart-success);
+}
+
+.svc-alert--danger {
+    background: rgba(220, 38, 38, 0.1);
+    border: 1px solid rgba(220, 38, 38, 0.24);
+    color: var(--private-chart-danger, #dc2626);
+}
+
+/* ── RESPONSIVE FORMS ────────────────────────────────────── */
+@media (max-width: 767.98px) {
+    .finance-form-body   { padding: 1.25rem 1rem; }
+    .finance-form-grid   { grid-template-columns: 1fr; gap: 1rem; }
+    .finance-form-footer { padding: 1.25rem 1rem; flex-direction: column; }
+    .finance-form-footer-left { width: 100%; flex-direction: column; }
+    .finance-btn-save,
+    .finance-btn-back,
+    .finance-btn-clear,
+    .finance-btn-danger-form { width: 100%; justify-content: center; }
+}

@@ -1,131 +1,210 @@
-﻿@model LuxuryApp.Models.DataBase.ClientesModel
+@model LuxuryApp.Models.DataBase.ClientesModel
 
 @{
     var tenantWhatsAppEnabled = ViewData["TenantWhatsAppEnabled"] as bool? == true;
+    var totalFields = tenantWhatsAppEnabled ? 7 : 6;
 }
 
-<div class="card border-0 shadow-lg">
-    <div class="card-header bg-dark text-white py-3">
-        <h5 class="m-0">
-            <i class="fas fa-user-plus me-2"></i>Registrar Cliente
-        </h5>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<link rel="stylesheet" href="~/css/crm-shared.css" asp-append-version="true">
+<link rel="stylesheet" href="~/css/clientes.css" asp-append-version="true">
+
+<div class="clt-shell">
+
+    <!-- ── CABECERA ── -->
+    <div class="clt-header-section">
+        <div class="clt-header-left">
+            <span class="clt-badge"><i class="bi bi-people-fill"></i> GESTIÓN DE CLIENTES</span>
+            <h1 class="clt-page-title">Registrar Cliente</h1>
+            <p class="clt-page-subtitle">Agrega un nuevo cliente y define su información de contacto.</p>
+        </div>
     </div>
 
-    <div class="card-body">
+    <!-- ── FORMULARIO ── -->
+    <div class="clt-body-section">
         <form asp-action="Create" method="post">
-            <div asp-validation-summary="ModelOnly" class="alert alert-danger" role="alert"></div>
-             
-            <div class="mb-3">
-                <label asp-for="Nombre" class="form-label">Nombre</label>
-                <input asp-for="Nombre" class="form-control" placeholder="Nombre del cliente" />
-                <span asp-validation-for="Nombre" class="text-danger"></span>
-            </div>
 
-            <div class="mb-3">
-                <label asp-for="NumeroTelefono" class="form-label">Número de Teléfono</label>
-                <input asp-for="NumeroTelefono" class="form-control" placeholder="Ejemplo: 88889999" />
-                <span asp-validation-for="NumeroTelefono" class="text-danger"></span>
-            </div>
-
-            @if (tenantWhatsAppEnabled)
+            @if (!ViewData.ModelState.IsValid && ViewData.ModelState.Values.Any(v => v.Errors.Count > 0))
             {
-                <div class="form-check mb-3">
-                    <input asp-for="AceptaMensajesWhatsApp" class="form-check-input" />
-                    <label asp-for="AceptaMensajesWhatsApp" class="form-check-label">
-                        El cliente autorizó recibir mensajes de WhatsApp enviados por LuxuryCloud en nombre de este negocio para confirmaciones, cancelaciones y recordatorios de citas. No se usará para promociones.
-                    </label>
+                <div class="clt-validation-summary" role="alert">
+                    <div asp-validation-summary="ModelOnly"></div>
                 </div>
             }
 
-            <div class="mb-3">
-                <label asp-for="CorreoElectronico" class="form-label">Correo Electrónico (opcional)</label>
-                <input asp-for="CorreoElectronico" class="form-control" placeholder="cliente@correo.com" />
-                <span asp-validation-for="CorreoElectronico" class="text-danger"></span>
+            <div class="clt-form-grid">
+
+                <!-- Nombre -->
+                <div class="clt-field">
+                    <label asp-for="Nombre" class="clt-label">
+                        Nombre <span class="clt-required">*</span>
+                    </label>
+                    <div class="clt-input-wrap">
+                        <span class="clt-input-icon"><i class="bi bi-person"></i></span>
+                        <input asp-for="Nombre" class="clt-input" placeholder="Nombre del cliente" autocomplete="off" />
+                    </div>
+                    <span asp-validation-for="Nombre" class="clt-field-error"></span>
+                </div>
+
+                <!-- Teléfono -->
+                <div class="clt-field">
+                    <label asp-for="NumeroTelefono" class="clt-label">
+                        Número de Teléfono <span class="clt-required">*</span>
+                    </label>
+                    <div class="clt-input-wrap">
+                        <span class="clt-input-icon"><i class="bi bi-telephone"></i></span>
+                        <input asp-for="NumeroTelefono" class="clt-input" placeholder="Ejemplo: 88889999" inputmode="tel" />
+                    </div>
+                    <span asp-validation-for="NumeroTelefono" class="clt-field-error"></span>
+                </div>
+
+                <!-- Correo -->
+                <div class="clt-field">
+                    <label asp-for="CorreoElectronico" class="clt-label">Correo Electrónico (opcional)</label>
+                    <div class="clt-input-wrap">
+                        <span class="clt-input-icon"><i class="bi bi-envelope"></i></span>
+                        <input asp-for="CorreoElectronico" class="clt-input" placeholder="cliente@correo.com" type="email" autocomplete="off" />
+                    </div>
+                    <span asp-validation-for="CorreoElectronico" class="clt-field-error"></span>
+                </div>
+
+                <!-- Cumpleaños -->
+                <div class="clt-field">
+                    <label asp-for="FechaCumpleaños" class="clt-label">Fecha de Cumpleaños (opcional)</label>
+                    <div class="clt-input-wrap">
+                        <span class="clt-input-icon"><i class="bi bi-gift"></i></span>
+                        <input asp-for="FechaCumpleaños" class="clt-input" type="date" />
+                    </div>
+                    <span asp-validation-for="FechaCumpleaños" class="clt-field-error"></span>
+                </div>
+
+                <!-- Frecuencia de Visita -->
+                <div class="clt-field">
+                    <label asp-for="FrecuenciaVisita" class="clt-label">
+                        Frecuencia de Visita (días) <span class="clt-required">*</span>
+                    </label>
+                    <div class="clt-input-wrap">
+                        <span class="clt-input-icon"><i class="bi bi-arrow-repeat"></i></span>
+                        <input asp-for="FrecuenciaVisita" id="clt-frecuencia" class="clt-input" type="number" min="1" max="365" placeholder="Ejemplo: 15" inputmode="numeric" />
+                    </div>
+                    <span asp-validation-for="FrecuenciaVisita" class="clt-field-error"></span>
+                </div>
+
+                <!-- Fecha Última Visita -->
+                <div class="clt-field">
+                    <label asp-for="FechaUltimaVisita" class="clt-label">
+                        Fecha Última Visita <span class="clt-required">*</span>
+                    </label>
+                    <div class="clt-input-wrap">
+                        <span class="clt-input-icon"><i class="bi bi-calendar3"></i></span>
+                        <input asp-for="FechaUltimaVisita" id="clt-ultima" class="clt-input" type="date" />
+                    </div>
+                    <span asp-validation-for="FechaUltimaVisita" class="clt-field-error"></span>
+                </div>
+
+                <!-- Próxima Visita (calculada) -->
+                <div class="clt-field">
+                    <label class="clt-label">
+                        Próxima Visita <span class="clt-required">*</span>
+                    </label>
+                    <div style="position:relative;">
+                        <span class="clt-visit-display-icon"><i class="bi bi-calendar-check"></i></span>
+                        <div class="clt-visit-display" id="clt-proxima">--</div>
+                    </div>
+                </div>
+
+                @if (tenantWhatsAppEnabled)
+                {
+                    <!-- WhatsApp Consent -->
+                    <div class="clt-field clt-form-full">
+                        <div style="display:flex;align-items:flex-start;gap:0.75rem;padding:0.9rem 1rem;border-radius:0.75rem;border:1px solid rgba(37,99,235,0.2);background:var(--private-row-bg,rgba(15,23,42,0.03));">
+                            <input asp-for="AceptaMensajesWhatsApp" class="form-check-input flex-shrink-0" style="margin-top:0.15rem;" />
+                            <label asp-for="AceptaMensajesWhatsApp" style="font-size:0.82rem;color:var(--private-muted-text,#64748b);line-height:1.5;cursor:pointer;">
+                                El cliente autorizó recibir mensajes de WhatsApp enviados por LuxuryCloud en nombre de este negocio para confirmaciones, cancelaciones y recordatorios de citas. No se usará para promociones.
+                            </label>
+                        </div>
+                    </div>
+                }
+
             </div>
 
-            <div class="mb-3">
-                <label asp-for="FechaCumpleaños" class="form-label">Fecha De Cumpleaños(opcional)</label>
-                <input asp-for="FechaCumpleaños" class="form-control" type="date" />
-                <span asp-validation-for="FechaCumpleaños" class="text-danger"></span>
+            <!-- Info box próxima visita -->
+            <div class="clt-info-box" style="margin-top:1.25rem;">
+                <i class="bi bi-info-circle-fill"></i>
+                <span>La próxima visita se calcula automáticamente en función de la frecuencia de visita y la fecha de la última visita.</span>
             </div>
 
-            <div class="mb-3">
-                <label asp-for="FrecuenciaVisita" class="form-label">Frecuencia de Visita (días)</label>
-                <input asp-for="FrecuenciaVisita" id="frecuenciaVisita" class="form-control" type="number" min="1" />
-                <span asp-validation-for="FrecuenciaVisita" class="text-danger"></span>
+            <!-- Acciones -->
+            <div class="clt-actions" style="margin-top:1.5rem;">
+                <button type="submit" class="crm-btn crm-btn--primary">
+                    <i class="bi bi-floppy2-fill"></i>
+                    Guardar Cliente
+                </button>
+                <a asp-action="Index" class="crm-btn crm-btn--outline">
+                    <i class="bi bi-list-ul"></i>
+                    Volver al Listado
+                </a>
+                <button type="reset" class="clt-btn-link" id="clt-btn-clear">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                    Limpiar formulario
+                </button>
             </div>
 
-            <div class="mb-3">
-                <label asp-for="FechaUltimaVisita" class="form-label">Fecha Última Visita</label>
-                <input asp-for="FechaUltimaVisita" id="fechaUltima" class="form-control" type="date" />
-                <span asp-validation-for="FechaUltimaVisita" class="text-danger"></span>
-            </div>
-
-            <div class="mb-3">
-                <label class="form-label">Próxima Visita</label>
-                <p class="form-control" id="proximaVisita"><strong></strong></p>
-            </div>
-
-            <button type="submit" class="btn btn-dark">
-                <i class="fas fa-save me-1"></i>Guardar Cliente
-            </button>
-            <a asp-action="Index" class="btn btn-secondary">
-                <i class="fas fa-arrow-left me-1"></i>Volver al Listado
-            </a>
         </form>
     </div>
+
 </div>
 
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
 
     <script>
-        document.addEventListener("DOMContentLoaded", function () {
-            const inputFecha = document.getElementById("fechaUltima");
-            const inputFrecuencia = document.getElementById("frecuenciaVisita");
-            const salida = document.getElementById("proximaVisita");
+        (function () {
+            var inputFecha = document.getElementById("clt-ultima");
+            var inputFrec  = document.getElementById("clt-frecuencia");
+            var display    = document.getElementById("clt-proxima");
 
-            function calcularProximaVisita() {
-                const fechaVal = inputFecha.value; // formato yyyy-MM-dd
-                const frecuenciaVal = inputFrecuencia.value;
+            function calcular() {
+                var fechaVal = inputFecha ? inputFecha.value : "";
+                var frecVal  = inputFrec  ? inputFrec.value  : "";
 
-                if (!fechaVal || !frecuenciaVal) {
-                    salida.innerHTML = "<strong>--</strong>";
-                    return;
-                }
+                if (!fechaVal || !frecVal) { display.textContent = "--"; return; }
 
-                const frecuencia = parseInt(frecuenciaVal, 10);
-                if (isNaN(frecuencia) || frecuencia <= 0) {
-                    salida.innerHTML = "<strong>--</strong>";
-                    return;
-                }
+                var f = parseInt(frecVal, 10);
+                if (isNaN(f) || f <= 0) { display.textContent = "--"; return; }
 
-                // Parse seguro: evitar new Date(string) para no caer en UTC
-                const parts = fechaVal.split("-");
-                const year = parseInt(parts[0], 10);
-                const monthIndex = parseInt(parts[1], 10) - 1; // 0..11
-                const day = parseInt(parts[2], 10);
+                var partes = fechaVal.split("-");
+                var fecha = new Date(
+                    parseInt(partes[0], 10),
+                    parseInt(partes[1], 10) - 1,
+                    parseInt(partes[2], 10)
+                );
+                fecha.setDate(fecha.getDate() + f);
 
-                // Crear fecha en hora local (no UTC)
-                const fecha = new Date(year, monthIndex, day);
-
-                // Sumar días (mantiene hora local)
-                fecha.setDate(fecha.getDate() + frecuencia);
-
-                // Formatear dd/MM/yyyy
-                const dia = String(fecha.getDate()).padStart(2, "0");
-                const mes = String(fecha.getMonth() + 1).padStart(2, "0");
-                const anio = fecha.getFullYear();
-
-                salida.innerHTML = `<strong>${dia}/${mes}/${anio}</strong>`;
+                var d = String(fecha.getDate()).padStart(2, "0");
+                var m = String(fecha.getMonth() + 1).padStart(2, "0");
+                display.textContent = d + "/" + m + "/" + fecha.getFullYear();
             }
 
-            // Eventos
-            inputFecha.addEventListener("input", calcularProximaVisita);
-            inputFrecuencia.addEventListener("input", calcularProximaVisita);
+            if (inputFecha) inputFecha.addEventListener("input", calcular);
+            if (inputFrec)  inputFrec.addEventListener("input", calcular);
+            calcular();
 
-            // Ejecutar al cargar para mostrar el valor inicial
-            calcularProximaVisita();
-        });
+            // Limpiar formulario: solo limpiar inputs, no resetear valores predefinidos del server
+            var btnClear = document.getElementById("clt-btn-clear");
+            if (btnClear) {
+                btnClear.addEventListener("click", function (e) {
+                    e.preventDefault();
+                    var form = btnClear.closest("form");
+                    if (!form) return;
+                    form.querySelectorAll("input[type=text],input[type=email],input[type=number],input[type=date],textarea").forEach(function (el) {
+                        el.value = "";
+                    });
+                    form.querySelectorAll("input[type=checkbox]").forEach(function (el) {
+                        el.checked = false;
+                    });
+                    calcular();
+                });
+            }
+        })();
     </script>
 }
