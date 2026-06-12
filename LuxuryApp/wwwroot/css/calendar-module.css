@@ -1221,3 +1221,185 @@ html[data-luxury-surface-theme="glass"] .cal-toast--error {
 
     .cal-toast { bottom: 1rem; right: 1rem; left: 1rem; max-width: none; min-width: 0; }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   RESPONSIVE MÓVIL — 320 px a 1024 px
+   Desktop (≥ 1025 px) sin cambios. Sin tocar JS ni lógica.
+   Clases de vista diaria y mensual tratadas de forma independiente.
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Título del mes: corrige "Junio De 2026" → "Junio de 2026"
+   calendar.css tiene text-transform:capitalize que capitaliza
+   CADA palabra. Se anula aquí y se capitaliza solo la primera. */
+.calendar-header h4 {
+    text-transform: none;
+}
+.calendar-header h4::first-letter {
+    text-transform: uppercase;
+}
+
+/* ── Vista diaria — columnas de funcionarios: ancho mínimo ─────
+   SOLO afecta .day-func-header-cell y .funcionario-column,
+   clases exclusivas de la vista diaria. No toca .calendar-day
+   ni .calendar-grid del calendario mensual. */
+.day-func-header-cell { min-width: 130px; }
+.funcionario-column   { min-width: 130px; }
+
+/* ── Modal de día: scroll horizontal sincronizado ───────────────
+   .day-func-header-strip y .day-grid son hijos directos de
+   #hoursContainer → scrollean en sincronía sin modificar JS. */
+#hoursContainer {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* ── Scroll táctil suave ─────────────────────────────────────── */
+.day-view-container,
+.whatsapp-thread-list {
+    -webkit-overflow-scrolling: touch;
+}
+
+/* ── KPI: 2 columnas entre tablet estrecho y móvil ──────────── */
+@media (min-width: 480px) and (max-width: 767.98px) {
+    .calendar-kpi-grid { grid-template-columns: 1fr 1fr; }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   MÓVIL ≤ 767 px
+   El calendario mensual CABE en pantalla sin scroll horizontal.
+   Técnica: repeat(7, minmax(0,1fr)) + reducción de paddings.
+   ════════════════════════════════════════════════════════════════ */
+@media (max-width: 767.98px) {
+
+    /* Liberar espacio horizontal reduciendo paddings de contenedores */
+    .calendar-workspace         { padding: 0.75rem; }
+    .calendar-panel             { padding: 0.75rem; }
+    #calendar.calendar-container { padding: 8px; }
+
+    /* Header del mes: 2 filas limpias.
+       JS renderiza: [◀] [h4] [select-mes] [select-año] [▶]
+       Con CSS order los selects pasan a la fila 2:
+         Fila 1 (order 0, DOM): [◀] [h4  flex-grow] [▶]
+         Fila 2 (order 10):     [select-mes] [select-año]   */
+    .calendar-header {
+        flex-wrap: wrap;
+        gap: 0.35rem 0.4rem;
+        margin-bottom: 0.5rem;
+    }
+    .calendar-header h4 {
+        font-size: 1rem;
+        font-weight: 700;
+        letter-spacing: 0;
+    }
+    .calendar-header .form-select {
+        order: 10;
+        flex: 1;
+        min-width: 0;
+        width: auto;
+        font-size: 0.8rem;
+    }
+
+    /* Grilla mensual: 7 columnas que CABEN sin desbordamiento.
+       minmax(0,1fr) permite que las celdas cedan su tamaño de
+       contenido. El body NO necesita scroll horizontal. */
+    .calendar-grid {
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 2px;
+    }
+
+    .calendar-day-name {
+        font-size: 0.58rem;
+        padding-bottom: 2px;
+        overflow: hidden;
+    }
+
+    .calendar-day {
+        height: 60px;
+        padding: 3px 2px;
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
+    .calendar-day strong {
+        display: block;
+        font-size: 0.76rem;
+        line-height: 1.2;
+    }
+
+    /* "Citas: X" se muestra compacto; overflow:hidden evita ruptura */
+    .calendar-day .text-muted {
+        font-size: 0.5rem;
+        line-height: 1.1;
+        white-space: nowrap;
+        overflow: hidden;
+    }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   EXTRA PEQUEÑO ≤ 575 px
+   ════════════════════════════════════════════════════════════════ */
+@media (max-width: 575.98px) {
+
+    /* Título del módulo: clamp responsive */
+    .calendar-title { font-size: clamp(1.4rem, 7.5vw, 1.8rem); }
+
+    /* KPI cards: más compactas */
+    .calendar-kpi-card  { padding: 0.7rem 0.85rem; }
+    .calendar-kpi-icon  { width: 2.2rem; height: 2.2rem; font-size: 0.95rem; }
+    .calendar-kpi-value { font-size: 1.25rem; }
+
+    /* Controles horarios: cuadrícula 2 × 2
+       [Inicio | Fin]
+       [Intervalo | Aplicar]                    */
+    .calendar-controls-row + .calendar-controls-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.45rem 0.5rem;
+    }
+    /* Anular width inline de los inputs de hora */
+    #horaInicio,
+    #horaFin        { width: 100% !important; }
+    #intervaloCitas { width: 100% !important; }
+    #aplicarHorario { width: 100%; }
+
+    /* Celdas del mes: más compactas */
+    .calendar-day { height: 52px; }
+    .calendar-header h4 { font-size: 0.9rem; }
+
+    /* Columna de horas: sincroniza con day-func-header-time-pad */
+    .time-column { width: 60px; }
+
+    /* Modal de día: botón cerrar siempre visible
+       Fila 1: título (100%)  Fila 2: filtro(flex:1) + cerrar */
+    .cal-day-modal-title-wrap { flex: 0 0 100%; }
+    .cal-day-modal-filter     { flex: 1; max-width: none; width: auto; }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   MÍNIMO 400 px — hero y modales compactos
+   ════════════════════════════════════════════════════════════════ */
+@media (max-width: 400px) {
+    .calendar-hero       { padding: 0.9rem 0.75rem 0.8rem; }
+    .calendar-page-shell { border-radius: 12px; }
+
+    .cal-modal-header        { padding: 0.9rem 1rem; }
+    .cal-modal-footer        { padding: 0.75rem 1rem; }
+    .cal-cancel-modal-header { padding: 0.9rem 1rem; }
+    .cal-cancel-modal-footer { padding: 0.75rem 1rem; }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   MUY PEQUEÑO ≤ 360 px — compresión máxima
+   ════════════════════════════════════════════════════════════════ */
+@media (max-width: 360px) {
+    /* Paddings al mínimo para liberar espacio al grid */
+    .calendar-workspace { padding: 0.5rem; }
+    .calendar-panel     { padding: 0.5rem; }
+
+    /* "Citas: X" no cabe en celdas de 33 px → se oculta */
+    .calendar-day .text-muted { display: none; }
+    .calendar-day             { height: 40px; padding: 2px 1px; }
+    .calendar-day strong      { font-size: 0.68rem; }
+    .calendar-day-name        { font-size: 0.5rem; }
+    .calendar-header h4       { font-size: 0.82rem; }
+}

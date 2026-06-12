@@ -14,7 +14,9 @@
         (function () {
             var presets = {
                 "classic-marble": { background: "marble", surface: "classic" },
-                "futuristic-premium": { background: "futuristic", surface: "glass" }
+                "futuristic-premium": { background: "futuristic", surface: "glass" },
+                "absolute-black": { background: "black", surface: "dark" },
+                "clean-white": { background: "white", surface: "light" }
             };
 
             function hasPreset(value) {
@@ -125,7 +127,7 @@
     @if (navigation.IsAuthenticated)
     {
         <div class="modal fade theme-style-modal" id="themeStyleModal" tabindex="-1" aria-labelledby="themeStyleModalLabel" aria-hidden="true">
-            <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-dialog modal-dialog-centered modal-lg">
                 <div class="modal-content private-theme-modal">
                     <div class="modal-header private-theme-modal-header">
                         <div>
@@ -163,6 +165,34 @@
                                 <span class="private-theme-card-body">
                                     <span class="private-theme-card-title">Futurista premium</span>
                                     <span class="private-theme-card-copy">Fondo azul/morado con paneles glass, tablas oscuras y estilo SaaS moderno.</span>
+                                </span>
+                                <span class="private-theme-card-state">
+                                    <i class="bi bi-check-circle-fill d-none" data-luxury-theme-check aria-hidden="true"></i>
+                                </span>
+                            </button>
+
+                            <button type="button"
+                                    class="private-theme-card"
+                                    data-luxury-appearance-option="absolute-black"
+                                    aria-pressed="false">
+                                <span class="private-theme-card-preview private-theme-card-preview-black" aria-hidden="true"></span>
+                                <span class="private-theme-card-body">
+                                    <span class="private-theme-card-title">Negro absoluto</span>
+                                    <span class="private-theme-card-copy">Fondo completamente negro, paneles oscuros y máximo contraste para trabajo nocturno.</span>
+                                </span>
+                                <span class="private-theme-card-state">
+                                    <i class="bi bi-check-circle-fill d-none" data-luxury-theme-check aria-hidden="true"></i>
+                                </span>
+                            </button>
+
+                            <button type="button"
+                                    class="private-theme-card"
+                                    data-luxury-appearance-option="clean-white"
+                                    aria-pressed="false">
+                                <span class="private-theme-card-preview private-theme-card-preview-clean-white" aria-hidden="true"></span>
+                                <span class="private-theme-card-body">
+                                    <span class="private-theme-card-title">Blanco limpio</span>
+                                    <span class="private-theme-card-copy">Fondo completamente blanco, paneles claros y una experiencia limpia para espacios iluminados.</span>
                                 </span>
                                 <span class="private-theme-card-state">
                                     <i class="bi bi-check-circle-fill d-none" data-luxury-theme-check aria-hidden="true"></i>

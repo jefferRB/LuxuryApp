@@ -1,149 +1,383 @@
-@model PublicHomeViewModel
-
 @{
     Layout = "_PublicLayout";
-    ViewData["Title"] = "LuxuryCloud";
+    ViewData["Title"] = "LuxuryCloud | Software para barberías, salones y negocios de servicios";
+    ViewData["MetaDescription"] = "Gestiona agenda, clientes, equipo, ingresos, egresos, productos e indicadores en una sola plataforma para negocios de belleza y servicios.";
     ViewData["PublicBodyClass"] = "public-home-page";
 }
 
+<!-- ═══════════════════════════ HERO ═══════════════════════════════ -->
 <section class="hero-section">
     <div class="container">
-        <div class="row align-items-center g-5">
-            <div class="col-lg-6" data-aos="fade-right">
-                <span class="hero-kicker">SaaS premium para salones, barberias y negocios de servicios</span>
-                <h1 class="hero-title">Dirige tu negocio con una plataforma que convierte operacion diaria en crecimiento medible.</h1>
-                <p class="hero-copy">
-                    LuxuryCloud unifica agenda, clientes, equipo, ingresos, egresos, productos e informacion financiera
-                    en una experiencia moderna, elegante y lista para operar con claridad comercial desde el primer dia.
-                </p>
+        <div class="hero-layout">
 
+            <div class="hero-text-col" data-aos="fade-right">
+                <span class="hero-kicker">Software de gestión para barberías, salones y negocios de servicios</span>
+                <h1 class="hero-title">Convierte la operación diaria de tu negocio en orden, control y crecimiento.</h1>
+                <p class="hero-copy">
+                    LuxuryCloud reúne agenda, clientes, equipo, ingresos, egresos, productos e indicadores
+                    en una sola plataforma clara, elegante y lista para ayudarte a tomar mejores decisiones cada día.
+                </p>
                 <div class="hero-actions">
                     <a class="btn public-btn public-btn-primary" asp-controller="Billing" asp-action="Planes">Ver precios</a>
                     <a class="btn public-btn public-btn-secondary" asp-controller="Accounts" asp-action="Registro">Crear cuenta</a>
-                    <a class="btn public-btn public-btn-ghost" asp-controller="Accounts" asp-action="Acceso">Iniciar sesion</a>
+                    <a class="btn public-btn public-btn-ghost" asp-controller="Accounts" asp-action="Acceso">Iniciar sesión</a>
+                </div>
+                <div class="hero-trust">
+                    <span><i class="bi bi-shield-check" aria-hidden="true"></i> Seguro y confiable</span>
+                    <span><i class="bi bi-cloud-check" aria-hidden="true"></i> Disponible en la nube</span>
+                    <span><i class="bi bi-lock-fill" aria-hidden="true"></i> Tus datos siempre seguros</span>
                 </div>
             </div>
 
-            <div class="col-lg-6" data-aos="fade-left">
-                <div class="hero-preview-card">
-                    <div class="hero-preview-topbar">
-                        <span></span>
-                        <span></span>
-                        <span></span>
+            <div class="hero-exec-col" data-aos="fade-left">
+                <div class="hero-exec-card">
+                    <div class="hero-exec-header">
+                        <div class="hero-exec-icon" aria-hidden="true"><i class="bi bi-graph-up-arrow"></i></div>
+                        <span class="hero-exec-label">Resumen ejecutivo</span>
+                        <div class="hero-exec-today">Hoy <i class="bi bi-chevron-down" aria-hidden="true"></i></div>
                     </div>
+                    <div class="hero-exec-grid">
 
-                    <div class="hero-preview-body">
-                        <div class="hero-preview-panel">
-                            <small>Panel ejecutivo</small>
-                            <strong>Todo el negocio bajo una misma lectura</strong>
-                            <p>Agenda, caja, equipo y clientes conectados para decidir mejor cada dia.</p>
+                        <div class="hero-exec-stat">
+                            <div class="hero-exec-stat-header">
+                                <i class="bi bi-calendar3" aria-hidden="true"></i>
+                                <span>Agenda del día</span>
+                            </div>
+                            <strong class="hero-exec-stat-value">34</strong>
+                            <span class="hero-exec-stat-sub">citas programadas</span>
+                            <div class="hero-exec-progress" role="progressbar" aria-valuenow="78" aria-valuemin="0" aria-valuemax="100">
+                                <div class="hero-exec-progress-bar" style="width:78%"></div>
+                            </div>
+                            <span class="hero-exec-stat-note">4 espacios libres</span>
                         </div>
 
-                        <div class="hero-preview-grid">
-                            @foreach (var metric in Model.HeroMetrics)
-                            {
-                                <div class="hero-preview-stat">
-                                    <strong>@metric.Value</strong>
-                                    <span>@metric.Label</span>
-                                </div>
-                            }
+                        <div class="hero-exec-stat">
+                            <div class="hero-exec-stat-header">
+                                <i class="bi bi-currency-dollar" aria-hidden="true"></i>
+                                <span>Ingresos del día</span>
+                            </div>
+                            <strong class="hero-exec-stat-value hero-exec-stat-value-accent">CRC 486k</strong>
+                            <span class="hero-exec-stat-badge-pos">+18% vs. promedio semanal</span>
+                            <svg class="hero-exec-sparkline" viewBox="0 0 80 30" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                <polyline points="0,25 15,20 30,22 45,12 60,15 75,5 80,8" stroke="#8be9ff" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
                         </div>
+
+                        <div class="hero-exec-stat">
+                            <div class="hero-exec-stat-header">
+                                <i class="bi bi-people" aria-hidden="true"></i>
+                                <span>Clientes frecuentes</span>
+                            </div>
+                            <strong class="hero-exec-stat-value">146</strong>
+                            <span class="hero-exec-stat-sub">perfiles activos</span>
+                            <div class="hero-exec-avatars" aria-hidden="true">
+                                <span class="hero-exec-avatar">MJ</span>
+                                <span class="hero-exec-avatar">CA</span>
+                                <span class="hero-exec-avatar">LR</span>
+                                <span class="hero-exec-avatar hero-exec-avatar-more">+43</span>
+                            </div>
+                        </div>
+
+                        <div class="hero-exec-stat">
+                            <div class="hero-exec-stat-header">
+                                <i class="bi bi-person-badge" aria-hidden="true"></i>
+                                <span>Equipo activo</span>
+                            </div>
+                            <strong class="hero-exec-stat-value hero-exec-stat-value-green">9</strong>
+                            <span class="hero-exec-stat-sub">funcionarios activos</span>
+                            <div class="hero-exec-progress" role="progressbar" aria-valuenow="87" aria-valuemin="0" aria-valuemax="100">
+                                <div class="hero-exec-progress-bar hero-exec-progress-bar-green" style="width:87%"></div>
+                            </div>
+                            <span class="hero-exec-stat-note">87% ocupación promedio</span>
+                        </div>
+
                     </div>
                 </div>
+            </div>
+
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════════ PROPUESTA DE VALOR ═══════════════════════ -->
+<section class="value-cards-section">
+    <div class="container">
+        <div class="value-cards-grid">
+            <div class="value-card" data-aos="fade-up">
+                <div class="value-card-icon" aria-hidden="true"><i class="bi bi-link-45deg"></i></div>
+                <h3>Agenda, caja y equipo en un solo lugar</h3>
+                <p>Todo conectado para que operes sin saltos ni pérdidas de información.</p>
+            </div>
+            <div class="value-card" data-aos="fade-up" data-aos-delay="80">
+                <div class="value-card-icon" aria-hidden="true"><i class="bi bi-eye-fill"></i></div>
+                <h3>Visibilidad diaria para decidir con claridad</h3>
+                <p>Indicadores en tiempo real que te muestran lo importante hoy.</p>
+            </div>
+            <div class="value-card" data-aos="fade-up" data-aos-delay="160">
+                <div class="value-card-icon" aria-hidden="true"><i class="bi bi-star-fill"></i></div>
+                <h3>Diseñado para salones y barberías que quieren crecer</h3>
+                <p>Simple de usar, potente y listo para impulsar tu negocio.</p>
             </div>
         </div>
     </div>
 </section>
 
-<section class="hero-metrics-strip">
+<!-- ═══════════════════════════ MÓDULOS ══════════════════════════════ -->
+<section class="landing-modules-section" id="modulos">
     <div class="container">
-        <div class="row g-3">
-            @foreach (var metric in Model.HeroMetrics)
-            {
-                <div class="col-md-4" data-aos="fade-up">
-                    <div class="metric-strip-card">
-                        <strong>@metric.Value</strong>
-                        <span>@metric.Label</span>
+        <div class="section-heading text-center" data-aos="fade-up">
+            <span class="section-kicker">Módulos que ordenan tu negocio</span>
+            <h2>Una plataforma pensada para ordenar lo que más impacta tu negocio</h2>
+            <p>Cada módulo está diseñado para resolver un punto crítico del día a día y darte más control sin complicar tu operación.</p>
+        </div>
+
+        <div class="landing-modules-grid">
+
+            <!-- Agenda y citas -->
+            <article class="landing-module-card" data-aos="fade-up">
+                <div class="landing-module-mockup" aria-hidden="true">
+                    <div class="lm-agenda">
+                        <div class="lm-agenda-row">
+                            <span class="lm-time">09:00</span>
+                            <div class="lm-apt lm-apt-blue">
+                                <span>Corte clásico</span>
+                                <span class="lm-client">Marcos J.</span>
+                            </div>
+                        </div>
+                        <div class="lm-agenda-row">
+                            <span class="lm-time">10:00</span>
+                            <div class="lm-apt lm-apt-violet">
+                                <span>Color + Tratamiento</span>
+                                <span class="lm-client">Carla A.</span>
+                            </div>
+                        </div>
+                        <div class="lm-agenda-row">
+                            <span class="lm-time">11:00</span>
+                            <div class="lm-apt lm-apt-empty"></div>
+                        </div>
+                        <div class="lm-agenda-row">
+                            <span class="lm-time">12:00</span>
+                            <div class="lm-apt lm-apt-blue">
+                                <span>Barba premium</span>
+                                <span class="lm-client">Luis R.</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            }
-        </div>
-    </div>
-</section>
-
-<section class="marketing-section" id="modulos">
-    <div class="container">
-        <div class="section-heading text-center" data-aos="fade-up">
-            <span class="section-kicker">Modulos pensados para operar mejor</span>
-            <h2>Una experiencia comercial seria para negocios que viven entre agenda, caja y equipo.</h2>
-            <p>
-                Cada bloque esta diseñado para resolver un problema concreto del dia a dia y ayudarte a crecer con mas orden.
-            </p>
-        </div>
-
-        <div class="marketing-module-list">
-            @foreach (var module in Model.Modules)
-            {
-                <partial name="_MarketingModuleSection" model="module" />
-            }
-        </div>
-    </div>
-</section>
-
-<section class="pricing-preview-section" id="precios">
-    <div class="container">
-        <div class="section-heading text-center" data-aos="fade-up">
-            <span class="section-kicker">Precios claros antes del registro</span>
-            <h2>Explora los planes publicamente y paga cuando estes listo.</h2>
-            <p>Agrega recordatorios y confirmaciones automaticas por WhatsApp desde CRC 6,000 al mes como add-on separado.</p>
-        </div>
-
-        <div class="row g-4 justify-content-center">
-            @foreach (var plan in Model.Plans)
-            {
-                <div class="col-lg-4 col-md-6" data-aos="fade-up">
-                    <article class="pricing-preview-card @(plan.IsFeatured ? "pricing-preview-card-featured" : string.Empty)">
-                        @if (!string.IsNullOrWhiteSpace(plan.BadgeText))
-                        {
-                            <span class="pricing-badge">@plan.BadgeText</span>
-                        }
-
-                        <h3>@plan.Name</h3>
-                        <div class="pricing-amount">
-                            <strong>@plan.CurrencyCode @plan.MonthlyPrice.ToString("N0")</strong>
-                            <span>@plan.BillingLabel</span>
-                        </div>
-                        <p class="pricing-summary">@plan.Summary</p>
-
-                        <ul class="pricing-highlight-list">
-                            @foreach (var highlight in plan.Highlights.Take(3))
-                            {
-                                <li>@highlight</li>
-                            }
-                        </ul>
-
-                        <a class="btn public-btn public-btn-primary w-100" asp-controller="Billing" asp-action="Planes" asp-route-selectedPlanId="@plan.Id">
-                            Ver plan
-                        </a>
-                    </article>
+                <div class="landing-module-body">
+                    <h3>Agenda y citas</h3>
+                    <p>Organiza tu día con una agenda inteligente. Reduce huecos, olvidos y cruces de horarios.</p>
+                    <ul class="landing-module-bullets">
+                        <li>Citas y recordatorios</li>
+                        <li>Reagendadas y cancelaciones</li>
+                        <li>Espacios libres y disponibilidad</li>
+                    </ul>
                 </div>
-            }
+            </article>
+
+            <!-- Clientes -->
+            <article class="landing-module-card" data-aos="fade-up" data-aos-delay="80">
+                <div class="landing-module-mockup" aria-hidden="true">
+                    <div class="lm-profile">
+                        <div class="lm-profile-label">Cliente</div>
+                        <div class="lm-profile-info">
+                            <div class="lm-profile-avatar">MJ</div>
+                            <div>
+                                <strong>Marcos Jiménez</strong>
+                                <span>Cliente frecuente</span>
+                            </div>
+                        </div>
+                        <div class="lm-profile-stats">
+                            <div><span>Última visita</span><strong>hace 5 días</strong></div>
+                            <div><span>Cumpleaños</span><strong>12 de junio</strong></div>
+                            <div><span>Visitas este año</span><strong>8</strong></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="landing-module-body">
+                    <h3>Clientes</h3>
+                    <p>Conoce a tus clientes y fortalece la relación que los hace volver.</p>
+                    <ul class="landing-module-bullets">
+                        <li>Historial de visitas y servicios</li>
+                        <li>Cumpleaños y fechas especiales</li>
+                        <li>Frecuencia y seguimiento</li>
+                    </ul>
+                </div>
+            </article>
+
+            <!-- Funcionarios y equipo -->
+            <article class="landing-module-card" data-aos="fade-up">
+                <div class="landing-module-mockup" aria-hidden="true">
+                    <div class="lm-team">
+                        <div class="lm-team-label">Equipo</div>
+                        <div class="lm-team-row">
+                            <div class="lm-team-avatar">AG</div>
+                            <div class="lm-team-info"><strong>Ana Gómez</strong><span>Estilista</span></div>
+                            <span class="lm-team-pct">87%</span>
+                        </div>
+                        <div class="lm-team-row">
+                            <div class="lm-team-avatar">JR</div>
+                            <div class="lm-team-info"><strong>José Ruiz</strong><span>Barbero</span></div>
+                            <span class="lm-team-pct">92%</span>
+                        </div>
+                        <div class="lm-team-row">
+                            <div class="lm-team-avatar">LS</div>
+                            <div class="lm-team-info"><strong>Laura Soto</strong><span>Colorista</span></div>
+                            <span class="lm-team-pct">78%</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="landing-module-body">
+                    <h3>Funcionarios y equipo</h3>
+                    <p>Organiza tu equipo, mide desempeño y gestiona pagos con claridad.</p>
+                    <ul class="landing-module-bullets">
+                        <li>Roles y permisos</li>
+                        <li>Ocupación y productividad</li>
+                        <li>Pagos y carga operativa</li>
+                    </ul>
+                </div>
+            </article>
+
+            <!-- Ingresos y egresos -->
+            <article class="landing-module-card" data-aos="fade-up" data-aos-delay="80">
+                <div class="landing-module-mockup" aria-hidden="true">
+                    <div class="lm-finance">
+                        <div class="lm-finance-label">Flujo financiero</div>
+                        <div class="lm-finance-row lm-finance-income">
+                            <span>Ingresos</span>
+                            <strong>CRC 1.2M</strong>
+                        </div>
+                        <div class="lm-finance-row lm-finance-expense">
+                            <span>Egresos</span>
+                            <strong>CRC 714k</strong>
+                        </div>
+                        <div class="lm-finance-divider"></div>
+                        <div class="lm-finance-row lm-finance-result">
+                            <span>Resultado</span>
+                            <strong>CRC 486k</strong>
+                        </div>
+                    </div>
+                </div>
+                <div class="landing-module-body">
+                    <h3>Ingresos y egresos</h3>
+                    <p>Lee tus números cada día. Controla tu flujo de caja y tus categorías.</p>
+                    <ul class="landing-module-bullets">
+                        <li>Ingresos por servicio y producto</li>
+                        <li>Egresos categorizados</li>
+                        <li>Flujo de caja y márgenes</li>
+                    </ul>
+                </div>
+            </article>
+
+            <!-- Productos e inventario -->
+            <article class="landing-module-card" data-aos="fade-up">
+                <div class="landing-module-mockup" aria-hidden="true">
+                    <div class="lm-inventory">
+                        <div class="lm-inventory-label">Inventario</div>
+                        <div class="lm-inventory-row">
+                            <div class="lm-inv-icon"><i class="bi bi-droplet"></i></div>
+                            <div class="lm-inv-info"><span>Pomada mate</span><small>Stock 24</small></div>
+                            <span class="lm-inv-badge lm-inv-critical">Crítico</span>
+                        </div>
+                        <div class="lm-inventory-row">
+                            <div class="lm-inv-icon"><i class="bi bi-droplet-fill"></i></div>
+                            <div class="lm-inv-info"><span>Shampoo premium</span><small>Stock 58</small></div>
+                            <span class="lm-inv-badge lm-inv-ok">Ok</span>
+                        </div>
+                        <div class="lm-inventory-row">
+                            <div class="lm-inv-icon"><i class="bi bi-droplet-half"></i></div>
+                            <div class="lm-inv-info"><span>Aceite para barba</span><small>Stock 15</small></div>
+                            <span class="lm-inv-badge lm-inv-critical">Crítico</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="landing-module-body">
+                    <h3>Productos e inventario</h3>
+                    <p>Controla lo que vendes, lo que rotas y lo que debes reponer.</p>
+                    <ul class="landing-module-bullets">
+                        <li>Stock y puntos críticos</li>
+                        <li>Rotación y más vendidos</li>
+                        <li>Compras y reposición</li>
+                    </ul>
+                </div>
+            </article>
+
+            <!-- Información del negocio -->
+            <article class="landing-module-card" data-aos="fade-up" data-aos-delay="80">
+                <div class="landing-module-mockup" aria-hidden="true">
+                    <div class="lm-indicators">
+                        <div class="lm-indicators-label">Indicadores</div>
+                        <div class="lm-ind-row">
+                            <span>Margen semanal</span>
+                            <strong class="lm-ind-green">18%</strong>
+                        </div>
+                        <div class="lm-ind-chart">
+                            <svg viewBox="0 0 80 30" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                <polyline points="0,25 15,18 30,20 45,10 60,14 75,6 80,8" stroke="#4ade80" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </div>
+                        <div class="lm-ind-row"><span>Servicios del día</span><strong>12</strong></div>
+                        <div class="lm-ind-row"><span>Clientes nuevos</span><strong>7</strong></div>
+                    </div>
+                </div>
+                <div class="landing-module-body">
+                    <h3>Información del negocio</h3>
+                    <p>Indicadores clave y visión rápida para decidir mejor cada día.</p>
+                    <ul class="landing-module-bullets">
+                        <li>Dashboard ejecutivo</li>
+                        <li>KPIs y tendencias</li>
+                        <li>Reportes listos para usar</li>
+                    </ul>
+                </div>
+            </article>
+
         </div>
     </div>
 </section>
 
+<!-- ═══════════════════════════ BENEFICIOS ═══════════════════════════ -->
+<section class="benefits-section">
+    <div class="container">
+        <div class="section-heading text-center" data-aos="fade-up">
+            <span class="section-kicker">Beneficios que se notan desde el primer día</span>
+        </div>
+        <div class="benefits-grid">
+            <div class="benefit-card" data-aos="fade-up">
+                <div class="benefit-icon" aria-hidden="true"><i class="bi bi-sun"></i></div>
+                <h3>Más claridad diaria</h3>
+                <p>Sabrás qué pasa hoy, qué viene y dónde enfocar tu atención.</p>
+            </div>
+            <div class="benefit-card" data-aos="fade-up" data-aos-delay="60">
+                <div class="benefit-icon" aria-hidden="true"><i class="bi bi-people-fill"></i></div>
+                <h3>Más seguimiento al cliente</h3>
+                <p>Mejor experiencia, más lealtad y más recomendaciones.</p>
+            </div>
+            <div class="benefit-card" data-aos="fade-up" data-aos-delay="120">
+                <div class="benefit-icon" aria-hidden="true"><i class="bi bi-cash-coin"></i></div>
+                <h3>Más control financiero</h3>
+                <p>Entiende tu rentabilidad y toma decisiones con seguridad.</p>
+            </div>
+            <div class="benefit-card" data-aos="fade-up" data-aos-delay="180">
+                <div class="benefit-icon" aria-hidden="true"><i class="bi bi-check2-square"></i></div>
+                <h3>Más orden operativo</h3>
+                <p>Equipos alineados, procesos claros y menos imprevistos.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════════════ CTA FINAL ════════════════════════════ -->
 <section class="cta-banner-section">
     <div class="container">
-        <div class="cta-banner" data-aos="zoom-in">
-            <div>
-                <span class="section-kicker">Listo para vender con mas control</span>
-                <h2>Convierte tu operacion en una experiencia ordenada, premium y escalable.</h2>
-                <p>Empieza con precios visibles, crea tu cuenta y deja el resto del flujo de tenant y suscripcion trabajando como ya lo hace hoy.</p>
+        <div class="cta-banner-new" data-aos="zoom-in">
+            <div class="cta-banner-icon" aria-hidden="true"><i class="bi bi-rocket-takeoff-fill"></i></div>
+            <div class="cta-banner-content">
+                <h2>Empieza a operar con más claridad desde hoy</h2>
+                <p>Centraliza tu agenda, tu equipo y tus números en una plataforma creada para negocios de servicios.</p>
             </div>
-
-            <div class="cta-banner-actions">
-                <a class="btn public-btn public-btn-primary" asp-controller="Accounts" asp-action="Registro">Registrarse ahora</a>
-                <a class="btn public-btn public-btn-secondary" asp-controller="Billing" asp-action="Planes">Comparar planes</a>
+            <div class="cta-banner-actions cta-banner-actions-inline">
+                <a class="btn public-btn public-btn-primary" asp-controller="Accounts" asp-action="Registro">Registrarse</a>
+                <a class="btn public-btn public-btn-secondary" asp-controller="Billing" asp-action="Planes">Ver precios</a>
             </div>
         </div>
     </div>

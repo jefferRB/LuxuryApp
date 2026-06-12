@@ -23,7 +23,7 @@
             <span class="public-brand-mark">L</span>
             <span>
                 <strong>LuxuryCloud</strong>
-                <small>SaaS para barberias, salones y servicios</small>
+                <small>SaaS para barberías, salones y servicios</small>
             </span>
         </a>
 
@@ -37,16 +37,10 @@
                     <a class="nav-link @(currentController == "home" ? "active" : string.Empty)" asp-controller="Home" asp-action="Index">Inicio</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" asp-controller="Home" asp-action="Index" asp-fragment="modulos">Modulos</a>
+                    <a class="nav-link" asp-controller="Home" asp-action="Index" asp-fragment="modulos">Módulos</a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link @(currentController == "billing" ? "active" : string.Empty)" asp-controller="Billing" asp-action="Planes">Precios</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link @(currentController == "contract" ? "active" : string.Empty)" asp-controller="Contract" asp-action="Index">Contrato</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link @(currentPath == "/privacidad" ? "active" : string.Empty)" href="/privacidad">Privacidad</a>
                 </li>
             </ul>
 
@@ -63,7 +57,7 @@
                 }
                 else
                 {
-                    <a class="btn public-btn public-btn-ghost" asp-controller="Accounts" asp-action="Acceso">Iniciar sesion</a>
+                    <a class="btn public-btn public-btn-secondary" asp-controller="Accounts" asp-action="Acceso">Iniciar sesión</a>
                     <a class="btn public-btn public-btn-primary" asp-controller="Accounts" asp-action="Registro">Registrarse</a>
                 }
             </div>

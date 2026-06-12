@@ -88,10 +88,20 @@ function toggleProducto(id) {
             label: "Futurista premium",
             background: "futuristic",
             surface: "glass"
+        },
+        "absolute-black": {
+            label: "Negro absoluto",
+            background: "black",
+            surface: "dark"
+        },
+        "clean-white": {
+            label: "Blanco limpio",
+            background: "white",
+            surface: "light"
         }
     };
-    const supportedBackgroundThemes = ["marble", "futuristic"];
-    const supportedSurfaceThemes = ["classic", "glass"];
+    const supportedBackgroundThemes = ["marble", "futuristic", "black", "white"];
+    const supportedSurfaceThemes = ["classic", "glass", "dark", "light"];
     const chartRegistry = new Set();
 
     function normalizePreset(preset) {
