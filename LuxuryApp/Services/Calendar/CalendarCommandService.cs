@@ -283,7 +283,7 @@ namespace LuxuryApp.Services.Calendar
                             Entity = c,
                             Duracion = c.Tipo == "DESCANSO"
                                 ? (c.DuracionMinutos ?? DefaultDurationMinutes)
-                                : ((c.Servicio != null ? c.Servicio.DuracionMinutos : null) ?? DefaultDurationMinutes)
+                                : (c.DuracionMinutos ?? (c.Servicio != null ? c.Servicio.DuracionMinutos : null) ?? DefaultDurationMinutes)
                         })
                         .FirstOrDefaultAsync(c => c.Entity.Id == id, cancellationToken);
 
@@ -345,6 +345,61 @@ namespace LuxuryApp.Services.Calendar
             catch (InvalidOperationException ex)
             {
                 _logger.LogError(ex, "Operacion invalida al mover la cita {CitaId}.", id);
+                throw;
+            }
+        }
+
+        public async Task ResizeDurationAsync(int id, int duracionMinutos, CancellationToken cancellationToken = default)
+        {
+            if (duracionMinutos < 5)
+                throw new CalendarValidationException("La duración mínima es de 5 minutos.");
+            if (duracionMinutos > 600)
+                throw new CalendarValidationException("La duración no puede superar 600 minutos.");
+
+            var executionStrategy = _context.Database.CreateExecutionStrategy();
+
+            try
+            {
+                await executionStrategy.ExecuteAsync(async () =>
+                {
+                    await using var transaction = await _context.Database.BeginTransactionAsync(
+                        IsolationLevel.Serializable,
+                        cancellationToken);
+
+                    var cita = await _context.Citas
+                        .FirstOrDefaultAsync(c => c.Id == id, cancellationToken)
+                        ?? throw new InvalidOperationException("La cita indicada no existe o no pertenece al tenant actual.");
+
+                    await EnsureNoOverlapAsync(
+                        cita.FuncionarioId,
+                        cita.FechaHoraCita,
+                        duracionMinutos,
+                        excludeCitaId: cita.Id,
+                        cancellationToken);
+
+                    cita.DuracionMinutos = duracionMinutos;
+
+                    await _context.SaveChangesAsync(cancellationToken);
+                    await transaction.CommitAsync(cancellationToken);
+
+                    _logger.LogInformation(
+                        "Se ajusto la duracion de la cita {CitaId} a {DuracionMinutos} min.",
+                        cita.Id,
+                        duracionMinutos);
+                });
+            }
+            catch (CalendarValidationException)
+            {
+                throw;
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al ajustar la duracion de la cita {CitaId}.", id);
+                throw new InvalidOperationException("No fue posible actualizar la duración de la cita.");
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Operacion invalida al ajustar la duracion de la cita {CitaId}.", id);
                 throw;
             }
         }
@@ -605,7 +660,7 @@ namespace LuxuryApp.Services.Calendar
                     FechaHoraCita = c.FechaHoraCita,
                     DuracionMinutos = c.Tipo == "DESCANSO"
                         ? (c.DuracionMinutos ?? DefaultDurationMinutes)
-                        : ((c.Servicio != null ? c.Servicio.DuracionMinutos : null) ?? DefaultDurationMinutes)
+                        : (c.DuracionMinutos ?? (c.Servicio != null ? c.Servicio.DuracionMinutos : null) ?? DefaultDurationMinutes)
                 })
                 .ToListAsync(cancellationToken);
 

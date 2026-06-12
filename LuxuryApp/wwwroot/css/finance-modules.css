@@ -1341,3 +1341,89 @@ html[data-luxury-surface-theme="glass"] .finance-mobile-card {
     .finance-btn-clear,
     .finance-btn-danger-form { width: 100%; justify-content: center; }
 }
+
+/* ================================================================
+   GESTIONAR CATEGORÍAS MODAL — finance-cat-modal
+   ================================================================ */
+
+.finance-cat-modal .modal-content {
+    background: var(--private-surface-bg);
+    border: 1px solid var(--private-surface-border);
+    border-radius: 16px;
+    overflow: hidden;
+}
+
+html.surface-glass .finance-cat-modal .modal-content,
+html[data-luxury-surface-theme="glass"] .finance-cat-modal .modal-content {
+    backdrop-filter: blur(18px);
+    border-color: rgba(91, 124, 255, 0.32);
+}
+
+.finance-cat-modal .modal-header {
+    background: linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(124, 58, 237, 0.05));
+    border-bottom: 1px solid var(--private-surface-border);
+    padding: 1.25rem 1.5rem;
+    align-items: center;
+}
+
+.finance-cat-modal-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.6rem;
+    height: 2.6rem;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    color: #fff;
+    font-size: 1.15rem;
+    flex-shrink: 0;
+    box-shadow: 0 6px 18px rgba(37, 99, 235, 0.28);
+}
+
+.finance-cat-modal-title-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 0.08rem;
+}
+
+.finance-cat-modal-heading {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: var(--private-surface-text);
+    margin: 0;
+    line-height: 1.2;
+}
+
+.finance-cat-modal-subtitle {
+    font-size: 0.78rem;
+    color: var(--private-muted-text);
+    margin: 0;
+}
+
+.finance-cat-modal .modal-body {
+    padding: 1.5rem;
+    max-height: 65vh;
+    overflow-y: auto;
+}
+
+.finance-cat-modal .btn-close {
+    color: var(--private-surface-text);
+}
+
+html.surface-glass .finance-cat-modal .btn-close,
+html[data-luxury-surface-theme="glass"] .finance-cat-modal .btn-close {
+    filter: invert(1) brightness(1.8);
+}
+
+/* Mobile: hide table, show svc-card-list */
+@media (max-width: 575.98px) {
+    .finance-cat-modal .modal-dialog { margin: 0.5rem; }
+    .finance-cat-modal .modal-body   { padding: 1rem; }
+    .finance-cat-tbl  { display: none !important; }
+    .finance-cat-cards { display: flex !important; }
+}
+
+@media (min-width: 576px) {
+    .finance-cat-cards { display: none !important; }
+    .finance-cat-tbl   { display: block; }
+}

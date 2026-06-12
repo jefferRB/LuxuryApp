@@ -15,24 +15,41 @@
                     <span class="section-kicker">Acceso al SaaS</span>
                     <h1>Entra a tu espacio y sigue operando desde donde lo dejaste.</h1>
                     <p>
-                        Si venias desde precios o una activacion pendiente, el sistema conserva tu retorno para que
-                        puedas continuar con el flujo correcto despues del inicio de sesion.
+                        Accede a tu negocio y continúa gestionando citas, clientes, pagos y reportes sin perder el ritmo.
                     </p>
 
-                    <ul class="auth-benefit-list">
-                        <li>Login conectado con la validacion actual de tenant y estado de cuenta</li>
-                        <li>Separacion visual entre marketing publico y operacion privada</li>
-                        <li>Continuidad para checkout, renovacion y acceso a modulos internos</li>
+                    <ul class="auth-feature-list">
+                        <li class="auth-feature-item">
+                            <span class="auth-feature-icon"><i class="bi bi-briefcase"></i></span>
+                            <div class="auth-feature-copy">
+                                <strong>Tu negocio siempre listo</strong>
+                                <span>Entramos directo al espacio de trabajo que corresponde a tu cuenta.</span>
+                            </div>
+                        </li>
+                        <li class="auth-feature-item">
+                            <span class="auth-feature-icon"><i class="bi bi-shield-check"></i></span>
+                            <div class="auth-feature-copy">
+                                <strong>Acceso seguro</strong>
+                                <span>Protegemos tu información y la de tus clientes en cada inicio de sesión.</span>
+                            </div>
+                        </li>
+                        <li class="auth-feature-item">
+                            <span class="auth-feature-icon"><i class="bi bi-arrow-clockwise"></i></span>
+                            <div class="auth-feature-copy">
+                                <strong>Continuidad para tu equipo</strong>
+                                <span>Retoma tus citas, cobros y agenda justo donde los dejaste.</span>
+                            </div>
+                        </li>
                     </ul>
                 </div>
             </div>
 
             <div class="col-lg-7 col-xl-5" data-aos="fade-left">
                 <div class="auth-form-card">
-                    <span class="section-kicker">Iniciar sesion</span>
+                    <span class="section-kicker">Iniciar sesión</span>
                     <h2>Accede a tu cuenta.</h2>
 
-                    <form asp-controller="Accounts" asp-action="Acceso" method="post">
+                    <form asp-controller="Accounts" asp-action="Acceso" method="post" data-prevent-double-submit>
                         @Html.AntiForgeryToken()
                         <input type="hidden" name="returnurl" value="@returnUrl" />
 
@@ -40,12 +57,23 @@
 
                         <div class="mb-3">
                             <label asp-for="Email" class="form-label"></label>
-                            <input asp-for="Email" class="form-control public-form-control" placeholder="correo@negocio.com" />
+                            <div class="auth-input-wrap">
+                                <i class="bi bi-envelope auth-input-icon"></i>
+                                <input asp-for="Email" class="form-control public-form-control" placeholder="correo@negocio.com" autocomplete="email" />
+                            </div>
+                            <span asp-validation-for="Email" class="text-danger small"></span>
                         </div>
 
                         <div class="mb-3">
                             <label asp-for="Password" class="form-label"></label>
-                            <input asp-for="Password" type="password" class="form-control public-form-control" placeholder="Contrasena" />
+                            <div class="auth-input-wrap">
+                                <i class="bi bi-lock auth-input-icon"></i>
+                                <input asp-for="Password" type="password" class="form-control public-form-control has-pw-toggle" placeholder="Contraseña" autocomplete="current-password" />
+                                <button type="button" class="auth-pw-toggle" data-pw-toggle aria-label="Mostrar contraseña">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                            </div>
+                            <span asp-validation-for="Password" class="text-danger small"></span>
                         </div>
 
                         <div class="form-check public-check mb-4">
@@ -57,7 +85,7 @@
 
                         <div class="auth-links-row">
                             <a asp-action="Registro" asp-route-returnurl="@returnUrl">Crear cuenta</a>
-                            <a asp-action="OlvidoPassword">Olvide mi contrasena</a>
+                            <a asp-action="OlvidoPassword">Olvidé mi contraseña</a>
                         </div>
                     </form>
                 </div>

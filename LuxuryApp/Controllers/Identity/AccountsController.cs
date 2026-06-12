@@ -234,7 +234,7 @@ namespace LuxuryApp.Controllers.Identity
             if (usuario == null)
             {
                 await Task.Delay(500);
-                ModelState.AddModelError(string.Empty, "Acceso inválido");
+                ModelState.AddModelError(string.Empty, "No pudimos iniciar sesión con esos datos. Revisa tu correo y contraseña.");
                 return View(model);
             }
 
@@ -292,7 +292,7 @@ namespace LuxuryApp.Controllers.Identity
                 return View("Bloqueado");
             }
 
-            ModelState.AddModelError(string.Empty, "Acceso inválido");
+            ModelState.AddModelError(string.Empty, "No pudimos iniciar sesión con esos datos. Revisa tu correo y contraseña.");
             return View(model);
         }
 

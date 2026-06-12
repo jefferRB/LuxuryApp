@@ -40,7 +40,7 @@ namespace LuxuryApp.Services.Calendar
                     FechaHoraCita = c.FechaHoraCita,
                     DuracionMinutos = c.Tipo == "DESCANSO"
                         ? (c.DuracionMinutos ?? CalendarCommandService.DefaultDurationMinutes)
-                        : ((c.Servicio != null ? c.Servicio.DuracionMinutos : null) ?? CalendarCommandService.DefaultDurationMinutes),
+                        : (c.DuracionMinutos ?? (c.Servicio != null ? c.Servicio.DuracionMinutos : null) ?? CalendarCommandService.DefaultDurationMinutes),
                     FuncionarioId = c.FuncionarioId,
                     FuncionarioNombre = c.Funcionario != null ? c.Funcionario.Nombre : string.Empty,
                     ColorCalendario = c.Funcionario != null ? c.Funcionario.ColorCalendario : string.Empty,
@@ -241,9 +241,10 @@ namespace LuxuryApp.Services.Calendar
                     ServicioNombre = c.Servicio != null ? c.Servicio.Nombre : null,
                     FechaHoraCita = c.FechaHoraCita,
                     FuncionarioId = c.FuncionarioId,
+                    FuncionarioNombre = c.Funcionario != null ? c.Funcionario.Nombre : string.Empty,
                     DuracionMinutos = c.Tipo == "DESCANSO"
                         ? (c.DuracionMinutos ?? CalendarCommandService.DefaultDurationMinutes)
-                        : ((c.Servicio != null ? c.Servicio.DuracionMinutos : null) ?? CalendarCommandService.DefaultDurationMinutes),
+                        : (c.DuracionMinutos ?? (c.Servicio != null ? c.Servicio.DuracionMinutos : null) ?? CalendarCommandService.DefaultDurationMinutes),
                     WhatsAppConsentAtCreation = c.WhatsAppConsentAtCreation,
                     WhatsAppConsentSource = c.WhatsAppConsentSource,
                     WhatsAppConsentCapturedAtUtc = c.WhatsAppConsentCapturedAtUtc,
@@ -273,6 +274,7 @@ namespace LuxuryApp.Services.Calendar
                 ServicioNombre = appointment.ServicioNombre,
                 FechaHoraCita = appointment.FechaHoraCita,
                 FuncionarioId = appointment.FuncionarioId,
+                FuncionarioNombre = appointment.FuncionarioNombre,
                 DuracionMinutos = appointment.DuracionMinutos,
                 WhatsAppConsentAtCreation = appointment.WhatsAppConsentAtCreation,
                 WhatsAppConsentSource = appointment.WhatsAppConsentSource,

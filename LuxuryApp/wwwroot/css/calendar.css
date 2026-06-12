@@ -185,14 +185,6 @@
     border-radius: 8px;
     pointer-events: none;
 }
-.cita-bloque {
-    cursor: grab;
-}
-
-    .cita-bloque:active {
-        cursor: grabbing;
-    }
-
 .calendar-hour.drag-over {
     background: rgba(0,0,0,0.05);
 }

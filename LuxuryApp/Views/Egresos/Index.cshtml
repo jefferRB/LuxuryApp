@@ -176,15 +176,17 @@
                                         <i class="bi bi-pencil"></i> Editar
                                     </a>
 
-                                    <form asp-action="Delete"
-                                          asp-route-id="@egreso.IdEgreso"
-                                          method="post"
-                                          onsubmit="return confirm('¿Eliminar este egreso? Esta accion actualizara los KPIs y dashboards.');">
-                                        @Html.AntiForgeryToken()
-                                        <button type="submit" class="finance-btn-row-delete">
-                                            <i class="bi bi-trash"></i> Eliminar
-                                        </button>
-                                    </form>
+                                    <button type="button"
+                                            class="finance-btn-row-delete"
+                                            data-egreso-id="@egreso.IdEgreso"
+                                            data-categoria="@egreso.CategoriaNombre"
+                                            data-detalle="@egreso.Detalle"
+                                            data-monto="@egreso.Monto.ToString("N2")"
+                                            data-metodo="@egreso.MetodoPago"
+                                            data-fecha="@egreso.FechaEgreso.ToString("dd/MM/yyyy HH:mm")"
+                                            onclick="abrirModalEliminacionEgreso(this)">
+                                        <i class="bi bi-trash"></i> Eliminar
+                                    </button>
                                 </div>
                             </td>
                         </tr>
@@ -247,15 +249,17 @@
                             <i class="bi bi-pencil"></i> Editar
                         </a>
 
-                        <form asp-action="Delete"
-                              asp-route-id="@egreso.IdEgreso"
-                              method="post"
-                              onsubmit="return confirm('¿Eliminar este egreso? Esta accion actualizara los KPIs y dashboards.');">
-                            @Html.AntiForgeryToken()
-                            <button type="submit" class="finance-btn-row-delete">
-                                <i class="bi bi-trash"></i> Eliminar
-                            </button>
-                        </form>
+                        <button type="button"
+                                class="finance-btn-row-delete"
+                                data-egreso-id="@egreso.IdEgreso"
+                                data-categoria="@egreso.CategoriaNombre"
+                                data-detalle="@egreso.Detalle"
+                                data-monto="@egreso.Monto.ToString("N2")"
+                                data-metodo="@egreso.MetodoPago"
+                                data-fecha="@egreso.FechaEgreso.ToString("dd/MM/yyyy HH:mm")"
+                                onclick="abrirModalEliminacionEgreso(this)">
+                            <i class="bi bi-trash"></i> Eliminar
+                        </button>
                     </div>
                 </div>
             }
@@ -274,15 +278,97 @@
 
 </div>
 
-<div class="modal fade" id="modalCategorias" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+<div class="modal fade finance-cat-modal" id="modalCategorias" tabindex="-1"
+     aria-labelledby="lblModalCategorias" aria-modal="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
-            <div class="modal-header bg-dark text-white">
-                <h5 class="modal-title">Gestión de Categorías</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            <div class="modal-header">
+                <div class="d-flex align-items-center gap-3 flex-grow-1">
+                    <div class="finance-cat-modal-icon">
+                        <i class="bi bi-folder2-open"></i>
+                    </div>
+                    <div class="finance-cat-modal-title-wrap">
+                        <h5 class="finance-cat-modal-heading" id="lblModalCategorias">Gestionar Categorías</h5>
+                        <p class="finance-cat-modal-subtitle">Administra las categorías disponibles para tus egresos.</p>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body" id="contenedorCategorias">
-                Cargando categorías...
+                <div class="text-center py-4" style="color:var(--private-muted-text);">
+                    <i class="bi bi-arrow-repeat fs-4"></i>
+                    <p class="mt-2 mb-0" style="font-size:0.875rem;">Cargando categorías…</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@* ── MODAL ELIMINAR EGRESO (listado) ── *@
+<div class="modal fade finance-delete-modal" id="modalEliminarEgresoLista" tabindex="-1"
+     aria-labelledby="lblEliminarEgresoLista" aria-modal="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="finance-delete-modal-title" id="lblEliminarEgresoLista">
+                    <div class="finance-delete-modal-icon">
+                        <i class="bi bi-trash3-fill"></i>
+                    </div>
+                    Eliminar Egreso
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="finance-delete-intro">
+                    ¿Estás seguro que deseas eliminar este egreso? Esta acción no se puede deshacer.
+                </p>
+                <div class="finance-delete-summary">
+                    <div class="finance-delete-summary-row">
+                        <span class="finance-delete-summary-label">
+                            <i class="bi bi-folder2"></i> Categoría
+                        </span>
+                        <span class="finance-delete-summary-value" id="delEgresoCategoria"></span>
+                    </div>
+                    <div class="finance-delete-summary-row">
+                        <span class="finance-delete-summary-label">
+                            <i class="bi bi-card-text"></i> Detalle
+                        </span>
+                        <span class="finance-delete-summary-value" id="delEgresoDetalle"></span>
+                    </div>
+                    <div class="finance-delete-summary-row">
+                        <span class="finance-delete-summary-label">
+                            <i class="bi bi-currency-exchange"></i> Monto
+                        </span>
+                        <span class="finance-delete-summary-value finance-monto-expense" id="delEgresoMonto"></span>
+                    </div>
+                    <div class="finance-delete-summary-row">
+                        <span class="finance-delete-summary-label">
+                            <i class="bi bi-credit-card"></i> Método de pago
+                        </span>
+                        <span class="finance-delete-summary-value" id="delEgresoMetodo"></span>
+                    </div>
+                    <div class="finance-delete-summary-row">
+                        <span class="finance-delete-summary-label">
+                            <i class="bi bi-calendar3"></i> Fecha
+                        </span>
+                        <span class="finance-delete-summary-value" id="delEgresoFecha"></span>
+                    </div>
+                </div>
+                <div class="finance-delete-warning-box">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <span>Esta acción es permanente. Se eliminará el egreso y se actualizarán los indicadores financieros y dashboards.</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="finance-btn-back" data-bs-dismiss="modal">
+                    <i class="bi bi-x-lg"></i> Cancelar
+                </button>
+                <form id="formEliminarEgresoLista" method="post" style="margin:0;">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="finance-btn-danger-form" id="btnConfirmarEliminarEgreso">
+                        <i class="bi bi-trash3-fill"></i> Eliminar
+                    </button>
+                </form>
             </div>
         </div>
     </div>
@@ -290,6 +376,29 @@
 
 @section Scripts {
     <script>
+        function abrirModalEliminacionEgreso(btn) {
+            document.getElementById('delEgresoCategoria').textContent = btn.dataset.categoria;
+            document.getElementById('delEgresoDetalle').textContent = btn.dataset.detalle;
+            document.getElementById('delEgresoMonto').textContent = '₡ ' + btn.dataset.monto;
+            document.getElementById('delEgresoMetodo').textContent = btn.dataset.metodo;
+            document.getElementById('delEgresoFecha').textContent = btn.dataset.fecha;
+            document.getElementById('formEliminarEgresoLista').action = '@Url.Action("Delete", "Egresos")/' + btn.dataset.egresoId;
+            var btnConf = document.getElementById('btnConfirmarEliminarEgreso');
+            btnConf.disabled = false;
+            btnConf.innerHTML = '<i class="bi bi-trash3-fill"></i> Eliminar';
+            new bootstrap.Modal(document.getElementById('modalEliminarEgresoLista')).show();
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            var formEliminar = document.getElementById('formEliminarEgresoLista');
+            if (formEliminar) {
+                formEliminar.addEventListener('submit', function () {
+                    var btn = document.getElementById('btnConfirmarEliminarEgreso');
+                    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Eliminando…'; }
+                });
+            }
+        });
+
         function toggleRangoFechas() {
             var select = document.getElementById("vistaTiempoSelect");
             var container = document.getElementById("rangoFechasContainer");

@@ -2,80 +2,244 @@
 
 @{
     ViewData["Title"] = "Mi cuenta";
+
+    int filledFields = 1; // email always present
+    if (!string.IsNullOrWhiteSpace(Model.Name)) filledFields++;
+    if (!string.IsNullOrWhiteSpace(Model.PhoneNumber)) filledFields++;
+    int profilePercent = (int)Math.Round(filledFields / 3.0 * 100);
 }
 
-@if (TempData["Mensaje"] != null)
-{
-    <div class="alert alert-success mx-0 mb-3">
-        @TempData["Mensaje"]
-    </div>
+@section Styles {
+    <link rel="stylesheet" href="~/css/account-module.css" asp-append-version="true" />
 }
 
-@if (TempData["Error"] != null)
-{
-    <div class="alert alert-danger mx-0 mb-3">
-        @TempData["Error"]
+<div class="account-page-shell">
+
+    @if (TempData["Mensaje"] != null)
+    {
+        <div class="account-alert alert-success" role="alert">
+            <i class="bi bi-check-circle-fill"></i>
+            <span>@TempData["Mensaje"]</span>
+        </div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="account-alert alert-danger" role="alert">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <span>@TempData["Error"]</span>
+        </div>
+    }
+
+    @* Hero *@
+    <div class="account-hero">
+        <div class="account-hero-left">
+            <span class="account-badge">
+                <i class="bi bi-dot"></i>Gestión de cuenta
+            </span>
+            <h1 class="account-title">Mi cuenta</h1>
+            <p class="account-subtitle">Administra tu información personal y la seguridad de tu acceso.</p>
+        </div>
+
+        <div class="account-kpi-grid">
+            <div class="account-kpi-card">
+                <span class="account-kpi-icon kpi-email"><i class="bi bi-envelope-fill"></i></span>
+                <div class="account-kpi-body">
+                    <span class="account-kpi-label">Correo vinculado</span>
+                    <span class="account-kpi-value" title="@Model.Email">@Model.Email</span>
+                </div>
+            </div>
+            <div class="account-kpi-card">
+                <span class="account-kpi-icon kpi-profile"><i class="bi bi-person-check-fill"></i></span>
+                <div class="account-kpi-body">
+                    <span class="account-kpi-label">Perfil completo</span>
+                    <span class="account-kpi-value kpi-accent">@profilePercent%</span>
+                </div>
+            </div>
+            <div class="account-kpi-card">
+                <span class="account-kpi-icon kpi-security"><i class="bi bi-shield-fill-check"></i></span>
+                <div class="account-kpi-body">
+                    <span class="account-kpi-label">Seguridad</span>
+                    <span class="account-kpi-value kpi-green">Protegida</span>
+                </div>
+            </div>
+        </div>
     </div>
-}
 
-<div class="card border-0 shadow-lg mb-4">
-    <div class="card-header bg-dark text-white py-3">
-        <h5 class="m-0">
-            <i class="bi bi-person-circle me-2"></i>Mi cuenta
-        </h5>
-    </div>
-    <div class="card-body px-4 py-4">
-        <form asp-controller="Accounts" asp-action="Cuenta" method="post">
-            @Html.AntiForgeryToken()
+    @* Two-column content *@
+    <div class="account-content-grid">
 
-            <div asp-validation-summary="ModelOnly" class="alert alert-danger mb-3"></div>
-
-            <div class="mb-3">
-                <label class="form-label fw-semibold">Correo electronico</label>
-                <input type="email" class="form-control" value="@Model.Email" disabled />
-                <small class="text-muted">El correo no se puede cambiar desde aqui.</small>
+        @* Personal info *@
+        <div class="account-section-card">
+            <div class="account-section-header">
+                <span class="account-section-icon"><i class="bi bi-person-fill"></i></span>
+                <h2 class="account-section-title">Información personal</h2>
             </div>
 
-            <div class="mb-3">
-                <label asp-for="Name" class="form-label fw-semibold"></label>
-                <input asp-for="Name" class="form-control" placeholder="Tu nombre visible" />
-                <span asp-validation-for="Name" class="text-danger small"></span>
+            <form asp-controller="Accounts" asp-action="Cuenta" method="post" novalidate id="formCuenta">
+                @Html.AntiForgeryToken()
+
+                <div asp-validation-summary="ModelOnly" class="account-validation-summary mb-3"></div>
+
+                <div class="account-field mb-3">
+                    <label class="account-field-label">Correo electrónico</label>
+                    <div class="account-input-wrapper">
+                        <i class="bi bi-envelope account-input-icon"></i>
+                        <input type="email"
+                               class="account-input account-input--locked"
+                               value="@Model.Email"
+                               disabled
+                               readonly
+                               aria-label="Correo electrónico" />
+                        <i class="bi bi-lock-fill account-input-lock"></i>
+                    </div>
+                    <span class="account-input-hint">El correo no se puede cambiar desde aquí.</span>
+                </div>
+
+                <div class="account-field mb-3">
+                    <label asp-for="Name" class="account-field-label"></label>
+                    <div class="account-input-wrapper">
+                        <i class="bi bi-person account-input-icon"></i>
+                        <input asp-for="Name" class="account-input" placeholder="Tu nombre visible" />
+                    </div>
+                    <span asp-validation-for="Name" class="account-field-error"></span>
+                </div>
+
+                <div class="account-field mb-4">
+                    <label asp-for="PhoneNumber" class="account-field-label"></label>
+                    <div class="account-input-wrapper">
+                        <i class="bi bi-telephone account-input-icon"></i>
+                        <input asp-for="PhoneNumber" class="account-input" placeholder="+506 8888-8888" />
+                    </div>
+                    <span asp-validation-for="PhoneNumber" class="account-field-error"></span>
+                </div>
+
+                <button type="submit" class="account-btn-primary mb-3" id="btnGuardarCambios">
+                    <i class="bi bi-floppy"></i> Guardar cambios
+                </button>
+
+                <div class="account-info-box">
+                    <i class="bi bi-info-circle-fill"></i>
+                    <span>El nombre visible y el número de teléfono se utilizan en tu perfil dentro de la plataforma.</span>
+                </div>
+            </form>
+        </div>
+
+        @* Security *@
+        <div class="account-security-card">
+            <div class="account-section-header">
+                <span class="account-section-icon icon-security"><i class="bi bi-shield-lock-fill"></i></span>
+                <h2 class="account-section-title">Seguridad de la cuenta</h2>
             </div>
 
-            <div class="mb-4">
-                <label asp-for="PhoneNumber" class="form-label fw-semibold"></label>
-                <input asp-for="PhoneNumber" class="form-control" placeholder="+506 8888-8888" />
-                <span asp-validation-for="PhoneNumber" class="text-danger small"></span>
+            <p class="account-security-text">
+                Mantén tu cuenta segura. Te enviaremos un enlace a tu correo
+                <strong>@Model.Email</strong> para que puedas establecer una nueva contraseña.
+            </p>
+
+            <form asp-controller="Accounts" asp-action="EnviarEnlaceCambioPassword" method="post" id="formEnlace">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="account-btn-primary" id="btnEnviarEnlace">
+                    <i class="bi bi-envelope-fill"></i> Enviar enlace de restablecimiento
+                </button>
+            </form>
+
+            <div class="account-security-chips">
+                <span class="account-security-chip">
+                    <i class="bi bi-check-circle-fill"></i> Correo verificado
+                </span>
+                <span class="account-security-chip">
+                    <i class="bi bi-check-circle-fill"></i> Restablecimiento por email
+                </span>
+                <span class="account-security-chip">
+                    <i class="bi bi-check-circle-fill"></i> Acceso seguro
+                </span>
             </div>
 
-            <button type="submit" class="btn btn-dark">
-                <i class="bi bi-floppy me-1"></i>Guardar cambios
-            </button>
-        </form>
+            <div class="account-rec-card">
+                <span class="account-rec-icon"><i class="bi bi-shield-fill-exclamation"></i></span>
+                <div>
+                    <p class="account-rec-title">Recomendaciones de seguridad</p>
+                    <p class="account-rec-text">
+                        Usa una contraseña fuerte que combine letras mayúsculas, minúsculas,
+                        números y símbolos. Cámbiala periódicamente.
+                    </p>
+                </div>
+            </div>
+        </div>
     </div>
-</div>
 
-<div class="card border-0 shadow-lg">
-    <div class="card-header bg-dark text-white py-3">
-        <h5 class="m-0">
-            <i class="bi bi-shield-lock me-2"></i>Contrasena
-        </h5>
+    @* Preferences: visual only — connect to AppUsuario properties when persistence is needed *@
+    <div class="account-preferences">
+        <div class="account-preferences-header">
+            <h2 class="account-preferences-title">
+                <i class="bi bi-sliders" style="color:var(--private-chart-accent,#2563eb);font-size:1rem;"></i>
+                Preferencias
+            </h2>
+            <p class="account-preferences-subtitle">Gestiona tus preferencias de comunicación y seguridad.</p>
+        </div>
+
+        <div class="account-preferences-grid">
+            <div class="account-preference-card">
+                <span class="account-preference-icon pref-email"><i class="bi bi-envelope-fill"></i></span>
+                <div class="account-preference-body">
+                    <p class="account-preference-name">Notificaciones por correo</p>
+                    <p class="account-preference-desc">Recibe actualizaciones y novedades de la plataforma.</p>
+                </div>
+                <label class="account-switch" aria-label="Notificaciones por correo">
+                    <input type="checkbox" checked>
+                    <span class="account-switch-slider"></span>
+                </label>
+            </div>
+
+            <div class="account-preference-card">
+                <span class="account-preference-icon pref-remind"><i class="bi bi-bell-fill"></i></span>
+                <div class="account-preference-body">
+                    <p class="account-preference-name">Recordatorios importantes</p>
+                    <p class="account-preference-desc">Recibe recordatorios sobre eventos y vencimientos.</p>
+                </div>
+                <label class="account-switch" aria-label="Recordatorios importantes">
+                    <input type="checkbox" checked>
+                    <span class="account-switch-slider"></span>
+                </label>
+            </div>
+
+            <div class="account-preference-card">
+                <span class="account-preference-icon pref-confirm"><i class="bi bi-shield-lock-fill"></i></span>
+                <div class="account-preference-body">
+                    <p class="account-preference-name">Confirmación de acciones sensibles</p>
+                    <p class="account-preference-desc">Solicitar confirmación para acciones críticas en la cuenta.</p>
+                </div>
+                <label class="account-switch" aria-label="Confirmación de acciones sensibles">
+                    <input type="checkbox" checked>
+                    <span class="account-switch-slider"></span>
+                </label>
+            </div>
+        </div>
     </div>
-    <div class="card-body px-4 py-4">
-        <p class="text-muted mb-4">
-            Te enviaremos un enlace a tu correo <strong>@Model.Email</strong> para que puedas establecer una nueva contrasena.
-        </p>
-        <form asp-controller="Accounts" asp-action="EnviarEnlaceCambioPassword" method="post">
-            @Html.AntiForgeryToken()
-            <button type="submit" class="btn btn-outline-dark">
-                <i class="bi bi-envelope me-1"></i>Enviar enlace de restablecimiento
-            </button>
-        </form>
-    </div>
+
 </div>
 
 @section Scripts {
     @{
         await Html.RenderPartialAsync("_ValidationScriptsPartial");
     }
+    <script>
+    (function () {
+        var btnGuardar = document.getElementById('btnGuardarCambios');
+        if (btnGuardar) {
+            document.getElementById('formCuenta').addEventListener('submit', function () {
+                btnGuardar.disabled = true;
+                btnGuardar.innerHTML = '<i class="bi bi-hourglass-split"></i> Guardando…';
+            });
+        }
+
+        var btnEnlace = document.getElementById('btnEnviarEnlace');
+        if (btnEnlace) {
+            document.getElementById('formEnlace').addEventListener('submit', function () {
+                btnEnlace.disabled = true;
+                btnEnlace.innerHTML = '<i class="bi bi-hourglass-split"></i> Enviando…';
+            });
+        }
+    })();
+    </script>
 }

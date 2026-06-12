@@ -143,6 +143,40 @@ namespace LuxuryApp.Controllers.Calendar
             }
         }
 
+        [HttpPut("Calendar/ResizeDuration/{id}")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ResizeDuration(int id, [FromBody] ResizeDurationVM vm, CancellationToken cancellationToken)
+        {
+            if (id <= 0)
+            {
+                return NotFound();
+            }
+
+            if (vm == null)
+            {
+                return BadRequest("Datos invalidos.");
+            }
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(GetValidationMessage());
+            }
+
+            try
+            {
+                await _calendarCommandService.ResizeDurationAsync(id, vm.DuracionMinutos, cancellationToken);
+                return Ok(new { success = true });
+            }
+            catch (CalendarValidationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
         [HttpDelete("Calendar/Delete/{id}")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)

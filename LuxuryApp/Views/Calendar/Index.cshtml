@@ -279,27 +279,40 @@
 @* ─────────────────────────── MODALES ─────────────────────────── *@
 
 @* MODAL HORAS *@
-<div class="modal fade" id="dayModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+<div class="modal fade cal-day-modal" id="dayModal" tabindex="-1" aria-modal="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="modalTitle"></h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            <div class="modal-header cal-day-modal-header">
+                <div class="cal-day-modal-title-wrap">
+                    <h5 class="modal-title cal-day-modal-title" id="modalTitle"></h5>
+                </div>
+                <select id="dayModalFuncionarioFiltro" class="cal-day-modal-filter">
+                    <option value="">Todos los funcionarios</option>
+                </select>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
-            <div class="modal-body">
-                <div id="hoursContainer" class="list-group"></div>
+            <div class="modal-body cal-day-modal-body">
+                <div id="hoursContainer"></div>
             </div>
         </div>
     </div>
 </div>
 
 @* MODAL CREAR CITA *@
-<div class="modal fade" id="createCitaModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Nueva cita</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+<div class="modal fade" id="createCitaModal" tabindex="-1" aria-modal="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content cal-modal-content">
+            <div class="modal-header cal-modal-header">
+                <div class="d-flex align-items-center gap-3 flex-grow-1">
+                    <div class="cal-modal-icon">
+                        <i class="bi bi-calendar-plus"></i>
+                    </div>
+                    <div>
+                        <h5 class="modal-title cal-modal-title">Nueva cita</h5>
+                        <p class="cal-modal-subtitle">Agenda una nueva cita en el calendario</p>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
 
             <div class="modal-body">
@@ -381,8 +394,8 @@
                     </div>
                 </div>
 
-                <button class="btn btn-dark w-100" onclick="guardarCita()">
-                    Guardar cita
+                <button class="cal-btn-save w-100 mt-1" onclick="guardarCita()">
+                    <i class="bi bi-calendar-check"></i> Guardar cita
                 </button>
             </div>
         </div>
@@ -390,13 +403,18 @@
 </div>
 
 @* MODAL EDITAR *@
-<div class="modal fade" id="editCitaModal" tabindex="-1">
+<div class="modal fade" id="editCitaModal" tabindex="-1" aria-modal="true">
     <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
+        <div class="modal-content cal-modal-content">
 
-            <div class="modal-header">
-                <h5 class="modal-title" id="editModalTitle">✏️ Editar</h5>
-                <button class="btn-close" data-bs-dismiss="modal"></button>
+            <div class="modal-header cal-modal-header">
+                <div class="d-flex align-items-center gap-3 flex-grow-1">
+                    <div class="cal-modal-icon cal-modal-icon-edit">
+                        <i class="bi bi-pencil-fill"></i>
+                    </div>
+                    <h5 class="modal-title cal-modal-title" id="editModalTitle">Editar cita</h5>
+                </div>
+                <button class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
 
             <div class="modal-body">
@@ -465,16 +483,16 @@
 
             </div>
 
-            <div class="modal-footer justify-content-between">
-                <button class="btn btn-danger" onclick="cancelarCita()">
-                    Eliminar
+            <div class="modal-footer cal-modal-footer">
+                <button class="cal-btn-danger" onclick="cancelarCita()">
+                    <i class="bi bi-trash3"></i> Eliminar
                 </button>
-                <div>
-                    <button class="btn btn-secondary" data-bs-dismiss="modal">
-                        Volver
+                <div class="d-flex gap-2">
+                    <button class="cal-btn-secondary" data-bs-dismiss="modal">
+                        <i class="bi bi-arrow-left"></i> Volver
                     </button>
-                    <button class="btn btn-primary" onclick="guardarEdicion()">
-                        Guardar cambios
+                    <button class="cal-btn-primary" onclick="guardarEdicion()">
+                        <i class="bi bi-floppy2-fill"></i> Guardar cambios
                     </button>
                 </div>
             </div>
@@ -501,6 +519,55 @@
     </div>
 }
 
+
+@* MODAL CANCELAR CITA *@
+<div class="modal fade" id="cancelCitaModal" tabindex="-1" aria-labelledby="lblCancelCita" aria-modal="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content cal-modal-content cal-cancel-modal-content">
+            <div class="modal-header cal-cancel-modal-header">
+                <div class="d-flex align-items-center gap-3 flex-grow-1">
+                    <div class="cal-cancel-modal-icon">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                    </div>
+                    <div>
+                        <h5 class="cal-cancel-modal-title" id="cancelCitaModalTitle">Cancelar cita</h5>
+                        <p class="cal-cancel-modal-desc" id="cancelCitaDesc">¿Seguro que deseas cancelar esta cita?</p>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="cal-cancel-extra-text">
+                    @if (hasWhatsAppAddon)
+                    {
+                        @:Esta cita se eliminará de la agenda y se actualizará el estado de seguimiento en WhatsApp.
+                    }
+                    else
+                    {
+                        @:Esta cita se eliminará de la agenda permanentemente.
+                    }
+                </p>
+
+                <input type="hidden" id="cancelCitaId" />
+
+                <div class="cal-cancel-summary" id="cancelCitaSummary"></div>
+
+                <div class="cal-cancel-warning-box" id="cancelCitaWarningBox">
+                    <i class="bi bi-exclamation-circle-fill"></i>
+                    <span>Esta acción no se puede deshacer. La cita será eliminada permanentemente.</span>
+                </div>
+            </div>
+            <div class="modal-footer cal-cancel-modal-footer">
+                <button type="button" class="cal-btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-arrow-left"></i> Volver
+                </button>
+                <button type="button" class="cal-btn-cancel-cita" id="btnConfirmarCancelarCita" onclick="confirmarCancelarCita()">
+                    <i class="bi bi-x-circle-fill"></i> Cancelar cita
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 
 @section Scripts {
     <script>

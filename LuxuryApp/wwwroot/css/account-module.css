@@ -1,0 +1,603 @@
+/* ==========================================================
+   account-module.css — Scoped styles for Mi cuenta
+   Only affects .account-* classes. Does NOT touch other modules.
+   Uses CSS variables defined in private-layout.css.
+   ========================================================== */
+
+/* ── A. PAGE SHELL ─────────────────────────────────────── */
+.account-page-shell {
+    padding: 1.5rem 0;
+}
+
+/* ── B. HERO HEADER ────────────────────────────────────── */
+.account-hero {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 2rem;
+}
+
+.account-hero-left {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.account-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.22rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: rgba(37, 99, 235, 0.14);
+    color: var(--private-chart-accent, #2563eb);
+    border: 1px solid rgba(37, 99, 235, 0.24);
+    width: fit-content;
+}
+
+.account-title {
+    margin: 0;
+    font-size: 1.85rem;
+    font-weight: 700;
+    line-height: 1.15;
+    color: var(--private-surface-text, #111827);
+}
+
+.account-subtitle {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--private-muted-text, #64748b);
+}
+
+/* ── C. KPI GRID ───────────────────────────────────────── */
+.account-kpi-grid {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: stretch;
+    align-self: center;
+}
+
+.account-kpi-card {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.9rem 1.15rem;
+    border-radius: 14px;
+    background: var(--private-surface-bg, rgba(255, 255, 255, 0.9));
+    border: 1px solid var(--private-surface-border, rgba(15, 23, 42, 0.08));
+    box-shadow: var(--private-card-shadow, 0 4px 12px rgba(15, 23, 42, 0.07));
+    min-width: 145px;
+}
+
+.account-kpi-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    border-radius: 10px;
+    flex-shrink: 0;
+    font-size: 1rem;
+}
+
+.account-kpi-icon.kpi-email    { background: rgba(37, 99, 235, 0.13); color: #60a5fa; }
+.account-kpi-icon.kpi-profile  { background: rgba(22, 163, 74, 0.13); color: #4ade80; }
+.account-kpi-icon.kpi-security { background: rgba(124, 58, 237, 0.13); color: #a78bfa; }
+
+.account-kpi-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+}
+
+.account-kpi-label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--private-muted-text, #64748b);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+}
+
+.account-kpi-value {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--private-surface-text, #111827);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 180px;
+}
+
+.account-kpi-value.kpi-accent { color: var(--private-chart-accent, #2563eb); }
+.account-kpi-value.kpi-green  { color: #4ade80; }
+
+/* ── D. CONTENT GRID ───────────────────────────────────── */
+.account-content-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+/* ── E. SECTION CARDS (personal info & security) ────────── */
+.account-section-card,
+.account-security-card {
+    background: var(--private-surface-bg, rgba(255, 255, 255, 0.9));
+    border: 1px solid var(--private-surface-border, rgba(15, 23, 42, 0.08));
+    border-radius: var(--private-section-radius, 22px);
+    box-shadow: var(--private-card-shadow, 0 10px 26px rgba(15, 23, 42, 0.08));
+    padding: 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+}
+
+.account-section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+}
+
+.account-section-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 8px;
+    background: rgba(37, 99, 235, 0.12);
+    color: var(--private-chart-accent, #2563eb);
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.account-section-icon.icon-security {
+    background: rgba(124, 58, 237, 0.12);
+    color: #a78bfa;
+}
+
+.account-section-title {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--private-surface-text, #111827);
+}
+
+/* ── F. FORM FIELDS ────────────────────────────────────── */
+.account-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.account-field-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--private-surface-text, #111827);
+}
+
+.account-input-wrapper {
+    position: relative;
+}
+
+.account-input-icon {
+    position: absolute;
+    left: 0.85rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--private-muted-text, #64748b);
+    font-size: 0.9rem;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.account-input-lock {
+    position: absolute;
+    right: 0.85rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--private-muted-text, #64748b);
+    font-size: 0.85rem;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.account-input {
+    width: 100%;
+    padding: 0.62rem 0.9rem 0.62rem 2.35rem;
+    border-radius: 0.75rem;
+    border: 1px solid var(--private-input-border, rgba(15, 23, 42, 0.14));
+    background: var(--private-input-bg, rgba(255, 255, 255, 0.96));
+    color: var(--private-input-text, #111827);
+    font-size: 0.9rem;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+    box-sizing: border-box;
+}
+
+.account-input--locked {
+    padding-right: 2.35rem;
+}
+
+.account-input:focus {
+    outline: none;
+    border-color: rgba(96, 165, 250, 0.55);
+    box-shadow: 0 0 0 0.18rem var(--private-focus-ring, rgba(37, 140, 251, 0.28));
+}
+
+.account-input:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.account-input.input-validation-error {
+    border-color: rgba(220, 38, 38, 0.5);
+}
+
+.account-input-hint {
+    font-size: 0.75rem;
+    color: var(--private-muted-text, #64748b);
+}
+
+.account-field-error {
+    font-size: 0.75rem;
+    color: var(--private-chart-danger, #dc2626);
+}
+
+/* ── G. PRIMARY BUTTON ─────────────────────────────────── */
+.account-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    padding: 0.65rem 1.5rem;
+    border-radius: 0.75rem;
+    border: none;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    color: #fff;
+    text-decoration: none;
+}
+
+.account-btn-primary:hover:not(:disabled) {
+    opacity: 0.88;
+    transform: translateY(-1px);
+    color: #fff;
+}
+
+.account-btn-primary:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.account-btn-primary:disabled {
+    opacity: 0.52;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* ── H. INFO BOX ───────────────────────────────────────── */
+.account-info-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.75rem 1rem;
+    border-radius: 0.75rem;
+    background: rgba(37, 99, 235, 0.07);
+    border: 1px solid rgba(37, 99, 235, 0.15);
+    font-size: 0.78rem;
+    color: var(--private-muted-text, #64748b);
+    line-height: 1.5;
+}
+
+.account-info-box .bi {
+    color: var(--private-chart-accent, #2563eb);
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+}
+
+/* ── I. VALIDATION SUMMARY ─────────────────────────────── */
+.account-validation-summary {
+    padding: 0.75rem 1rem;
+    border-radius: 0.75rem;
+    background: rgba(220, 38, 38, 0.1);
+    border: 1px solid rgba(220, 38, 38, 0.22);
+    color: var(--private-chart-danger, #dc2626);
+    font-size: 0.82rem;
+}
+
+.account-validation-summary:empty {
+    display: none;
+}
+
+/* ── J. FEEDBACK ALERTS ────────────────────────────────── */
+.account-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.85rem 1.15rem;
+    border-radius: 0.85rem;
+    font-size: 0.85rem;
+    margin-bottom: 1.5rem;
+    border: 1px solid transparent;
+}
+
+.account-alert.alert-success {
+    background: rgba(22, 163, 74, 0.1);
+    border-color: rgba(22, 163, 74, 0.24);
+    color: #4ade80;
+}
+
+.account-alert.alert-danger {
+    background: rgba(220, 38, 38, 0.1);
+    border-color: rgba(220, 38, 38, 0.24);
+    color: var(--private-chart-danger, #dc2626);
+}
+
+/* ── K. SECURITY TEXT & CHIPS ──────────────────────────── */
+.account-security-text {
+    font-size: 0.85rem;
+    color: var(--private-muted-text, #64748b);
+    line-height: 1.6;
+    margin: 0;
+}
+
+.account-security-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.account-security-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.32rem;
+    padding: 0.28rem 0.72rem;
+    border-radius: 999px;
+    font-size: 0.71rem;
+    font-weight: 600;
+    background: rgba(22, 163, 74, 0.1);
+    color: #4ade80;
+    border: 1px solid rgba(22, 163, 74, 0.24);
+}
+
+/* ── L. SECURITY RECOMMENDATION CARD ──────────────────── */
+.account-rec-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.85rem;
+    padding: 1rem 1.1rem;
+    border-radius: 1rem;
+    background: rgba(37, 99, 235, 0.07);
+    border: 1px solid rgba(37, 99, 235, 0.14);
+}
+
+.account-rec-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 10px;
+    background: rgba(37, 99, 235, 0.14);
+    color: var(--private-chart-accent, #2563eb);
+    flex-shrink: 0;
+    font-size: 1rem;
+}
+
+.account-rec-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--private-surface-text, #111827);
+    margin: 0 0 0.28rem;
+}
+
+.account-rec-text {
+    font-size: 0.78rem;
+    color: var(--private-muted-text, #64748b);
+    margin: 0;
+    line-height: 1.5;
+}
+
+/* ── M. PREFERENCES SECTION ────────────────────────────── */
+.account-preferences {
+    background: var(--private-surface-bg, rgba(255, 255, 255, 0.9));
+    border: 1px solid var(--private-surface-border, rgba(15, 23, 42, 0.08));
+    border-radius: var(--private-section-radius, 22px);
+    box-shadow: var(--private-card-shadow, 0 10px 26px rgba(15, 23, 42, 0.08));
+    padding: 1.75rem;
+}
+
+.account-preferences-header {
+    margin-bottom: 1.25rem;
+}
+
+.account-preferences-title {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0 0 0.22rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--private-surface-text, #111827);
+}
+
+.account-preferences-subtitle {
+    font-size: 0.82rem;
+    color: var(--private-muted-text, #64748b);
+    margin: 0;
+}
+
+.account-preferences-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+}
+
+.account-preference-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.85rem;
+    padding: 1rem 1.1rem;
+    border-radius: 1rem;
+    background: var(--private-row-bg, rgba(15, 23, 42, 0.03));
+    border: 1px solid var(--private-surface-border, rgba(15, 23, 42, 0.08));
+}
+
+.account-preference-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    border-radius: 10px;
+    flex-shrink: 0;
+    font-size: 1rem;
+}
+
+.account-preference-icon.pref-email   { background: rgba(37, 99, 235, 0.13); color: #60a5fa; }
+.account-preference-icon.pref-remind  { background: rgba(234, 179, 8, 0.13); color: #facc15; }
+.account-preference-icon.pref-confirm { background: rgba(124, 58, 237, 0.13); color: #a78bfa; }
+
+.account-preference-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.account-preference-name {
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: var(--private-surface-text, #111827);
+    margin: 0 0 0.18rem;
+}
+
+.account-preference-desc {
+    font-size: 0.74rem;
+    color: var(--private-muted-text, #64748b);
+    margin: 0;
+    line-height: 1.45;
+}
+
+/* ── N. TOGGLE SWITCH ──────────────────────────────────── */
+.account-switch {
+    position: relative;
+    display: inline-block;
+    width: 2.4rem;
+    height: 1.35rem;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.account-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+    position: absolute;
+}
+
+.account-switch-slider {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: var(--private-input-border, rgba(15, 23, 42, 0.22));
+    transition: background 0.22s ease;
+}
+
+.account-switch-slider::before {
+    content: "";
+    position: absolute;
+    left: 0.2rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 0.95rem;
+    height: 0.95rem;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.22s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+.account-switch input:checked + .account-switch-slider {
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+}
+
+.account-switch input:checked + .account-switch-slider::before {
+    transform: translateY(-50%) translateX(1.05rem);
+}
+
+/* ── O. RESPONSIVE ─────────────────────────────────────── */
+@media (max-width: 1024px) {
+    .account-hero {
+        flex-direction: column;
+        gap: 1.1rem;
+    }
+
+    .account-kpi-grid {
+        width: 100%;
+    }
+
+    .account-preferences-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 767px) {
+    .account-content-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .account-kpi-grid {
+        flex-direction: column;
+    }
+
+    .account-kpi-card {
+        min-width: unset;
+        width: 100%;
+    }
+
+    .account-kpi-value {
+        max-width: 100%;
+    }
+
+    .account-preferences-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .account-title {
+        font-size: 1.5rem;
+    }
+
+    .account-btn-primary {
+        width: 100%;
+    }
+
+    .account-section-card,
+    .account-security-card,
+    .account-preferences {
+        padding: 1.25rem;
+    }
+}
+
+@media (max-width: 400px) {
+    .account-page-shell {
+        padding: 0.75rem 0;
+    }
+
+    .account-hero {
+        margin-bottom: 1.25rem;
+    }
+
+    .account-title {
+        font-size: 1.35rem;
+    }
+}

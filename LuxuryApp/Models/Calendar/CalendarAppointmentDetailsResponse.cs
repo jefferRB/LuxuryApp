@@ -20,6 +20,8 @@ namespace LuxuryApp.Models.Calendar
 
         public int FuncionarioId { get; init; }
 
+        public string FuncionarioNombre { get; init; } = string.Empty;
+
         public int DuracionMinutos { get; init; }
 
         public bool WhatsAppConsentAtCreation { get; init; }

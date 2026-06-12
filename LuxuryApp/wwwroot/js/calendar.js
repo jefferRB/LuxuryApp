@@ -635,7 +635,7 @@ function resolveSlotFromPoint(clientX, clientY) {
     return getCalendarSlot(document.elementFromPoint(clientX, clientY));
 }
 
-function buildAppointmentBlock(cita, top, altura, draggable = false) {
+function buildAppointmentBlock(cita, top, altura) {
     const bloque = document.createElement("div");
     bloque.className = "cita-bloque";
     bloque.dataset.id = String(cita.id);
@@ -644,7 +644,6 @@ function buildAppointmentBlock(cita, top, altura, draggable = false) {
     bloque.style.backgroundColor = cita.tipo === "DESCANSO"
         ? "#6c757d"
         : (cita.colorCalendario || "#004445");
-    bloque.draggable = draggable;
 
     const title = document.createElement("div");
     title.style.fontWeight = "600";
@@ -663,6 +662,11 @@ function buildAppointmentBlock(cita, top, altura, draggable = false) {
 
     bloque.appendChild(title);
     bloque.appendChild(detail);
+
+    const resizeHandle = document.createElement("div");
+    resizeHandle.className = "cita-resize-handle";
+    bloque.appendChild(resizeHandle);
+
     return bloque;
 }
 
@@ -1543,7 +1547,7 @@ async function renderCalendar(date) {
     calendar.appendChild(grid);
 }
 
-async function buildDayGrid(container, date) {
+async function buildDayGrid(container, date, funcionarioFilter = null) {
 
     if (!container) {
         return;
@@ -1562,8 +1566,19 @@ async function buildDayGrid(container, date) {
     const funcionariosContainer = document.createElement("div");
     funcionariosContainer.className = "funcionarios-container";
 
+    const headerStrip = document.createElement("div");
+    headerStrip.className = "day-func-header-strip";
+    const headerTimePad = document.createElement("div");
+    headerTimePad.className = "day-func-header-time-pad";
+    headerTimePad.textContent = "HORA";
+    headerStrip.appendChild(headerTimePad);
+    const headerCols = document.createElement("div");
+    headerCols.className = "day-func-header-cols";
+    headerStrip.appendChild(headerCols);
+
     grid.appendChild(timeColumn);
     grid.appendChild(funcionariosContainer);
+    container.appendChild(headerStrip);
     container.appendChild(grid);
 
     const inicio = calendarConfig.inicio;
@@ -1614,7 +1629,24 @@ async function buildDayGrid(container, date) {
 
     // ===== FUNCIONARIOS =====
 
-    funcionarios.forEach(func => {
+    const funcionariosFiltrados = funcionarioFilter
+        ? funcionarios.filter(f => String(f.id) === String(funcionarioFilter))
+        : funcionarios;
+
+    funcionariosFiltrados.forEach(func => {
+
+        const headerCell = document.createElement("div");
+        headerCell.className = "day-func-header-cell";
+        const hAvatar = document.createElement("div");
+        hAvatar.className = "day-func-avatar";
+        hAvatar.style.background = func.colorCalendario || "#6366f1";
+        hAvatar.textContent = (func.nombre || "?").substring(0, 2).toUpperCase();
+        const hName = document.createElement("span");
+        hName.className = "day-func-name";
+        hName.textContent = func.nombre || "—";
+        headerCell.appendChild(hAvatar);
+        headerCell.appendChild(hName);
+        headerCols.appendChild(headerCell);
 
         const col = document.createElement("div");
         col.className = "funcionario-column";
@@ -1629,35 +1661,7 @@ async function buildDayGrid(container, date) {
             funcionarioNombre: func.nombre || ""
         });
 
-        // 🔥 DROP ZONE
-        col.addEventListener("dragover", e => {
-            e.preventDefault();
-        });
-
-        col.addEventListener("drop", async e => {
-
-            e.preventDefault();
-
-            const citaId = e.dataTransfer.getData("citaId");
-
-            const rect = col.getBoundingClientRect();
-            const y = e.clientY - rect.top;
-
-            // 🔥 CORRECCIÓN DE PRECISIÓN
-            const slotIndex = Math.floor((y + altoSlot / 2) / altoSlot);
-
-            const minutosDesdeInicio = slotIndex * intervalo;
-
-            const hour = inicio + Math.floor(minutosDesdeInicio / 60);
-            const minute = minutosDesdeInicio % 60;
-
-            const nuevaFecha =
-                `${dateStr}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`;
-
-            const funcionarioId = col.dataset.id;
-
-            await moverCita(citaId, nuevaFecha, funcionarioId);
-        });
+        // Drag & drop desactivado — solo resize de duración
 
         // líneas base
         for (let i = 0; i < totalSlots; i++) {
@@ -1712,13 +1716,10 @@ async function buildDayGrid(container, date) {
 
         if (!col) return;
 
-        const bloque = buildAppointmentBlock(cita, top, altura, true);
-
-        bloque.addEventListener("dragstart", e => {
-            e.dataTransfer.setData("citaId", cita.id);
-        });
+        const bloque = buildAppointmentBlock(cita, top, altura);
 
         bloque.addEventListener("mousedown", (e) => {
+            if (e.target.classList.contains("cita-resize-handle")) return;
             e.stopPropagation();
         });
 
@@ -1727,9 +1728,83 @@ async function buildDayGrid(container, date) {
         });
 
         bloque.addEventListener("click", (e) => {
+            if (bloque._resizeDidHappen) { bloque._resizeDidHappen = false; return; }
             e.stopPropagation();
             editarCita(cita.id);
         });
+
+        // ── RESIZE DE DURACIÓN ──────────────────────────────
+        const resizeHandle = bloque.querySelector(".cita-resize-handle");
+        if (resizeHandle) {
+            const originalAltura = altura;
+            let startY = 0;
+            let duracionActual = cita.duracionMinutos || 30;
+
+            resizeHandle.addEventListener("pointerdown", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                startY = e.clientY;
+                duracionActual = cita.duracionMinutos || 30;
+                resizeHandle.setPointerCapture(e.pointerId);
+            });
+
+            resizeHandle.addEventListener("pointermove", (e) => {
+                if (!resizeHandle.hasPointerCapture(e.pointerId)) return;
+                bloque._resizeDidHappen = true;
+
+                const dy = e.clientY - startY;
+                const rawHeight = Math.max(altoSlot, originalAltura + dy);
+                const snappedSlots = Math.max(1, Math.round(rawHeight / altoSlot));
+                const snappedHeight = snappedSlots * altoSlot;
+                duracionActual = snappedSlots * intervalo;
+
+                bloque.style.height = `${snappedHeight}px`;
+                const detailEl = bloque.querySelector("div:nth-child(2)");
+                if (detailEl) detailEl.textContent = `${duracionActual} min`;
+            });
+
+            resizeHandle.addEventListener("pointerup", async (e) => {
+                if (!resizeHandle.hasPointerCapture(e.pointerId)) return;
+                resizeHandle.releasePointerCapture(e.pointerId);
+
+                const originalDuracion = cita.duracionMinutos || 30;
+                if (!bloque._resizeDidHappen || duracionActual === originalDuracion) {
+                    setTimeout(() => { bloque._resizeDidHappen = false; }, 100);
+                    return;
+                }
+
+                const minDuracion = Math.max(intervalo, 5);
+                const maxDuracion = (fin - inicio) * 60;
+                if (duracionActual < minDuracion) duracionActual = minDuracion;
+                if (duracionActual > maxDuracion) duracionActual = maxDuracion;
+
+                try {
+                    await apiFetchJson(`/Calendar/ResizeDuration/${cita.id}`, {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ duracionMinutos: duracionActual })
+                    });
+                    cita.duracionMinutos = duracionActual;
+                    await refreshCalendarView();
+                } catch (err) {
+                    bloque.style.height = `${originalAltura}px`;
+                    const detailEl = bloque.querySelector("div:nth-child(2)");
+                    if (detailEl) {
+                        if (cita.tipo === "DESCANSO") {
+                            detailEl.textContent = `${originalDuracion} min`;
+                        } else {
+                            detailEl.textContent = safeText(cita.servicioNombre, "Sin servicio");
+                        }
+                    }
+                    showCalendarToast(
+                        "Horario no disponible",
+                        err.message || "No se pudo ajustar la duración de la cita."
+                    );
+                }
+
+                setTimeout(() => { bloque._resizeDidHappen = false; }, 100);
+            });
+        }
 
         col.appendChild(bloque);
     });
@@ -1887,7 +1962,6 @@ async function renderDayView(date) {
 async function onDayClick(year, month, day) {
 
     const selectedDate = new Date(year, month, day);
-
     currentDate = selectedDate;
 
     const modalTitle = document.getElementById("modalTitle");
@@ -1899,6 +1973,27 @@ async function onDayClick(year, month, day) {
         month: "long",
         day: "numeric"
     });
+
+    const modalFiltro = document.getElementById("dayModalFuncionarioFiltro");
+    if (modalFiltro) {
+        if (!modalFiltro.dataset.bound) {
+            const funcs = await getFuncionariosActivos();
+            modalFiltro.innerHTML = '<option value="">Todos los funcionarios</option>';
+            funcs.forEach(f => {
+                const opt = document.createElement("option");
+                opt.value = f.id;
+                opt.textContent = f.nombre;
+                modalFiltro.appendChild(opt);
+            });
+            modalFiltro.dataset.bound = "true";
+            modalFiltro.addEventListener("change", async () => {
+                clearElement(hoursContainer);
+                await buildDayGrid(hoursContainer, currentDate, modalFiltro.value || null);
+            });
+        } else {
+            modalFiltro.value = "";
+        }
+    }
 
     await buildDayGrid(hoursContainer, selectedDate);
 
@@ -2186,7 +2281,7 @@ async function guardarCita() {
             loadUpcomingAppointments(document.getElementById("funcionarioFiltro")?.value || "")
         ]);
     } catch (error) {
-        alert(error.message);
+        showCalendarToast("Horario no disponible", error.message || "No se pudo guardar la cita.");
     }
 }
 
@@ -2268,7 +2363,7 @@ function agregarCitaVisual(cita, container = document) {
 
     if (!col) return;
 
-    const bloque = buildAppointmentBlock(cita, top, altura, false);
+    const bloque = buildAppointmentBlock(cita, top, altura);
 
     bloque.addEventListener("mousedown", (e) => {
         e.stopPropagation();
@@ -2316,6 +2411,37 @@ function limpiarModalCita() {
     syncCreateConsentUI();
 }
 
+function showCalendarToast(title, message, durationMs = 5000) {
+    const existing = document.getElementById("calendarConflictToast");
+    if (existing) existing.remove();
+
+    const toast = document.createElement("div");
+    toast.id = "calendarConflictToast";
+    toast.className = "cal-toast cal-toast--error";
+    toast.setAttribute("role", "alert");
+    toast.setAttribute("aria-live", "assertive");
+    toast.innerHTML = `
+        <div class="cal-toast-icon"><i class="bi bi-exclamation-triangle-fill"></i></div>
+        <div class="cal-toast-body">
+            <strong class="cal-toast-title">${escapeHtml(title)}</strong>
+            <div class="cal-toast-msg">${escapeHtml(message)}</div>
+        </div>
+        <button class="cal-toast-close" onclick="this.closest('.cal-toast').remove()" aria-label="Cerrar"><i class="bi bi-x-lg"></i></button>
+    `;
+
+    document.body.appendChild(toast);
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => toast.classList.add("cal-toast--visible"));
+    });
+
+    const timer = setTimeout(() => {
+        toast.classList.remove("cal-toast--visible");
+        setTimeout(() => toast.remove(), 350);
+    }, durationMs);
+
+    toast.querySelector(".cal-toast-close").addEventListener("click", () => clearTimeout(timer));
+}
+
 function formatHourAMPM(hour, minute = 0) {
     const h = hour % 12 || 12;
     const ampm = hour < 12 ? "AM" : "PM";
@@ -2334,32 +2460,97 @@ async function cancelarCita(id = null) {
         return;
     }
 
-    const tipo = document.getElementById("editTipo")?.value;
+    await abrirModalCancelarCita(citaId);
+}
 
-const mensaje =
-    tipo === "DESCANSO"
-        ? "¿Seguro que deseas eliminar este descanso?"
-        : "¿Seguro que deseas cancelar esta cita?";
+function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.appendChild(document.createTextNode(String(str)));
+    return div.innerHTML;
+}
 
-if (!confirm(mensaje))
-    return;
+async function abrirModalCancelarCita(citaId) {
+    const modalEl = document.getElementById("cancelCitaModal");
+    if (!modalEl) return;
+
+    const citaIdInput = document.getElementById("cancelCitaId");
+    if (citaIdInput) citaIdInput.value = citaId;
+
+    const summaryEl = document.getElementById("cancelCitaSummary");
+    if (summaryEl) {
+        summaryEl.innerHTML = '<div style="color:var(--private-muted-text);font-size:.84rem;padding:.5rem 0">Cargando…</div>';
+    }
+
+    const btn = document.getElementById("btnConfirmarCancelarCita");
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-x-circle-fill"></i> Cancelar cita';
+    }
+
+    new bootstrap.Modal(modalEl).show();
 
     try {
+        const cita = await apiFetchJson(`/Calendar/GetById/${citaId}`);
+        if (!summaryEl) return;
 
-        await apiFetchJson(`/Calendar/Delete/${citaId}`, {
-            method: "DELETE"
+        const tipo = safeText(cita.tipo, "CITA").toUpperCase();
+        const esDescanso = tipo === "DESCANSO";
+        const fechaCita = parseLocalDateTime(cita.fechaHoraCita);
+        const fechaStr = fechaCita
+            ? fechaCita.toLocaleDateString("es-CR", { weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })
+            : "—";
+
+        const titleEl = document.getElementById("cancelCitaModalTitle");
+        const descEl = document.getElementById("cancelCitaDesc");
+        if (titleEl) titleEl.textContent = esDescanso ? "Eliminar descanso" : "Cancelar cita";
+        if (descEl) descEl.textContent = esDescanso
+            ? "¿Seguro que deseas eliminar este bloque de descanso?"
+            : "¿Seguro que deseas cancelar esta cita?";
+
+        clearElement(summaryEl);
+        const rows = [];
+        if (!esDescanso) {
+            rows.push({ icon: "bi-person-fill", label: "Cliente", value: safeText(cita.nombreCliente, "—") });
+            rows.push({ icon: "bi-scissors", label: "Servicio", value: safeText(cita.servicioNombre, "—") });
+        }
+        rows.push({ icon: "bi-person-badge-fill", label: "Funcionario", value: safeText(cita.funcionarioNombre, "—") });
+        rows.push({ icon: "bi-calendar3", label: "Fecha y hora", value: fechaStr });
+
+        rows.forEach(r => {
+            const row = document.createElement("div");
+            row.className = "cal-cancel-summary-row";
+            row.innerHTML = `<div class="cal-cancel-summary-icon"><i class="bi ${escapeHtml(r.icon)}"></i></div><div class="cal-cancel-summary-info"><span class="cal-cancel-summary-label">${escapeHtml(r.label)}</span><span class="cal-cancel-summary-value">${escapeHtml(r.value)}</span></div>`;
+            summaryEl.appendChild(row);
         });
+    } catch (error) {
+        if (error.name === "AbortError") return;
+        if (summaryEl) summaryEl.innerHTML = `<div class="text-danger small py-2">Error al cargar el detalle de la cita.</div>`;
+        console.error("Error cargando detalle para cancelar cita", error);
+    }
+}
 
-        const modalEl = document.getElementById("editCitaModal");
-        const modal = bootstrap.Modal.getInstance(modalEl);
-        if (modal) modal.hide();
+async function confirmarCancelarCita() {
+    const citaId = parsePositiveInt(document.getElementById("cancelCitaId")?.value);
+    if (!citaId) return;
+
+    const btn = document.getElementById("btnConfirmarCancelarCita");
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Cancelando…'; }
+
+    try {
+        await apiFetchJson(`/Calendar/Delete/${citaId}`, { method: "DELETE" });
+
+        bootstrap.Modal.getInstance(document.getElementById("cancelCitaModal"))?.hide();
+        bootstrap.Modal.getInstance(document.getElementById("editCitaModal"))?.hide();
 
         await loadUpcomingAppointments(document.getElementById("funcionarioFiltro")?.value || "");
         await refreshCalendarView();
-
     } catch (err) {
-
-        alert(err.message);
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-x-circle-fill"></i> Cancelar cita'; }
+        const warningEl = document.getElementById("cancelCitaWarningBox");
+        if (warningEl) {
+            const span = warningEl.querySelector("span");
+            if (span) span.textContent = err.message;
+        }
     }
 }
 
@@ -2443,7 +2634,10 @@ async function editarCita(id) {
 
         modal.show();
     } catch (error) {
-        alert(error.message);
+        showCalendarToast(
+            "Error al cargar cita",
+            error.message || "No fue posible cargar los datos de la cita."
+        );
     }
 }
 
@@ -2655,7 +2849,10 @@ async function guardarEdicion() {
             refreshCalendarView()
         ]);
     } catch (error) {
-        alert(error.message);
+        showCalendarToast(
+            "Error al guardar",
+            error.message || "No fue posible guardar los cambios de la cita."
+        );
     }
 }
 

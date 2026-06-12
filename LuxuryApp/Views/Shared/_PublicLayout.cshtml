@@ -65,6 +65,21 @@
                     Plataforma SaaS para barberias, salones y negocios de servicios que necesitan operar con mas control,
                     trazabilidad y una experiencia comercial mas clara.
                 </p>
+                <div class="public-footer-socials">
+                    @* TODO: reemplazar # con las URLs reales de redes sociales *@
+                    <a href="#" class="public-footer-social-link" aria-label="Instagram">
+                        <i class="bi bi-instagram"></i>
+                    </a>
+                    <a href="#" class="public-footer-social-link" aria-label="Facebook">
+                        <i class="bi bi-facebook"></i>
+                    </a>
+                    <a href="#" class="public-footer-social-link" aria-label="WhatsApp">
+                        <i class="bi bi-whatsapp"></i>
+                    </a>
+                    <a href="#" class="public-footer-social-link" aria-label="Correo">
+                        <i class="bi bi-envelope"></i>
+                    </a>
+                </div>
             </div>
 
             <div class="public-footer-links">
@@ -74,6 +89,10 @@
                 <a asp-controller="Contract" asp-action="Index">Contrato</a>
                 <a href="/privacidad">Privacidad</a>
                 <a asp-controller="Home" asp-action="DataDeletion">Eliminacion de datos</a>
+            </div>
+
+            <div class="public-footer-copyright">
+                &copy; @DateTime.UtcNow.Year LuxuryCloud. Todos los derechos reservados.
             </div>
         </div>
     </footer>
