@@ -90,16 +90,24 @@
                     <span asp-validation-for="FrecuenciaVisita" class="clt-field-error"></span>
                 </div>
 
-                <!-- Fecha Última Visita -->
+                <!-- Fecha Última Visita (solo lectura) -->
+                @{
+                    var hayUltimaVisita = Model.FechaUltimaVisita.Year > 1900;
+                    var textoUltimaVisita = hayUltimaVisita
+                        ? Model.FechaUltimaVisita.ToString("dd/MM/yyyy")
+                        : "Sin visitas registradas";
+                }
                 <div class="clt-field">
-                    <label asp-for="FechaUltimaVisita" class="clt-label">
-                        Fecha Última Visita <span class="clt-required">*</span>
-                    </label>
-                    <div class="clt-input-wrap">
-                        <span class="clt-input-icon"><i class="bi bi-calendar3"></i></span>
-                        <input asp-for="FechaUltimaVisita" id="clt-ultima" class="clt-input" type="date" />
+                    <label class="clt-label">Última visita atendida</label>
+                    <div style="position:relative;">
+                        <span class="clt-visit-display-icon"><i class="bi bi-calendar3"></i></span>
+                        <div class="clt-visit-display">@textoUltimaVisita</div>
                     </div>
-                    <span asp-validation-for="FechaUltimaVisita" class="clt-field-error"></span>
+                    <input type="hidden" id="clt-ultima" value="@Model.FechaUltimaVisita.ToString("yyyy-MM-dd")" />
+                    <small style="font-size:0.75rem;color:var(--private-muted-text,#64748b);margin-top:0.3rem;display:block;">
+                        <i class="bi bi-info-circle"></i>
+                        Se actualiza automáticamente al procesar una cita del calendario.
+                    </small>
                 </div>
 
                 <!-- Próxima Visita (calculada) -->

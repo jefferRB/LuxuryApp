@@ -123,13 +123,14 @@ namespace LuxuryApp.Services.Informacion
                 })
                 .ToListAsync(cancellationToken);
 
-            var topClientes = await citas
-                .GroupBy(c => new { c.NombreCliente, c.TelefonoCliente })
-                .Select(group => new TopClienteVM
+            var topClientes = await _context.Clientes
+                .AsNoTracking()
+                .Where(c => c.Visitas.Any())
+                .Select(c => new TopClienteVM
                 {
-                    Nombre = group.Key.NombreCliente ?? string.Empty,
-                    Telefono = group.Key.TelefonoCliente ?? string.Empty,
-                    TotalVisitas = group.Count()
+                    Nombre = c.Nombre,
+                    Telefono = c.NumeroTelefono,
+                    TotalVisitas = c.Visitas.Count()
                 })
                 .OrderByDescending(x => x.TotalVisitas)
                 .ThenBy(x => x.Nombre)

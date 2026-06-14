@@ -10,6 +10,7 @@ namespace LuxuryApp.Models.DataBase
         public IReadOnlyList<ClienteSummaryViewModel> ClientesEncontrados { get; set; } = Array.Empty<ClienteSummaryViewModel>();
         public IReadOnlyList<CitaVisitaItemViewModel> HistorialVisitas { get; set; } = Array.Empty<CitaVisitaItemViewModel>();
         public int TotalVisitas { get; set; }
+        public int TotalCitasHistorial { get; set; }
         public string? NotasServicio { get; set; }
         public IReadOnlyList<CobroClienteHistorialItemViewModel> HistorialPagos { get; set; } = Array.Empty<CobroClienteHistorialItemViewModel>();
     }

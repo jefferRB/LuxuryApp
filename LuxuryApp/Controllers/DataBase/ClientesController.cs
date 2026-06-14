@@ -279,8 +279,13 @@ namespace LuxuryApp.Controllers.DataBase
                     })
                     .ToListAsync();
 
+                var totalVisitasReales = await _context.ClienteVisitas
+                    .AsNoTracking()
+                    .CountAsync(v => v.ClienteId == cliente.Id);
+
                 model.ClienteSeleccionado = cliente;
-                model.TotalVisitas = historialCitas.Count;
+                model.TotalVisitas = totalVisitasReales;
+                model.TotalCitasHistorial = historialCitas.Count;
                 model.HistorialVisitas = historialCitas;
                 model.NotasServicio = notasServicio;
                 model.HistorialPagos = historialPagos;
@@ -335,7 +340,6 @@ namespace LuxuryApp.Controllers.DataBase
                 nameof(ClientesModel.CorreoElectronico) + "," +
                 nameof(ClientesModel.Nombre) + "," +
                 nameof(ClientesModel.FrecuenciaVisita) + "," +
-                nameof(ClientesModel.FechaUltimaVisita) + "," +
                 nameof(ClientesModel.FechaCumpleaños) + "," +
                 nameof(ClientesModel.AceptaMensajesWhatsApp))]
             ClientesModel cliente)
@@ -372,7 +376,6 @@ namespace LuxuryApp.Controllers.DataBase
                         telefonoAnterior,
                         cliente.NumeroTelefono,
                         StringComparison.Ordinal);
-                    var cambioFechaVisita = clienteExistente.FechaUltimaVisita != cliente.FechaUltimaVisita;
                     var cambioConsentimiento = tenantWhatsAppEnabled &&
                         clienteExistente.AceptaMensajesWhatsApp != cliente.AceptaMensajesWhatsApp;
 
@@ -385,7 +388,6 @@ namespace LuxuryApp.Controllers.DataBase
                     }
                     clienteExistente.FechaCumpleaños = cliente.FechaCumpleaños;
                     clienteExistente.FrecuenciaVisita = cliente.FrecuenciaVisita;
-                    clienteExistente.FechaUltimaVisita = cliente.FechaUltimaVisita;
 
                     if (cambioConsentimiento)
                     {
@@ -398,16 +400,6 @@ namespace LuxuryApp.Controllers.DataBase
                             .Where(v => v.ClienteId == clienteExistente.Id)
                             .ExecuteUpdateAsync(setters => setters
                                 .SetProperty(v => v.NumeroTelefono, cliente.NumeroTelefono));
-                    }
-
-                    if (cambioFechaVisita)
-                    {
-                        _context.ClienteVisitas.Add(new ClienteVisitas
-                        {
-                            ClienteId = clienteExistente.Id,
-                            NumeroTelefono = cliente.NumeroTelefono,
-                            FechaVisita = cliente.FechaUltimaVisita
-                        });
                     }
 
                     await _context.SaveChangesAsync();

@@ -51,7 +51,10 @@ namespace LuxuryApp.Services
 
                     if (!existe)
                     {
-                        cliente.FechaUltimaVisita = fin;
+                        if (fin > cliente.FechaUltimaVisita)
+                        {
+                            cliente.FechaUltimaVisita = fin;
+                        }
 
                         _context.ClienteVisitas.Add(new ClienteVisitas
                         {

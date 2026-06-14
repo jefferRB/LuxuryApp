@@ -224,7 +224,7 @@
                     }
                     <span class="clt-result-field">
                         <i class="bi bi-calendar3"></i>
-                        Última visita: @cliente.FechaUltimaVisita.ToString("dd/MM/yyyy")
+                        Última visita: @(cliente.FechaUltimaVisita.Year > 1900 ? cliente.FechaUltimaVisita.ToString("dd/MM/yyyy") : "Sin visitas")
                     </span>
 
                     <form asp-action="Buscar" method="post">
@@ -265,8 +265,11 @@
         var c = Model.ClienteSeleccionado!;
         var ini = c.Nombre.Length > 0 ? char.ToUpper(c.Nombre[0]).ToString() : "?";
         var colorIdx = c.Id % 8;
-        var totalCitas = Model.TotalVisitas;
+        var totalVisitas = Model.TotalVisitas;
+        var totalCitasHistorial = Model.TotalCitasHistorial;
         var totalPagos = Model.HistorialPagos.Count;
+        var hayUltimaVisita = c.FechaUltimaVisita.Year > 1900;
+        var textoUltimaVisita = hayUltimaVisita ? c.FechaUltimaVisita.ToString("dd/MM/yyyy") : "Sin visitas";
 
         <!-- Banda de perfil -->
         <div class="clt-profile-band">
@@ -293,18 +296,18 @@
                 </div>
                 <div class="clt-profile-kpi">
                     <i class="bi bi-calendar3 clt-profile-kpi-icon"></i>
-                    <span class="clt-profile-kpi-val">@c.FechaUltimaVisita.ToString("dd/MM/yyyy")</span>
+                    <span class="clt-profile-kpi-val">@textoUltimaVisita</span>
                     <span class="clt-profile-kpi-label">Última visita</span>
                 </div>
                 <div class="clt-profile-kpi">
                     <i class="bi bi-calendar-check clt-profile-kpi-icon"></i>
-                    <span class="clt-profile-kpi-val">@c.ProximaVisita.ToString("dd/MM/yyyy")</span>
+                    <span class="clt-profile-kpi-val">@(hayUltimaVisita ? c.ProximaVisita.ToString("dd/MM/yyyy") : "—")</span>
                     <span class="clt-profile-kpi-label">Próxima cita</span>
                 </div>
                 <div class="clt-profile-kpi">
                     <i class="bi bi-graph-up-arrow clt-profile-kpi-icon"></i>
-                    <span class="clt-profile-kpi-val">@totalCitas</span>
-                    <span class="clt-profile-kpi-label">Visitas totales</span>
+                    <span class="clt-profile-kpi-val">@totalVisitas</span>
+                    <span class="clt-profile-kpi-label">Visitas atendidas</span>
                 </div>
             </div>
         </div>
@@ -316,7 +319,7 @@
                     <i class="bi bi-pencil-square"></i> Editar Cliente
                 </a>
                 <button type="button" class="crm-btn crm-btn--outline" data-bs-toggle="collapse" data-bs-target="#clt-sec-citas" aria-expanded="false" aria-controls="clt-sec-citas">
-                    <i class="bi bi-calendar-week"></i> Citas (@totalCitas)
+                    <i class="bi bi-calendar-week"></i> Citas (@totalCitasHistorial)
                 </button>
                 @if (totalPagos > 0)
                 {

@@ -224,8 +224,8 @@
 
     </div>
 
-    <!-- ── TABLA DE EMPLEADOS ── -->
-    <div class="func-table-wrap">
+    <!-- ── TABLA DE EMPLEADOS (desktop / tablet grande) ── -->
+    <div class="func-table-wrap func-pagos-table-wrap">
         <table class="func-table" style="min-width:900px;">
 
             <thead>
@@ -321,104 +321,130 @@
                     <!-- ── FILA DETALLE (collapsible) ── -->
                     <tr class="collapse func-pagos-detail" id="detalle_@f.FuncionarioId">
                         <td colspan="10">
-                            <div class="func-pagos-detail-inner">
-
-                                <!-- Producción por día -->
-                                @if (f.DetalleDias.Any())
-                                {
-                                    <div class="func-pagos-detail-title">
-                                        <i class="bi bi-calendar-week"></i>
-                                        Producción por día
-                                    </div>
-                                    <div class="func-day-cards">
-                                        @foreach (var d in f.DetalleDias)
-                                        {
-                                            <div class="func-day-card">
-                                                <span class="func-day-name">@d.Dia</span>
-                                                <span class="func-day-count">@d.CantidadServicios</span>
-                                                <span class="func-day-amount">₡ @d.Monto.ToString("N0")</span>
-                                            </div>
-                                        }
-                                    </div>
-                                }
-
-                                <!-- Productos vendidos -->
-                                @if (f.ProductosVendidos.Any())
-                                {
-                                    <div class="func-pagos-detail-title" style="margin-top:0.25rem;">
-                                        <i class="bi bi-box-seam"></i>
-                                        Productos vendidos
-                                    </div>
-                                    <div style="overflow-x:auto;">
-                                        <table class="func-pagos-subtable">
-                                            <thead>
-                                                <tr>
-                                                    <th>Fecha</th>
-                                                    <th>Producto</th>
-                                                    <th>Precio</th>
-                                                    <th>Ganancia funcionario</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                @foreach (var p in f.ProductosVendidos)
-                                                {
-                                                    <tr>
-                                                        <td class="func-date">@p.Fecha.ToString("dd MMM yyyy")</td>
-                                                        <td>@p.NombreProducto</td>
-                                                        <td style="font-weight:600;">₡ @p.Precio.ToString("N0")</td>
-                                                        <td class="func-amount--green">₡ @p.GananciaFuncionario.ToString("N0")</td>
-                                                    </tr>
-                                                }
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                }
-
-                                <!-- Historial de pagos -->
-                                <div class="func-pagos-detail-title" style="margin-top:@(f.ProductosVendidos.Any() ? "1.25rem" : "0.25rem");">
-                                    <i class="bi bi-receipt"></i>
-                                    Historial de pagos esta semana
-                                </div>
-                                @if (f.HistorialPagos.Any())
-                                {
-                                    <div style="overflow-x:auto;">
-                                        <table class="func-pagos-subtable">
-                                            <thead>
-                                                <tr>
-                                                    <th>Fecha</th>
-                                                    <th>Monto</th>
-                                                    <th>Observación</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                @foreach (var p in f.HistorialPagos)
-                                                {
-                                                    <tr>
-                                                        <td class="func-date">@p.FechaPago.ToString("dd MMM yyyy HH:mm")</td>
-                                                        <td class="func-amount--green">₡ @p.MontoPagado.ToString("N0")</td>
-                                                        <td style="color:var(--private-muted-text,#64748b);">
-                                                            @(string.IsNullOrEmpty(p.Observacion) ? "—" : p.Observacion)
-                                                        </td>
-                                                    </tr>
-                                                }
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                }
-                                else
-                                {
-                                    <p style="font-size:0.82rem;color:var(--private-muted-text,#64748b);margin:0;">
-                                        No hay pagos registrados esta semana para este funcionario.
-                                    </p>
-                                }
-
-                            </div>
+                            <partial name="_PagoDetalleInner" model="f" />
                         </td>
                     </tr>
                 }
             </tbody>
 
         </table>
+    </div>
+
+    <!-- ── LISTA DE EMPLEADOS (mobile / tablet pequeña) ── -->
+    <div class="func-pagos-mobile-list">
+        @foreach (var f in Model.Funcionarios)
+        {
+            var inicial = !string.IsNullOrEmpty(f.Nombre) ? char.ToUpper(f.Nombre[0]).ToString() : "?";
+            var alDia = f.MontoPendiente <= 0;
+            <div class="func-emp-card">
+
+                <!-- Header: avatar + nombre + estado -->
+                <div class="func-emp-card-head">
+                    <div class="func-emp-card-avatar">@inicial</div>
+                    <div class="func-emp-card-id">
+                        <span class="func-emp-card-name">@f.Nombre</span>
+                        @if (alDia)
+                        {
+                            <span class="func-emp-card-status func-emp-card-status--ok">
+                                <i class="bi bi-check-circle-fill"></i> Al día
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="func-emp-card-status func-emp-card-status--pending">
+                                <i class="bi bi-clock-fill"></i> Pendiente
+                            </span>
+                        }
+                    </div>
+                    <button class="func-emp-card-toggle"
+                            type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#detalleMobile_@f.FuncionarioId"
+                            aria-expanded="false"
+                            aria-label="Ver detalle de @f.Nombre">
+                        <i class="bi bi-chevron-down"></i>
+                    </button>
+                </div>
+
+                <!-- Cuerpo: filas de montos -->
+                <div class="func-emp-card-body">
+                    <div class="func-emp-row">
+                        <span class="func-emp-row-label">Total generado</span>
+                        <span class="func-emp-row-val func-amount--blue">₡ @f.TotalGenerado.ToString("N0")</span>
+                    </div>
+                    <div class="func-emp-row">
+                        <span class="func-emp-row-label">Impuestos</span>
+                        <span class="func-emp-row-val func-amount--red">₡ @f.Impuestos.ToString("N0")</span>
+                    </div>
+                    <div class="func-emp-row">
+                        <span class="func-emp-row-label">Total neto</span>
+                        <span class="func-emp-row-val func-emp-row-val--strong">₡ @f.TotalNeto.ToString("N0")</span>
+                    </div>
+                    <div class="func-emp-row">
+                        <span class="func-emp-row-label">A pagar</span>
+                        <span class="func-emp-row-val func-amount--blue">₡ @f.PagoFinal.ToString("N0")</span>
+                    </div>
+                    <div class="func-emp-row">
+                        <span class="func-emp-row-label">Pagado</span>
+                        <span class="func-emp-row-val func-amount--green">₡ @f.MontoPagado.ToString("N0")</span>
+                    </div>
+                    <div class="func-emp-row">
+                        <span class="func-emp-row-label">Pendiente</span>
+                        <span class="func-emp-row-val @(f.MontoPendiente > 0 ? "func-amount--amber" : "func-amount--green")">₡ @f.MontoPendiente.ToString("N0")</span>
+                    </div>
+                </div>
+
+                <!-- Badges de porcentajes -->
+                <div class="func-emp-card-badges">
+                    <span class="func-emp-badge">
+                        <i class="bi bi-scissors"></i> Servicio @f.Porcentaje %
+                    </span>
+                    <span class="func-emp-badge">
+                        <i class="bi bi-box-seam"></i> Producto @f.PorcentajeProducto %
+                    </span>
+                </div>
+
+                <!-- Acciones -->
+                <div class="func-emp-card-actions">
+                    <button class="func-emp-card-detail-btn"
+                            type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#detalleMobile_@f.FuncionarioId"
+                            aria-expanded="false">
+                        <i class="bi bi-list-ul"></i>
+                        Ver detalle
+                    </button>
+                    @if (f.MontoPendiente > 0)
+                    {
+                        <button type="button"
+                                class="func-emp-card-pay-btn"
+                                data-bs-toggle="modal"
+                                data-bs-target="#modalPago"
+                                data-fid="@f.FuncionarioId"
+                                data-nombre="@f.Nombre"
+                                data-monto="@f.MontoPendiente"
+                                data-pagofinal="@f.PagoFinal"
+                                data-pagado="@f.MontoPagado"
+                                onclick="setPagoFromBtn(this)">
+                            <i class="bi bi-coin"></i>
+                            Pagar
+                        </button>
+                    }
+                    else
+                    {
+                        <span class="func-emp-card-aldia">
+                            <i class="bi bi-check-circle-fill"></i> Al día
+                        </span>
+                    }
+                </div>
+
+                <!-- Detalle colapsable (mismo contenido que desktop) -->
+                <div class="collapse func-emp-detail" id="detalleMobile_@f.FuncionarioId">
+                    <partial name="_PagoDetalleInner" model="f" />
+                </div>
+
+            </div>
+        }
     </div>
 
     @if (!Model.Funcionarios.Any())
