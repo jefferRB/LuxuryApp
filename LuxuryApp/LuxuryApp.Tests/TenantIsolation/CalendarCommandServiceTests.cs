@@ -585,6 +585,9 @@ namespace LuxuryApp.Tests.TenantIsolation
             public Task QueueAppointmentReminderAsync(int citaId, CancellationToken cancellationToken = default) =>
                 throw new InvalidOperationException("Meta WhatsApp no disponible");
 
+            public Task QueueImmediateReminderOnCreateAsync(int citaId, CancellationToken cancellationToken = default) =>
+                throw new InvalidOperationException("Meta WhatsApp no disponible");
+
             public Task ProcessInboundReplyAsync(System.Text.Json.JsonElement payload, CancellationToken cancellationToken = default) =>
                 Task.CompletedTask;
 
@@ -592,6 +595,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 Task.CompletedTask;
 
             public Task ScheduleDueRemindersAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+            public Task GenerateDailyBatchAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
             public Task ProcessPendingNotificationsAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 

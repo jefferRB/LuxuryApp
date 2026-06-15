@@ -118,8 +118,37 @@ namespace LuxuryApp.Controllers
             return View();
         }
 
-        public IActionResult PlanVencido()
+        public async Task<IActionResult> PlanVencido(CancellationToken cancellationToken = default)
         {
+            // Mensaje humano según el origen del vencimiento (prueba vs suscripción pagada),
+            // sin exponer términos técnicos al cliente.
+            var user = await _userManager.GetUserAsync(User);
+            var isTrial = false;
+
+            if (user is not null && user.TenantId != Guid.Empty)
+            {
+                var hadPromotionalGrant = await _context.TenantCommercialAccessGrants
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .AnyAsync(grant => grant.TenantId == user.TenantId, cancellationToken);
+
+                var hadSubscription = await _context.Suscripciones
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .AnyAsync(subscription => subscription.TenantId == user.TenantId, cancellationToken);
+
+                // Si solo tuvo acceso por código promocional (prueba) y nunca una suscripción, es trial.
+                isTrial = hadPromotionalGrant && !hadSubscription;
+            }
+
+            ViewData["IsTrialExpired"] = isTrial;
+            ViewData["ExpiredHeading"] = isTrial
+                ? "Tu prueba finalizó"
+                : "Tu suscripción finalizó";
+            ViewData["ExpiredMessage"] = isTrial
+                ? "Tu prueba de LuxuryCloud finalizó. Renueva tu suscripción para continuar usando la plataforma."
+                : "Tu suscripción finalizó. Renueva tu plan para continuar usando LuxuryCloud.";
+
             return View();
         }
 
@@ -207,6 +236,116 @@ namespace LuxuryApp.Controllers
 
             TempData["BillingSuccess"] = "Preferencias de automatizacion WhatsApp actualizadas correctamente.";
             return RedirectToAction(nameof(Planes));
+        }
+
+        /// <summary>
+        /// Guardado AJAX de la programación de automatizaciones WhatsApp (sin recargar la pantalla).
+        /// Fase 1: modo relativo configurable (horas antes + envío inmediato).
+        /// </summary>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> UpdateWhatsAppAutomation(
+            [FromForm] Models.WhatsApp.WhatsAppAutomationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            var user = await _userManager.GetUserAsync(User);
+            if (user is null)
+            {
+                return Json(new { success = false, message = "Sesión expirada. Vuelve a iniciar sesión." });
+            }
+
+            if (user.TenantId == Guid.Empty)
+            {
+                return Json(new { success = false, message = "El usuario autenticado no tiene un negocio asociado." });
+            }
+
+            request ??= new Models.WhatsApp.WhatsAppAutomationRequest();
+
+            var addon = await _context.TenantSubscriptionAddons
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Include(current => current.Plan)
+                .Where(current => current.TenantId == user.TenantId)
+                .OrderByDescending(current => current.UpdatedAtUtc)
+                .ThenByDescending(current => current.CreatedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (addon is null || !_suscripcionService.IsWhatsAppAddonActive(addon))
+            {
+                return Json(new
+                {
+                    success = false,
+                    message = "Activa un paquete de WhatsApp antes de configurar las automatizaciones."
+                });
+            }
+
+            var current = await _tenantWhatsAppSettingsService.GetSettingsForTenantAsync(user.TenantId, cancellationToken);
+
+            var confirmationBatch = string.Equals(request.ConfirmationMode, "batch", StringComparison.OrdinalIgnoreCase);
+            var reminderBatch = string.Equals(request.ReminderMode, "batch", StringComparison.OrdinalIgnoreCase);
+
+            // Partimos de la configuración actual para no perder campos que esta UI no edita
+            // (zona horaria, notas, horas de silencio).
+            var dto = new Models.WhatsApp.TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = request.ConfirmationsEnabled || request.RemindersEnabled,
+                SendConfirmationOnCreate = request.ConfirmationsEnabled,
+                SendReminderThreeHoursBefore = request.RemindersEnabled,
+                DailyMessageLimit = _suscripcionService.ResolveWhatsAppDailyMessageLimit(addon, current.DailyMessageLimit),
+                TimeZoneId = current.TimeZoneId,
+                Notes = current.Notes,
+
+                ConfirmationScheduleMode = confirmationBatch
+                    ? Models.WhatsApp.WhatsAppConfirmationScheduleModes.DailyBatchPreviousDay
+                    : Models.WhatsApp.WhatsAppConfirmationScheduleModes.RelativeBeforeAppointment,
+                ConfirmationHoursBefore = request.ConfirmationHoursBefore,
+                ConfirmationBatchTime = confirmationBatch ? request.ConfirmationBatchTime : current.ConfirmationBatchTime,
+                ConfirmationBatchTarget = Models.WhatsApp.WhatsAppConfirmationBatchTargets.IsValid(request.ConfirmationBatchTarget)
+                    ? request.ConfirmationBatchTarget
+                    : current.ConfirmationBatchTarget,
+                ConfirmationMorningStart = request.ConfirmationMorningStart ?? current.ConfirmationMorningStart,
+                ConfirmationMorningEnd = request.ConfirmationMorningEnd ?? current.ConfirmationMorningEnd,
+                SendConfirmationImmediatelyIfInsideWindow = request.SendConfirmationImmediatelyIfInsideWindow,
+
+                ReminderScheduleMode = reminderBatch
+                    ? Models.WhatsApp.WhatsAppReminderScheduleModes.DailyBatchSameDay
+                    : Models.WhatsApp.WhatsAppReminderScheduleModes.RelativeBeforeAppointment,
+                ReminderHoursBefore = request.ReminderHoursBefore,
+                ReminderBatchTime = reminderBatch ? request.ReminderBatchTime : current.ReminderBatchTime,
+                ReminderBatchTarget = Models.WhatsApp.WhatsAppReminderBatchTargets.IsValid(request.ReminderBatchTarget)
+                    ? request.ReminderBatchTarget
+                    : current.ReminderBatchTarget,
+                ReminderLookAheadHours = request.ReminderHoursBefore,
+                SendReminderImmediatelyIfInsideWindow = request.SendReminderImmediatelyIfInsideWindow,
+
+                QuietHoursEnabled = request.QuietHoursEnabled,
+                QuietHoursStart = request.QuietHoursEnabled ? request.QuietHoursStart : current.QuietHoursStart,
+                QuietHoursEnd = request.QuietHoursEnabled ? request.QuietHoursEnd : current.QuietHoursEnd
+            };
+
+            try
+            {
+                await _tenantWhatsAppSettingsService.UpdateSettingsAsync(user.TenantId, dto, user.Id, cancellationToken);
+            }
+            catch (ArgumentException ex)
+            {
+                return Json(new { success = false, message = ex.Message });
+            }
+
+            string? warning = null;
+            if (request.ConfirmationsEnabled && request.RemindersEnabled &&
+                !confirmationBatch && !reminderBatch &&
+                request.ConfirmationHoursBefore == request.ReminderHoursBefore)
+            {
+                warning = "La confirmación y el recordatorio quedaron con la misma anticipación; podrían enviarse muy cerca. Revisa la configuración.";
+            }
+
+            return Json(new
+            {
+                success = true,
+                message = "Automatizaciones de WhatsApp actualizadas correctamente.",
+                warning
+            });
         }
 
         [HttpPost]
@@ -957,6 +1096,23 @@ namespace LuxuryApp.Controllers
                 WhatsAppAutomationEnabled = hasActiveWhatsAppAddon && (whatsAppSettings?.IsEnabled ?? false),
                 SendAppointmentConfirmations = hasActiveWhatsAppAddon && (whatsAppSettings?.SendConfirmationOnCreate ?? false),
                 SendAppointmentReminders = hasActiveWhatsAppAddon && (whatsAppSettings?.SendReminderThreeHoursBefore ?? false),
+                ConfirmationHoursBefore = whatsAppSettings?.ConfirmationHoursBefore ?? Models.WhatsApp.TenantWhatsAppSettings.DefaultConfirmationHoursBefore,
+                SendConfirmationImmediatelyIfInsideWindow = whatsAppSettings?.SendConfirmationImmediatelyIfInsideWindow ?? true,
+                ReminderHoursBefore = whatsAppSettings?.ReminderHoursBefore ?? Models.WhatsApp.TenantWhatsAppSettings.DefaultReminderHoursBefore,
+                SendReminderImmediatelyIfInsideWindow = whatsAppSettings?.SendReminderImmediatelyIfInsideWindow ?? true,
+                ConfirmationIsBatch = whatsAppSettings is not null &&
+                    !string.Equals(whatsAppSettings.ConfirmationScheduleMode, Models.WhatsApp.WhatsAppConfirmationScheduleModes.RelativeBeforeAppointment, StringComparison.Ordinal),
+                ConfirmationBatchTime = whatsAppSettings?.ConfirmationBatchTime,
+                ConfirmationBatchTarget = whatsAppSettings?.ConfirmationBatchTarget ?? Models.WhatsApp.WhatsAppConfirmationBatchTargets.TomorrowAllDay,
+                ConfirmationMorningStart = whatsAppSettings?.ConfirmationMorningStart,
+                ConfirmationMorningEnd = whatsAppSettings?.ConfirmationMorningEnd,
+                ReminderIsBatch = whatsAppSettings is not null &&
+                    string.Equals(whatsAppSettings.ReminderScheduleMode, Models.WhatsApp.WhatsAppReminderScheduleModes.DailyBatchSameDay, StringComparison.Ordinal),
+                ReminderBatchTime = whatsAppSettings?.ReminderBatchTime,
+                ReminderBatchTarget = whatsAppSettings?.ReminderBatchTarget ?? Models.WhatsApp.WhatsAppReminderBatchTargets.SameDayRemaining,
+                QuietHoursEnabled = whatsAppSettings?.QuietHoursEnabled ?? false,
+                QuietHoursStart = whatsAppSettings?.QuietHoursStart,
+                QuietHoursEnd = whatsAppSettings?.QuietHoursEnd,
                 WhatsAppNextBillingDateUtc = hasActiveWhatsAppAddon ? addon?.FechaProximoCobroUtc : null
             };
         }

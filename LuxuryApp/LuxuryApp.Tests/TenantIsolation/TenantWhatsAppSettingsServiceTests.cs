@@ -29,6 +29,63 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Empty(context.TenantWhatsAppSettings);
         }
 
+        [Fact]
+        public async Task UpdateSettingsAsync_ShouldPersistConfigurableSchedulingFields()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+            await SeedTenantAsync(context, tenantId);
+
+            await service.UpdateSettingsAsync(tenantId, new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = true,
+                DailyMessageLimit = 30,
+                ConfirmationHoursBefore = 12,
+                SendConfirmationImmediatelyIfInsideWindow = false,
+                ReminderHoursBefore = 6,
+                SendReminderImmediatelyIfInsideWindow = false
+            }, "platform-user");
+
+            var settings = await service.GetSettingsForTenantAsync(tenantId);
+
+            Assert.True(settings.Exists);
+            Assert.Equal(12, settings.ConfirmationHoursBefore);
+            Assert.False(settings.SendConfirmationImmediatelyIfInsideWindow);
+            Assert.Equal(6, settings.ReminderHoursBefore);
+            Assert.False(settings.SendReminderImmediatelyIfInsideWindow);
+            Assert.Equal(WhatsAppConfirmationScheduleModes.RelativeBeforeAppointment, settings.ConfirmationScheduleMode);
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(200)]
+        public async Task UpdateSettingsAsync_WithInvalidConfirmationHours_ShouldThrow(int invalidHours)
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await Assert.ThrowsAsync<ArgumentException>(() => service.UpdateSettingsAsync(
+                tenantId,
+                new TenantWhatsAppSettingsUpdateDto
+                {
+                    IsEnabled = true,
+                    SendConfirmationOnCreate = true,
+                    DailyMessageLimit = 30,
+                    ConfirmationHoursBefore = invalidHours
+                },
+                "platform-user"));
+        }
+
         [Theory]
         [InlineData(PlanCodes.WhatsApp400, "WhatsApp 400", 6000, 400, 15)]
         [InlineData(PlanCodes.WhatsApp800, "WhatsApp 800", 12000, 800, 30)]

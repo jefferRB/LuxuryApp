@@ -1,5 +1,6 @@
 using System.Globalization;
 using LuxuryApp.Models.Calendar;
+using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Productos;
@@ -42,6 +43,13 @@ namespace LuxuryApp.Tests.TenantIsolation
             await SeedCobroAsync(context, ana.IdFuncionario, new DateTime(2026, 4, 7, 10, 0, 0), 25m, "SINPE", shampoo.IdProducto);
             await SeedCobroAsync(context, luis.IdFuncionario, new DateTime(2026, 4, 8, 10, 0, 0), 18m, "TARJETA", gel.IdProducto);
             await SeedCobroAsync(context, ana.IdFuncionario, new DateTime(2026, 6, 8, 10, 0, 0), 30m, "EFECTIVO", gel.IdProducto);
+
+            // El top de clientes se calcula desde el registro real de Clientes y sus Visitas,
+            // no desde las citas. Sembramos los clientes con la cantidad de visitas que el test espera.
+            await SeedClienteConVisitasAsync(context, "Cliente Fiel", "111", 4);
+            await SeedClienteConVisitasAsync(context, "Cliente Medio", "222", 2);
+            await SeedClienteConVisitasAsync(context, "Cliente Nuevo", "333", 1);
+            await SeedClienteConVisitasAsync(context, "Cliente Top", "444", 1);
 
             var service = ControllerTestSupport.CreateInformacionNegocioQueryService(context);
             var model = await service.BuildViewModelAsync(4, 2026, 10);
@@ -99,6 +107,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                         $"Cliente {index}",
                         $"55{index}");
                 }
+
+                await SeedClienteConVisitasAsync(context, $"Cliente {index}", $"55{index}", index);
             }
 
             var service = ControllerTestSupport.CreateInformacionNegocioQueryService(context);
@@ -127,6 +137,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var funcionarioA = await SeedFuncionarioAsync(context, "Ana");
             var servicioA = await SeedServicioAsync(context, "Corte A");
             await SeedCitaAsync(context, funcionarioA.IdFuncionario, servicioA.Id, new DateTime(2026, 4, 7, 9, 0, 0), "Cliente A", "111");
+            await SeedClienteConVisitasAsync(context, "Cliente A", "111", 1);
 
             tenantProvider.TenantId = tenantB;
             context.ChangeTracker.Clear();
@@ -134,6 +145,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var funcionarioB = await SeedFuncionarioAsync(context, "Beto");
             var servicioB = await SeedServicioAsync(context, "Corte B");
             await SeedCitaAsync(context, funcionarioB.IdFuncionario, servicioB.Id, new DateTime(2026, 4, 7, 9, 0, 0), "Cliente B", "222");
+            await SeedClienteConVisitasAsync(context, "Cliente B", "222", 1);
 
             tenantProvider.TenantId = tenantA;
             context.ChangeTracker.Clear();
@@ -231,6 +243,38 @@ namespace LuxuryApp.Tests.TenantIsolation
                 TelefonoCliente = telefonoCliente,
                 Tipo = tipo
             });
+
+            await context.SaveChangesAsync();
+        }
+
+        private static async Task SeedClienteConVisitasAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            string nombre,
+            string telefono,
+            int totalVisitas)
+        {
+            var cliente = new ClientesModel
+            {
+                Nombre = nombre,
+                NumeroTelefono = telefono,
+                FrecuenciaVisita = 1,
+                FechaUltimaVisita = new DateTime(2026, 4, 1)
+            };
+
+            // Guardamos el cliente primero para que reciba su TenantId e Id antes de validar
+            // las visitas; el guard de tenant valida la relacion hijo->principal en SaveChanges.
+            context.Clientes.Add(cliente);
+            await context.SaveChangesAsync();
+
+            for (var index = 0; index < totalVisitas; index++)
+            {
+                context.Set<ClienteVisitas>().Add(new ClienteVisitas
+                {
+                    ClienteId = cliente.Id,
+                    NumeroTelefono = telefono,
+                    FechaVisita = new DateTime(2026, 4, 1).AddDays(index)
+                });
+            }
 
             await context.SaveChangesAsync();
         }

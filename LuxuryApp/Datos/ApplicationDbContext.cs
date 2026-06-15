@@ -200,6 +200,39 @@ namespace ProyectoIdentity.Datos
                     .HasMaxLength(100)
                     .HasDefaultValue(LuxuryApp.Models.WhatsApp.TenantWhatsAppSettings.DefaultTimeZoneId)
                     .IsRequired();
+
+                // Programación de confirmaciones.
+                entity.Property(settings => settings.ConfirmationScheduleMode)
+                    .HasMaxLength(40)
+                    .HasDefaultValue(LuxuryApp.Models.WhatsApp.WhatsAppConfirmationScheduleModes.RelativeBeforeAppointment)
+                    .IsRequired();
+                entity.Property(settings => settings.ConfirmationHoursBefore)
+                    .HasDefaultValue(LuxuryApp.Models.WhatsApp.TenantWhatsAppSettings.DefaultConfirmationHoursBefore);
+                entity.Property(settings => settings.ConfirmationBatchTarget)
+                    .HasMaxLength(30)
+                    .HasDefaultValue(LuxuryApp.Models.WhatsApp.WhatsAppConfirmationBatchTargets.TomorrowAllDay)
+                    .IsRequired();
+                entity.Property(settings => settings.SendConfirmationImmediatelyIfInsideWindow)
+                    .HasDefaultValue(true);
+
+                // Programación de recordatorios.
+                entity.Property(settings => settings.ReminderScheduleMode)
+                    .HasMaxLength(40)
+                    .HasDefaultValue(LuxuryApp.Models.WhatsApp.WhatsAppReminderScheduleModes.RelativeBeforeAppointment)
+                    .IsRequired();
+                entity.Property(settings => settings.ReminderHoursBefore)
+                    .HasDefaultValue(LuxuryApp.Models.WhatsApp.TenantWhatsAppSettings.DefaultReminderHoursBefore);
+                entity.Property(settings => settings.ReminderBatchTarget)
+                    .HasMaxLength(30)
+                    .HasDefaultValue(LuxuryApp.Models.WhatsApp.WhatsAppReminderBatchTargets.SameDayRemaining)
+                    .IsRequired();
+                entity.Property(settings => settings.ReminderLookAheadHours)
+                    .HasDefaultValue(LuxuryApp.Models.WhatsApp.TenantWhatsAppSettings.DefaultReminderHoursBefore);
+                entity.Property(settings => settings.SendReminderImmediatelyIfInsideWindow)
+                    .HasDefaultValue(true);
+
+                entity.Property(settings => settings.QuietHoursEnabled).HasDefaultValue(false);
+
                 entity.Property(settings => settings.Notes).HasMaxLength(2000);
                 entity.Property(settings => settings.UpdatedByUserId).HasMaxLength(450);
 

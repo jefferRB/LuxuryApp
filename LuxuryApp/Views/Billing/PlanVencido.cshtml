@@ -1,29 +1,32 @@
 @{
     Layout = "_PublicLayout";
-    ViewData["Title"] = "Plan vencido";
+    ViewData["Title"] = "Renovación requerida";
     ViewData["PublicBodyClass"] = "public-status-page";
+
+    var heading = ViewData["ExpiredHeading"] as string ?? "Tu suscripción finalizó";
+    var message = ViewData["ExpiredMessage"] as string
+        ?? "Renueva tu suscripción para continuar usando LuxuryCloud.";
 }
 
 <section class="status-section">
     <div class="container">
         <div class="status-card status-card-warning" data-aos="zoom-in">
-            <span class="status-kicker">Renovacion requerida</span>
-            <h1>Tu acceso comercial ya tuvo actividad, pero hoy no tiene una suscripcion vigente.</h1>
-            <p>
-                Renueva el plan para volver a mostrar los modulos privados del SaaS y recuperar el acceso operativo
-                segun la misma logica de autorizacion que ya protege la aplicacion.
-            </p>
+            <span class="status-kicker">Renovación requerida</span>
+            <h1>@heading</h1>
+            <p>@message</p>
 
             <div class="status-benefits">
-                <span>Recupera agenda, clientes y dashboard</span>
-                <span>Retoma el control financiero del tenant</span>
+                <span>Recupera tu agenda, clientes y dashboard</span>
+                <span>Retoma el control de tus ingresos y gastos</span>
                 <span>Vuelve a operar con la experiencia completa</span>
             </div>
 
             <div class="status-actions">
-                <a class="btn public-btn public-btn-primary" asp-controller="Billing" asp-action="Planes">Renovar plan</a>
-                <a class="btn public-btn public-btn-secondary" asp-controller="Billing" asp-action="Planes">Ver opciones</a>
+                <a class="btn public-btn public-btn-primary" asp-controller="Billing" asp-action="Planes">Renovar suscripción</a>
+                <a class="btn public-btn public-btn-secondary" asp-controller="Billing" asp-action="Planes">Ver planes</a>
             </div>
+
+            <p class="status-footnote">Tus datos siguen guardados. Al renovar, recuperas el acceso de inmediato.</p>
         </div>
     </div>
 </section>

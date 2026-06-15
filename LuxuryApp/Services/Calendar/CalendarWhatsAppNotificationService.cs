@@ -74,10 +74,34 @@ namespace LuxuryApp.Services.Calendar
         }
 
         public Task QueueAppointmentConfirmationAsync(int citaId, CancellationToken cancellationToken = default) =>
-            QueueAppointmentAsync(citaId, WhatsAppNotificationTypes.Confirmation, cancellationToken);
+            QueueAppointmentAsync(citaId, WhatsAppNotificationTypes.Confirmation, isBatchGenerated: false, cancellationToken);
 
         public Task QueueAppointmentReminderAsync(int citaId, CancellationToken cancellationToken = default) =>
-            QueueAppointmentAsync(citaId, WhatsAppNotificationTypes.Reminder3Hours, cancellationToken);
+            QueueAppointmentAsync(citaId, WhatsAppNotificationTypes.Reminder3Hours, isBatchGenerated: false, cancellationToken);
+
+        public async Task QueueImmediateReminderOnCreateAsync(int citaId, CancellationToken cancellationToken = default)
+        {
+            if (!_tenantProvider.HasTenant())
+            {
+                return;
+            }
+
+            var settings = await _tenantSettingsService.GetSettingsForTenantAsync(
+                _tenantProvider.GetTenantId(),
+                cancellationToken);
+
+            // Solo modo relativo con envío inmediato activo; el lote diario lo maneja por su cuenta.
+            if (!settings.IsEnabled ||
+                !settings.SendReminderThreeHoursBefore ||
+                !settings.SendReminderImmediatelyIfInsideWindow ||
+                !string.Equals(settings.ReminderScheduleMode, WhatsAppReminderScheduleModes.RelativeBeforeAppointment, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            // QueueAppointmentReminderAsync valida que la cita esté dentro de la ventana del recordatorio.
+            await QueueAppointmentReminderAsync(citaId, cancellationToken);
+        }
 
         public async Task ScheduleDueRemindersAsync(CancellationToken cancellationToken = default)
         {
@@ -96,8 +120,14 @@ namespace LuxuryApp.Services.Calendar
                 return;
             }
 
+            // En modo lote diario, los recordatorios los genera GenerateDailyBatchAsync (no la ventana relativa).
+            if (!string.Equals(settings.ReminderScheduleMode, WhatsAppReminderScheduleModes.RelativeBeforeAppointment, StringComparison.Ordinal))
+            {
+                return;
+            }
+
             var now = _businessDateTimeProvider.Now();
-            var upperLimit = now.AddMinutes(GetReminderLeadTimeMinutes(options));
+            var upperLimit = now.AddMinutes(ResolveReminderLeadMinutes(settings));
 
             var candidates = await _context.Citas
                 .AsNoTracking()
@@ -121,10 +151,228 @@ namespace LuxuryApp.Services.Calendar
             }
         }
 
+        public async Task GenerateDailyBatchAsync(CancellationToken cancellationToken = default)
+        {
+            var options = _options.CurrentValue;
+            if (!options.Enabled || !_tenantProvider.HasTenant())
+            {
+                return;
+            }
+
+            var tenantId = _tenantProvider.GetTenantId();
+            var settings = await _tenantSettingsService.GetSettingsForTenantAsync(tenantId, cancellationToken);
+            if (!settings.IsEnabled)
+            {
+                return;
+            }
+
+            var now = _businessDateTimeProvider.Now();
+            var today = DateOnly.FromDateTime(now);
+            var nowTime = TimeOnly.FromDateTime(now);
+
+            await GenerateConfirmationBatchAsync(tenantId, settings, now, today, nowTime, cancellationToken);
+            await GenerateReminderBatchAsync(tenantId, settings, now, today, nowTime, cancellationToken);
+        }
+
+        private async Task GenerateConfirmationBatchAsync(
+            Guid tenantId,
+            TenantWhatsAppSettingsSnapshot settings,
+            DateTime now,
+            DateOnly today,
+            TimeOnly nowTime,
+            CancellationToken cancellationToken)
+        {
+            var isBatchMode = string.Equals(settings.ConfirmationScheduleMode, WhatsAppConfirmationScheduleModes.DailyBatchPreviousDay, StringComparison.Ordinal) ||
+                              string.Equals(settings.ConfirmationScheduleMode, WhatsAppConfirmationScheduleModes.DailyBatchSameDay, StringComparison.Ordinal);
+
+            if (!settings.SendConfirmationOnCreate ||
+                !isBatchMode ||
+                settings.ConfirmationBatchTime is null)
+            {
+                return;
+            }
+
+            // Una sola corrida por día local; si la hora aún no llega, esperar.
+            if (settings.LastConfirmationBatchRunDateLocal == today || nowTime < settings.ConfirmationBatchTime.Value)
+            {
+                return;
+            }
+
+            var (startInclusive, endExclusive) = ResolveConfirmationBatchWindow(settings, now);
+            var candidateIds = await _context.Citas
+                .AsNoTracking()
+                .Where(c =>
+                    c.Tipo == "CITA" &&
+                    c.FechaHoraCita >= startInclusive &&
+                    c.FechaHoraCita < endExclusive &&
+                    c.FechaHoraCita > now &&
+                    c.EstadoConfirmacionWhatsApp != WhatsAppConfirmationStates.Cancelada)
+                .OrderBy(c => c.FechaHoraCita)
+                .Select(c => c.Id)
+                .ToListAsync(cancellationToken);
+
+            foreach (var citaId in candidateIds)
+            {
+                await QueueAppointmentAsync(citaId, WhatsAppNotificationTypes.Confirmation, isBatchGenerated: true, cancellationToken);
+            }
+
+            await StampBatchRunAsync(tenantId, isConfirmation: true, today, cancellationToken);
+
+            _logger.LogInformation(
+                "Lote de confirmaciones WhatsApp generado. TenantId {TenantId}. Citas objetivo {Count}. Target {Target}.",
+                tenantId, candidateIds.Count, settings.ConfirmationBatchTarget);
+        }
+
+        private async Task GenerateReminderBatchAsync(
+            Guid tenantId,
+            TenantWhatsAppSettingsSnapshot settings,
+            DateTime now,
+            DateOnly today,
+            TimeOnly nowTime,
+            CancellationToken cancellationToken)
+        {
+            if (!settings.SendReminderThreeHoursBefore ||
+                !string.Equals(settings.ReminderScheduleMode, WhatsAppReminderScheduleModes.DailyBatchSameDay, StringComparison.Ordinal) ||
+                settings.ReminderBatchTime is null)
+            {
+                return;
+            }
+
+            if (settings.LastReminderBatchRunDateLocal == today || nowTime < settings.ReminderBatchTime.Value)
+            {
+                return;
+            }
+
+            var (startInclusive, endExclusive) = ResolveReminderBatchWindow(settings, now, today);
+            var candidateIds = await _context.Citas
+                .AsNoTracking()
+                .Where(c =>
+                    c.Tipo == "CITA" &&
+                    c.FechaHoraCita >= startInclusive &&
+                    c.FechaHoraCita < endExclusive &&
+                    c.FechaHoraCita > now &&
+                    !c.Recordatorio3hEnviado &&
+                    c.RecordatorioWhatsAppTresHorasEnviadoUtc == null &&
+                    c.EstadoConfirmacionWhatsApp != WhatsAppConfirmationStates.Cancelada)
+                .OrderBy(c => c.FechaHoraCita)
+                .Select(c => c.Id)
+                .ToListAsync(cancellationToken);
+
+            foreach (var citaId in candidateIds)
+            {
+                await QueueAppointmentAsync(citaId, WhatsAppNotificationTypes.Reminder3Hours, isBatchGenerated: true, cancellationToken);
+            }
+
+            await StampBatchRunAsync(tenantId, isConfirmation: false, today, cancellationToken);
+
+            _logger.LogInformation(
+                "Lote de recordatorios WhatsApp generado. TenantId {TenantId}. Citas objetivo {Count}. Target {Target}.",
+                tenantId, candidateIds.Count, settings.ReminderBatchTarget);
+        }
+
+        private (DateTime StartInclusive, DateTime EndExclusive) ResolveConfirmationBatchWindow(
+            TenantWhatsAppSettingsSnapshot settings,
+            DateTime now)
+        {
+            var today = now.Date;
+            var tomorrow = today.AddDays(1);
+
+            switch (settings.ConfirmationBatchTarget)
+            {
+                case WhatsAppConfirmationBatchTargets.TomorrowMorning:
+                    var morningStart = settings.ConfirmationMorningStart ?? TenantWhatsAppSettings.DefaultMorningStart;
+                    var morningEnd = settings.ConfirmationMorningEnd ?? TenantWhatsAppSettings.DefaultMorningEnd;
+                    return (tomorrow.Add(morningStart.ToTimeSpan()), tomorrow.Add(morningEnd.ToTimeSpan()));
+
+                case WhatsAppConfirmationBatchTargets.SameDayRemaining:
+                    return (now, tomorrow);
+
+                case WhatsAppConfirmationBatchTargets.Next24Hours:
+                    return (now, now.AddHours(24));
+
+                case WhatsAppConfirmationBatchTargets.TomorrowAllDay:
+                default:
+                    return (tomorrow, tomorrow.AddDays(1));
+            }
+        }
+
+        private (DateTime StartInclusive, DateTime EndExclusive) ResolveReminderBatchWindow(
+            TenantWhatsAppSettingsSnapshot settings,
+            DateTime now,
+            DateOnly today)
+        {
+            var startOfToday = now.Date;
+            var endOfToday = startOfToday.AddDays(1);
+
+            return settings.ReminderBatchTarget switch
+            {
+                WhatsAppReminderBatchTargets.NextXHours => (now, now.AddHours(
+                    settings.ReminderLookAheadHours > 0 ? settings.ReminderLookAheadHours : TenantWhatsAppSettings.DefaultReminderHoursBefore)),
+                // SameDayRemaining / NextAppointmentsToday: lo que resta de hoy.
+                _ => (now, endOfToday)
+            };
+        }
+
+        private async Task StampBatchRunAsync(
+            Guid tenantId,
+            bool isConfirmation,
+            DateOnly today,
+            CancellationToken cancellationToken)
+        {
+            if (isConfirmation)
+            {
+                await _context.TenantWhatsAppSettings
+                    .Where(s => s.TenantId == tenantId)
+                    .ExecuteUpdateAsync(updates => updates
+                        .SetProperty(s => s.LastConfirmationBatchRunDateLocal, today),
+                        cancellationToken);
+            }
+            else
+            {
+                await _context.TenantWhatsAppSettings
+                    .Where(s => s.TenantId == tenantId)
+                    .ExecuteUpdateAsync(updates => updates
+                        .SetProperty(s => s.LastReminderBatchRunDateLocal, today),
+                        cancellationToken);
+            }
+        }
+
         public async Task ProcessPendingNotificationsAsync(CancellationToken cancellationToken = default)
         {
             var nowUtc = _businessDateTimeProvider.NowOffset().UtcDateTime;
             var staleProcessingCutoffUtc = nowUtc.AddMinutes(-10);
+
+            // Horas de silencio: si estamos dentro del rango configurado por el tenant, no se envía
+            // nada ahora; se reprograman los pendientes vencidos al fin del silencio (sin gastar intentos).
+            if (_tenantProvider.HasTenant())
+            {
+                var quietSettings = await _tenantSettingsService.GetSettingsForTenantAsync(
+                    _tenantProvider.GetTenantId(),
+                    cancellationToken);
+
+                if (quietSettings.QuietHoursEnabled &&
+                    quietSettings.QuietHoursStart.HasValue &&
+                    quietSettings.QuietHoursEnd.HasValue &&
+                    TryGetQuietHoursResumeUtc(quietSettings, out var resumeUtc))
+                {
+                    await _context.WhatsAppMessageLogs
+                        .Where(message =>
+                            message.Direction == WhatsAppMessageDirections.Outbound &&
+                            message.Status == WhatsAppMessageStatuses.Pending &&
+                            message.AttemptCount < MaxAttempts &&
+                            (message.NextAttemptAtUtc == null || message.NextAttemptAtUtc <= nowUtc) &&
+                            (message.NotificationType == WhatsAppNotificationTypes.Confirmation ||
+                             message.NotificationType == WhatsAppNotificationTypes.Reminder3Hours))
+                        .ExecuteUpdateAsync(updates => updates
+                            .SetProperty(message => message.NextAttemptAtUtc, resumeUtc),
+                            cancellationToken);
+
+                    _logger.LogInformation(
+                        "Envíos WhatsApp pospuestos por horas de silencio. TenantId {TenantId}. Reanuda {ResumeUtc:yyyy-MM-dd HH:mm} UTC.",
+                        quietSettings.TenantId, resumeUtc);
+                    return;
+                }
+            }
 
             await _context.WhatsAppMessageLogs
                 .Where(message =>
@@ -342,6 +590,7 @@ namespace LuxuryApp.Services.Calendar
         private async Task QueueAppointmentAsync(
             int citaId,
             string notificationType,
+            bool isBatchGenerated,
             CancellationToken cancellationToken)
         {
             var options = _options.CurrentValue;
@@ -397,17 +646,68 @@ namespace LuxuryApp.Services.Calendar
                 return;
             }
 
-            if (notificationType == WhatsAppNotificationTypes.Reminder3Hours && !IsReminderInsideWindow(cita, options))
+            // Configuración de programación del tenant (horas antes / envío inmediato / lote).
+            var scheduleSettings = await _tenantSettingsService.GetSettingsForTenantAsync(cita.TenantId, cancellationToken);
+            var confirmationIsBatchMode = !string.Equals(
+                scheduleSettings.ConfirmationScheduleMode,
+                WhatsAppConfirmationScheduleModes.RelativeBeforeAppointment,
+                StringComparison.Ordinal);
+
+            // En modo lote, las confirmaciones NO se encolan al crear la cita; las genera
+            // GenerateDailyBatchAsync a la hora configurada. Solo el job de lote (isBatchGenerated) encola.
+            if (notificationType == WhatsAppNotificationTypes.Confirmation && confirmationIsBatchMode && !isBatchGenerated)
             {
                 return;
             }
 
-            // Calcular cuándo enviar la confirmación: 24h antes de la cita, o de inmediato si ya está dentro de ese margen.
+            // Si la cita ya entró en la ventana del recordatorio (modo relativo) y los recordatorios
+            // están activos, NO se envía confirmación: basta el recordatorio. Se omite en silencio
+            // (sin registrar log) para que el listado NO muestre "error/omitida" de confirmación.
+            if (notificationType == WhatsAppNotificationTypes.Confirmation &&
+                scheduleSettings.SendReminderThreeHoursBefore &&
+                string.Equals(scheduleSettings.ReminderScheduleMode, WhatsAppReminderScheduleModes.RelativeBeforeAppointment, StringComparison.Ordinal) &&
+                IsReminderInsideWindow(cita, ResolveReminderLeadMinutes(scheduleSettings)))
+            {
+                _logger.LogInformation(
+                    "Confirmacion WhatsApp omitida en silencio: la cita ya está dentro de la ventana de recordatorio; se enviará solo el recordatorio. TenantId {TenantId}. CitaId {CitaId}.",
+                    cita.TenantId, cita.Id);
+                return;
+            }
+
+            // El recordatorio relativo exige estar dentro de la ventana; el lote la omite.
+            if (notificationType == WhatsAppNotificationTypes.Reminder3Hours &&
+                !isBatchGenerated &&
+                !IsReminderInsideWindow(cita, ResolveReminderLeadMinutes(scheduleSettings)))
+            {
+                return;
+            }
+
+            // Calcular cuándo enviar la confirmación según la configuración del tenant.
             DateTime? scheduledSendAtUtc = null;
             if (notificationType == WhatsAppNotificationTypes.Confirmation)
             {
-                var (isPast, sendAtUtc) = CalculateConfirmationSchedule(cita.FechaHoraCita);
-                if (isPast)
+                if (isBatchGenerated || confirmationIsBatchMode)
+                {
+                    // El lote ya se ejecuta a la hora configurada: enviar en el próximo ciclo,
+                    // salvo que la cita ya haya vencido.
+                    if (IsAppointmentPast(cita.FechaHoraCita))
+                    {
+                        _logger.LogInformation(
+                            "Confirmacion WhatsApp (lote) omitida: la cita ya venció. TenantId {TenantId}. CitaId {CitaId}.",
+                            cita.TenantId, cita.Id);
+                        return;
+                    }
+
+                    scheduledSendAtUtc = null;
+                }
+                else
+                {
+                var (outcome, sendAtUtc) = CalculateConfirmationSchedule(
+                    cita.FechaHoraCita,
+                    scheduleSettings.ConfirmationHoursBefore,
+                    scheduleSettings.SendConfirmationImmediatelyIfInsideWindow);
+
+                if (outcome == ConfirmationScheduleOutcome.Past)
                 {
                     _logger.LogInformation(
                         "Confirmacion WhatsApp omitida: la cita ya venció. TenantId {TenantId}. CitaId {CitaId}. FechaHoraCita {FechaHoraCita:yyyy-MM-dd HH:mm}.",
@@ -415,7 +715,17 @@ namespace LuxuryApp.Services.Calendar
                     return;
                 }
 
+                if (outcome == ConfirmationScheduleOutcome.SkipInsideWindow)
+                {
+                    _logger.LogInformation(
+                        "Confirmacion WhatsApp omitida: la cita ya está dentro de la ventana ({HoursBefore}h) y el envío inmediato está desactivado. TenantId {TenantId}. CitaId {CitaId}.",
+                        scheduleSettings.ConfirmationHoursBefore, cita.TenantId, cita.Id);
+                    return;
+                }
+
+                // Immediate => null (se envía en el próximo ciclo); Scheduled => sendAtUtc.
                 scheduledSendAtUtc = sendAtUtc;
+                }
             }
 
             await using var transaction = await _context.Database.BeginTransactionAsync(
@@ -748,8 +1058,9 @@ namespace LuxuryApp.Services.Calendar
                 return;
             }
 
-            var options = _options.CurrentValue;
-            if (message.NotificationType == WhatsAppNotificationTypes.Reminder3Hours && !IsReminderInsideWindow(cita, options))
+            var sendSettings = await _tenantSettingsService.GetSettingsForTenantAsync(cita.TenantId, cancellationToken);
+            if (message.NotificationType == WhatsAppNotificationTypes.Reminder3Hours &&
+                !IsReminderInsideWindow(cita, ResolveReminderLeadMinutes(sendSettings)))
             {
                 MarkSkipped(
                     message,
@@ -765,8 +1076,7 @@ namespace LuxuryApp.Services.Calendar
             // Omitir confirmaciones si la cita ya venció al momento de enviarla.
             if (message.NotificationType == WhatsAppNotificationTypes.Confirmation)
             {
-                var (isPast, _) = CalculateConfirmationSchedule(cita.FechaHoraCita);
-                if (isPast)
+                if (IsAppointmentPast(cita.FechaHoraCita))
                 {
                     MarkSkipped(
                         message,
@@ -836,9 +1146,37 @@ namespace LuxuryApp.Services.Calendar
             DateTime newFechaHoraCita,
             CancellationToken cancellationToken = default)
         {
-            var (isPast, sendAtUtc) = CalculateConfirmationSchedule(newFechaHoraCita);
+            var hoursBefore = TenantWhatsAppSettings.DefaultConfirmationHoursBefore;
+            var sendImmediatelyIfInside = true;
+            if (_tenantProvider.HasTenant())
+            {
+                var settings = await _tenantSettingsService.GetSettingsForTenantAsync(
+                    _tenantProvider.GetTenantId(),
+                    cancellationToken);
 
-            if (isPast)
+                // En modo lote, el job diario gestiona la confirmación. Si la cita ya pasó la
+                // cancelamos; en cualquier otro caso no reprogramamos por ventana relativa.
+                if (!string.Equals(settings.ConfirmationScheduleMode, WhatsAppConfirmationScheduleModes.RelativeBeforeAppointment, StringComparison.Ordinal))
+                {
+                    if (IsAppointmentPast(newFechaHoraCita))
+                    {
+                        await CancelPendingNotificationsAsync(citaId, cancellationToken);
+                    }
+                    return;
+                }
+
+                hoursBefore = settings.ConfirmationHoursBefore;
+                sendImmediatelyIfInside = settings.SendConfirmationImmediatelyIfInsideWindow;
+            }
+
+            var (outcome, sendAtUtc) = CalculateConfirmationSchedule(
+                newFechaHoraCita,
+                hoursBefore,
+                sendImmediatelyIfInside);
+
+            // Si la cita ya pasó, o entró en la ventana con envío inmediato desactivado,
+            // cancelar la confirmación pendiente (ya no debe enviarse).
+            if (outcome is ConfirmationScheduleOutcome.Past or ConfirmationScheduleOutcome.SkipInsideWindow)
             {
                 await CancelPendingNotificationsAsync(citaId, cancellationToken);
                 return;
@@ -865,7 +1203,7 @@ namespace LuxuryApp.Services.Calendar
                 else
                 {
                     _logger.LogInformation(
-                        "Confirmacion WhatsApp reprogramada para envio inmediato (cita dentro de 24h). CitaId {CitaId}.",
+                        "Confirmacion WhatsApp reprogramada para envio inmediato (cita dentro de la ventana configurada). CitaId {CitaId}.",
                         citaId);
                 }
             }
@@ -899,7 +1237,24 @@ namespace LuxuryApp.Services.Calendar
             }
         }
 
-        private (bool IsPast, DateTime? ScheduledSendAtUtc) CalculateConfirmationSchedule(DateTime fechaHoraCita)
+        private enum ConfirmationScheduleOutcome
+        {
+            Past,
+            SkipInsideWindow,
+            Immediate,
+            Scheduled
+        }
+
+        /// <summary>
+        /// Calcula cuándo enviar la confirmación según la configuración del tenant
+        /// (modo relativo: <paramref name="hoursBefore"/> antes de la cita).
+        /// Si la cita ya está dentro del rango, envía inmediatamente o se omite según
+        /// <paramref name="sendImmediatelyIfInside"/>.
+        /// </summary>
+        private (ConfirmationScheduleOutcome Outcome, DateTime? ScheduledSendAtUtc) CalculateConfirmationSchedule(
+            DateTime fechaHoraCita,
+            int hoursBefore,
+            bool sendImmediatelyIfInside)
         {
             var nowOffset = _businessDateTimeProvider.NowOffset();
             var nowUtc = nowOffset.UtcDateTime;
@@ -908,11 +1263,30 @@ namespace LuxuryApp.Services.Calendar
 
             if (citaUtc <= nowUtc)
             {
-                return (true, null);
+                return (ConfirmationScheduleOutcome.Past, null);
             }
 
-            var sendAtUtc = citaUtc.AddHours(-24);
-            return (false, sendAtUtc > nowUtc ? sendAtUtc : (DateTime?)null);
+            var effectiveHours = hoursBefore is < 1 or > 168
+                ? TenantWhatsAppSettings.DefaultConfirmationHoursBefore
+                : hoursBefore;
+
+            var sendAtUtc = citaUtc.AddHours(-effectiveHours);
+            if (sendAtUtc > nowUtc)
+            {
+                return (ConfirmationScheduleOutcome.Scheduled, sendAtUtc);
+            }
+
+            // La cita ya entró en la ventana de anticipación configurada.
+            return sendImmediatelyIfInside
+                ? (ConfirmationScheduleOutcome.Immediate, null)
+                : (ConfirmationScheduleOutcome.SkipInsideWindow, null);
+        }
+
+        private bool IsAppointmentPast(DateTime fechaHoraCita)
+        {
+            var nowOffset = _businessDateTimeProvider.NowOffset();
+            var citaUtc = new DateTimeOffset(fechaHoraCita, nowOffset.Offset).UtcDateTime;
+            return citaUtc <= nowOffset.UtcDateTime;
         }
 
         private static bool IsNotifiableAppointment(Cita cita, out string reason)
@@ -933,11 +1307,64 @@ namespace LuxuryApp.Services.Calendar
             return true;
         }
 
-        private bool IsReminderInsideWindow(Cita cita, MetaWhatsAppOptions options)
+        private bool IsReminderInsideWindow(Cita cita, int leadMinutes)
         {
             var now = _businessDateTimeProvider.Now();
+            var effectiveLead = leadMinutes <= 0 ? GetReminderLeadTimeMinutes(_options.CurrentValue) : leadMinutes;
             return cita.FechaHoraCita > now &&
-                   cita.FechaHoraCita <= now.AddMinutes(GetReminderLeadTimeMinutes(options));
+                   cita.FechaHoraCita <= now.AddMinutes(effectiveLead);
+        }
+
+        private static int ResolveReminderLeadMinutes(TenantWhatsAppSettingsSnapshot settings)
+        {
+            var hours = settings.ReminderHoursBefore > 0
+                ? settings.ReminderHoursBefore
+                : TenantWhatsAppSettings.DefaultReminderHoursBefore;
+            return hours * 60;
+        }
+
+        /// <summary>
+        /// Si la hora local actual cae dentro de las horas de silencio del tenant, devuelve true y
+        /// la hora UTC en que se pueden reanudar los envíos (próxima ocurrencia de la hora de fin).
+        /// Soporta rangos que cruzan medianoche (ej. 21:00–07:00).
+        /// </summary>
+        private bool TryGetQuietHoursResumeUtc(TenantWhatsAppSettingsSnapshot settings, out DateTime resumeUtc)
+        {
+            resumeUtc = default;
+
+            if (!settings.QuietHoursStart.HasValue || !settings.QuietHoursEnd.HasValue)
+            {
+                return false;
+            }
+
+            var start = settings.QuietHoursStart.Value;
+            var end = settings.QuietHoursEnd.Value;
+            if (start == end)
+            {
+                return false;
+            }
+
+            var nowLocal = _businessDateTimeProvider.Now();
+            var offset = _businessDateTimeProvider.NowOffset().Offset;
+            var nowTime = TimeOnly.FromDateTime(nowLocal);
+
+            var inQuiet = start < end
+                ? nowTime >= start && nowTime < end
+                : nowTime >= start || nowTime < end;
+
+            if (!inQuiet)
+            {
+                return false;
+            }
+
+            var localEnd = nowLocal.Date.Add(end.ToTimeSpan());
+            if (localEnd <= nowLocal)
+            {
+                localEnd = localEnd.AddDays(1);
+            }
+
+            resumeUtc = new DateTimeOffset(localEnd, offset).UtcDateTime;
+            return true;
         }
 
         private static void MarkSent(

@@ -42,6 +42,8 @@ namespace LuxuryApp.Workers
 
                             var notifications = serviceProvider.GetRequiredService<ICalendarWhatsAppNotificationService>();
 
+                            // Lotes diarios (modo "a hora fija") + recordatorios relativos + envío de pendientes.
+                            await notifications.GenerateDailyBatchAsync(cancellationToken);
                             await notifications.ScheduleDueRemindersAsync(cancellationToken);
                             await notifications.ProcessPendingNotificationsAsync(cancellationToken);
 

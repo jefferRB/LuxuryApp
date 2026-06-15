@@ -125,13 +125,19 @@ namespace LuxuryApp.Services.Calendar
                 {
                     try
                     {
+                        // La confirmación se omite automáticamente si la cita ya entró en la ventana
+                        // de recordatorio (solo se enviará el recordatorio).
                         await _notificationService.QueueAppointmentConfirmationAsync(appointmentId, cancellationToken);
+
+                        // Si la cita se crea ya dentro de la ventana del recordatorio, se envía de inmediato
+                        // (según la preferencia del tenant), sin esperar al ciclo del worker.
+                        await _notificationService.QueueImmediateReminderOnCreateAsync(appointmentId, cancellationToken);
                     }
                     catch (Exception ex)
                     {
                         _logger.LogWarning(
                             ex,
-                            "La cita {CitaId} se creo correctamente, pero fallo la cola de confirmacion de WhatsApp.",
+                            "La cita {CitaId} se creo correctamente, pero fallo la cola de notificaciones de WhatsApp.",
                             appointmentId);
                     }
                 }

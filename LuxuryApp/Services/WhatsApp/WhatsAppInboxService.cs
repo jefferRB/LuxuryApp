@@ -42,9 +42,102 @@ namespace LuxuryApp.Services.WhatsApp
             var startDay = date.Date;
             var endDay = startDay.AddDays(1);
 
+            var items = await LoadItemsAsync(startDay, endDay, funcionarioId, whatsAppEnabled, cancellationToken);
+
+            var stats = new WhatsAppInboxStats
+            {
+                Enviados = items.Count(i => i.WaStatusKey is "sent" or "reminder" or "confirmed"),
+                Confirmados = items.Count(i => i.EstadoCitaKey == "confirmed"),
+                Pendientes = items.Count(i => i.EstadoCitaKey == "pending"),
+                Fallidos = items.Count(i => i.WaStatusKey == "failed")
+            };
+
+            return new WhatsAppInboxResponse
+            {
+                WhatsAppEnabled = whatsAppEnabled,
+                Stats = stats,
+                Items = items
+            };
+        }
+
+        public async Task<WhatsAppFollowUpResponse> GetFollowUpAsync(
+            DateTime from,
+            DateTime toExclusive,
+            int? funcionarioId,
+            string? statusKey,
+            string rangeKey,
+            bool whatsAppEnabled,
+            CancellationToken cancellationToken = default)
+        {
+            var start = from.Date;
+            var endExclusive = toExclusive.Date <= start ? start.AddDays(1) : toExclusive.Date;
+
+            var allItems = await LoadItemsAsync(start, endExclusive, funcionarioId, whatsAppEnabled, cancellationToken);
+
+            // KPIs se calculan sobre el universo del rango (antes de aplicar el filtro de estado de la UI).
+            var confirmed = allItems.Count(i => i.EstadoCitaKey == "confirmed");
+            var pending = allItems.Count(i => i.EstadoCitaKey == "pending");
+            var sent = allItems.Count(i => i.WaStatusKey is "sent" or "reminder" or "confirmed");
+            var failed = allItems.Count(i => i.WaStatusKey == "failed");
+            var requiresAttention = allItems.Count(i => i.RequiereAtencion);
+            var total = allItems.Count;
+            var confirmationRate = total > 0
+                ? Math.Round((decimal)confirmed * 100 / total, 1)
+                : 0m;
+
+            var filtered = ApplyStatusFilter(allItems, statusKey);
+
+            return new WhatsAppFollowUpResponse
+            {
+                WhatsAppEnabled = whatsAppEnabled,
+                RangeKey = rangeKey,
+                FromLocal = start.ToString("dd/MM/yyyy", CostaRica),
+                ToLocal = endExclusive.AddDays(-1).ToString("dd/MM/yyyy", CostaRica),
+                Stats = new WhatsAppFollowUpStats
+                {
+                    TotalTracking = total,
+                    Confirmed = confirmed,
+                    Pending = pending,
+                    Sent = sent,
+                    Failed = failed,
+                    RequiresAttention = requiresAttention,
+                    ConfirmationRate = confirmationRate
+                },
+                Items = filtered
+            };
+        }
+
+        private static IReadOnlyList<WhatsAppInboxItem> ApplyStatusFilter(
+            IReadOnlyList<WhatsAppInboxItem> items,
+            string? statusKey)
+        {
+            if (string.IsNullOrWhiteSpace(statusKey))
+            {
+                return items;
+            }
+
+            return statusKey switch
+            {
+                "confirmados" => items.Where(i => i.EstadoCitaKey == "confirmed").ToList(),
+                "pendientes" => items.Where(i => i.WaStatusKey is "pending" or "not_sent").ToList(),
+                "enviados" => items.Where(i => i.WaStatusKey is "sent" or "reminder").ToList(),
+                "fallidos" => items.Where(i => i.WaStatusKey == "failed").ToList(),
+                "cancelados" => items.Where(i => i.EstadoCitaKey == "cancelled").ToList(),
+                "atencion" => items.Where(i => i.RequiereAtencion).ToList(),
+                _ => items
+            };
+        }
+
+        private async Task<List<WhatsAppInboxItem>> LoadItemsAsync(
+            DateTime startInclusive,
+            DateTime endExclusive,
+            int? funcionarioId,
+            bool whatsAppEnabled,
+            CancellationToken cancellationToken)
+        {
             var query = _context.Citas
                 .AsNoTracking()
-                .Where(c => c.Tipo == "CITA" && c.FechaHoraCita >= startDay && c.FechaHoraCita < endDay);
+                .Where(c => c.Tipo == "CITA" && c.FechaHoraCita >= startInclusive && c.FechaHoraCita < endExclusive);
 
             if (funcionarioId.HasValue && funcionarioId.Value > 0)
             {
@@ -76,25 +169,12 @@ namespace LuxuryApp.Services.WhatsApp
                 cancellationToken);
 
             var nowUtc = _businessDateTimeProvider.NowOffset().UtcDateTime;
+            var nowLocal = _businessDateTimeProvider.Now();
+            var today = _businessDateTimeProvider.Today();
 
-            var items = citas
-                .Select(c => BuildItem(c, latestLogs.GetValueOrDefault(c.Id), whatsAppEnabled, nowUtc))
+            return citas
+                .Select(c => BuildItem(c, latestLogs.GetValueOrDefault(c.Id), whatsAppEnabled, nowUtc, nowLocal, today))
                 .ToList();
-
-            var stats = new WhatsAppInboxStats
-            {
-                Enviados = items.Count(i => i.WaStatusKey is "sent" or "reminder" or "confirmed"),
-                Confirmados = items.Count(i => i.EstadoCitaKey == "confirmed"),
-                Pendientes = items.Count(i => i.EstadoCitaKey == "pending"),
-                Fallidos = items.Count(i => i.WaStatusKey == "failed")
-            };
-
-            return new WhatsAppInboxResponse
-            {
-                WhatsAppEnabled = whatsAppEnabled,
-                Stats = stats,
-                Items = items
-            };
         }
 
         public async Task<IReadOnlyList<WhatsAppChatLogItem>?> GetCitaChatAsync(
@@ -146,7 +226,9 @@ namespace LuxuryApp.Services.WhatsApp
             CitaProjection cita,
             OutboundLogProjection? latestLog,
             bool whatsAppEnabled,
-            DateTime nowUtc)
+            DateTime nowUtc,
+            DateTime nowLocal,
+            DateTime today)
         {
             var nombre = string.IsNullOrWhiteSpace(cita.NombreCliente) ? "Cliente" : cita.NombreCliente!.Trim();
             var hasPhone = !string.IsNullOrWhiteSpace(cita.Telefono);
@@ -233,6 +315,9 @@ namespace LuxuryApp.Services.WhatsApp
             var puedeEnviar = whatsAppEnabled && hasPhone && hasConsent && !isCancelled && statusKey == "not_sent";
             var puedeReenviar = whatsAppEnabled && hasPhone && hasConsent && !isCancelled && statusKey == "failed";
 
+            var requiereAtencion = !isCancelled &&
+                (statusKey == "failed" || statusKey == "no_consent" || statusKey == "no_phone");
+
             return new WhatsAppInboxItem
             {
                 CitaId = cita.Id,
@@ -244,14 +329,37 @@ namespace LuxuryApp.Services.WhatsApp
                 FuncionarioNombre = cita.FuncionarioNombre,
                 FechaHoraCita = cita.FechaHoraCita,
                 HoraLocal = cita.FechaHoraCita.ToString("hh:mm tt", CostaRica),
+                FechaLocal = cita.FechaHoraCita.ToString("dd/MM/yyyy", CostaRica),
+                DiaGrupo = BuildDayGroup(cita.FechaHoraCita, today),
+                EsFutura = cita.FechaHoraCita >= nowLocal,
                 EstadoCitaKey = isCancelled ? "cancelled" : isConfirmed ? "confirmed" : "pending",
                 EstadoCitaLabel = isCancelled ? "Cancelada" : isConfirmed ? "Confirmada" : "Pendiente",
                 WaStatusKey = statusKey,
                 WaStatusLabel = statusLabel,
                 WaSubText = subText,
+                RequiereAtencion = requiereAtencion,
                 PuedeEnviar = puedeEnviar,
                 PuedeReenviar = puedeReenviar
             };
+        }
+
+        private static string BuildDayGroup(DateTime fechaHoraCita, DateTime today)
+        {
+            var dia = fechaHoraCita.Date;
+            if (dia == today)
+            {
+                return "Hoy";
+            }
+
+            if (dia == today.AddDays(1))
+            {
+                return "Mañana";
+            }
+
+            var formatted = fechaHoraCita.ToString("dddd dd 'de' MMMM", CostaRica);
+            return formatted.Length > 0
+                ? char.ToUpper(formatted[0], CostaRica) + formatted[1..]
+                : formatted;
         }
 
         private async Task<Dictionary<int, OutboundLogProjection>> LoadLatestOutboundLogMapAsync(

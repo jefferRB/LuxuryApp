@@ -1,22 +1,27 @@
 /* ============================================================
-   WhatsApp Inbox — whatsapp-inbox.js
-   Enriquece el panel derecho del calendario (Bandeja WhatsApp),
-   los KPIs de la bandeja y la agenda del día, reutilizando la
-   infraestructura de calendar.js (apiFetchJson, currentDate,
-   editarCita, cancelarCita). NO modifica calendar.js.
+   WhatsApp follow-up — whatsapp-inbox.js
+   Para tenants CON add-on WhatsApp:
+     1) Panel derecho "Citas de hoy" (mismo diseño que sin add-on),
+        enriquecido con badge de estado de confirmación y "Ver chat".
+     2) "Centro de confirmaciones WhatsApp" (sección inferior) con
+        KPIs, filtros por rango/estado/funcionario/búsqueda y acciones.
+   Reutiliza la infraestructura de calendar.js (apiFetchJson,
+   currentDate, getFuncionariosActivos, editarCita, cancelarCita).
+   NO modifica calendar.js.
    ============================================================ */
 (function () {
     "use strict";
 
-    let lastItems = [];
-    let inboxSequence = 0;
+    let panelSequence = 0;
+    let followSequence = 0;
+    let panelItems = [];      // citas de hoy (futuras) del panel derecho
+    let followItems = [];      // items del centro de confirmaciones (rango)
 
     function waEnabled() {
         return window.LUXURY_CALENDAR_CONFIG?.tenantWhatsAppEnabled === true;
     }
 
     function fetchJson(url, options) {
-        // Reutiliza el helper de calendar.js (añade antiforgery + X-Requested-With).
         if (typeof apiFetchJson === "function") {
             return apiFetchJson(url, options);
         }
@@ -32,13 +37,11 @@
         return `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}`;
     }
 
-    function selectedFuncionario() {
-        return document.getElementById("funcionarioFiltro")?.value || "";
-    }
-
-    /* ── OVERRIDE del cargador de calendar.js ─────────────────── */
+    /* ════════════════════════════════════════════════════════════
+       1) PANEL DERECHO — "Citas de hoy" (futuras, con badge + chat)
+       ════════════════════════════════════════════════════════════ */
     window.loadUpcomingAppointments = async function (funcionarioId = "") {
-        const requestId = ++inboxSequence;
+        const requestId = ++panelSequence;
 
         try {
             const dateStr = selectedDateStr();
@@ -47,104 +50,60 @@
                 : `/WhatsAppInbox/Inbox?date=${encodeURIComponent(dateStr)}`;
 
             const data = await fetchJson(url);
+            if (requestId !== panelSequence) return;
 
-            // Evita renders fuera de orden por navegación rápida.
-            if (requestId !== inboxSequence) {
-                return;
-            }
-
-            lastItems = Array.isArray(data.items) ? data.items : [];
-            renderStats(data.stats || {});
-            renderThreadList(applyStatusFilter(lastItems), data.whatsAppEnabled === true);
-            renderDayAgenda(lastItems);
+            const items = Array.isArray(data.items) ? data.items : [];
+            // El panel "Citas de hoy" excluye citas ya pasadas.
+            panelItems = items.filter(i => i.esFutura);
+            renderPanelList(applyPanelStatusFilter(panelItems), data.whatsAppEnabled === true);
         } catch (error) {
-            if (error && error.name === "AbortError") {
-                return;
-            }
-            console.error("Error cargando la bandeja WhatsApp", error);
-            renderThreadError();
+            if (error && error.name === "AbortError") return;
+            console.error("Error cargando citas de hoy", error);
+            renderPanelError();
         }
     };
 
-    /* ── KPIs de la bandeja ───────────────────────────────────── */
-    function renderStats(stats) {
-        setText("waInboxEnviados", stats.enviados ?? 0);
-        setText("waInboxConfirmados", stats.confirmados ?? 0);
-        setText("waInboxPendientes", stats.pendientes ?? 0);
-    }
-
-    /* ── Filtro de estados (cliente) ──────────────────────────── */
-    function applyStatusFilter(items) {
+    function applyPanelStatusFilter(items) {
         const filter = document.getElementById("statusFiltro")?.value || "";
-        if (!filter) {
-            return items;
+        if (!filter) return items;
+
+        switch (filter) {
+            case "confirmados": return items.filter(i => i.estadoCitaKey === "confirmed");
+            case "pendientes": return items.filter(i => i.waStatusKey === "pending" || i.waStatusKey === "not_sent");
+            case "cancelados": return items.filter(i => i.estadoCitaKey === "cancelled");
+            case "atencion": return items.filter(i => i.requiereAtencion);
+            default: return items;
         }
-
-        const groups = {
-            enviados: ["sent", "reminder"],
-            confirmados: ["confirmed"],
-            pendientes: ["pending", "not_sent"],
-            fallidos: ["failed"],
-            cancelados: ["cancelled"]
-        };
-
-        const keys = groups[filter];
-        return keys ? items.filter(item => keys.includes(item.waStatusKey)) : items;
     }
 
-    /* ── Lista de conversaciones (panel derecho) ──────────────── */
-    function renderThreadList(items, enabled) {
+    function renderPanelList(items, enabled) {
         const lista = document.getElementById("listaTareas");
-        if (!lista) {
-            return;
-        }
-
+        if (!lista) return;
         lista.innerHTML = "";
 
         if (!items.length) {
-            lista.appendChild(buildInboxEmpty());
+            lista.appendChild(buildEmptyState(
+                "No hay citas pendientes para hoy",
+                "Las próximas citas aparecerán aquí conforme estén programadas.",
+                "bi-calendar-x",
+                "today-apt-empty-icon"));
             return;
         }
 
-        items.forEach(item => lista.appendChild(buildThreadCard(item, enabled)));
+        items.forEach(item => lista.appendChild(buildPanelCard(item, enabled)));
     }
 
-    function renderThreadError() {
+    function renderPanelError() {
         const lista = document.getElementById("listaTareas");
-        if (!lista) {
-            return;
-        }
+        if (!lista) return;
         lista.innerHTML = "";
         const li = document.createElement("li");
         li.className = "whatsapp-thread-card";
-        li.textContent = "No fue posible cargar la bandeja.";
+        li.textContent = "No fue posible cargar las citas.";
         lista.appendChild(li);
     }
 
-    function buildInboxEmpty() {
-        const li = document.createElement("li");
-        li.className = "whatsapp-inbox-empty";
-
-        const icon = document.createElement("div");
-        icon.className = "whatsapp-inbox-empty-icon";
-        icon.innerHTML = '<i class="bi bi-whatsapp"></i>';
-
-        const title = document.createElement("div");
-        title.style.fontWeight = "700";
-        title.style.color = "var(--private-surface-text)";
-        title.textContent = "Sin conversaciones";
-
-        const sub = document.createElement("div");
-        sub.style.fontSize = "0.82rem";
-        sub.textContent = "No hay citas para el día seleccionado.";
-
-        li.appendChild(icon);
-        li.appendChild(title);
-        li.appendChild(sub);
-        return li;
-    }
-
-    function buildThreadCard(item, enabled) {
+    function buildPanelCard(item, enabled) {
         const li = document.createElement("li");
         li.className = "whatsapp-thread-card";
 
@@ -169,18 +128,171 @@
         main.appendChild(name);
         main.appendChild(meta);
 
-        const badge = buildStatusBadge(item.waStatusKey, item.waStatusLabel);
+        if (item.funcionarioNombre) {
+            const sub = document.createElement("div");
+            sub.className = "whatsapp-thread-sub";
+            sub.textContent = item.funcionarioNombre;
+            main.appendChild(sub);
+        }
 
         top.appendChild(avatar);
         top.appendChild(main);
-        top.appendChild(badge);
+        top.appendChild(buildStatusBadge(item.waStatusKey, item.waStatusLabel));
         li.appendChild(top);
+
+        const actions = document.createElement("div");
+        actions.className = "whatsapp-thread-actions";
+
+        actions.appendChild(buildActionButton("Editar", "bi-pencil", "", () => {
+            if (typeof editarCita === "function") editarCita(item.citaId);
+        }));
+        actions.appendChild(buildActionButton("Cancelar", "bi-x-circle", "action-icon-button-danger", () => {
+            if (typeof cancelarCita === "function") cancelarCita(item.citaId);
+        }));
+        actions.appendChild(buildActionButton("Ver chat", "bi-chat-dots", "", () =>
+            viewChat(item.citaId, item.nombreCliente)));
+
+        li.appendChild(actions);
+        return li;
+    }
+
+    /* ════════════════════════════════════════════════════════════
+       2) CENTRO DE CONFIRMACIONES WHATSAPP (rango)
+       ════════════════════════════════════════════════════════════ */
+    async function loadFollowUp() {
+        const list = document.getElementById("waFollowList");
+        if (!list) return;
+
+        const requestId = ++followSequence;
+
+        const range = document.getElementById("waFollowRange")?.value || "5d";
+        const status = document.getElementById("waFollowStatus")?.value || "";
+        const funcionario = document.getElementById("waFollowFuncionario")?.value || "";
+
+        const params = new URLSearchParams();
+        params.set("range", range);
+        if (status) params.set("status", status);
+        if (funcionario) params.set("funcionarioId", funcionario);
+
+        if (range === "custom") {
+            const from = document.getElementById("waFollowFrom")?.value || "";
+            const to = document.getElementById("waFollowTo")?.value || "";
+            if (!from || !to) {
+                list.innerHTML = '<div class="text-muted small" style="padding:1rem 0;">Seleccione un rango de fechas para ver el seguimiento.</div>';
+                return;
+            }
+            params.set("from", from);
+            params.set("to", to);
+        }
+
+        list.innerHTML = '<div class="text-muted small" style="padding:1rem 0;">Cargando seguimiento…</div>';
+
+        try {
+            const data = await fetchJson(`/WhatsAppInbox/FollowUp?${params.toString()}`);
+            if (requestId !== followSequence) return;
+
+            renderFollowKpis(data.stats || {});
+            followItems = Array.isArray(data.items) ? data.items : [];
+            renderFollowList(applySearch(followItems), data.whatsAppEnabled === true);
+        } catch (error) {
+            if (error && error.name === "AbortError") return;
+            console.error("Error cargando el centro de confirmaciones", error);
+            list.innerHTML = '<div class="text-danger small" style="padding:1rem 0;">No fue posible cargar el seguimiento.</div>';
+        }
+    }
+    window.reloadWhatsAppFollowUp = loadFollowUp;
+
+    function renderFollowKpis(stats) {
+        setText("waKpiTotal", stats.totalTracking ?? 0);
+        setText("waKpiConfirmadas", stats.confirmed ?? 0);
+        setText("waKpiPendientes", stats.pending ?? 0);
+        setText("waKpiEnviadas", stats.sent ?? 0);
+        setText("waKpiFallidas", stats.failed ?? 0);
+        const tasa = stats.confirmationRate;
+        setText("waKpiTasa", (tasa || tasa === 0) ? `${tasa}%` : "—");
+    }
+
+    function applySearch(items) {
+        const term = (document.getElementById("waFollowSearch")?.value || "").trim().toLowerCase();
+        if (!term) return items;
+        return items.filter(i =>
+            (i.nombreCliente || "").toLowerCase().includes(term) ||
+            (i.telefono || "").toLowerCase().includes(term));
+    }
+
+    function renderFollowList(items, enabled) {
+        const list = document.getElementById("waFollowList");
+        if (!list) return;
+        list.innerHTML = "";
+
+        if (!items.length) {
+            const empty = document.createElement("div");
+            empty.className = "wa-followup-empty";
+            empty.innerHTML =
+                '<div class="whatsapp-inbox-empty-icon"><i class="bi bi-whatsapp"></i></div>' +
+                '<div style="font-weight:700;color:var(--private-surface-text)">Sin citas en seguimiento</div>' +
+                '<div style="font-size:.82rem">No hay citas para el rango seleccionado.</div>';
+            list.appendChild(empty);
+            return;
+        }
+
+        // Agrupar por día (DiaGrupo viene calculado en servidor).
+        let currentGroup = null;
+        items.forEach(item => {
+            if (item.diaGrupo !== currentGroup) {
+                currentGroup = item.diaGrupo;
+                const heading = document.createElement("div");
+                heading.className = "wa-followup-group";
+                heading.textContent = currentGroup;
+                list.appendChild(heading);
+            }
+            list.appendChild(buildFollowCard(item, enabled));
+        });
+    }
+
+    function buildFollowCard(item, enabled) {
+        const card = document.createElement("div");
+        card.className = "wa-followup-card" + (item.requiereAtencion ? " wa-followup-card-attention" : "");
+
+        const top = document.createElement("div");
+        top.className = "whatsapp-thread-top";
+
+        const avatar = document.createElement("div");
+        avatar.className = "whatsapp-avatar";
+        avatar.textContent = item.iniciales || "?";
+
+        const main = document.createElement("div");
+        main.className = "whatsapp-thread-main";
+
+        const name = document.createElement("div");
+        name.className = "whatsapp-thread-name";
+        name.textContent = item.nombreCliente || "Cliente";
+
+        const meta = document.createElement("div");
+        meta.className = "whatsapp-thread-meta";
+        meta.textContent = [item.horaLocal, item.servicioNombre, item.funcionarioNombre]
+            .filter(Boolean).join(" • ");
+
+        main.appendChild(name);
+        main.appendChild(meta);
+
+        if (item.telefono) {
+            const tel = document.createElement("div");
+            tel.className = "whatsapp-thread-sub";
+            tel.textContent = item.telefono;
+            main.appendChild(tel);
+        }
+
+        top.appendChild(avatar);
+        top.appendChild(main);
+        top.appendChild(buildStatusBadge(item.waStatusKey, item.waStatusLabel));
+        card.appendChild(top);
 
         if (item.waSubText) {
             const sub = document.createElement("div");
             sub.className = "whatsapp-thread-sub";
             sub.textContent = item.waSubText;
-            li.appendChild(sub);
+            card.appendChild(sub);
         }
 
         const actions = document.createElement("div");
@@ -192,8 +304,8 @@
         if (enabled && item.puedeReenviar) {
             actions.appendChild(buildSendButton(item, "Reenviar", "action-icon-button-primary", "bi-arrow-repeat"));
         }
-
-        actions.appendChild(buildActionButton("Ver chat", "bi-chat-dots", "", () => viewChat(item.citaId, item.nombreCliente)));
+        actions.appendChild(buildActionButton("Ver chat", "bi-chat-dots", "", () =>
+            viewChat(item.citaId, item.nombreCliente)));
         actions.appendChild(buildActionButton("Editar", "bi-pencil", "", () => {
             if (typeof editarCita === "function") editarCita(item.citaId);
         }));
@@ -201,10 +313,11 @@
             if (typeof cancelarCita === "function") cancelarCita(item.citaId);
         }));
 
-        li.appendChild(actions);
-        return li;
+        card.appendChild(actions);
+        return card;
     }
 
+    /* ── Componentes compartidos ──────────────────────────────── */
     function buildStatusBadge(key, label) {
         const span = document.createElement("span");
         const map = {
@@ -223,13 +336,34 @@
         return span;
     }
 
+    function buildEmptyState(title, subtitle, iconName, extraClass) {
+        const li = document.createElement("li");
+        li.className = "whatsapp-inbox-empty";
+
+        const icon = document.createElement("div");
+        icon.className = "whatsapp-inbox-empty-icon" + (extraClass ? " " + extraClass : "");
+        icon.innerHTML = `<i class="bi ${iconName || "bi-calendar-x"}"></i>`;
+
+        const t = document.createElement("div");
+        t.style.fontWeight = "700";
+        t.style.color = "var(--private-surface-text)";
+        t.textContent = title;
+
+        const s = document.createElement("div");
+        s.style.fontSize = "0.82rem";
+        s.textContent = subtitle;
+
+        li.appendChild(icon);
+        li.appendChild(t);
+        li.appendChild(s);
+        return li;
+    }
+
     function buildSendButton(item, label, variant, icon) {
         return buildActionButton(label, icon, variant, async (btn) => {
             const confirmed = window.confirm(
                 `¿Enviar mensaje de WhatsApp a ${item.nombreCliente || "el cliente"}? Esta acción puede generar un costo.`);
-            if (!confirmed) {
-                return;
-            }
+            if (!confirmed) return;
             await sendConfirmation(item.citaId, btn);
         });
     }
@@ -254,15 +388,14 @@
         try {
             await fetchJson(`/WhatsAppInbox/Send/${citaId}`, { method: "POST" });
             waToast("Mensaje de WhatsApp en proceso de envío.", "success");
-            await window.loadUpcomingAppointments(selectedFuncionario());
+            await loadFollowUp();
+            await window.loadUpcomingAppointments(document.getElementById("funcionarioFiltro")?.value || "");
         } catch (error) {
             console.error("Error enviando WhatsApp", error);
             waToast(extractError(error) || "No fue posible enviar el mensaje.", "error");
             if (btn) {
                 btn.disabled = false;
-                if (btn.dataset.originalHtml) {
-                    btn.innerHTML = btn.dataset.originalHtml;
-                }
+                if (btn.dataset.originalHtml) btn.innerHTML = btn.dataset.originalHtml;
             }
         }
     }
@@ -271,15 +404,12 @@
     async function viewChat(citaId, nombre) {
         const titleEl = document.getElementById("waChatModalTitle");
         const bodyEl = document.getElementById("waChatModalBody");
-        if (!bodyEl) {
-            return;
-        }
+        if (!bodyEl) return;
 
         if (titleEl) {
             titleEl.textContent = nombre ? `Historial — ${nombre}` : "Historial de WhatsApp";
         }
         bodyEl.innerHTML = '<div class="text-muted small">Cargando…</div>';
-
         showChatModal();
 
         try {
@@ -344,118 +474,14 @@
 
     function showChatModal() {
         const modalEl = document.getElementById("waChatModal");
-        if (!modalEl || typeof bootstrap === "undefined") {
-            return;
-        }
+        if (!modalEl || typeof bootstrap === "undefined") return;
         bootstrap.Modal.getOrCreateInstance(modalEl).show();
     }
 
-    /* ── Agenda del día (abajo a la izquierda) ────────────────── */
-    function renderDayAgenda(items) {
-        const titleEl = document.getElementById("dayAgendaTitle");
-        if (titleEl) {
-            titleEl.textContent = formatAgendaTitle();
-        }
-
-        const countEl = document.getElementById("dayAgendaCount");
-        if (countEl) {
-            countEl.textContent = `${items.length} cita${items.length === 1 ? "" : "s"} programada${items.length === 1 ? "" : "s"}`;
-        }
-
-        const tbody = document.getElementById("dayAgendaTableBody");
-        const mobile = document.getElementById("dayAgendaMobileList");
-        const empty = document.getElementById("dayAgendaEmpty");
-
-        if (tbody) tbody.innerHTML = "";
-        if (mobile) mobile.innerHTML = "";
-
-        if (!items.length) {
-            if (empty) empty.classList.remove("d-none");
-            return;
-        }
-        if (empty) empty.classList.add("d-none");
-
-        items.forEach(item => {
-            if (tbody) tbody.appendChild(buildAgendaRow(item));
-            if (mobile) mobile.appendChild(buildAgendaCard(item));
-        });
-    }
-
-    function buildAgendaRow(item) {
-        const tr = document.createElement("tr");
-        tr.appendChild(cell(item.horaLocal));
-        tr.appendChild(cell(item.nombreCliente, true));
-        tr.appendChild(cell(item.servicioNombre));
-        tr.appendChild(cell(item.funcionarioNombre));
-
-        const estadoTd = document.createElement("td");
-        estadoTd.appendChild(buildStatusBadge(item.waStatusKey, item.estadoCitaLabel));
-        tr.appendChild(estadoTd);
-
-        const waTd = document.createElement("td");
-        waTd.appendChild(buildStatusBadge(item.waStatusKey, item.waStatusLabel));
-        tr.appendChild(waTd);
-
-        return tr;
-    }
-
-    function buildAgendaCard(item) {
-        const card = document.createElement("div");
-        card.className = "whatsapp-thread-card";
-
-        const top = document.createElement("div");
-        top.className = "whatsapp-thread-top";
-
-        const main = document.createElement("div");
-        main.className = "whatsapp-thread-main";
-
-        const name = document.createElement("div");
-        name.className = "whatsapp-thread-name";
-        name.textContent = `${item.horaLocal} · ${item.nombreCliente}`;
-
-        const meta = document.createElement("div");
-        meta.className = "whatsapp-thread-meta";
-        meta.textContent = [item.servicioNombre, item.funcionarioNombre].filter(Boolean).join(" • ");
-
-        main.appendChild(name);
-        main.appendChild(meta);
-        top.appendChild(main);
-        top.appendChild(buildStatusBadge(item.waStatusKey, item.estadoCitaLabel));
-        card.appendChild(top);
-
-        return card;
-    }
-
-    function formatAgendaTitle() {
-        const base = (typeof currentDate !== "undefined" && currentDate) ? currentDate : new Date();
-        try {
-            const formatted = base.toLocaleDateString("es-CR", {
-                weekday: "long",
-                day: "numeric",
-                month: "long",
-                year: "numeric"
-            });
-            return formatted.charAt(0).toUpperCase() + formatted.slice(1);
-        } catch (e) {
-            return "Agenda del día";
-        }
-    }
-
     /* ── Utilidades ───────────────────────────────────────────── */
-    function cell(text, strong) {
-        const td = document.createElement("td");
-        if (strong) {
-            td.style.fontWeight = "600";
-        }
-        td.textContent = text || "—";
-        return td;
-    }
-
     function setText(id, value) {
         const el = document.getElementById(id);
-        if (el) {
-            el.textContent = value;
-        }
+        if (el) el.textContent = value;
     }
 
     function extractError(error) {
@@ -479,19 +505,68 @@
         toast.classList.add(type === "error" ? "wa-inbox-toast-error" : "wa-inbox-toast-success");
         toast.classList.add("is-visible");
 
-        if (toastTimer) {
-            clearTimeout(toastTimer);
-        }
+        if (toastTimer) clearTimeout(toastTimer);
         toastTimer = setTimeout(() => toast.classList.remove("is-visible"), 4000);
     }
 
-    /* ── Eventos propios ──────────────────────────────────────── */
+    async function populateFollowFuncionarios() {
+        const select = document.getElementById("waFollowFuncionario");
+        if (!select || typeof getFuncionariosActivos !== "function") return;
+        try {
+            const funcionarios = await getFuncionariosActivos();
+            funcionarios.forEach(f => {
+                const opt = document.createElement("option");
+                opt.value = f.id;
+                opt.textContent = f.nombre;
+                select.appendChild(opt);
+            });
+        } catch (e) {
+            console.error("No fue posible cargar funcionarios para el seguimiento", e);
+        }
+    }
+
+    /* ── Eventos ──────────────────────────────────────────────── */
     document.addEventListener("DOMContentLoaded", function () {
+        // Filtro de estado del panel derecho "Citas de hoy".
         const statusFilter = document.getElementById("statusFiltro");
         if (statusFilter) {
             statusFilter.addEventListener("change", function () {
-                renderThreadList(applyStatusFilter(lastItems), waEnabled());
+                renderPanelList(applyPanelStatusFilter(panelItems), waEnabled());
             });
         }
+
+        // Centro de confirmaciones: sólo si existe el panel (tenant con add-on).
+        if (!document.getElementById("waFollowUpPanel")) return;
+
+        populateFollowFuncionarios();
+
+        const rangeSel = document.getElementById("waFollowRange");
+        const customGroup = document.getElementById("waFollowCustomGroup");
+        const customGroupTo = document.getElementById("waFollowCustomGroupTo");
+
+        function syncCustomVisibility() {
+            const isCustom = rangeSel?.value === "custom";
+            customGroup?.classList.toggle("d-none", !isCustom);
+            customGroupTo?.classList.toggle("d-none", !isCustom);
+        }
+
+        rangeSel?.addEventListener("change", function () {
+            syncCustomVisibility();
+            loadFollowUp();
+        });
+        document.getElementById("waFollowStatus")?.addEventListener("change", loadFollowUp);
+        document.getElementById("waFollowFuncionario")?.addEventListener("change", loadFollowUp);
+        document.getElementById("waFollowFrom")?.addEventListener("change", loadFollowUp);
+        document.getElementById("waFollowTo")?.addEventListener("change", loadFollowUp);
+        document.getElementById("waFollowRefresh")?.addEventListener("click", loadFollowUp);
+
+        let searchTimer = null;
+        document.getElementById("waFollowSearch")?.addEventListener("input", function () {
+            if (searchTimer) clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => renderFollowList(applySearch(followItems), waEnabled()), 200);
+        });
+
+        syncCustomVisibility();
+        loadFollowUp();
     });
 })();

@@ -97,11 +97,11 @@
         const title = document.createElement("div");
         title.style.fontWeight = "700";
         title.style.color = "var(--private-surface-text)";
-        title.textContent = "No hay citas para hoy";
+        title.textContent = "No hay citas pendientes para hoy";
 
         const sub = document.createElement("div");
         sub.style.fontSize = "0.82rem";
-        sub.textContent = "Cuando registres citas para este día aparecerán aquí.";
+        sub.textContent = "Las próximas citas aparecerán aquí conforme estén programadas.";
 
         li.appendChild(icon);
         li.appendChild(title);

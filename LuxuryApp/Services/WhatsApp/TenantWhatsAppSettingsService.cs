@@ -312,6 +312,8 @@ namespace LuxuryApp.Services.WhatsApp
                 throw new ArgumentOutOfRangeException(nameof(dto.DailyMessageLimit), "El limite diario no puede ser negativo.");
             }
 
+            ValidateAutomationDto(dto);
+
             var timeZoneId = NormalizeTimeZoneId(dto.TimeZoneId);
             var settings = await _context.TenantWhatsAppSettings
                 .FirstOrDefaultAsync(current => current.TenantId == tenantId, cancellationToken);
@@ -332,6 +334,37 @@ namespace LuxuryApp.Services.WhatsApp
             settings.DailyMessageLimit = dto.DailyMessageLimit;
             settings.TimeZoneId = timeZoneId;
             settings.Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
+
+            // Programación de confirmaciones.
+            settings.ConfirmationScheduleMode = WhatsAppConfirmationScheduleModes.IsValid(dto.ConfirmationScheduleMode)
+                ? dto.ConfirmationScheduleMode
+                : WhatsAppConfirmationScheduleModes.RelativeBeforeAppointment;
+            settings.ConfirmationHoursBefore = dto.ConfirmationHoursBefore;
+            settings.ConfirmationBatchTime = dto.ConfirmationBatchTime;
+            settings.ConfirmationBatchTarget = WhatsAppConfirmationBatchTargets.IsValid(dto.ConfirmationBatchTarget)
+                ? dto.ConfirmationBatchTarget
+                : WhatsAppConfirmationBatchTargets.TomorrowAllDay;
+            settings.ConfirmationMorningStart = dto.ConfirmationMorningStart ?? TenantWhatsAppSettings.DefaultMorningStart;
+            settings.ConfirmationMorningEnd = dto.ConfirmationMorningEnd ?? TenantWhatsAppSettings.DefaultMorningEnd;
+            settings.SendConfirmationImmediatelyIfInsideWindow = dto.SendConfirmationImmediatelyIfInsideWindow;
+
+            // Programación de recordatorios.
+            settings.ReminderScheduleMode = WhatsAppReminderScheduleModes.IsValid(dto.ReminderScheduleMode)
+                ? dto.ReminderScheduleMode
+                : WhatsAppReminderScheduleModes.RelativeBeforeAppointment;
+            settings.ReminderHoursBefore = dto.ReminderHoursBefore;
+            settings.ReminderBatchTime = dto.ReminderBatchTime;
+            settings.ReminderBatchTarget = WhatsAppReminderBatchTargets.IsValid(dto.ReminderBatchTarget)
+                ? dto.ReminderBatchTarget
+                : WhatsAppReminderBatchTargets.SameDayRemaining;
+            settings.ReminderLookAheadHours = dto.ReminderLookAheadHours;
+            settings.SendReminderImmediatelyIfInsideWindow = dto.SendReminderImmediatelyIfInsideWindow;
+
+            // Horas de silencio.
+            settings.QuietHoursEnabled = dto.QuietHoursEnabled;
+            settings.QuietHoursStart = dto.QuietHoursEnabled ? dto.QuietHoursStart : null;
+            settings.QuietHoursEnd = dto.QuietHoursEnabled ? dto.QuietHoursEnd : null;
+
             settings.UpdatedAtUtc = DateTime.UtcNow;
             settings.UpdatedByUserId = string.IsNullOrWhiteSpace(updatedByUserId) ? null : updatedByUserId;
 
@@ -436,17 +469,7 @@ namespace LuxuryApp.Services.WhatsApp
                     : TenantWhatsAppSettingsSnapshot.CreateEnabledDefaultsForAddon(tenantId, effectiveDailyLimit);
             }
 
-            return new TenantWhatsAppSettingsSnapshot(
-                settings.TenantId,
-                Exists: true,
-                IsEnabled: settings.IsEnabled,
-                SendConfirmationOnCreate: settings.SendConfirmationOnCreate,
-                SendReminderThreeHoursBefore: settings.SendReminderThreeHoursBefore,
-                DailyMessageLimit: effectiveDailyLimit,
-                TimeZoneId: string.IsNullOrWhiteSpace(settings.TimeZoneId)
-                    ? TenantWhatsAppSettings.DefaultTimeZoneId
-                    : settings.TimeZoneId,
-                Notes: settings.Notes);
+            return TenantWhatsAppSettingsSnapshot.FromEntity(settings, effectiveDailyLimit);
         }
 
         private async Task<TenantSubscriptionAddon?> GetActiveAddonAsync(
@@ -464,6 +487,57 @@ namespace LuxuryApp.Services.WhatsApp
             return addon is not null && _suscripcionService.IsWhatsAppAddonActive(addon)
                 ? addon
                 : null;
+        }
+
+        private static void ValidateAutomationDto(TenantWhatsAppSettingsUpdateDto dto)
+        {
+            if (dto.ConfirmationHoursBefore is < 1 or > 168)
+            {
+                throw new ArgumentException("Las horas de anticipación de la confirmación deben estar entre 1 y 168.");
+            }
+
+            if (dto.ReminderHoursBefore is < 1 or > 168)
+            {
+                throw new ArgumentException("Las horas de anticipación del recordatorio deben estar entre 1 y 168.");
+            }
+
+            if (dto.ReminderLookAheadHours is < 1 or > 168)
+            {
+                throw new ArgumentException("Las horas del recordatorio deben estar entre 1 y 168.");
+            }
+
+            // Si se usa el lote "solo citas de la mañana", la ventana debe ser coherente.
+            if (string.Equals(dto.ConfirmationScheduleMode, WhatsAppConfirmationScheduleModes.DailyBatchPreviousDay, StringComparison.Ordinal) &&
+                string.Equals(dto.ConfirmationBatchTarget, WhatsAppConfirmationBatchTargets.TomorrowMorning, StringComparison.Ordinal))
+            {
+                var start = dto.ConfirmationMorningStart ?? TenantWhatsAppSettings.DefaultMorningStart;
+                var end = dto.ConfirmationMorningEnd ?? TenantWhatsAppSettings.DefaultMorningEnd;
+                if (start >= end)
+                {
+                    throw new ArgumentException("La hora de inicio de la mañana debe ser anterior a la hora de fin.");
+                }
+            }
+
+            // Lotes diarios requieren una hora de envío.
+            if (string.Equals(dto.ConfirmationScheduleMode, WhatsAppConfirmationScheduleModes.DailyBatchPreviousDay, StringComparison.Ordinal) ||
+                string.Equals(dto.ConfirmationScheduleMode, WhatsAppConfirmationScheduleModes.DailyBatchSameDay, StringComparison.Ordinal))
+            {
+                if (dto.ConfirmationBatchTime is null)
+                {
+                    throw new ArgumentException("Debes indicar la hora de envío del lote de confirmaciones.");
+                }
+            }
+
+            if (string.Equals(dto.ReminderScheduleMode, WhatsAppReminderScheduleModes.DailyBatchSameDay, StringComparison.Ordinal) &&
+                dto.ReminderBatchTime is null)
+            {
+                throw new ArgumentException("Debes indicar la hora de envío del lote de recordatorios.");
+            }
+
+            if (dto.QuietHoursEnabled && (dto.QuietHoursStart is null || dto.QuietHoursEnd is null))
+            {
+                throw new ArgumentException("Debes indicar el inicio y el fin de las horas de silencio.");
+            }
         }
 
         private string NormalizeTimeZoneId(string? configuredTimeZoneId)

@@ -147,6 +147,158 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal("El contrato vigente cambió. Recarga la página e intenta de nuevo.", error);
         }
 
+        [Fact]
+        public async Task RegisterAsync_WithValidBusinessCode_ShouldCreateTenantGrantAndMarkCodeUsed()
+        {
+            await using var provider = await CreateServiceProviderAsync();
+            var planId = await SeedBusinessPlanAndCodeAsync(provider, "BUSINESS15-TEST-0001", diasGratis: 15, maxUsos: 1);
+
+            TenantProvisioningResult result;
+            using (var scope = provider.CreateScope())
+            {
+                var service = scope.ServiceProvider.GetRequiredService<TenantProvisioningService>();
+                result = await service.RegisterAsync(new TenantRegistrationRequest
+                {
+                    Name = "QA Trial Business",
+                    Email = "qa.trial.business.0001@luxurycloud.test",
+                    PhoneNumber = "88880001",
+                    Password = "Valid1!",
+                    AccessCode = "BUSINESS15-TEST-0001",
+                    AcceptCurrentContract = true,
+                    SubmittedContractDocumentId = ContractDocumentSeedData.InitialDocumentId,
+                    ContractIpAddress = "203.0.113.20",
+                    ContractUserAgent = "TenantProvisioningServiceTests/business-code"
+                });
+            }
+
+            Assert.True(result.Succeeded);
+            Assert.True(result.PromotionalAccessApplied);
+            // Nota: el acceso activo por grant lo cubre TenantCommercialAccessResolverTests con reloj
+            // alineado; aquí el harness usa un reloj fijo distinto a DateTime.UtcNow del grant.
+
+            using var assertScope = provider.CreateScope();
+            var db = assertScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            Assert.Equal(1, await db.Tenants.CountAsync());
+            Assert.Equal(1, await db.Users.CountAsync());
+
+            var grant = await db.TenantCommercialAccessGrants.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(result.TenantId, grant.TenantId);
+            Assert.Equal(planId, grant.PlanId);
+            Assert.True(grant.Activo);
+            Assert.Equal(TenantCommercialAccessGrantSource.PromotionalCode, grant.Source);
+            Assert.InRange((grant.FechaFinUtc - grant.FechaInicioUtc).TotalDays, 14.99, 15.01);
+
+            var code = await db.PromotionalCodes.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(1, code.UsosActuales);
+
+            var redemption = await db.PromotionalCodeRedemptions.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(result.TenantId, redemption.TenantId);
+        }
+
+        [Fact]
+        public async Task RegisterAsync_ReusingSingleUseCode_ShouldFailAndNotCreateSecondTenant()
+        {
+            await using var provider = await CreateServiceProviderAsync();
+            await SeedBusinessPlanAndCodeAsync(provider, "BUSINESS15-TEST-0002", diasGratis: 15, maxUsos: 1);
+
+            using (var scope = provider.CreateScope())
+            {
+                var service = scope.ServiceProvider.GetRequiredService<TenantProvisioningService>();
+                var first = await service.RegisterAsync(BuildRequest("qa.trial.business.0002a@luxurycloud.test", "BUSINESS15-TEST-0002"));
+                Assert.True(first.Succeeded);
+            }
+
+            TenantProvisioningResult second;
+            using (var scope = provider.CreateScope())
+            {
+                var service = scope.ServiceProvider.GetRequiredService<TenantProvisioningService>();
+                second = await service.RegisterAsync(BuildRequest("qa.trial.business.0002b@luxurycloud.test", "BUSINESS15-TEST-0002"));
+            }
+
+            Assert.False(second.Succeeded);
+
+            using var assertScope = provider.CreateScope();
+            var db = assertScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            // Solo el primer registro debe existir; el segundo se revierte por completo.
+            Assert.Equal(1, await db.Tenants.CountAsync());
+            Assert.Equal(1, await db.Users.CountAsync());
+            var code = await db.PromotionalCodes.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(1, code.UsosActuales);
+        }
+
+        [Fact]
+        public async Task RegisterAsync_WithInvalidCode_ShouldFailWithoutCreatingTenantOrUser()
+        {
+            await using var provider = await CreateServiceProviderAsync();
+            await SeedBusinessPlanAndCodeAsync(provider, "BUSINESS15-TEST-0003", diasGratis: 15, maxUsos: 1);
+
+            TenantProvisioningResult result;
+            using (var scope = provider.CreateScope())
+            {
+                var service = scope.ServiceProvider.GetRequiredService<TenantProvisioningService>();
+                result = await service.RegisterAsync(BuildRequest("qa.trial.business.0003@luxurycloud.test", "NOPE-INVALID-CODE"));
+            }
+
+            Assert.False(result.Succeeded);
+
+            using var assertScope = provider.CreateScope();
+            var db = assertScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            Assert.Equal(0, await db.Tenants.CountAsync());
+            Assert.Equal(0, await db.Users.CountAsync());
+            Assert.Equal(0, await db.TenantCommercialAccessGrants.IgnoreQueryFilters().CountAsync());
+        }
+
+        private static TenantRegistrationRequest BuildRequest(string email, string accessCode) =>
+            new()
+            {
+                Name = "QA Trial Business",
+                Email = email,
+                PhoneNumber = "88880000",
+                Password = "Valid1!",
+                AccessCode = accessCode,
+                AcceptCurrentContract = true,
+                SubmittedContractDocumentId = ContractDocumentSeedData.InitialDocumentId,
+                ContractIpAddress = "203.0.113.21",
+                ContractUserAgent = "TenantProvisioningServiceTests/code"
+            };
+
+        private static async Task<Guid> SeedBusinessPlanAndCodeAsync(
+            ServiceProvider provider,
+            string code,
+            int diasGratis,
+            int maxUsos)
+        {
+            using var scope = provider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var planId = Guid.NewGuid();
+            db.Planes.Add(new Plan
+            {
+                Id = planId,
+                Codigo = PlanCodes.Business,
+                Nombre = "Business",
+                Moneda = "CRC",
+                PrecioMensual = 15000,
+                Activo = true
+            });
+
+            db.PromotionalCodes.Add(new PromotionalCode
+            {
+                Id = Guid.NewGuid(),
+                Codigo = code,
+                Activo = true,
+                TipoBeneficio = PromotionalBenefitType.FreeAccessDays,
+                DiasGratis = diasGratis,
+                PlanId = planId,
+                MaxUsos = maxUsos,
+                SoloPrimerRegistro = true
+            });
+
+            await db.SaveChangesAsync();
+            return planId;
+        }
+
         private static async Task<ServiceProvider> CreateServiceProviderAsync()
         {
             var connection = new SqliteConnection("DataSource=:memory:");

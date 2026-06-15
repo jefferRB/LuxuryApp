@@ -1,4 +1,5 @@
 using System.Globalization;
+using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Calendar;
 using LuxuryApp.Services.WhatsApp;
 using Microsoft.AspNetCore.Authorization;
@@ -13,17 +14,20 @@ namespace LuxuryApp.Controllers.WhatsApp
         private readonly IWhatsAppInboxService _inboxService;
         private readonly ITenantWhatsAppFeatureService _tenantWhatsAppFeatureService;
         private readonly ICalendarWhatsAppNotificationService _notificationService;
+        private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ILogger<WhatsAppInboxController> _logger;
 
         public WhatsAppInboxController(
             IWhatsAppInboxService inboxService,
             ITenantWhatsAppFeatureService tenantWhatsAppFeatureService,
             ICalendarWhatsAppNotificationService notificationService,
+            IBusinessDateTimeProvider businessDateTimeProvider,
             ILogger<WhatsAppInboxController> logger)
         {
             _inboxService = inboxService;
             _tenantWhatsAppFeatureService = tenantWhatsAppFeatureService;
             _notificationService = notificationService;
+            _businessDateTimeProvider = businessDateTimeProvider;
             _logger = logger;
         }
 
@@ -46,6 +50,85 @@ namespace LuxuryApp.Controllers.WhatsApp
 
             var inbox = await _inboxService.GetInboxAsync(parsedDate, funcionarioId, whatsAppEnabled, cancellationToken);
             return Ok(inbox);
+        }
+
+        [HttpGet("FollowUp")]
+        public async Task<IActionResult> FollowUp(
+            string? range,
+            string? status,
+            int? funcionarioId,
+            string? from,
+            string? to,
+            CancellationToken cancellationToken)
+        {
+            var hasAddon = await _tenantWhatsAppFeatureService.HasWhatsAppAddonAsync(cancellationToken);
+            if (!hasAddon)
+            {
+                return Forbid();
+            }
+
+            var rangeKey = string.IsNullOrWhiteSpace(range) ? "5d" : range.Trim().ToLowerInvariant();
+            var today = _businessDateTimeProvider.Today();
+
+            DateTime fromDate;
+            DateTime toExclusive;
+
+            switch (rangeKey)
+            {
+                case "hoy":
+                    fromDate = today;
+                    toExclusive = today.AddDays(1);
+                    break;
+                case "24h":
+                    fromDate = today;
+                    toExclusive = today.AddDays(2);
+                    break;
+                case "3d":
+                    fromDate = today;
+                    toExclusive = today.AddDays(3);
+                    break;
+                case "7d":
+                    fromDate = today;
+                    toExclusive = today.AddDays(7);
+                    break;
+                case "custom":
+                    if (!TryParseLocalDate(from, out fromDate) || !TryParseLocalDate(to, out var toInclusive))
+                    {
+                        return BadRequest("El rango personalizado solicitado no es valido.");
+                    }
+                    toExclusive = toInclusive.AddDays(1);
+                    if (toExclusive <= fromDate)
+                    {
+                        return BadRequest("El rango personalizado solicitado no es valido.");
+                    }
+                    // Limita rangos personalizados excesivos para proteger la consulta.
+                    if ((toExclusive - fromDate).TotalDays > 92)
+                    {
+                        toExclusive = fromDate.AddDays(92);
+                    }
+                    rangeKey = "custom";
+                    break;
+                case "5d":
+                default:
+                    rangeKey = "5d";
+                    fromDate = today;
+                    toExclusive = today.AddDays(5);
+                    break;
+            }
+
+            var whatsAppEnabled = await _tenantWhatsAppFeatureService
+                .IsWhatsAppEnabledForCurrentTenantAsync(cancellationToken);
+
+            var followUp = await _inboxService.GetFollowUpAsync(
+                fromDate,
+                toExclusive,
+                funcionarioId,
+                status,
+                rangeKey,
+                whatsAppEnabled,
+                cancellationToken);
+
+            return Ok(followUp);
         }
 
         [HttpGet("Chat/{citaId:int}")]

@@ -36,6 +36,285 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
+        public async Task QueueConfirmation_WithCustomHoursBefore_ShouldScheduleAtConfiguredOffset()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            // Confirmación 2 horas antes (en vez de 24).
+            await fixture.UpdateAutomationAsync(new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = true,
+                DailyMessageLimit = 30,
+                ConfirmationHoursBefore = 2,
+                ReminderHoursBefore = 3
+            });
+
+            // Cita 10 horas en el futuro respecto al "now" fijo (2026-05-26 10:30 -06:00).
+            var citaFechaHora = new DateTime(2026, 5, 26, 20, 30, 0);
+            var cita = await fixture.SeedCitaAsync(fechaHora: citaFechaHora);
+
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            var expectedSendAtUtc = new DateTimeOffset(citaFechaHora, TimeSpan.FromHours(-6)).UtcDateTime.AddHours(-2);
+            Assert.Equal(WhatsAppMessageStatuses.Pending, message.Status);
+            Assert.Equal(expectedSendAtUtc, message.NextAttemptAtUtc);
+        }
+
+        [Fact]
+        public async Task QueueConfirmation_WhenInsideWindowAndImmediateDisabled_ShouldNotQueue()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            // 24h antes pero sin envío inmediato si ya está dentro del rango.
+            await fixture.UpdateAutomationAsync(new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = true,
+                DailyMessageLimit = 30,
+                ConfirmationHoursBefore = 24,
+                SendConfirmationImmediatelyIfInsideWindow = false
+            });
+
+            // Cita a 2h del "now": ya dentro de la ventana de 24h.
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 26, 12, 30, 0));
+
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+
+            Assert.False(await fixture.Context.WhatsAppMessageLogs.AnyAsync(),
+                "No debe encolarse confirmación cuando la cita ya entró a la ventana y el envío inmediato está desactivado.");
+        }
+
+        [Fact]
+        public async Task QueueReminder_WithExtendedLookAhead_ShouldQueueAppointmentOutsideDefaultWindow()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            // Recordatorio 6 horas antes (en vez de 3).
+            await fixture.UpdateAutomationAsync(new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = true,
+                DailyMessageLimit = 30,
+                ReminderHoursBefore = 6
+            });
+
+            // Cita a 5h del "now": fuera de la ventana default de 3h, dentro de la de 6h.
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 26, 15, 30, 0));
+
+            await fixture.Notifications.QueueAppointmentReminderAsync(cita.Id);
+
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            Assert.Equal(WhatsAppNotificationTypes.Reminder3Hours, message.NotificationType);
+            Assert.Equal(WhatsAppMessageStatuses.Pending, message.Status);
+        }
+
+        [Fact]
+        public async Task ProcessPending_WhenConfirmationScheduledInFuture_ShouldNotSendBeforeDue()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            await fixture.UpdateAutomationAsync(new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = true,
+                DailyMessageLimit = 30,
+                ConfirmationHoursBefore = 24
+            });
+
+            // Cita 48h en el futuro → la confirmación se programa para dentro de 24h (aún no vence).
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 28, 10, 30, 0));
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+
+            var queued = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            Assert.Equal(WhatsAppMessageStatuses.Pending, queued.Status);
+            Assert.NotNull(queued.NextAttemptAtUtc);
+            Assert.True(queued.NextAttemptAtUtc > Fixture.FixedNowUtc);
+
+            // El worker procesa: NO debe enviar porque todavía no llega la hora programada.
+            await fixture.Notifications.ProcessPendingNotificationsAsync();
+
+            Assert.Equal(0, fixture.MetaClient.SendCount);
+            var afterProcess = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            Assert.Equal(WhatsAppMessageStatuses.Pending, afterProcess.Status);
+        }
+
+        [Fact]
+        public async Task ProcessPending_WhenConfirmationInsideWindow_ShouldSendImmediately()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            await fixture.UpdateAutomationAsync(new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = true,
+                DailyMessageLimit = 30,
+                ConfirmationHoursBefore = 24,
+                SendConfirmationImmediatelyIfInsideWindow = true,
+                ReminderHoursBefore = 3
+            });
+
+            // Cita a 10h del "now": dentro de la ventana de confirmación (24h) pero fuera de la de
+            // recordatorio (3h) → la confirmación se envía de inmediato.
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 26, 20, 30, 0));
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+
+            var queued = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            Assert.Null(queued.NextAttemptAtUtc);
+
+            await fixture.Notifications.ProcessPendingNotificationsAsync();
+
+            Assert.Equal(1, fixture.MetaClient.SendCount);
+            var sent = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            Assert.Equal(WhatsAppMessageStatuses.Sent, sent.Status);
+            var updatedCita = await fixture.Context.Citas.SingleAsync(c => c.Id == cita.Id);
+            Assert.NotNull(updatedCita.ConfirmacionWhatsAppEnviadaUtc);
+        }
+
+        [Fact]
+        public async Task DailyBatch_TomorrowAllDay_AfterBatchTime_ShouldQueueAndSuppressCreateTimeConfirmation()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            await fixture.UpdateAutomationAsync(new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = true,
+                DailyMessageLimit = 30,
+                ConfirmationScheduleMode = WhatsAppConfirmationScheduleModes.DailyBatchPreviousDay,
+                ConfirmationBatchTime = new TimeOnly(9, 0),
+                ConfirmationBatchTarget = WhatsAppConfirmationBatchTargets.TomorrowAllDay
+            });
+
+            // Cita de mañana (now fijo: 2026-05-26 10:30 → mañana = 2026-05-27).
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 27, 14, 0, 0));
+
+            // En modo lote, crear la cita NO debe encolar confirmación.
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+            Assert.False(await fixture.Context.WhatsAppMessageLogs.AnyAsync());
+
+            // El lote corre (now 10:30 >= 09:00) y encola la confirmación de la cita de mañana.
+            await fixture.Notifications.GenerateDailyBatchAsync();
+
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            Assert.Equal(WhatsAppNotificationTypes.Confirmation, message.NotificationType);
+            Assert.Equal(WhatsAppMessageStatuses.Pending, message.Status);
+            Assert.Null(message.NextAttemptAtUtc);
+        }
+
+        [Fact]
+        public async Task DailyBatch_BeforeBatchTime_ShouldNotQueue()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            await fixture.UpdateAutomationAsync(new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = true,
+                DailyMessageLimit = 30,
+                ConfirmationScheduleMode = WhatsAppConfirmationScheduleModes.DailyBatchPreviousDay,
+                ConfirmationBatchTime = new TimeOnly(20, 0), // 8 pm, posterior al now fijo (10:30)
+                ConfirmationBatchTarget = WhatsAppConfirmationBatchTargets.TomorrowAllDay
+            });
+
+            await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 27, 14, 0, 0));
+
+            await fixture.Notifications.GenerateDailyBatchAsync();
+
+            Assert.False(await fixture.Context.WhatsAppMessageLogs.AnyAsync());
+        }
+
+        [Fact]
+        public async Task DailyBatch_RunTwiceSameDay_ShouldNotDuplicate()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            await fixture.UpdateAutomationAsync(new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = true,
+                DailyMessageLimit = 30,
+                ConfirmationScheduleMode = WhatsAppConfirmationScheduleModes.DailyBatchPreviousDay,
+                ConfirmationBatchTime = new TimeOnly(9, 0),
+                ConfirmationBatchTarget = WhatsAppConfirmationBatchTargets.TomorrowAllDay
+            });
+
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 27, 14, 0, 0));
+
+            await fixture.Notifications.GenerateDailyBatchAsync();
+            await fixture.Notifications.GenerateDailyBatchAsync();
+
+            var count = await fixture.Context.WhatsAppMessageLogs.CountAsync(m => m.CitaId == cita.Id);
+            Assert.Equal(1, count);
+        }
+
+        [Fact]
+        public async Task QueueConfirmation_WhenInsideReminderWindow_ShouldSkipSilentlyAndAllowOnlyReminder()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            await fixture.UpdateAutomationAsync(new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = true,
+                DailyMessageLimit = 30,
+                ConfirmationHoursBefore = 24,
+                ReminderHoursBefore = 3
+            });
+
+            // Cita a 2h del "now": ya dentro de la ventana del recordatorio (3h).
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 26, 12, 30, 0));
+
+            // La confirmación se omite EN SILENCIO (sin fila de log de error/omitida).
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+            Assert.False(await fixture.Context.WhatsAppMessageLogs.AnyAsync());
+
+            // Solo se encola/envía el recordatorio.
+            await fixture.Notifications.QueueAppointmentReminderAsync(cita.Id);
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            Assert.Equal(WhatsAppNotificationTypes.Reminder3Hours, message.NotificationType);
+            Assert.Equal(WhatsAppMessageStatuses.Pending, message.Status);
+        }
+
+        [Fact]
+        public async Task ProcessPending_DuringQuietHours_ShouldDeferInsteadOfSending()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            // now fijo = 2026-05-26 10:30; silencio 09:00–12:00 cubre el "now".
+            await fixture.UpdateAutomationAsync(new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = true,
+                DailyMessageLimit = 30,
+                ConfirmationHoursBefore = 24,
+                ReminderHoursBefore = 3,
+                QuietHoursEnabled = true,
+                QuietHoursStart = new TimeOnly(9, 0),
+                QuietHoursEnd = new TimeOnly(12, 0)
+            });
+
+            // Cita a 10h: confirmación inmediata (dentro de 24h, fuera de 3h) → queda pendiente y vencida.
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 26, 20, 30, 0));
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+
+            var queued = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            Assert.Equal(WhatsAppMessageStatuses.Pending, queued.Status);
+            Assert.Null(queued.NextAttemptAtUtc);
+
+            // Procesar durante el silencio: no envía y reprograma al fin del silencio (12:00 local).
+            await fixture.Notifications.ProcessPendingNotificationsAsync();
+
+            Assert.Equal(0, fixture.MetaClient.SendCount);
+            // ExecuteUpdate es masivo (no refresca entidades trackeadas): leer sin tracking.
+            var deferred = await fixture.Context.WhatsAppMessageLogs.AsNoTracking().SingleAsync();
+            Assert.Equal(WhatsAppMessageStatuses.Pending, deferred.Status);
+            var expectedResumeUtc = new DateTimeOffset(new DateTime(2026, 5, 26, 12, 0, 0), TimeSpan.FromHours(-6)).UtcDateTime;
+            Assert.Equal(expectedResumeUtc, deferred.NextAttemptAtUtc);
+        }
+
+        [Fact]
         public async Task QueueConfirmation_WhenTenantIsDisabled_ShouldSkipAsTenantDisabled()
         {
             using var fixture = await Fixture.CreateAsync();
@@ -640,6 +919,9 @@ namespace LuxuryApp.Tests.TenantIsolation
                         DailyMessageLimit = dailyLimit
                     },
                     "platform-user");
+
+            public Task UpdateAutomationAsync(TenantWhatsAppSettingsUpdateDto dto) =>
+                Settings.UpdateSettingsAsync(TenantId, dto, "platform-user");
 
             public async Task<LuxuryApp.Models.DataBase.ClientesModel> SeedClienteAsync(
                 string nombre,
