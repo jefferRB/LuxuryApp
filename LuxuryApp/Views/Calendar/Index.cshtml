@@ -127,6 +127,17 @@
         <div class="modal-content">
             <div class="modal-header cal-day-modal-header">
                 <div class="cal-day-modal-title-wrap">
+                    <div class="cal-day-nav" role="group" aria-label="Navegación de día">
+                        <button type="button" id="dayModalPrev" class="cal-day-nav-btn" aria-label="Día anterior" title="Día anterior">
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
+                        <button type="button" id="dayModalToday" class="cal-day-nav-today d-none" title="Ir a hoy">
+                            <i class="bi bi-dot"></i> Hoy
+                        </button>
+                        <button type="button" id="dayModalNext" class="cal-day-nav-btn" aria-label="Día siguiente" title="Día siguiente">
+                            <i class="bi bi-chevron-right"></i>
+                        </button>
+                    </div>
                     <h5 class="modal-title cal-day-modal-title" id="modalTitle"></h5>
                 </div>
                 <select id="dayModalFuncionarioFiltro" class="cal-day-modal-filter">
@@ -214,7 +225,32 @@
 
                     <div class="mb-3">
                         <label class="form-label">Servicio</label>
-                        <select id="servicio" class="form-select"></select>
+
+                        <div class="cal-servicio-toggle" role="group" aria-label="Tipo de servicio">
+                            <button type="button" class="cal-servicio-toggle-btn active" id="servicioModoCatalogo" data-modo="catalogo" aria-pressed="true">
+                                <i class="bi bi-list-check"></i> Servicio
+                            </button>
+                            <button type="button" class="cal-servicio-toggle-btn" id="servicioModoPersonalizado" data-modo="personalizado" aria-pressed="false">
+                                <i class="bi bi-pencil-square"></i> Personalizado
+                            </button>
+                        </div>
+
+                        <div id="servicioCatalogoContainer" class="mt-2">
+                            <select id="servicio" class="form-select"></select>
+                        </div>
+
+                        <div id="servicioPersonalizadoContainer" class="mt-2 d-none">
+                            <input type="text"
+                                   id="servicioNombrePersonalizado"
+                                   class="form-control mb-2"
+                                   maxlength="100"
+                                   placeholder="Nombre del servicio (ej. Tratamiento especial)">
+                            <label class="form-label cal-servicio-dur-label">Duración (minutos)</label>
+                            <input type="number"
+                                   id="servicioDuracionPersonalizada"
+                                   class="form-control"
+                                   value="30" min="5" max="480" step="5">
+                        </div>
                     </div>
 
                     <div class="mb-3">
@@ -307,7 +343,32 @@
 
                     <div class="mb-3">
                         <label>Servicio</label>
-                        <select id="editServicioId" class="form-select"></select>
+
+                        <div class="cal-servicio-toggle" role="group" aria-label="Tipo de servicio">
+                            <button type="button" class="cal-servicio-toggle-btn active" id="editServicioModoCatalogo" data-modo="catalogo" aria-pressed="true">
+                                <i class="bi bi-list-check"></i> Servicio
+                            </button>
+                            <button type="button" class="cal-servicio-toggle-btn" id="editServicioModoPersonalizado" data-modo="personalizado" aria-pressed="false">
+                                <i class="bi bi-pencil-square"></i> Personalizado
+                            </button>
+                        </div>
+
+                        <div id="editServicioCatalogoContainer" class="mt-2">
+                            <select id="editServicioId" class="form-select"></select>
+                        </div>
+
+                        <div id="editServicioPersonalizadoContainer" class="mt-2 d-none">
+                            <input type="text"
+                                   id="editServicioNombrePersonalizado"
+                                   class="form-control mb-2"
+                                   maxlength="100"
+                                   placeholder="Nombre del servicio (ej. Tratamiento especial)">
+                            <label class="form-label cal-servicio-dur-label">Duración (minutos)</label>
+                            <input type="number"
+                                   id="editServicioDuracionPersonalizada"
+                                   class="form-control"
+                                   value="30" min="5" max="480" step="5">
+                        </div>
                     </div>
 
                 </div>
@@ -416,16 +477,17 @@
     <script>
         window.LUXURY_CALENDAR_CONFIG = Object.assign({}, window.LUXURY_CALENDAR_CONFIG, {
             tenantWhatsAppEnabled: @(tenantWhatsAppEnabled ? "true" : "false"),
-            hasWhatsAppAddon: @(hasWhatsAppAddon ? "true" : "false")
+            hasWhatsAppAddon: @(hasWhatsAppAddon ? "true" : "false"),
+            businessToday: "@Model.BusinessTodayIso"
         });
     </script>
-    <script src="~/js/calendar.js"></script>
+    <script src="~/js/calendar.js" asp-append-version="true"></script>
     @if (hasWhatsAppAddon)
     {
-        <script src="~/js/whatsapp-inbox.js"></script>
+        <script src="~/js/whatsapp-inbox.js" asp-append-version="true"></script>
     }
     else
     {
-        <script src="~/js/appointments-panel.js"></script>
+        <script src="~/js/appointments-panel.js" asp-append-version="true"></script>
     }
 }

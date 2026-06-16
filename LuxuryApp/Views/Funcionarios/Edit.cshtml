@@ -170,6 +170,28 @@
                     <span asp-validation-for="ColorCalendario" class="func-field-error"></span>
                 </div>
 
+                <!-- Rebajar impuestos antes de calcular ganancia -->
+                <div class="func-field func-form-full">
+                    <label class="func-label">Cálculo de ganancia del funcionario</label>
+                    <div class="func-tax-toggle">
+                        <div class="form-check form-switch func-tax-switch">
+                            <input asp-for="RebajarImpuestosAntesDeComision"
+                                   class="form-check-input"
+                                   type="checkbox"
+                                   role="switch"
+                                   id="func-rebajar-impuestos" />
+                            <label class="form-check-label" for="func-rebajar-impuestos">
+                                Rebajar impuestos antes de calcular ganancia
+                            </label>
+                        </div>
+                        <p class="func-tax-hint">
+                            Si está activado, el porcentaje del funcionario se calcula sobre el monto
+                            <strong>sin impuestos</strong>. Si está desactivado, se calcula sobre el
+                            <strong>total producido</strong>.
+                        </p>
+                    </div>
+                </div>
+
             </div>
 
             <div class="func-actions">

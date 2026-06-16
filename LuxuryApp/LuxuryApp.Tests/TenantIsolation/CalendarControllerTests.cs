@@ -269,7 +269,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new FakeTenantWhatsAppFeatureService
                 {
                     IsEnabled = tenantWhatsAppEnabled
-                });
+                },
+                ControllerTestSupport.BusinessDateTimeProvider);
 
             ControllerTestSupport.AttachHttpContext(
                 controller,

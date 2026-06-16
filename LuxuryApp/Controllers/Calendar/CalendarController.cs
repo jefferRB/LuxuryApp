@@ -1,5 +1,6 @@
 using System.Globalization;
 using LuxuryApp.Models.Calendar;
+using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Calendar;
 using LuxuryApp.Services.WhatsApp;
 using Microsoft.AspNetCore.Authorization;
@@ -14,15 +15,18 @@ namespace LuxuryApp.Controllers.Calendar
         private readonly ICalendarCommandService _calendarCommandService;
         private readonly ICalendarQueryService _calendarQueryService;
         private readonly ITenantWhatsAppFeatureService _tenantWhatsAppFeatureService;
+        private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
 
         public CalendarController(
             ICalendarCommandService calendarCommandService,
             ICalendarQueryService calendarQueryService,
-            ITenantWhatsAppFeatureService tenantWhatsAppFeatureService)
+            ITenantWhatsAppFeatureService tenantWhatsAppFeatureService,
+            IBusinessDateTimeProvider businessDateTimeProvider)
         {
             _calendarCommandService = calendarCommandService;
             _calendarQueryService = calendarQueryService;
             _tenantWhatsAppFeatureService = tenantWhatsAppFeatureService;
+            _businessDateTimeProvider = businessDateTimeProvider;
         }
 
         public async Task<IActionResult> Index(CancellationToken cancellationToken)
@@ -52,7 +56,8 @@ namespace LuxuryApp.Controllers.Calendar
             {
                 HasWhatsAppAddon = hasAddon,
                 TenantWhatsAppEnabled = whatsAppEnabled,
-                Stats = stats
+                Stats = stats,
+                BusinessTodayIso = _businessDateTimeProvider.Today().ToString("yyyy-MM-dd")
             });
         }
 
@@ -304,6 +309,8 @@ namespace LuxuryApp.Controllers.Calendar
                 TelefonoCliente = vm.TelefonoCliente,
                 ClienteId = vm.ClienteId,
                 ServicioId = vm.ServicioId,
+                EsServicioPersonalizado = vm.EsServicioPersonalizado,
+                ServicioNombrePersonalizado = vm.ServicioNombrePersonalizado,
                 FechaHoraCita = vm.FechaHoraCita,
                 FuncionarioId = vm.FuncionarioId,
                 Tipo = vm.Tipo,

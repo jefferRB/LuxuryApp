@@ -938,6 +938,46 @@ html[data-luxury-surface-theme="glass"] .cal-modal-content {
 .cal-btn-save:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
 .cal-btn-save:disabled { opacity: 0.55; cursor: not-allowed; }
 
+/* ── SEGMENTED CONTROL: Servicio / Personalizado ───────────── */
+.cal-servicio-toggle {
+    display: flex;
+    gap: 0.4rem;
+    padding: 0.25rem;
+    border: 1px solid var(--private-surface-border, #e2e8f0);
+    border-radius: 10px;
+    background: var(--private-surface-subtle, rgba(0, 0, 0, 0.03));
+}
+
+.cal-servicio-toggle-btn {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.5rem 0.6rem;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--private-muted-text, #64748b);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cal-servicio-toggle-btn:hover { color: var(--private-surface-text, #1e293b); }
+
+.cal-servicio-toggle-btn.active {
+    background: var(--private-input-bg, #fff);
+    color: var(--private-surface-text, #1e293b);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.cal-servicio-dur-label {
+    margin-top: 0.15rem;
+    font-size: 0.82rem;
+}
+
 .cal-btn-primary {
     display: inline-flex;
     align-items: center;
@@ -1240,7 +1280,13 @@ html[data-luxury-surface-theme="glass"] .cal-day-modal .modal-content {
     flex-wrap: wrap;
 }
 
-.cal-day-modal-title-wrap { flex: 1; min-width: 140px; }
+.cal-day-modal-title-wrap {
+    flex: 1;
+    min-width: 140px;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
 
 .cal-day-modal-title {
     margin: 0;
@@ -1251,6 +1297,59 @@ html[data-luxury-surface-theme="glass"] .cal-day-modal .modal-content {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* ── NAVEGACIÓN DE DÍA (anterior / siguiente / hoy) ─────────── */
+.cal-day-nav {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-shrink: 0;
+}
+
+.cal-day-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--private-surface-border, #d1d5db);
+    border-radius: 8px;
+    background: var(--private-input-bg, #fff);
+    color: var(--private-surface-text, #1e293b);
+    font-size: 0.95rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background-color 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+}
+
+.cal-day-nav-btn:hover {
+    background: var(--private-surface-hover, rgba(0, 0, 0, 0.05));
+    transform: translateY(-1px);
+}
+
+.cal-day-nav-btn:active { transform: translateY(0); }
+
+.cal-day-nav-today {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+    height: 32px;
+    padding: 0 0.7rem;
+    border: 1px solid var(--private-accent, #6366f1);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--private-accent, #6366f1);
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.cal-day-nav-today:hover {
+    background: var(--private-accent, #6366f1);
+    color: #fff;
 }
 
 .cal-day-modal-filter {

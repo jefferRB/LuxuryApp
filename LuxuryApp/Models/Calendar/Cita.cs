@@ -26,6 +26,11 @@ namespace LuxuryApp.Models.Calendar
         public int? ServicioId { get; set; }
         public Servicio? Servicio { get; set; }
 
+        // Servicio personalizado: cuando la cita no usa el catálogo (ServicioId == null)
+        // y el usuario escribió un nombre libre. La duración se guarda en DuracionMinutos.
+        [MaxLength(100)]
+        public string? ServicioNombrePersonalizado { get; set; }
+
         [Required]
         public DateTime FechaHoraCita { get; set; }
 

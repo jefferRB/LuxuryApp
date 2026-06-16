@@ -22,6 +22,67 @@ const calendarRequestState = {
 const CLIENTE_AUTOCOMPLETE_MIN_LENGTH = 3;
 const CLIENTE_AUTOCOMPLETE_DEBOUNCE_MS = 300;
 const TENANT_WHATSAPP_ENABLED = window.LUXURY_CALENDAR_CONFIG?.tenantWhatsAppEnabled === true;
+const BUSINESS_TODAY_ISO = window.LUXURY_CALENDAR_CONFIG?.businessToday || null;
+
+/* ───────────────────────────────────────────────────────────
+   MANEJO CENTRALIZADO DE MODALES (Bootstrap)
+   Evita instancias duplicadas y capas negras huérfanas.
+   ─────────────────────────────────────────────────────────── */
+
+function getCalendarModalInstance(id) {
+    const el = document.getElementById(id);
+    if (!el || typeof bootstrap === "undefined" || !bootstrap.Modal) {
+        return null;
+    }
+    // getOrCreateInstance reutiliza la instancia existente en lugar de crear
+    // una nueva cada vez (causa raíz de backdrops duplicados / pantalla bloqueada).
+    return bootstrap.Modal.getOrCreateInstance(el);
+}
+
+function showCalendarModal(id) {
+    const instance = getCalendarModalInstance(id);
+    instance?.show();
+    return instance;
+}
+
+function hideCalendarModal(id) {
+    const el = document.getElementById(id);
+    if (!el || typeof bootstrap === "undefined" || !bootstrap.Modal) {
+        return;
+    }
+    bootstrap.Modal.getInstance(el)?.hide();
+}
+
+// Red de seguridad: cuando se cierra cualquier modal y NO queda ninguno abierto,
+// elimina backdrops huérfanos y restaura el scroll del body. Solo actúa cuando
+// realmente no hay modales visibles, por lo que no rompe modales apilados.
+function initCalendarModalSafetyNet() {
+    document.addEventListener("hidden.bs.modal", () => {
+        if (document.querySelector(".modal.show")) {
+            return; // Aún hay un modal abierto (apilado): no tocar nada.
+        }
+
+        document.querySelectorAll(".modal-backdrop").forEach(backdrop => backdrop.remove());
+        document.body.classList.remove("modal-open");
+        document.body.style.removeProperty("overflow");
+        document.body.style.removeProperty("padding-right");
+    });
+}
+
+function getBusinessTodayDate() {
+    if (BUSINESS_TODAY_ISO && /^\d{4}-\d{2}-\d{2}$/.test(BUSINESS_TODAY_ISO)) {
+        const [y, m, d] = BUSINESS_TODAY_ISO.split("-").map(Number);
+        return new Date(y, m - 1, d, 12, 0, 0);
+    }
+    return new Date();
+}
+
+function isBusinessToday(date) {
+    const today = getBusinessTodayDate();
+    return date.getFullYear() === today.getFullYear() &&
+        date.getMonth() === today.getMonth() &&
+        date.getDate() === today.getDate();
+}
 
 function calendarDebugLog(message, payload = null) {
 
@@ -728,6 +789,7 @@ document.addEventListener("DOMContentLoaded", initApp);
 
 function initApp() {
 
+    initCalendarModalSafetyNet();
     initCalendar();
     initAutocomplete();
     initUIState();
@@ -1249,7 +1311,22 @@ function initEvents() {
 
     initViewButtons();
     initDuplicarToggle();
+    initServicioToggles();
+    initDayModalNavigation();
 
+}
+
+/* NAVEGACIÓN DE DÍA DENTRO DEL MODAL (listeners enlazados una sola vez) */
+
+function initDayModalNavigation() {
+    document.getElementById("dayModalPrev")
+        ?.addEventListener("click", () => navigateDayModal(-1));
+
+    document.getElementById("dayModalNext")
+        ?.addEventListener("click", () => navigateDayModal(1));
+
+    document.getElementById("dayModalToday")
+        ?.addEventListener("click", () => navigateDayModal("today"));
 }
 
 function redrawDuplicarCalendar() {
@@ -1326,6 +1403,62 @@ function initDuplicarToggle() {
 
     });
 
+}
+
+/* SERVICIO: CATÁLOGO vs PERSONALIZADO (segmented control) */
+
+function getServicioToggleEls(mode) {
+    if (mode === "edit") {
+        return {
+            catalogoBtn: document.getElementById("editServicioModoCatalogo"),
+            customBtn: document.getElementById("editServicioModoPersonalizado"),
+            catalogoContainer: document.getElementById("editServicioCatalogoContainer"),
+            customContainer: document.getElementById("editServicioPersonalizadoContainer"),
+            nombreInput: document.getElementById("editServicioNombrePersonalizado"),
+            duracionInput: document.getElementById("editServicioDuracionPersonalizada"),
+            select: document.getElementById("editServicioId")
+        };
+    }
+
+    return {
+        catalogoBtn: document.getElementById("servicioModoCatalogo"),
+        customBtn: document.getElementById("servicioModoPersonalizado"),
+        catalogoContainer: document.getElementById("servicioCatalogoContainer"),
+        customContainer: document.getElementById("servicioPersonalizadoContainer"),
+        nombreInput: document.getElementById("servicioNombrePersonalizado"),
+        duracionInput: document.getElementById("servicioDuracionPersonalizada"),
+        select: document.getElementById("servicio")
+    };
+}
+
+function setServicioModo(mode, modo) {
+    const els = getServicioToggleEls(mode);
+    if (!els.catalogoBtn || !els.customBtn) {
+        return;
+    }
+
+    const isCustom = modo === "personalizado";
+
+    els.catalogoBtn.classList.toggle("active", !isCustom);
+    els.catalogoBtn.setAttribute("aria-pressed", String(!isCustom));
+    els.customBtn.classList.toggle("active", isCustom);
+    els.customBtn.setAttribute("aria-pressed", String(isCustom));
+
+    els.catalogoContainer?.classList.toggle("d-none", isCustom);
+    els.customContainer?.classList.toggle("d-none", !isCustom);
+}
+
+function getServicioModo(mode) {
+    const els = getServicioToggleEls(mode);
+    return els.customBtn?.classList.contains("active") ? "personalizado" : "catalogo";
+}
+
+function initServicioToggles() {
+    ["create", "edit"].forEach(mode => {
+        const els = getServicioToggleEls(mode);
+        els.catalogoBtn?.addEventListener("click", () => setServicioModo(mode, "catalogo"));
+        els.customBtn?.addEventListener("click", () => setServicioModo(mode, "personalizado"));
+    });
 }
 
 function generarSlots() {
@@ -1959,21 +2092,79 @@ async function renderDayView(date) {
     await buildDayGrid(wrapper, date);
 }
 
-async function onDayClick(year, month, day) {
-
-    const selectedDate = new Date(year, month, day);
-    currentDate = selectedDate;
-
-    const modalTitle = document.getElementById("modalTitle");
-    const hoursContainer = document.getElementById("hoursContainer");
-
-    modalTitle.textContent = selectedDate.toLocaleDateString("es-CR", {
+function formatDayTitle(date) {
+    return date.toLocaleDateString("es-CR", {
         weekday: "long",
         year: "numeric",
         month: "long",
         day: "numeric"
     });
+}
 
+function getDayModalFilterValue() {
+    const filtro = document.getElementById("dayModalFuncionarioFiltro");
+    return filtro && filtro.value ? filtro.value : null;
+}
+
+function updateDayTodayButton() {
+    const btn = document.getElementById("dayModalToday");
+    if (!btn) {
+        return;
+    }
+    // El botón "Hoy" solo aparece cuando el día mostrado NO es el día actual del negocio.
+    btn.classList.toggle("d-none", isBusinessToday(currentDate));
+}
+
+// Reconstruye el contenido del modal de día para la fecha indicada, conservando
+// el filtro de funcionario actual. Reutilizada por onDayClick y la navegación.
+async function renderDayModalContent(date) {
+    currentDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0);
+
+    const modalTitle = document.getElementById("modalTitle");
+    if (modalTitle) {
+        modalTitle.textContent = formatDayTitle(currentDate);
+    }
+
+    updateDayTodayButton();
+
+    const hoursContainer = document.getElementById("hoursContainer");
+    await buildDayGrid(hoursContainer, currentDate, getDayModalFilterValue());
+}
+
+let dayModalNavInFlight = false;
+
+// Navega entre días dentro del modal. delta = -1/+1; "today" vuelve al día del negocio.
+// Un guard evita solapar navegaciones por doble click / clicks rápidos; buildDayGrid
+// ya cancela respuestas AJAX viejas mediante beginRequest("dayGrid").
+async function navigateDayModal(delta) {
+    if (dayModalNavInFlight) {
+        return;
+    }
+    dayModalNavInFlight = true;
+
+    try {
+        let target;
+        if (delta === "today") {
+            target = getBusinessTodayDate();
+        } else {
+            target = new Date(
+                currentDate.getFullYear(),
+                currentDate.getMonth(),
+                currentDate.getDate() + delta,
+                12, 0, 0);
+        }
+
+        await renderDayModalContent(target);
+    } finally {
+        dayModalNavInFlight = false;
+    }
+}
+
+async function onDayClick(year, month, day) {
+
+    const selectedDate = new Date(year, month, day, 12, 0, 0);
+
+    const hoursContainer = document.getElementById("hoursContainer");
     const modalFiltro = document.getElementById("dayModalFuncionarioFiltro");
     if (modalFiltro) {
         if (!modalFiltro.dataset.bound) {
@@ -1986,8 +2177,8 @@ async function onDayClick(year, month, day) {
                 modalFiltro.appendChild(opt);
             });
             modalFiltro.dataset.bound = "true";
+            // El listener se enlaza una sola vez; rebuild conservando la fecha actual.
             modalFiltro.addEventListener("change", async () => {
-                clearElement(hoursContainer);
                 await buildDayGrid(hoursContainer, currentDate, modalFiltro.value || null);
             });
         } else {
@@ -1995,16 +2186,14 @@ async function onDayClick(year, month, day) {
         }
     }
 
-    await buildDayGrid(hoursContainer, selectedDate);
+    await renderDayModalContent(selectedDate);
 
-    new bootstrap.Modal(document.getElementById("dayModal")).show();
+    showCalendarModal("dayModal");
 }
 
 function onHourClick(date, hour, minute = 0) {
 
-    const dayModalEl = document.getElementById("dayModal");
-    const dayModal = bootstrap.Modal.getInstance(dayModalEl);
-    if (dayModal) dayModal.hide();
+    hideCalendarModal("dayModal");
 
     abrirModalConDuracion(date, hour, minute, 30);
 }
@@ -2079,9 +2268,7 @@ async function abrirModalConDuracion(
 
     syncCreateConsentUI();
 
-    new bootstrap.Modal(
-        document.getElementById("createCitaModal")
-    ).show();
+    showCalendarModal("createCitaModal");
 }
 
 function formatLocalDateTime(date) {
@@ -2208,19 +2395,36 @@ async function guardarCita() {
         return;
     }
 
-    const servicioId = esDescanso ? null : parsePositiveInt(servicio.value);
-    if (!esDescanso && !servicioId) {
-        alert("Debe seleccionar un servicio válido");
-        return;
-    }
+    const esPersonalizado = !esDescanso && getServicioModo("create") === "personalizado";
 
-    const duracionMinutos = esDescanso
-        ? parsePositiveInt(document.getElementById("duracionDescanso").value)
-        : null;
+    let servicioId = null;
+    let servicioNombrePersonalizado = null;
+    let duracionMinutos = null;
 
-    if (esDescanso && !duracionMinutos) {
-        alert("Debe indicar una duración válida para el descanso");
-        return;
+    if (esDescanso) {
+        duracionMinutos = parsePositiveInt(document.getElementById("duracionDescanso").value);
+        if (!duracionMinutos) {
+            alert("Debe indicar una duración válida para el descanso");
+            return;
+        }
+    } else if (esPersonalizado) {
+        servicioNombrePersonalizado = (document.getElementById("servicioNombrePersonalizado").value || "").trim();
+        if (!servicioNombrePersonalizado) {
+            alert("Debe indicar el nombre del servicio personalizado");
+            return;
+        }
+
+        duracionMinutos = parsePositiveInt(document.getElementById("servicioDuracionPersonalizada").value);
+        if (!duracionMinutos || duracionMinutos < 5 || duracionMinutos > 480) {
+            alert("La duración del servicio personalizado debe estar entre 5 y 480 minutos");
+            return;
+        }
+    } else {
+        servicioId = parsePositiveInt(servicio.value);
+        if (!servicioId) {
+            alert("Debe seleccionar un servicio válido");
+            return;
+        }
     }
 
     const clienteId = esDescanso
@@ -2239,6 +2443,8 @@ async function guardarCita() {
         telefonoCliente: esDescanso ? null : document.getElementById("telefonoCliente").value,
         clienteId: clienteId,
         servicioId: servicioId,
+        esServicioPersonalizado: esPersonalizado,
+        servicioNombrePersonalizado: servicioNombrePersonalizado,
         fechaHoraCita: fechaHoraCita,
         funcionarioId: funcionarioId,
 
@@ -2272,9 +2478,7 @@ async function guardarCita() {
 
         limpiarModalCita();
 
-        bootstrap.Modal
-            .getInstance(document.getElementById("createCitaModal"))
-            ?.hide();
+        hideCalendarModal("createCitaModal");
 
         await Promise.all([
             refreshCalendarView(),
@@ -2388,6 +2592,11 @@ function limpiarModalCita() {
     clearSelectedClienteState(nombreClienteInput, document.getElementById("nombreClienteClienteId"));
     document.getElementById("telefonoCliente").value = "";
     document.getElementById("servicio").value = "";
+    setServicioModo("create", "catalogo");
+    const servicioNombrePersonalizadoInput = document.getElementById("servicioNombrePersonalizado");
+    if (servicioNombrePersonalizadoInput) servicioNombrePersonalizadoInput.value = "";
+    const servicioDuracionPersonalizadaInput = document.getElementById("servicioDuracionPersonalizada");
+    if (servicioDuracionPersonalizadaInput) servicioDuracionPersonalizadaInput.value = "30";
     document.getElementById("funcionarioId").value = "";
     document.getElementById("appointmentDate").value = "";
     document.getElementById("duracionMinutos").value = "30";
@@ -2487,7 +2696,7 @@ async function abrirModalCancelarCita(citaId) {
         btn.innerHTML = '<i class="bi bi-x-circle-fill"></i> Cancelar cita';
     }
 
-    new bootstrap.Modal(modalEl).show();
+    showCalendarModal("cancelCitaModal");
 
     try {
         const cita = await apiFetchJson(`/Calendar/GetById/${citaId}`);
@@ -2539,8 +2748,8 @@ async function confirmarCancelarCita() {
     try {
         await apiFetchJson(`/Calendar/Delete/${citaId}`, { method: "DELETE" });
 
-        bootstrap.Modal.getInstance(document.getElementById("cancelCitaModal"))?.hide();
-        bootstrap.Modal.getInstance(document.getElementById("editCitaModal"))?.hide();
+        hideCalendarModal("cancelCitaModal");
+        hideCalendarModal("editCitaModal");
 
         await loadUpcomingAppointments(document.getElementById("funcionarioFiltro")?.value || "");
         await refreshCalendarView();
@@ -2626,13 +2835,22 @@ async function editarCita(id) {
 
         if (cita.tipo !== "DESCANSO") {
             await loadServiciosEdit(cita.servicioId);
+
+            const editNombrePersonalizado = document.getElementById("editServicioNombrePersonalizado");
+            const editDuracionPersonalizada = document.getElementById("editServicioDuracionPersonalizada");
+
+            if (cita.esServicioPersonalizado) {
+                setServicioModo("edit", "personalizado");
+                if (editNombrePersonalizado) editNombrePersonalizado.value = safeText(cita.servicioNombre);
+                if (editDuracionPersonalizada) editDuracionPersonalizada.value = cita.duracionMinutos || 30;
+            } else {
+                setServicioModo("edit", "catalogo");
+                if (editNombrePersonalizado) editNombrePersonalizado.value = "";
+                if (editDuracionPersonalizada) editDuracionPersonalizada.value = "30";
+            }
         }
 
-        const modal = new bootstrap.Modal(
-            document.getElementById("editCitaModal")
-        );
-
-        modal.show();
+        showCalendarModal("editCitaModal");
     } catch (error) {
         showCalendarToast(
             "Error al cargar cita",
@@ -2800,10 +3018,30 @@ async function guardarEdicion() {
         data.whatsAppConsentCapturedAtUtc = null;
 
     } else {
-        const servicioId = parsePositiveInt(document.getElementById("editServicioId").value);
-        if (!servicioId) {
-            alert("Debe seleccionar un servicio válido.");
-            return;
+        const esPersonalizado = getServicioModo("edit") === "personalizado";
+
+        let servicioId = null;
+        let servicioNombrePersonalizado = null;
+        let duracionPersonalizada = null;
+
+        if (esPersonalizado) {
+            servicioNombrePersonalizado = (document.getElementById("editServicioNombrePersonalizado").value || "").trim();
+            if (!servicioNombrePersonalizado) {
+                alert("Debe indicar el nombre del servicio personalizado.");
+                return;
+            }
+
+            duracionPersonalizada = parsePositiveInt(document.getElementById("editServicioDuracionPersonalizada").value);
+            if (!duracionPersonalizada || duracionPersonalizada < 5 || duracionPersonalizada > 480) {
+                alert("La duración del servicio personalizado debe estar entre 5 y 480 minutos.");
+                return;
+            }
+        } else {
+            servicioId = parsePositiveInt(document.getElementById("editServicioId").value);
+            if (!servicioId) {
+                alert("Debe seleccionar un servicio válido.");
+                return;
+            }
         }
 
         const clienteId = parsePositiveInt(consentConfig.clienteIdInput?.value);
@@ -2824,7 +3062,9 @@ async function guardarEdicion() {
             clienteId;
         data.servicioId =
             servicioId;
-        data.duracionMinutos = null;
+        data.esServicioPersonalizado = esPersonalizado;
+        data.servicioNombrePersonalizado = servicioNombrePersonalizado;
+        data.duracionMinutos = duracionPersonalizada;
         data.whatsAppConsentAtCreation = !isTenantWhatsAppEnabled() || clienteId ? false : manualConsent;
         data.whatsAppConsentSource = !isTenantWhatsAppEnabled() || clienteId
             ? null
@@ -2840,9 +3080,7 @@ async function guardarEdicion() {
             body: JSON.stringify(data)
         });
 
-        bootstrap.Modal
-            .getInstance(document.getElementById("editCitaModal"))
-            ?.hide();
+        hideCalendarModal("editCitaModal");
 
         await Promise.all([
             loadUpcomingAppointments(document.getElementById("funcionarioFiltro")?.value || ""),
@@ -2860,15 +3098,14 @@ async function refreshCalendarView() {
 
 
 
-    // 🔥 Si está abierto el modal del día → reconstruirlo
+    // 🔥 Si está abierto el modal del día → reconstruirlo conservando el filtro actual
     const dayModalEl = document.getElementById("dayModal");
 
     if (dayModalEl && dayModalEl.classList.contains("show")) {
 
         const hoursContainer = document.getElementById("hoursContainer");
-        hoursContainer.innerHTML = "";
 
-        await buildDayGrid(hoursContainer, currentDate);
+        await buildDayGrid(hoursContainer, currentDate, getDayModalFilterValue());
         return;
     }
 

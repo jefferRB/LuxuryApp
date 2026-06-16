@@ -2061,3 +2061,41 @@
     #modalPago .modal-body,
     #modalPuestos .modal-body  { max-height: calc(100vh - 140px); }
 }
+
+/* ── Toggle: rebajar impuestos antes de calcular ganancia ── */
+.func-tax-toggle {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--private-surface-border, #e2e8f0);
+    border-radius: 12px;
+    background: var(--private-surface-subtle, rgba(0, 0, 0, 0.02));
+}
+
+.func-tax-switch {
+    margin: 0;
+    padding-left: 2.6rem;
+    min-height: auto;
+}
+
+.func-tax-switch .form-check-input {
+    width: 2.1rem;
+    height: 1.15rem;
+    margin-left: -2.6rem;
+    cursor: pointer;
+}
+
+.func-tax-switch .form-check-label {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--private-surface-text, #1e293b);
+    cursor: pointer;
+}
+
+.func-tax-hint {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--private-muted-text, #64748b);
+}

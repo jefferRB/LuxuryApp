@@ -129,13 +129,19 @@ namespace LuxuryApp.Services.Funcionarios
                 var totalServicios = GetAmount(serviciosPorFuncionario, funcionario.IdFuncionario);
                 var totalProductos = GetAmount(totalProductosPorFuncionario, funcionario.IdFuncionario);
                 var totalGenerado = totalServicios + totalProductos;
+
+                // Impuestos y neto son KPIs del NEGOCIO: siempre se reportan sobre el total
+                // generado, independientemente de cómo se le pague al funcionario.
                 var impuestos = totalGenerado * PagoFuncionarioDevengadoCalculator.TasaImpuesto;
                 var totalNeto = totalGenerado - impuestos;
 
-                var netoServicios = totalServicios - (totalServicios * PagoFuncionarioDevengadoCalculator.TasaImpuesto);
-                var netoProductos = totalProductos - (totalProductos * PagoFuncionarioDevengadoCalculator.TasaImpuesto);
-                var pagoServicios = netoServicios * (funcionario.PorcentajeGanancia / 100m);
-                var pagoProductos = netoProductos * (funcionario.PorcentajeProducto / 100m);
+                // Base de comisión del funcionario: respeta su configuración de rebaja de impuestos.
+                var baseComisionServicios = PagoFuncionarioDevengadoCalculator.CalcularBaseComision(
+                    totalServicios, funcionario.RebajarImpuestosAntesDeComision);
+                var baseComisionProductos = PagoFuncionarioDevengadoCalculator.CalcularBaseComision(
+                    totalProductos, funcionario.RebajarImpuestosAntesDeComision);
+                var pagoServicios = baseComisionServicios * (funcionario.PorcentajeGanancia / 100m);
+                var pagoProductos = baseComisionProductos * (funcionario.PorcentajeProducto / 100m);
                 var pagoFinal = pagoServicios + pagoProductos;
                 var montoPagado = GetAmount(totalPagadoPorFuncionario, funcionario.IdFuncionario);
                 var montoPendiente = pagoFinal - montoPagado;
@@ -151,7 +157,8 @@ namespace LuxuryApp.Services.Funcionarios
                         NombreProducto = producto.NombreProducto,
                         Precio = producto.Precio,
                         GananciaFuncionario =
-                            (producto.Precio - (producto.Precio * PagoFuncionarioDevengadoCalculator.TasaImpuesto)) *
+                            PagoFuncionarioDevengadoCalculator.CalcularBaseComision(
+                                producto.Precio, funcionario.RebajarImpuestosAntesDeComision) *
                             (funcionario.PorcentajeProducto / 100m)
                     })
                     .ToList();
@@ -423,7 +430,8 @@ namespace LuxuryApp.Services.Funcionarios
                     IdFuncionario = f.IdFuncionario,
                     Nombre = f.Nombre,
                     PorcentajeGanancia = f.PorcentajeGanancia,
-                    PorcentajeProducto = f.PorcentajeProducto
+                    PorcentajeProducto = f.PorcentajeProducto,
+                    RebajarImpuestosAntesDeComision = f.RebajarImpuestosAntesDeComision
                 })
                 .ToDictionaryAsync(f => f.IdFuncionario, cancellationToken);
 
@@ -647,7 +655,8 @@ namespace LuxuryApp.Services.Funcionarios
                     IdFuncionario = f.IdFuncionario,
                     Nombre = f.Nombre,
                     PorcentajeGanancia = f.PorcentajeGanancia,
-                    PorcentajeProducto = f.PorcentajeProducto
+                    PorcentajeProducto = f.PorcentajeProducto,
+                    RebajarImpuestosAntesDeComision = f.RebajarImpuestosAntesDeComision
                 })
                 .ToListAsync(cancellationToken);
         }
@@ -740,6 +749,7 @@ namespace LuxuryApp.Services.Funcionarios
             public string Nombre { get; init; } = string.Empty;
             public decimal PorcentajeGanancia { get; init; }
             public decimal PorcentajeProducto { get; init; }
+            public bool RebajarImpuestosAntesDeComision { get; init; }
         }
 
         private sealed class ServicioDiaAggregate

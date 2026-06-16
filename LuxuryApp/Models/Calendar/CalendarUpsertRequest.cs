@@ -10,6 +10,10 @@ namespace LuxuryApp.Models.Calendar
 
         public int? ServicioId { get; init; }
 
+        public bool EsServicioPersonalizado { get; init; }
+
+        public string? ServicioNombrePersonalizado { get; init; }
+
         public DateTime FechaHoraCita { get; init; }
 
         public int FuncionarioId { get; init; }

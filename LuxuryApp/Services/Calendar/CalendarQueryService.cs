@@ -45,7 +45,10 @@ namespace LuxuryApp.Services.Calendar
                     FuncionarioNombre = c.Funcionario != null ? c.Funcionario.Nombre : string.Empty,
                     ColorCalendario = c.Funcionario != null ? c.Funcionario.ColorCalendario : string.Empty,
                     ServicioId = c.ServicioId,
-                    ServicioNombre = c.Servicio != null ? c.Servicio.Nombre : null,
+                    ServicioNombre = c.ServicioId != null
+                        ? (c.Servicio != null ? c.Servicio.Nombre : null)
+                        : c.ServicioNombrePersonalizado,
+                    EsServicioPersonalizado = c.Tipo == "CITA" && c.ServicioId == null && c.ServicioNombrePersonalizado != null,
                     EstadoConfirmacionWhatsApp = c.EstadoConfirmacionWhatsApp,
                     ConfirmacionWhatsAppEnviadaUtc = c.ConfirmacionWhatsAppEnviadaUtc,
                     RecordatorioWhatsAppTresHorasEnviadoUtc = c.RecordatorioWhatsAppTresHorasEnviadoUtc,
@@ -75,6 +78,7 @@ namespace LuxuryApp.Services.Calendar
                     ColorCalendario = appointment.ColorCalendario,
                     ServicioId = appointment.ServicioId,
                     ServicioNombre = appointment.ServicioNombre,
+                    EsServicioPersonalizado = appointment.EsServicioPersonalizado,
                     WhatsAppConsentAtCreation = appointment.WhatsAppConsentAtCreation,
                     WhatsAppConsentSource = appointment.WhatsAppConsentSource,
                     WhatsAppConsentCapturedAtUtc = appointment.WhatsAppConsentCapturedAtUtc,
@@ -140,7 +144,9 @@ namespace LuxuryApp.Services.Calendar
                     TelefonoCliente = c.TelefonoCliente,
                     ClienteId = c.ClienteId,
                     FechaHoraCita = c.FechaHoraCita,
-                    ServicioNombre = c.Servicio != null ? c.Servicio.Nombre : string.Empty,
+                    ServicioNombre = c.ServicioId != null
+                        ? (c.Servicio != null ? c.Servicio.Nombre : string.Empty)
+                        : (c.ServicioNombrePersonalizado ?? string.Empty),
                     FuncionarioNombre = c.Funcionario != null ? c.Funcionario.Nombre : string.Empty,
                     EstadoConfirmacionWhatsApp = c.EstadoConfirmacionWhatsApp,
                     ConfirmacionWhatsAppEnviadaUtc = c.ConfirmacionWhatsAppEnviadaUtc,
@@ -238,7 +244,10 @@ namespace LuxuryApp.Services.Calendar
                     TelefonoCliente = c.TelefonoCliente,
                     ClienteId = c.ClienteId,
                     ServicioId = c.ServicioId,
-                    ServicioNombre = c.Servicio != null ? c.Servicio.Nombre : null,
+                    ServicioNombre = c.ServicioId != null
+                        ? (c.Servicio != null ? c.Servicio.Nombre : null)
+                        : c.ServicioNombrePersonalizado,
+                    EsServicioPersonalizado = c.Tipo == "CITA" && c.ServicioId == null && c.ServicioNombrePersonalizado != null,
                     FechaHoraCita = c.FechaHoraCita,
                     FuncionarioId = c.FuncionarioId,
                     FuncionarioNombre = c.Funcionario != null ? c.Funcionario.Nombre : string.Empty,
@@ -272,6 +281,7 @@ namespace LuxuryApp.Services.Calendar
                 ClienteId = appointment.ClienteId,
                 ServicioId = appointment.ServicioId,
                 ServicioNombre = appointment.ServicioNombre,
+                EsServicioPersonalizado = appointment.EsServicioPersonalizado,
                 FechaHoraCita = appointment.FechaHoraCita,
                 FuncionarioId = appointment.FuncionarioId,
                 FuncionarioNombre = appointment.FuncionarioNombre,
@@ -512,6 +522,8 @@ namespace LuxuryApp.Services.Calendar
             public int? ServicioId { get; init; }
 
             public string? ServicioNombre { get; init; }
+
+            public bool EsServicioPersonalizado { get; init; }
 
             public DateTime FechaHoraCita { get; init; }
 

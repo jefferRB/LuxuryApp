@@ -53,8 +53,8 @@
             if (requestId !== panelSequence) return;
 
             const items = Array.isArray(data.items) ? data.items : [];
-            // El panel "Citas de hoy" excluye citas ya pasadas.
-            panelItems = items.filter(i => i.esFutura);
+            // El servidor aplica la hora de negocio para la fecha seleccionada.
+            panelItems = items;
             renderPanelList(applyPanelStatusFilter(panelItems), data.whatsAppEnabled === true);
         } catch (error) {
             if (error && error.name === "AbortError") return;
@@ -191,9 +191,10 @@
             const data = await fetchJson(`/WhatsAppInbox/FollowUp?${params.toString()}`);
             if (requestId !== followSequence) return;
 
-            renderFollowKpis(data.stats || {});
             followItems = Array.isArray(data.items) ? data.items : [];
-            renderFollowList(applySearch(followItems), data.whatsAppEnabled === true);
+            const visibleItems = applySearch(followItems);
+            renderFollowKpis(calculateStats(visibleItems));
+            renderFollowList(visibleItems, data.whatsAppEnabled === true);
         } catch (error) {
             if (error && error.name === "AbortError") return;
             console.error("Error cargando el centro de confirmaciones", error);
@@ -218,6 +219,39 @@
         return items.filter(i =>
             (i.nombreCliente || "").toLowerCase().includes(term) ||
             (i.telefono || "").toLowerCase().includes(term));
+    }
+
+    function calculateStats(items) {
+        const total = items.length;
+        const confirmed = items.filter(i => i.estadoCitaKey === "confirmed").length;
+        const pending = items.filter(isPendingItem).length;
+        const sent = items.filter(i =>
+            i.tieneEnvioWhatsApp === true ||
+            i.waStatusKey === "sent" ||
+            i.waStatusKey === "reminder").length;
+        const failed = items.filter(i =>
+            i.tieneFalloWhatsApp === true ||
+            i.waStatusKey === "failed").length;
+        const requiresAttention = items.filter(i => i.requiereAtencion === true).length;
+        const confirmationRate = total > 0
+            ? Math.round((confirmed * 1000) / total) / 10
+            : 0;
+
+        return {
+            totalTracking: total,
+            confirmed,
+            pending,
+            sent,
+            failed,
+            requiresAttention,
+            confirmationRate
+        };
+    }
+
+    function isPendingItem(item) {
+        return item.estadoCitaKey !== "confirmed" &&
+            item.estadoCitaKey !== "cancelled" &&
+            (item.waStatusKey === "pending" || item.waStatusKey === "not_sent");
     }
 
     function renderFollowList(items, enabled) {
@@ -563,7 +597,11 @@
         let searchTimer = null;
         document.getElementById("waFollowSearch")?.addEventListener("input", function () {
             if (searchTimer) clearTimeout(searchTimer);
-            searchTimer = setTimeout(() => renderFollowList(applySearch(followItems), waEnabled()), 200);
+            searchTimer = setTimeout(() => {
+                const visibleItems = applySearch(followItems);
+                renderFollowKpis(calculateStats(visibleItems));
+                renderFollowList(visibleItems, waEnabled());
+            }, 200);
         });
 
         syncCustomVisibility();

@@ -7,14 +7,24 @@ namespace LuxuryApp.Services.Funcionarios
     {
         public const decimal TasaImpuesto = 0.13m;
 
+        /// <summary>
+        /// Calcula la base sobre la que se aplica el porcentaje de comisión del funcionario.
+        /// Si <paramref name="rebajarImpuestos"/> es true (comportamiento histórico) se usa la
+        /// base sin impuestos (Monto - IVA); si es false se usa el monto total producido.
+        /// </summary>
+        public static decimal CalcularBaseComision(decimal monto, bool rebajarImpuestos) =>
+            rebajarImpuestos
+                ? monto - (monto * TasaImpuesto)
+                : monto;
+
         public static decimal CalcularMontoDevengado(Cobro cobro, Funcionario funcionario)
         {
             var porcentaje = cobro.ProductoId != null
                 ? funcionario.PorcentajeProducto
                 : funcionario.PorcentajeGanancia;
 
-            var montoNeto = cobro.Monto - (cobro.Monto * TasaImpuesto);
-            return montoNeto * (porcentaje / 100m);
+            var baseComision = CalcularBaseComision(cobro.Monto, funcionario.RebajarImpuestosAntesDeComision);
+            return baseComision * (porcentaje / 100m);
         }
 
         public static decimal CalcularPagoColaboradores(IEnumerable<Cobro> cobros)

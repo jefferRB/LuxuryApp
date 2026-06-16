@@ -257,7 +257,9 @@ namespace LuxuryApp.Services.Finanzas
                     c.ServicioId,
                     c.ProductoId,
                     c.MetodoPago,
-                    PagoColaborador = (c.Monto - (c.Monto * PagoFuncionarioDevengadoCalculator.TasaImpuesto))
+                    PagoColaborador = (c.Funcionario!.RebajarImpuestosAntesDeComision
+                            ? c.Monto - (c.Monto * PagoFuncionarioDevengadoCalculator.TasaImpuesto)
+                            : c.Monto)
                         * ((c.ProductoId != null
                             ? c.Funcionario!.PorcentajeProducto
                             : c.Funcionario!.PorcentajeGanancia) / 100m)

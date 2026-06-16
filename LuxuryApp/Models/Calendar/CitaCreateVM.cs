@@ -15,6 +15,13 @@ namespace LuxuryApp.Models.Calendar
 
         public int? ServicioId { get; set; }
 
+        // Servicio personalizado (no pertenece al catálogo). Cuando es true se usa
+        // ServicioNombrePersonalizado + DuracionMinutos en lugar de ServicioId.
+        public bool EsServicioPersonalizado { get; set; }
+
+        [StringLength(100)]
+        public string? ServicioNombrePersonalizado { get; set; }
+
         [Required]
         public DateTime FechaHoraCita { get; set; }
 
@@ -25,7 +32,9 @@ namespace LuxuryApp.Models.Calendar
         [StringLength(20)]
         public string Tipo { get; set; } = "CITA";
 
-        [Range(5, 180, ErrorMessage = "La duración del descanso debe estar entre 5 y 180 minutos.")]
+        // Duración en minutos para descansos (5-180) y para servicios personalizados (5-480).
+        // El rango específico se valida del lado del servidor según el tipo.
+        [Range(5, 480, ErrorMessage = "La duración debe estar entre 5 y 480 minutos.")]
         public int? DuracionMinutos { get; set; }
 
         public bool WhatsAppConsentAtCreation { get; set; }

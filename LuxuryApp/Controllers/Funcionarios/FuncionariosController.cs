@@ -82,6 +82,7 @@ namespace LuxuryApp.Controllers.Funcionarios
                 nameof(Funcionario.ColorCalendario) + "," +
                 nameof(Funcionario.PorcentajeGanancia) + "," +
                 nameof(Funcionario.PorcentajeProducto) + "," +
+                nameof(Funcionario.RebajarImpuestosAntesDeComision) + "," +
                 nameof(Funcionario.FechaIngreso))]
             Funcionario funcionario)
         {
@@ -167,6 +168,7 @@ namespace LuxuryApp.Controllers.Funcionarios
                 nameof(Funcionario.ColorCalendario) + "," +
                 nameof(Funcionario.PorcentajeGanancia) + "," +
                 nameof(Funcionario.PorcentajeProducto) + "," +
+                nameof(Funcionario.RebajarImpuestosAntesDeComision) + "," +
                 nameof(Funcionario.FechaIngreso))]
             Funcionario funcionario)
         {
@@ -207,6 +209,7 @@ namespace LuxuryApp.Controllers.Funcionarios
             funcionarioDb.ColorCalendario = funcionario.ColorCalendario;
             funcionarioDb.PorcentajeGanancia = funcionario.PorcentajeGanancia;
             funcionarioDb.PorcentajeProducto = funcionario.PorcentajeProducto;
+            funcionarioDb.RebajarImpuestosAntesDeComision = funcionario.RebajarImpuestosAntesDeComision;
             funcionarioDb.FechaIngreso = funcionario.FechaIngreso;
 
             try

@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ProyectoIdentity.Datos;
 
@@ -11,9 +12,11 @@ using ProyectoIdentity.Datos;
 namespace LuxuryApp.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260616181158_AddCitaServicioPersonalizado")]
+    partial class AddCitaServicioPersonalizado
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -562,11 +565,6 @@ namespace LuxuryApp.Migrations
 
                     b.Property<decimal>("PorcentajeProducto")
                         .HasColumnType("decimal(18,2)");
-
-                    b.Property<bool>("RebajarImpuestosAntesDeComision")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(true);
 
                     b.Property<string>("Telefono")
                         .HasMaxLength(20)

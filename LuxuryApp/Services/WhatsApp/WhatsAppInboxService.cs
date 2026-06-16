@@ -1,6 +1,7 @@
 using System.Globalization;
 using LuxuryApp.Models.WhatsApp;
 using LuxuryApp.Services.BusinessTime;
+using LuxuryApp.Services.Tenant;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
@@ -24,13 +25,19 @@ namespace LuxuryApp.Services.WhatsApp
 
         private readonly ApplicationDbContext _context;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
+        private readonly ITenantProvider _tenantProvider;
+        private readonly ILogger<WhatsAppInboxService> _logger;
 
         public WhatsAppInboxService(
             ApplicationDbContext context,
-            IBusinessDateTimeProvider businessDateTimeProvider)
+            IBusinessDateTimeProvider businessDateTimeProvider,
+            ITenantProvider tenantProvider,
+            ILogger<WhatsAppInboxService> logger)
         {
             _context = context;
             _businessDateTimeProvider = businessDateTimeProvider;
+            _tenantProvider = tenantProvider;
+            _logger = logger;
         }
 
         public async Task<WhatsAppInboxResponse> GetInboxAsync(
@@ -39,17 +46,26 @@ namespace LuxuryApp.Services.WhatsApp
             bool whatsAppEnabled,
             CancellationToken cancellationToken = default)
         {
-            var startDay = date.Date;
-            var endDay = startDay.AddDays(1);
+            var (startInclusive, endExclusive) = ResolvePanelRange(date);
 
-            var items = await LoadItemsAsync(startDay, endDay, funcionarioId, whatsAppEnabled, cancellationToken);
+            var items = await LoadItemsAsync(startInclusive, endExclusive, funcionarioId, whatsAppEnabled, cancellationToken);
+
+            _logger.LogDebug(
+                "WhatsApp inbox cargado. TenantId {TenantId}. Date {Date:yyyy-MM-dd}. Start {Start:yyyy-MM-dd HH:mm}. EndExclusive {EndExclusive:yyyy-MM-dd HH:mm}. FuncionarioId {FuncionarioId}. WhatsAppEnabled {WhatsAppEnabled}. Items {ItemsCount}.",
+                ResolveTenantIdForLog(),
+                date.Date,
+                startInclusive,
+                endExclusive,
+                funcionarioId,
+                whatsAppEnabled,
+                items.Count);
 
             var stats = new WhatsAppInboxStats
             {
-                Enviados = items.Count(i => i.WaStatusKey is "sent" or "reminder" or "confirmed"),
+                Enviados = items.Count(i => i.TieneEnvioWhatsApp),
                 Confirmados = items.Count(i => i.EstadoCitaKey == "confirmed"),
-                Pendientes = items.Count(i => i.EstadoCitaKey == "pending"),
-                Fallidos = items.Count(i => i.WaStatusKey == "failed")
+                Pendientes = items.Count(IsPendingTracking),
+                Fallidos = items.Count(i => i.TieneFalloWhatsApp)
             };
 
             return new WhatsAppInboxResponse
@@ -69,40 +85,35 @@ namespace LuxuryApp.Services.WhatsApp
             bool whatsAppEnabled,
             CancellationToken cancellationToken = default)
         {
-            var start = from.Date;
-            var endExclusive = toExclusive.Date <= start ? start.AddDays(1) : toExclusive.Date;
+            var start = from;
+            var endExclusive = toExclusive;
 
-            var allItems = await LoadItemsAsync(start, endExclusive, funcionarioId, whatsAppEnabled, cancellationToken);
-
-            // KPIs se calculan sobre el universo del rango (antes de aplicar el filtro de estado de la UI).
-            var confirmed = allItems.Count(i => i.EstadoCitaKey == "confirmed");
-            var pending = allItems.Count(i => i.EstadoCitaKey == "pending");
-            var sent = allItems.Count(i => i.WaStatusKey is "sent" or "reminder" or "confirmed");
-            var failed = allItems.Count(i => i.WaStatusKey == "failed");
-            var requiresAttention = allItems.Count(i => i.RequiereAtencion);
-            var total = allItems.Count;
-            var confirmationRate = total > 0
-                ? Math.Round((decimal)confirmed * 100 / total, 1)
-                : 0m;
+            var allItems = endExclusive <= start
+                ? new List<WhatsAppInboxItem>()
+                : await LoadItemsAsync(start, endExclusive, funcionarioId, whatsAppEnabled, cancellationToken);
 
             var filtered = ApplyStatusFilter(allItems, statusKey);
+            var stats = BuildFollowUpStats(filtered);
+
+            _logger.LogDebug(
+                "WhatsApp follow-up cargado. TenantId {TenantId}. RangeKey {RangeKey}. Status {StatusKey}. Start {Start:yyyy-MM-dd HH:mm}. EndExclusive {EndExclusive:yyyy-MM-dd HH:mm}. FuncionarioId {FuncionarioId}. WhatsAppEnabled {WhatsAppEnabled}. ItemsBeforeStatus {ItemsBeforeStatus}. ItemsAfterStatus {ItemsAfterStatus}.",
+                ResolveTenantIdForLog(),
+                rangeKey,
+                statusKey,
+                start,
+                endExclusive,
+                funcionarioId,
+                whatsAppEnabled,
+                allItems.Count,
+                filtered.Count);
 
             return new WhatsAppFollowUpResponse
             {
                 WhatsAppEnabled = whatsAppEnabled,
                 RangeKey = rangeKey,
-                FromLocal = start.ToString("dd/MM/yyyy", CostaRica),
-                ToLocal = endExclusive.AddDays(-1).ToString("dd/MM/yyyy", CostaRica),
-                Stats = new WhatsAppFollowUpStats
-                {
-                    TotalTracking = total,
-                    Confirmed = confirmed,
-                    Pending = pending,
-                    Sent = sent,
-                    Failed = failed,
-                    RequiresAttention = requiresAttention,
-                    ConfirmationRate = confirmationRate
-                },
+                FromLocal = FormatRangeStart(start),
+                ToLocal = FormatRangeEnd(endExclusive),
+                Stats = stats,
                 Items = filtered
             };
         }
@@ -119,9 +130,9 @@ namespace LuxuryApp.Services.WhatsApp
             return statusKey switch
             {
                 "confirmados" => items.Where(i => i.EstadoCitaKey == "confirmed").ToList(),
-                "pendientes" => items.Where(i => i.WaStatusKey is "pending" or "not_sent").ToList(),
-                "enviados" => items.Where(i => i.WaStatusKey is "sent" or "reminder").ToList(),
-                "fallidos" => items.Where(i => i.WaStatusKey == "failed").ToList(),
+                "pendientes" => items.Where(IsPendingTracking).ToList(),
+                "enviados" => items.Where(i => i.TieneEnvioWhatsApp).ToList(),
+                "fallidos" => items.Where(i => i.TieneFalloWhatsApp).ToList(),
                 "cancelados" => items.Where(i => i.EstadoCitaKey == "cancelled").ToList(),
                 "atencion" => items.Where(i => i.RequiereAtencion).ToList(),
                 _ => items
@@ -251,6 +262,7 @@ namespace LuxuryApp.Services.WhatsApp
                                    (latestLog is not null &&
                                     string.Equals(latestLog.NotificationType, WhatsAppNotificationTypes.Confirmation, StringComparison.Ordinal) &&
                                     SentLikeStatuses.Contains(latestLog.Status));
+            var hasSentMessage = reminderSent || confirmationSent;
 
             string statusKey;
             string statusLabel;
@@ -339,9 +351,67 @@ namespace LuxuryApp.Services.WhatsApp
                 WaSubText = subText,
                 RequiereAtencion = requiereAtencion,
                 PuedeEnviar = puedeEnviar,
-                PuedeReenviar = puedeReenviar
+                PuedeReenviar = puedeReenviar,
+                TieneEnvioWhatsApp = hasSentMessage,
+                TieneFalloWhatsApp = isFailed
             };
         }
+
+        private (DateTime StartInclusive, DateTime EndExclusive) ResolvePanelRange(DateTime date)
+        {
+            var selectedDay = date.Date;
+            var today = _businessDateTimeProvider.Today();
+
+            if (selectedDay == today)
+            {
+                return (_businessDateTimeProvider.Now(), today.AddDays(1));
+            }
+
+            return (selectedDay, selectedDay.AddDays(1));
+        }
+
+        private static WhatsAppFollowUpStats BuildFollowUpStats(IReadOnlyList<WhatsAppInboxItem> items)
+        {
+            var total = items.Count;
+            var confirmed = items.Count(i => i.EstadoCitaKey == "confirmed");
+
+            return new WhatsAppFollowUpStats
+            {
+                TotalTracking = total,
+                Confirmed = confirmed,
+                Pending = items.Count(IsPendingTracking),
+                Sent = items.Count(i => i.TieneEnvioWhatsApp),
+                Failed = items.Count(i => i.TieneFalloWhatsApp),
+                RequiresAttention = items.Count(i => i.RequiereAtencion),
+                ConfirmationRate = total > 0
+                    ? Math.Round((decimal)confirmed * 100 / total, 1)
+                    : 0m
+            };
+        }
+
+        private static bool IsPendingTracking(WhatsAppInboxItem item) =>
+            (item.EstadoCitaKey is not "confirmed" and not "cancelled") &&
+            (item.WaStatusKey is "pending" or "not_sent");
+
+        private static string FormatRangeStart(DateTime start) =>
+            start.ToString("dd/MM/yyyy HH:mm", CostaRica);
+
+        private static string FormatRangeEnd(DateTime endExclusive)
+        {
+            if (endExclusive == DateTime.MinValue)
+            {
+                return string.Empty;
+            }
+
+            var inclusiveEnd = endExclusive.TimeOfDay == TimeSpan.Zero
+                ? endExclusive.AddTicks(-1)
+                : endExclusive;
+
+            return inclusiveEnd.ToString("dd/MM/yyyy HH:mm", CostaRica);
+        }
+
+        private Guid? ResolveTenantIdForLog() =>
+            _tenantProvider.HasTenant() ? _tenantProvider.GetTenantId() : null;
 
         private static string BuildDayGroup(DateTime fechaHoraCita, DateTime today)
         {

@@ -68,50 +68,59 @@ namespace LuxuryApp.Controllers.WhatsApp
             }
 
             var rangeKey = string.IsNullOrWhiteSpace(range) ? "5d" : range.Trim().ToLowerInvariant();
-            var today = _businessDateTimeProvider.Today();
+            var nowLocal = _businessDateTimeProvider.Now();
+            var today = nowLocal.Date;
 
-            DateTime fromDate;
+            DateTime fromInclusive;
             DateTime toExclusive;
 
             switch (rangeKey)
             {
                 case "hoy":
-                    fromDate = today;
+                    fromInclusive = nowLocal;
                     toExclusive = today.AddDays(1);
                     break;
                 case "24h":
-                    fromDate = today;
-                    toExclusive = today.AddDays(2);
+                    fromInclusive = nowLocal;
+                    toExclusive = nowLocal.AddHours(24);
                     break;
                 case "3d":
-                    fromDate = today;
+                    fromInclusive = nowLocal;
                     toExclusive = today.AddDays(3);
                     break;
                 case "7d":
-                    fromDate = today;
+                    fromInclusive = nowLocal;
                     toExclusive = today.AddDays(7);
                     break;
                 case "custom":
-                    if (!TryParseLocalDate(from, out fromDate) || !TryParseLocalDate(to, out var toInclusive))
+                    if (!TryParseLocalDate(from, out var requestedFrom) || !TryParseLocalDate(to, out var toInclusive))
                     {
                         return BadRequest("El rango personalizado solicitado no es valido.");
                     }
+
+                    fromInclusive = requestedFrom.Date < nowLocal ? nowLocal : requestedFrom.Date;
                     toExclusive = toInclusive.AddDays(1);
-                    if (toExclusive <= fromDate)
+                    if (toExclusive <= requestedFrom.Date)
                     {
                         return BadRequest("El rango personalizado solicitado no es valido.");
                     }
-                    // Limita rangos personalizados excesivos para proteger la consulta.
-                    if ((toExclusive - fromDate).TotalDays > 92)
+
+                    if (toExclusive < fromInclusive)
                     {
-                        toExclusive = fromDate.AddDays(92);
+                        toExclusive = fromInclusive;
+                    }
+
+                    // Limita rangos personalizados excesivos para proteger la consulta.
+                    if ((toExclusive - fromInclusive).TotalDays > 92)
+                    {
+                        toExclusive = fromInclusive.AddDays(92);
                     }
                     rangeKey = "custom";
                     break;
                 case "5d":
                 default:
                     rangeKey = "5d";
-                    fromDate = today;
+                    fromInclusive = nowLocal;
                     toExclusive = today.AddDays(5);
                     break;
             }
@@ -120,13 +129,23 @@ namespace LuxuryApp.Controllers.WhatsApp
                 .IsWhatsAppEnabledForCurrentTenantAsync(cancellationToken);
 
             var followUp = await _inboxService.GetFollowUpAsync(
-                fromDate,
+                fromInclusive,
                 toExclusive,
                 funcionarioId,
                 status,
                 rangeKey,
                 whatsAppEnabled,
                 cancellationToken);
+
+            _logger.LogDebug(
+                "Endpoint WhatsApp FollowUp resuelto. RangeKey {RangeKey}. Status {Status}. FuncionarioId {FuncionarioId}. BusinessNow {BusinessNow:yyyy-MM-dd HH:mm}. From {From:yyyy-MM-dd HH:mm}. ToExclusive {ToExclusive:yyyy-MM-dd HH:mm}. Items {ItemsCount}.",
+                rangeKey,
+                status,
+                funcionarioId,
+                nowLocal,
+                fromInclusive,
+                toExclusive,
+                followUp.Items.Count);
 
             return Ok(followUp);
         }

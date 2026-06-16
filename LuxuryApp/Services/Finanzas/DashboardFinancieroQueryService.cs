@@ -325,7 +325,8 @@ namespace LuxuryApp.Services.Finanzas
                 {
                     IdFuncionario = f.IdFuncionario,
                     PorcentajeGanancia = f.PorcentajeGanancia,
-                    PorcentajeProducto = f.PorcentajeProducto
+                    PorcentajeProducto = f.PorcentajeProducto,
+                    RebajarImpuestosAntesDeComision = f.RebajarImpuestosAntesDeComision
                 })
                 .ToDictionaryAsync(f => f.IdFuncionario, cancellationToken);
 
@@ -471,13 +472,15 @@ namespace LuxuryApp.Services.Finanzas
             public int IdFuncionario { get; init; }
             public decimal PorcentajeGanancia { get; init; }
             public decimal PorcentajeProducto { get; init; }
+            public bool RebajarImpuestosAntesDeComision { get; init; }
 
             public Funcionario ToFuncionario() =>
                 new()
                 {
                     IdFuncionario = IdFuncionario,
                     PorcentajeGanancia = PorcentajeGanancia,
-                    PorcentajeProducto = PorcentajeProducto
+                    PorcentajeProducto = PorcentajeProducto,
+                    RebajarImpuestosAntesDeComision = RebajarImpuestosAntesDeComision
                 };
         }
 

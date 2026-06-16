@@ -74,6 +74,10 @@ namespace LuxuryApp.Models.WhatsApp
         public bool PuedeEnviar { get; init; }
 
         public bool PuedeReenviar { get; init; }
+
+        public bool TieneEnvioWhatsApp { get; init; }
+
+        public bool TieneFalloWhatsApp { get; init; }
     }
 
     /// <summary>

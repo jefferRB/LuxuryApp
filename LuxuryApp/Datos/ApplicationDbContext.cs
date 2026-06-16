@@ -108,6 +108,9 @@ namespace ProyectoIdentity.Datos
                 entity.Property(f => f.PorcentajeGanancia).HasColumnType("decimal(18,2)");
                 entity.Property(f => f.PorcentajeProducto).HasColumnType("decimal(18,2)");
 
+                // Default true: los funcionarios existentes conservan el cálculo con rebaja de impuestos.
+                entity.Property(f => f.RebajarImpuestosAntesDeComision).HasDefaultValue(true);
+
                 entity.HasIndex(f => new { f.TenantId, f.Nombre })
                     .HasDatabaseName("IX_Funcionarios_TenantId_Nombre");
             });

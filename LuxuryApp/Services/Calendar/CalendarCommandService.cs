@@ -14,6 +14,8 @@ namespace LuxuryApp.Services.Calendar
         internal const int DefaultDurationMinutes = 30;
         private const int MinDescansoDurationMinutes = 5;
         private const int MaxDescansoDurationMinutes = 180;
+        private const int MinCustomServicioDurationMinutes = 5;
+        private const int MaxCustomServicioDurationMinutes = 480;
         private static readonly string[] SupportedTipos = ["CITA", "DESCANSO"];
         private readonly ApplicationDbContext _context;
         private readonly ICalendarWhatsAppNotificationService _notificationService;
@@ -52,7 +54,8 @@ namespace LuxuryApp.Services.Calendar
 
                     var funcionario = await EnsureFuncionarioActivoAsync(normalizedRequest.FuncionarioId, cancellationToken);
                     var servicio = await ResolveServicioAsync(normalizedRequest, cancellationToken);
-                    var duracion = ResolveDuracion(normalizedRequest.Tipo, normalizedRequest.DuracionMinutos, servicio);
+                    var duracion = ResolveDuracion(normalizedRequest, servicio);
+                    var esPersonalizado = IsCustomServicio(normalizedRequest);
                     var resolvedAppointment = await ResolveAppointmentDataAsync(normalizedRequest, cancellationToken);
 
                     await ValidateRequestAsync(normalizedRequest, resolvedAppointment, servicio, duracion, cancellationToken);
@@ -78,11 +81,12 @@ namespace LuxuryApp.Services.Calendar
                             NombreCliente = resolvedAppointment.NombreCliente,
                             TelefonoCliente = resolvedAppointment.TelefonoCliente,
                             ClienteId = resolvedAppointment.ClienteId,
-                            ServicioId = normalizedRequest.Tipo == "DESCANSO" ? null : servicio!.Id,
+                            ServicioId = (normalizedRequest.Tipo == "DESCANSO" || esPersonalizado) ? null : servicio!.Id,
+                            ServicioNombrePersonalizado = esPersonalizado ? normalizedRequest.ServicioNombrePersonalizado : null,
                             FechaHoraCita = target,
                             FuncionarioId = funcionario.IdFuncionario,
                             Tipo = normalizedRequest.Tipo,
-                            DuracionMinutos = normalizedRequest.Tipo == "DESCANSO" ? duracion : null,
+                            DuracionMinutos = (normalizedRequest.Tipo == "DESCANSO" || esPersonalizado) ? duracion : null,
                             WhatsAppConsentAtCreation = resolvedAppointment.WhatsAppConsentAtCreation,
                             WhatsAppConsentSource = resolvedAppointment.WhatsAppConsentSource,
                             WhatsAppConsentCapturedAtUtc = resolvedAppointment.WhatsAppConsentCapturedAtUtc,
@@ -105,7 +109,8 @@ namespace LuxuryApp.Services.Calendar
                         duracion,
                         funcionario.Nombre,
                         funcionario.ColorCalendario,
-                        servicio?.Nombre);
+                        esPersonalizado ? normalizedRequest.ServicioNombrePersonalizado : servicio?.Nombre,
+                        esPersonalizado);
 
                     appointmentIdsToQueue.AddRange(
                         persistedAppointments
@@ -190,7 +195,8 @@ namespace LuxuryApp.Services.Calendar
 
                     var funcionario = await EnsureFuncionarioActivoAsync(normalizedRequest.FuncionarioId, cancellationToken);
                     var servicio = await ResolveServicioAsync(normalizedRequest, cancellationToken);
-                    var duracion = ResolveDuracion(normalizedRequest.Tipo, normalizedRequest.DuracionMinutos, servicio);
+                    var duracion = ResolveDuracion(normalizedRequest, servicio);
+                    var esPersonalizado = IsCustomServicio(normalizedRequest);
                     var resolvedAppointment = await ResolveAppointmentDataAsync(normalizedRequest, cancellationToken);
 
                     await ValidateRequestAsync(normalizedRequest, resolvedAppointment, servicio, duracion, cancellationToken);
@@ -204,11 +210,12 @@ namespace LuxuryApp.Services.Calendar
                     cita.NombreCliente = resolvedAppointment.NombreCliente;
                     cita.TelefonoCliente = resolvedAppointment.TelefonoCliente;
                     cita.ClienteId = resolvedAppointment.ClienteId;
-                    cita.ServicioId = normalizedRequest.Tipo == "DESCANSO" ? null : servicio!.Id;
+                    cita.ServicioId = (normalizedRequest.Tipo == "DESCANSO" || esPersonalizado) ? null : servicio!.Id;
+                    cita.ServicioNombrePersonalizado = esPersonalizado ? normalizedRequest.ServicioNombrePersonalizado : null;
                     cita.FechaHoraCita = normalizedRequest.FechaHoraCita;
                     cita.FuncionarioId = funcionario.IdFuncionario;
                     cita.Tipo = normalizedRequest.Tipo;
-                    cita.DuracionMinutos = normalizedRequest.Tipo == "DESCANSO" ? duracion : null;
+                    cita.DuracionMinutos = (normalizedRequest.Tipo == "DESCANSO" || esPersonalizado) ? duracion : null;
                     cita.WhatsAppConsentAtCreation = resolvedAppointment.WhatsAppConsentAtCreation;
                     cita.WhatsAppConsentSource = resolvedAppointment.WhatsAppConsentSource;
                     cita.WhatsAppConsentCapturedAtUtc = resolvedAppointment.WhatsAppConsentCapturedAtUtc;
@@ -221,7 +228,8 @@ namespace LuxuryApp.Services.Calendar
                         duracion,
                         funcionario.Nombre,
                         funcionario.ColorCalendario,
-                        servicio?.Nombre);
+                        esPersonalizado ? normalizedRequest.ServicioNombrePersonalizado : servicio?.Nombre,
+                        esPersonalizado);
 
                     if (string.Equals(cita.Tipo, "CITA", StringComparison.Ordinal))
                     {
@@ -479,14 +487,42 @@ namespace LuxuryApp.Services.Calendar
                     throw new CalendarValidationException("Debe indicar el nombre del cliente.", nameof(CitaCreateVM.NombreCliente));
                 }
 
-                if (!request.ServicioId.HasValue || request.ServicioId.Value <= 0)
+                if (request.EsServicioPersonalizado)
                 {
-                    throw new CalendarValidationException("Debe seleccionar un servicio.", nameof(CitaCreateVM.ServicioId));
-                }
+                    if (string.IsNullOrWhiteSpace(request.ServicioNombrePersonalizado))
+                    {
+                        throw new CalendarValidationException("Debe indicar el nombre del servicio personalizado.", nameof(CitaCreateVM.ServicioNombrePersonalizado));
+                    }
 
-                if (servicio is null)
+                    if (request.ServicioNombrePersonalizado.Length > 100)
+                    {
+                        throw new CalendarValidationException("El nombre del servicio personalizado no puede exceder 100 caracteres.", nameof(CitaCreateVM.ServicioNombrePersonalizado));
+                    }
+
+                    if (!request.DuracionMinutos.HasValue)
+                    {
+                        throw new CalendarValidationException("Debe indicar la duracion del servicio personalizado.", nameof(CitaCreateVM.DuracionMinutos));
+                    }
+
+                    if (request.DuracionMinutos.Value < MinCustomServicioDurationMinutes ||
+                        request.DuracionMinutos.Value > MaxCustomServicioDurationMinutes)
+                    {
+                        throw new CalendarValidationException(
+                            $"La duracion del servicio personalizado debe estar entre {MinCustomServicioDurationMinutes} y {MaxCustomServicioDurationMinutes} minutos.",
+                            nameof(CitaCreateVM.DuracionMinutos));
+                    }
+                }
+                else
                 {
-                    throw new CalendarValidationException("El servicio seleccionado no existe, no esta activo o no pertenece al tenant actual.", nameof(CitaCreateVM.ServicioId));
+                    if (!request.ServicioId.HasValue || request.ServicioId.Value <= 0)
+                    {
+                        throw new CalendarValidationException("Debe seleccionar un servicio.", nameof(CitaCreateVM.ServicioId));
+                    }
+
+                    if (servicio is null)
+                    {
+                        throw new CalendarValidationException("El servicio seleccionado no existe, no esta activo o no pertenece al tenant actual.", nameof(CitaCreateVM.ServicioId));
+                    }
                 }
             }
             else
@@ -562,11 +598,15 @@ namespace LuxuryApp.Services.Calendar
             return funcionario;
         }
 
+        private static bool IsCustomServicio(CalendarUpsertRequest request) =>
+            request.Tipo == "CITA" && request.EsServicioPersonalizado;
+
         private async Task<Servicio?> ResolveServicioAsync(
             CalendarUpsertRequest request,
             CancellationToken cancellationToken)
         {
-            if (request.Tipo != "CITA" || !request.ServicioId.HasValue)
+            // Las citas personalizadas y los descansos no usan el catálogo.
+            if (request.Tipo != "CITA" || request.EsServicioPersonalizado || !request.ServicioId.HasValue)
             {
                 return null;
             }
@@ -680,10 +720,16 @@ namespace LuxuryApp.Services.Calendar
             }
         }
 
-        private static int ResolveDuracion(string tipo, int? duracionDescanso, Servicio? servicio) =>
-            tipo == "DESCANSO"
-                ? duracionDescanso ?? DefaultDurationMinutes
-                : servicio?.DuracionMinutos ?? DefaultDurationMinutes;
+        private static int ResolveDuracion(CalendarUpsertRequest request, Servicio? servicio)
+        {
+            // Descanso y servicio personalizado toman la duración del propio request.
+            if (request.Tipo == "DESCANSO" || request.EsServicioPersonalizado)
+            {
+                return request.DuracionMinutos ?? DefaultDurationMinutes;
+            }
+
+            return servicio?.DuracionMinutos ?? DefaultDurationMinutes;
+        }
 
         private static List<DateTime> BuildCreationTargets(CalendarUpsertRequest request)
         {
@@ -735,7 +781,8 @@ namespace LuxuryApp.Services.Calendar
             int duracion,
             string funcionarioNombre,
             string colorCalendario,
-            string? servicioNombre) =>
+            string? servicioNombre,
+            bool esServicioPersonalizado) =>
             new()
             {
                 Id = cita.Id,
@@ -750,6 +797,7 @@ namespace LuxuryApp.Services.Calendar
                 ColorCalendario = colorCalendario,
                 ServicioId = cita.ServicioId,
                 ServicioNombre = servicioNombre,
+                EsServicioPersonalizado = esServicioPersonalizado,
                 WhatsAppConsentAtCreation = cita.WhatsAppConsentAtCreation,
                 WhatsAppConsentSource = cita.WhatsAppConsentSource,
                 WhatsAppConsentCapturedAtUtc = cita.WhatsAppConsentCapturedAtUtc,
@@ -767,6 +815,8 @@ namespace LuxuryApp.Services.Calendar
                     ? request.ClienteId.Value
                     : null,
                 ServicioId = request.ServicioId,
+                EsServicioPersonalizado = request.EsServicioPersonalizado,
+                ServicioNombrePersonalizado = NormalizeOptionalText(request.ServicioNombrePersonalizado),
                 FechaHoraCita = request.FechaHoraCita == default
                     ? default
                     : NormalizeToMinute(request.FechaHoraCita),

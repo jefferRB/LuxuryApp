@@ -270,6 +270,80 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
+        public async Task Edit_ShouldUpdateRebajarImpuestosFlag()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var puesto = await SeedPuestoAsync(context, "Barbero", "Cabina 1");
+            var funcionario = new Funcionario
+            {
+                Nombre = "Luis",
+                IdPuesto = puesto.IdPuesto,
+                ColorCalendario = "#444444",
+                PorcentajeGanancia = 35,
+                PorcentajeProducto = 5,
+                FechaIngreso = new DateTime(2026, 4, 13),
+                Activo = true,
+                RebajarImpuestosAntesDeComision = true
+            };
+            context.Funcionarios.Add(funcionario);
+            await context.SaveChangesAsync();
+
+            var controller = CreateController(context, tenantId);
+            var result = await controller.Edit(new Funcionario
+            {
+                IdFuncionario = funcionario.IdFuncionario,
+                Nombre = "Luis",
+                IdPuesto = puesto.IdPuesto,
+                ColorCalendario = "#444444",
+                PorcentajeGanancia = 35,
+                PorcentajeProducto = 5,
+                FechaIngreso = funcionario.FechaIngreso,
+                RebajarImpuestosAntesDeComision = false
+            });
+
+            Assert.IsType<RedirectToActionResult>(result);
+
+            var persisted = await context.Funcionarios.SingleAsync();
+            Assert.False(persisted.RebajarImpuestosAntesDeComision);
+        }
+
+        [Fact]
+        public async Task Create_ShouldPersistRebajarImpuestosFlagAsFalse()
+        {
+            var tenantId = Guid.NewGuid();
+            var planId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            await SeedPlanAsync(context, planId, maxFuncionarios: 5);
+            var puesto = await SeedPuestoAsync(context, "Estilista", "Atencion general");
+
+            var controller = CreateController(context, tenantId, planId);
+            var result = await controller.Create(new Funcionario
+            {
+                Nombre = "Sin Rebaja",
+                IdPuesto = puesto.IdPuesto,
+                ColorCalendario = "#111111",
+                PorcentajeGanancia = 50,
+                PorcentajeProducto = 50,
+                FechaIngreso = new DateTime(2026, 4, 13),
+                RebajarImpuestosAntesDeComision = false
+            });
+
+            Assert.IsType<RedirectToActionResult>(result);
+
+            var persisted = await context.Funcionarios.SingleAsync();
+            Assert.False(persisted.RebajarImpuestosAntesDeComision);
+        }
+
+        [Fact]
         public async Task Activar_ShouldBlock_WhenActivePlanLimitIsReached()
         {
             var tenantId = Guid.NewGuid();

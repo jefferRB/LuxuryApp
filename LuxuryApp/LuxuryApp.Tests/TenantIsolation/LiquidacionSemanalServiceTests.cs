@@ -399,6 +399,115 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(100m, resumen.TotalGeneradoGeneral);
         }
 
+        [Fact]
+        public async Task ObtenerResumenSemanaAsync_WithRebajaImpuestos_ShouldComputePagoOnNetBase()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            // Caso 1: comportamiento histórico (rebaja impuestos). 70000 / 13% / 50% => 30450.
+            var funcionario = await SeedFuncionarioAsync(context, "Ana", 50m, 50m, rebajarImpuestos: true);
+            await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 14), 70000m);
+
+            var resumen = await CreateService(context).ObtenerResumenSemanaAsync(
+                new DateTime(2026, 4, 13),
+                new DateTime(2026, 4, 19));
+
+            var pago = Assert.Single(resumen.Funcionarios);
+            Assert.Equal(70000m, pago.TotalGenerado);
+            Assert.Equal(9100m, pago.Impuestos);
+            Assert.Equal(60900m, pago.TotalNeto);
+            Assert.Equal(30450m, pago.PagoFinal);
+        }
+
+        [Fact]
+        public async Task ObtenerResumenSemanaAsync_WithoutRebajaImpuestos_ShouldComputePagoOnGross()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            // Caso 2: NO rebaja impuestos. 70000 / 50% => 35000. KPIs del negocio no cambian.
+            var funcionario = await SeedFuncionarioAsync(context, "Beto", 50m, 50m, rebajarImpuestos: false);
+            await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 14), 70000m);
+
+            var resumen = await CreateService(context).ObtenerResumenSemanaAsync(
+                new DateTime(2026, 4, 13),
+                new DateTime(2026, 4, 19));
+
+            var pago = Assert.Single(resumen.Funcionarios);
+            Assert.Equal(70000m, pago.TotalGenerado);
+            Assert.Equal(9100m, pago.Impuestos);
+            Assert.Equal(60900m, pago.TotalNeto);
+            Assert.Equal(35000m, pago.PagoFinal);
+        }
+
+        [Fact]
+        public async Task ObtenerResumenSemanaAsync_WithZeroPercent_ShouldPayZero()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Cero", 0m, 0m, rebajarImpuestos: false);
+            await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 14), 70000m);
+
+            var resumen = await CreateService(context).ObtenerResumenSemanaAsync(
+                new DateTime(2026, 4, 13),
+                new DateTime(2026, 4, 19));
+
+            var pago = Assert.Single(resumen.Funcionarios);
+            Assert.Equal(0m, pago.PagoFinal);
+        }
+
+        [Fact]
+        public async Task ObtenerResumenSemanaAsync_WithZeroProduction_ShouldPayZero()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            // Funcionario activo sin cobros en la semana => pago 0, sin fallar.
+            await SeedFuncionarioAsync(context, "SinProduccion", 50m, 50m, rebajarImpuestos: false);
+
+            var resumen = await CreateService(context).ObtenerResumenSemanaAsync(
+                new DateTime(2026, 4, 13),
+                new DateTime(2026, 4, 19));
+
+            var pago = Assert.Single(resumen.Funcionarios);
+            Assert.Equal(0m, pago.TotalGenerado);
+            Assert.Equal(0m, pago.PagoFinal);
+        }
+
+        [Fact]
+        public async Task ObtenerResumenSemanaAsync_Productos_ShouldRespectRebajaImpuestosFlag()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            // Comisión por producto: 70000 / 50% sin rebaja => 35000.
+            var funcionario = await SeedFuncionarioAsync(context, "ProdSinRebaja", 0m, 50m, rebajarImpuestos: false);
+            await SeedCobroProductoAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 14), 70000m);
+
+            var resumen = await CreateService(context).ObtenerResumenSemanaAsync(
+                new DateTime(2026, 4, 13),
+                new DateTime(2026, 4, 19));
+
+            var pago = Assert.Single(resumen.Funcionarios);
+            Assert.Equal(70000m, pago.TotalProductos);
+            Assert.Equal(35000m, pago.PagoFinal);
+
+            var producto = Assert.Single(pago.ProductosVendidos);
+            Assert.Equal(35000m, producto.GananciaFuncionario);
+        }
+
         private static LiquidacionSemanalService CreateService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
             new(
                 context,
@@ -409,7 +518,8 @@ namespace LuxuryApp.Tests.TenantIsolation
             ProyectoIdentity.Datos.ApplicationDbContext context,
             string nombre,
             decimal porcentajeGanancia,
-            decimal porcentajeProducto)
+            decimal porcentajeProducto,
+            bool rebajarImpuestos = true)
         {
             context.Puestos.Add(new Puesto
             {
@@ -428,6 +538,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 ColorCalendario = "#111111",
                 PorcentajeGanancia = porcentajeGanancia,
                 PorcentajeProducto = porcentajeProducto,
+                RebajarImpuestosAntesDeComision = rebajarImpuestos,
                 FechaIngreso = new DateTime(2026, 4, 13),
                 Activo = true
             };
@@ -435,6 +546,35 @@ namespace LuxuryApp.Tests.TenantIsolation
             context.Funcionarios.Add(funcionario);
             await context.SaveChangesAsync();
             return funcionario;
+        }
+
+        private static async Task SeedCobroProductoAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            int funcionarioId,
+            DateTime fecha,
+            decimal monto)
+        {
+            var producto = new LuxuryApp.Models.Productos.Producto
+            {
+                NombreProducto = $"Producto {fecha:yyyyMMddHHmmss}",
+                PrecioProducto = monto,
+                CantidadProducto = 100,
+                Activo = true
+            };
+            context.Productos.Add(producto);
+            await context.SaveChangesAsync();
+
+            context.Cobros.Add(new Cobro
+            {
+                NombreCliente = "Cliente Test",
+                FuncionarioId = funcionarioId,
+                FechaCobro = fecha,
+                Monto = monto,
+                MetodoPago = "EFECTIVO",
+                ProductoId = producto.IdProducto
+            });
+
+            await context.SaveChangesAsync();
         }
 
         private static async Task SeedCobroServicioAsync(

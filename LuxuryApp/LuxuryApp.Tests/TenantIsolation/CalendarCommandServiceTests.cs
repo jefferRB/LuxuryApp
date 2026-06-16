@@ -474,6 +474,165 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(new DateTime(2026, 4, 24, 16, 20, 0), cita.FechaHoraCita);
         }
 
+        [Fact]
+        public async Task CreateAsync_ShouldPersistCustomService()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Sofia");
+            var service = ControllerTestSupport.CreateCalendarCommandService(context);
+
+            var response = await service.CreateAsync(new CalendarUpsertRequest
+            {
+                NombreCliente = "Cliente Personalizado",
+                TelefonoCliente = "70001111",
+                EsServicioPersonalizado = true,
+                ServicioNombrePersonalizado = "  Tratamiento   especial  ",
+                DuracionMinutos = 90,
+                FechaHoraCita = new DateTime(2026, 4, 24, 10, 0, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA"
+            });
+
+            var cita = await context.Citas.AsNoTracking().SingleAsync();
+
+            Assert.Null(cita.ServicioId);
+            Assert.Equal("Tratamiento especial", cita.ServicioNombrePersonalizado);
+            Assert.Equal(90, cita.DuracionMinutos);
+            Assert.Equal("CITA", cita.Tipo);
+
+            Assert.True(response.EsServicioPersonalizado);
+            Assert.Equal("Tratamiento especial", response.ServicioNombre);
+            Assert.Equal(90, response.DuracionMinutos);
+        }
+
+        [Fact]
+        public async Task CreateAsync_ShouldReject_WhenCustomServiceNameIsEmpty()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Marta");
+            var service = ControllerTestSupport.CreateCalendarCommandService(context);
+
+            var exception = await Assert.ThrowsAsync<CalendarValidationException>(() => service.CreateAsync(new CalendarUpsertRequest
+            {
+                NombreCliente = "Cliente",
+                EsServicioPersonalizado = true,
+                ServicioNombrePersonalizado = "   ",
+                DuracionMinutos = 60,
+                FechaHoraCita = new DateTime(2026, 4, 24, 11, 0, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA"
+            }));
+
+            Assert.Contains("personalizado", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(await context.Citas.AsNoTracking().ToListAsync());
+        }
+
+        [Fact]
+        public async Task CreateAsync_ShouldReject_WhenCustomServiceDurationIsOutOfRange()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Pedro");
+            var service = ControllerTestSupport.CreateCalendarCommandService(context);
+
+            var exception = await Assert.ThrowsAsync<CalendarValidationException>(() => service.CreateAsync(new CalendarUpsertRequest
+            {
+                NombreCliente = "Cliente",
+                EsServicioPersonalizado = true,
+                ServicioNombrePersonalizado = "Servicio largo",
+                DuracionMinutos = 600,
+                FechaHoraCita = new DateTime(2026, 4, 24, 12, 0, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA"
+            }));
+
+            Assert.Contains("duracion", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(await context.Citas.AsNoTracking().ToListAsync());
+        }
+
+        [Fact]
+        public async Task CreateAsync_CustomService_ShouldRejectOverlap_UsingCustomDuration()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Nadia");
+            var servicio = await SeedServicioAsync(context, "Corte", 30);
+            await SeedCitaAsync(
+                context,
+                funcionario.IdFuncionario,
+                new DateTime(2026, 4, 24, 10, 0, 0),
+                servicioId: servicio.Id);
+
+            var service = ControllerTestSupport.CreateCalendarCommandService(context);
+
+            // El servicio personalizado de 120 min iniciando 09:30 invade la cita de las 10:00.
+            var exception = await Assert.ThrowsAsync<CalendarValidationException>(() => service.CreateAsync(new CalendarUpsertRequest
+            {
+                NombreCliente = "Cliente Personalizado",
+                EsServicioPersonalizado = true,
+                ServicioNombrePersonalizado = "Sesion larga",
+                DuracionMinutos = 120,
+                FechaHoraCita = new DateTime(2026, 4, 24, 9, 30, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA"
+            }));
+
+            Assert.Contains("horario", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Single(await context.Citas.AsNoTracking().ToListAsync());
+        }
+
+        [Fact]
+        public async Task UpdateAsync_ShouldConvertCatalogServiceToCustom()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Karla");
+            var servicio = await SeedServicioAsync(context, "Corte", 30);
+            var cita = await SeedCitaAsync(
+                context,
+                funcionario.IdFuncionario,
+                new DateTime(2026, 4, 24, 10, 0, 0),
+                servicioId: servicio.Id);
+
+            context.ChangeTracker.Clear();
+            var service = ControllerTestSupport.CreateCalendarCommandService(context);
+
+            await service.UpdateAsync(cita.Id, new CalendarUpsertRequest
+            {
+                NombreCliente = "Cliente",
+                EsServicioPersonalizado = true,
+                ServicioNombrePersonalizado = "Servicio a medida",
+                DuracionMinutos = 75,
+                FechaHoraCita = new DateTime(2026, 4, 24, 10, 0, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA"
+            });
+
+            context.ChangeTracker.Clear();
+            var updated = await context.Citas.AsNoTracking().SingleAsync(c => c.Id == cita.Id);
+
+            Assert.Null(updated.ServicioId);
+            Assert.Equal("Servicio a medida", updated.ServicioNombrePersonalizado);
+            Assert.Equal(75, updated.DuracionMinutos);
+        }
+
         private static async Task<Funcionario> SeedFuncionarioAsync(
             ProyectoIdentity.Datos.ApplicationDbContext context,
             string nombre,
