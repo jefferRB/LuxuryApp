@@ -19,5 +19,7 @@ namespace LuxuryApp.Models.Funcionarios
         public DateTime FechaIngreso { get; init; }
 
         public bool Activo { get; init; }
+
+        public FuncionarioAccesoEstado AccesoEstado { get; init; }
     }
 }

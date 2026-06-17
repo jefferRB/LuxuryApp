@@ -1,0 +1,108 @@
+@model LuxuryApp.Models.Funcionarios.MiPanelViewModel
+@using System.Globalization
+@{
+    ViewData["Title"] = "Mi Panel";
+    ViewData["PortalActive"] = "panel";
+    var cr = new CultureInfo("es-CR");
+    string Money(decimal v) => "₡" + v.ToString("#,##0.00", cr);
+    ViewData["CobroRetorno"] = "panel";
+}
+
+<div class="lp-card" style="margin-bottom:1rem;">
+    <h1 style="font-size:1.35rem;font-weight:800;margin:0;">Hola, @Model.Nombre 👋</h1>
+    <p class="lp-muted" style="margin:.25rem 0 0;text-transform:capitalize;">
+        @Model.Hoy.ToString("dddd, dd 'de' MMMM 'de' yyyy", cr)
+    </p>
+</div>
+
+<!-- RESUMEN DE HOY -->
+<h2 class="lp-section-title"><i class="bi bi-sun"></i> Resumen de hoy</h2>
+<div class="lp-kpis" style="margin-bottom:1.2rem;">
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Producción servicios</div>
+        <div class="lp-kpi-value">@Money(Model.ResumenHoy.ProduccionServicios)</div>
+    </div>
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Comisión servicios</div>
+        <div class="lp-kpi-value">@Money(Model.ResumenHoy.ComisionServicios)</div>
+    </div>
+    @if (Model.ResumenHoy.TieneProductos)
+    {
+        <div class="lp-kpi">
+            <div class="lp-kpi-label">Comisión productos</div>
+            <div class="lp-kpi-value">@Money(Model.ResumenHoy.ComisionProductos)</div>
+        </div>
+    }
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Total estimado hoy</div>
+        <div class="lp-kpi-value lp-kpi-value--gold">@Money(Model.ResumenHoy.TotalEstimado)</div>
+    </div>
+</div>
+
+<!-- CITAS DE HOY -->
+<div class="lp-card" style="margin-bottom:1rem;">
+    <h2 class="lp-section-title"><i class="bi bi-calendar-check"></i> Citas de hoy</h2>
+    @if (Model.CitasHoy.Count == 0)
+    {
+        <p class="lp-muted" style="margin:0;">No tienes citas para hoy.</p>
+    }
+    else
+    {
+        ViewData["PuedeRegistrarCobros"] = Model.PuedeRegistrarCobros;
+        <div style="display:flex;flex-direction:column;gap:.55rem;">
+            @foreach (var cita in Model.CitasHoy)
+            {
+                <partial name="_PortalCitaRow" model="cita" />
+            }
+        </div>
+    }
+</div>
+
+@{ ViewData["PuedeRegistrarCobros"] = false; }
+
+<!-- PRÓXIMAS CITAS -->
+<div class="lp-card" style="margin-bottom:1rem;">
+    <h2 class="lp-section-title"><i class="bi bi-calendar3"></i> Próximas citas</h2>
+    @if (Model.ProximasCitas.Count == 0)
+    {
+        <p class="lp-muted" style="margin:0;">No tienes próximas citas registradas.</p>
+    }
+    else
+    {
+        <div style="display:flex;flex-direction:column;gap:.55rem;">
+            @foreach (var cita in Model.ProximasCitas)
+            {
+                <partial name="_PortalCitaRow" model="cita" />
+            }
+        </div>
+    }
+</div>
+
+<!-- RESUMEN DE LA SEMANA -->
+<h2 class="lp-section-title"><i class="bi bi-calendar-week"></i> Esta semana</h2>
+<p class="lp-muted" style="margin-top:-.4rem;">
+    @Model.InicioSemana.ToString("dd/MM", cr) al @Model.FinSemana.ToString("dd/MM", cr)
+</p>
+<div class="lp-kpis">
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Producción</div>
+        <div class="lp-kpi-value">@Money(Model.ProduccionSemana)</div>
+    </div>
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Comisión estimada</div>
+        <div class="lp-kpi-value">@Money(Model.ComisionSemana)</div>
+    </div>
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Pagado</div>
+        <div class="lp-kpi-value lp-kpi-value--green">@Money(Model.PagadoSemana)</div>
+    </div>
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Pendiente</div>
+        <div class="lp-kpi-value lp-kpi-value--gold">@Money(Model.PendienteSemana)</div>
+    </div>
+</div>
+
+@if (Model.PuedeRegistrarCobros)
+{
+    <partial name="_PortalCobroModal" />
+}

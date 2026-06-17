@@ -75,6 +75,127 @@ namespace LuxuryApp.Services.Account
             }
         }
 
+        public async Task SendFuncionarioInvitationEmailAsync(
+            string toEmail,
+            string displayName,
+            string setPasswordLink,
+            CancellationToken cancellationToken = default)
+        {
+            var opts = _emailOptions.Value;
+            var maskedEmail = SensitiveDataMasker.MaskEmail(toEmail);
+
+            if (string.IsNullOrWhiteSpace(opts.SmtpPassword))
+            {
+                _logger.LogWarning(
+                    "Email:SmtpPassword no configurado. Invitación de funcionario no enviada para {MaskedEmail}.",
+                    maskedEmail);
+                return;
+            }
+
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(opts.FromName, opts.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+
+            if (!string.IsNullOrWhiteSpace(opts.ReplyToEmail))
+            {
+                message.ReplyTo.Add(MailboxAddress.Parse(opts.ReplyToEmail));
+            }
+
+            message.Subject = "Tu acceso al portal de LuxuryCloud";
+            message.Body = new TextPart(TextFormat.Html)
+            {
+                Text = BuildInvitationEmailHtml(displayName, setPasswordLink)
+            };
+
+            using var client = new SmtpClient();
+            try
+            {
+                await client.ConnectAsync(opts.SmtpHost, opts.SmtpPort, SecureSocketOptions.StartTls, cancellationToken);
+                await client.AuthenticateAsync(opts.SmtpUsername, opts.SmtpPassword, cancellationToken);
+                await client.SendAsync(message, cancellationToken);
+                await client.DisconnectAsync(quit: true, cancellationToken);
+
+                _logger.LogInformation(
+                    "Invitación al portal de funcionarios enviada a {MaskedEmail}.",
+                    maskedEmail);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Error al enviar invitación de funcionario para {MaskedEmail}.",
+                    maskedEmail);
+                throw;
+            }
+        }
+
+        internal static string BuildInvitationEmailHtml(string displayName, string setPasswordLink)
+        {
+            var safeDisplayName = HtmlEncoder.Default.Encode(displayName);
+            var safeLink = HtmlEncoder.Default.Encode(setPasswordLink);
+
+            return $"""
+                <!DOCTYPE html>
+                <html lang="es">
+                <head>
+                  <meta charset="UTF-8" />
+                  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+                  <title>Acceso al portal</title>
+                </head>
+                <body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;">
+                  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:32px 0;">
+                    <tr>
+                      <td align="center">
+                        <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);max-width:600px;width:100%;">
+                          <tr>
+                            <td style="background:#111111;padding:24px 32px;">
+                              <span style="color:#ffffff;font-size:20px;font-weight:700;letter-spacing:.5px;">LuxuryCloud</span>
+                            </td>
+                          </tr>
+                          <tr>
+                            <td style="padding:36px 32px 24px;">
+                              <p style="margin:0 0 16px;font-size:16px;color:#333333;">Hola, <strong>{safeDisplayName}</strong>,</p>
+                              <p style="margin:0 0 24px;font-size:15px;color:#555555;line-height:1.6;">
+                                Tu negocio te habilitó acceso a tu portal personal en LuxuryCloud, donde podrás ver
+                                tu agenda, tus citas, tu producción y tus pagos. Para empezar, define tu contraseña
+                                con el siguiente botón.
+                              </p>
+                              <table cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
+                                <tr>
+                                  <td style="background:#111111;border-radius:6px;padding:0;">
+                                    <a href="{safeLink}"
+                                       style="display:inline-block;padding:14px 28px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;border-radius:6px;">
+                                      Definir mi contraseña
+                                    </a>
+                                  </td>
+                                </tr>
+                              </table>
+                              <p style="margin:0 0 12px;font-size:13px;color:#888888;line-height:1.5;">
+                                Si no puedes hacer clic en el botón, copia y pega este enlace en tu navegador:
+                              </p>
+                              <p style="margin:0 0 24px;font-size:12px;color:#aaaaaa;word-break:break-all;">{safeLink}</p>
+                              <hr style="border:none;border-top:1px solid #eeeeee;margin:24px 0;" />
+                              <p style="margin:0;font-size:13px;color:#999999;line-height:1.5;">
+                                Este enlace es válido por 24 horas. Si no esperabas este correo, puedes ignorarlo.
+                              </p>
+                            </td>
+                          </tr>
+                          <tr>
+                            <td style="background:#f9f9f9;padding:16px 32px;border-top:1px solid #eeeeee;">
+                              <p style="margin:0;font-size:12px;color:#aaaaaa;">
+                                &copy; 2026 LuxuryCloud. Todos los derechos reservados.
+                              </p>
+                            </td>
+                          </tr>
+                        </table>
+                      </td>
+                    </tr>
+                  </table>
+                </body>
+                </html>
+                """;
+        }
+
         internal static string BuildResetEmailHtml(string displayName, string resetLink)
         {
             var safeDisplayName = HtmlEncoder.Default.Encode(displayName);

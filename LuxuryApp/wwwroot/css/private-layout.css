@@ -1159,6 +1159,11 @@ body.private-shell .side-cita-card small {
     font-size: 1.3rem;
 }
 
+/* Footer privado: hereda el tema activo del sistema (marble / glass / black / white).
+   Usa las MISMAS variables de superficie que el resto del layout privado, asi se ve
+   claro en temas claros y oscuro en temas oscuros, sin imponer color propio.
+   Variables del tema: --private-footer-bg, --private-footer-border (por tema),
+   --private-surface-text, --private-muted-text, --private-chart-accent (acento). */
 .private-footer {
     flex-shrink: 0;
     margin-top: auto;
@@ -1166,76 +1171,158 @@ body.private-shell .side-cita-card small {
     z-index: auto;
     width: auto;
     line-height: 1.5;
-    padding: 1rem 0 1.35rem;
+}
+
+.private-footer-rich {
+    padding: 2rem 0 1.4rem;
     border-top: 1px solid var(--private-footer-border);
     background: var(--private-footer-bg);
-    backdrop-filter: none;
+    color: var(--private-surface-text);
+}
+
+.private-footer-rich .private-footer-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 1.6rem;
+}
+
+.private-footer-grid {
+    display: grid;
+    grid-template-columns: 1.7fr 1fr 1fr;
+    gap: 1.6rem 1.4rem;
+}
+
+.private-footer-col-brand {
+    max-width: 22rem;
+}
+
+.private-footer-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.75rem;
+}
+
+/* La insignia reutiliza la identidad de marca del navbar (.private-brand-mark);
+   aqui solo se ajusta el tamano, el color/gradiente se hereda de esa clase. */
+.private-footer-brand-mark.private-brand-mark {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.7rem;
+    font-size: 0.95rem;
+    font-weight: 800;
     box-shadow: none;
 }
 
-.private-footer .container {
+.private-footer-brand-name {
+    font-size: 1.08rem;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    color: var(--private-surface-text);
+}
+
+.private-footer-desc {
+    margin: 0 0 0.9rem;
+    font-size: 0.86rem;
+    line-height: 1.55;
+    color: var(--private-muted-text);
+}
+
+.private-footer-support {
+    display: inline-flex;
     align-items: center;
-}
-
-.private-footer a {
-    color: #334155;
+    gap: 0.45rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--private-muted-text);
     text-decoration: none;
+    transition: color 0.15s ease;
 }
 
-body.theme-futuristic .private-footer,
-html[data-luxury-theme="futuristic"] .private-footer {
-    border-top-color: rgba(148, 163, 184, 0.18);
-    background: rgba(5, 10, 24, 0.82);
-    color: rgba(226, 232, 240, 0.76) !important;
+.private-footer-support:hover {
+    color: var(--private-chart-accent);
 }
 
-body.theme-marble .private-footer a,
-html[data-luxury-theme="marble"] .private-footer a {
-    color: #334155;
+.private-footer-title {
+    margin: 0 0 0.85rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--private-muted-text);
 }
 
-body.theme-futuristic .private-footer a,
-html[data-luxury-theme="futuristic"] .private-footer a {
-    color: #cbd5f5;
+.private-footer-links {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
 }
 
-body.theme-futuristic .private-footer a:hover,
-html[data-luxury-theme="futuristic"] .private-footer a:hover {
-    color: #ffffff;
+.private-footer-links a {
+    font-size: 0.86rem;
+    color: var(--private-muted-text);
+    text-decoration: none;
+    transition: color 0.15s ease;
 }
 
-body.theme-black .private-footer,
-html[data-luxury-theme="black"] .private-footer {
-    border-top-color: rgba(255, 255, 255, 0.08);
-    background: rgba(5, 5, 5, 0.98);
-    color: rgba(161, 161, 170, 0.9) !important;
+.private-footer-links a:hover {
+    color: var(--private-chart-accent);
 }
 
-body.theme-black .private-footer a,
-html[data-luxury-theme="black"] .private-footer a {
-    color: #a1a1aa;
+.private-footer-bottom {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    padding-top: 1.35rem;
+    border-top: 1px solid var(--private-footer-border);
 }
 
-body.theme-black .private-footer a:hover,
-html[data-luxury-theme="black"] .private-footer a:hover {
-    color: #ffffff;
+.private-footer-copyright {
+    font-size: 0.8rem;
+    color: var(--private-muted-text);
 }
 
-body.theme-white .private-footer,
-html[data-luxury-theme="white"] .private-footer {
-    border-top-color: rgba(15, 23, 42, 0.10);
-    background: #f8fafc;
-    color: #475569 !important;
+.private-footer-tagline {
+    font-size: 0.8rem;
+    color: var(--private-muted-text);
+    opacity: 0.85;
+    text-align: right;
 }
 
-body.theme-white .private-footer a,
-html[data-luxury-theme="white"] .private-footer a {
-    color: #475569;
+@media (max-width: 991.98px) {
+    .private-footer-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .private-footer-col-brand {
+        grid-column: 1 / -1;
+        max-width: none;
+    }
 }
 
-body.theme-white .private-footer a:hover,
-html[data-luxury-theme="white"] .private-footer a:hover {
-    color: #111827;
+@media (max-width: 575.98px) {
+    .private-footer-rich {
+        padding: 2rem 0 1.4rem;
+    }
+
+    .private-footer-grid {
+        grid-template-columns: 1fr;
+        gap: 1.4rem;
+    }
+
+    .private-footer-bottom {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .private-footer-tagline {
+        text-align: left;
+    }
 }
 
 @media (min-width: 1200px) {

@@ -17,17 +17,26 @@ namespace LuxuryApp.Controllers.Funcionarios
     {
         private readonly ApplicationDbContext _context;
         private readonly ILiquidacionSemanalService _liquidacionSemanalService;
+        private readonly IFuncionarioPortalAccessService _portalAccessService;
+        private readonly IFuncionarioPortalPermissionService _portalPermissionService;
+        private readonly LuxuryApp.Services.Account.IAccountEmailService _accountEmailService;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ILogger<FuncionariosController> _logger;
 
         public FuncionariosController(
             ApplicationDbContext context,
             ILiquidacionSemanalService liquidacionSemanalService,
+            IFuncionarioPortalAccessService portalAccessService,
+            IFuncionarioPortalPermissionService portalPermissionService,
+            LuxuryApp.Services.Account.IAccountEmailService accountEmailService,
             IBusinessDateTimeProvider businessDateTimeProvider,
             ILogger<FuncionariosController> logger)
         {
             _context = context;
             _liquidacionSemanalService = liquidacionSemanalService;
+            _portalAccessService = portalAccessService;
+            _portalPermissionService = portalPermissionService;
+            _accountEmailService = accountEmailService;
             _businessDateTimeProvider = businessDateTimeProvider;
             _logger = logger;
         }
@@ -37,24 +46,70 @@ namespace LuxuryApp.Controllers.Funcionarios
             var funcionarios = await _context.Funcionarios
                 .AsNoTracking()
                 .OrderBy(f => f.Nombre)
+                .Select(f => new
+                {
+                    f.IdFuncionario,
+                    f.Nombre,
+                    f.Telefono,
+                    NombrePuesto = f.Puesto != null ? f.Puesto.NombrePuesto : string.Empty,
+                    f.PorcentajeGanancia,
+                    f.PorcentajeProducto,
+                    f.ColorCalendario,
+                    f.FechaIngreso,
+                    f.Activo,
+                    f.AppUsuarioId
+                })
+                .ToListAsync();
+
+            // Estado de acceso: una sola consulta para todas las cuentas vinculadas.
+            var userIds = funcionarios
+                .Where(f => !string.IsNullOrWhiteSpace(f.AppUsuarioId))
+                .Select(f => f.AppUsuarioId!)
+                .ToList();
+
+            var estadosCuenta = userIds.Count == 0
+                ? new Dictionary<string, bool>()
+                : await _context.Users
+                    .AsNoTracking()
+                    .Where(u => userIds.Contains(u.Id))
+                    .Select(u => new { u.Id, u.State })
+                    .ToDictionaryAsync(u => u.Id, u => u.State);
+
+            var items = funcionarios
                 .Select(f => new FuncionarioIndexItemViewModel
                 {
                     IdFuncionario = f.IdFuncionario,
                     Nombre = f.Nombre,
                     Telefono = f.Telefono,
-                    NombrePuesto = f.Puesto != null ? f.Puesto.NombrePuesto : string.Empty,
+                    NombrePuesto = f.NombrePuesto,
                     PorcentajeGanancia = f.PorcentajeGanancia,
                     PorcentajeProducto = f.PorcentajeProducto,
                     ColorCalendario = f.ColorCalendario,
                     FechaIngreso = f.FechaIngreso,
-                    Activo = f.Activo
+                    Activo = f.Activo,
+                    AccesoEstado = ResolverAccesoEstado(f.AppUsuarioId, estadosCuenta)
                 })
-                .ToListAsync();
+                .ToList();
 
             return View(new FuncionariosIndexViewModel
             {
-                Funcionarios = funcionarios
+                Funcionarios = items
             });
+        }
+
+        private static FuncionarioAccesoEstado ResolverAccesoEstado(
+            string? appUsuarioId,
+            IReadOnlyDictionary<string, bool> estadosCuenta)
+        {
+            if (string.IsNullOrWhiteSpace(appUsuarioId) ||
+                !estadosCuenta.TryGetValue(appUsuarioId, out var activo))
+            {
+                return FuncionarioAccesoEstado.SinAcceso;
+            }
+
+            return activo
+                ? FuncionarioAccesoEstado.AccesoActivo
+                : FuncionarioAccesoEstado.AccesoBloqueado;
         }
 
         [HttpGet]
@@ -154,7 +209,28 @@ namespace LuxuryApp.Controllers.Funcionarios
             }
 
             await CargarPuestosAsync(funcionario.IdPuesto);
+            ViewData["Acceso"] = await _portalAccessService.ObtenerEstadoAsync(id, HttpContext.RequestAborted);
+            ViewData["Permisos"] = await _portalPermissionService.ObtenerAsync(id, HttpContext.RequestAborted);
             return View(funcionario);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> GuardarPermisos(int id, List<string>? permisos)
+        {
+            var seleccionados = (permisos ?? new List<string>())
+                .Where(FuncionarioPortalPermissions.EsPermisoValido)
+                .ToHashSet(StringComparer.Ordinal);
+
+            var valores = FuncionarioPortalPermissions.Todos
+                .ToDictionary(p => p, p => seleccionados.Contains(p), StringComparer.Ordinal);
+
+            var ok = await _portalPermissionService.GuardarAsync(id, valores, HttpContext.RequestAborted);
+            TempData[ok ? "Mensaje" : "Error"] = ok
+                ? "Permisos del portal actualizados."
+                : "No fue posible actualizar los permisos. Verifica que el funcionario exista.";
+
+            return RedirectToAction(nameof(Edit), new { id });
         }
 
         [HttpPost]
@@ -177,6 +253,7 @@ namespace LuxuryApp.Controllers.Funcionarios
             if (!ModelState.IsValid)
             {
                 await CargarPuestosAsync(funcionario.IdPuesto);
+                ViewData["Acceso"] = await _portalAccessService.ObtenerEstadoAsync(funcionario.IdFuncionario, HttpContext.RequestAborted);
                 return View(funcionario);
             }
 
@@ -200,6 +277,7 @@ namespace LuxuryApp.Controllers.Funcionarios
             if (!ModelState.IsValid)
             {
                 await CargarPuestosAsync(funcionario.IdPuesto);
+                ViewData["Acceso"] = await _portalAccessService.ObtenerEstadoAsync(funcionario.IdFuncionario, HttpContext.RequestAborted);
                 return View(funcionario);
             }
 
@@ -231,6 +309,7 @@ namespace LuxuryApp.Controllers.Funcionarios
             }
 
             await CargarPuestosAsync(funcionario.IdPuesto);
+            ViewData["Acceso"] = await _portalAccessService.ObtenerEstadoAsync(funcionario.IdFuncionario, HttpContext.RequestAborted);
             return View(funcionario);
         }
 
@@ -244,6 +323,12 @@ namespace LuxuryApp.Controllers.Funcionarios
             if (funcionario == null)
             {
                 return NotFound();
+            }
+
+            if (!string.IsNullOrWhiteSpace(funcionario.AppUsuarioId))
+            {
+                TempData["Error"] = "No se puede eliminar el funcionario porque tiene una cuenta de acceso al portal. Bloquea su acceso desde 'Acceso al sistema' antes de eliminarlo.";
+                return RedirectToAction(nameof(Index));
             }
 
             var tieneCitas = await _context.Citas.AnyAsync(c => c.FuncionarioId == idFuncionario);
@@ -279,6 +364,128 @@ namespace LuxuryApp.Controllers.Funcionarios
         [HttpPost]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> Desactivar(int id) => SetActivoAsync(id, false);
+
+        // ─────────────────────────── ACCESO AL PORTAL ───────────────────────────
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ActivarAcceso(
+            int id,
+            string? email,
+            string? modoCredencial,
+            string? contrasenaTemporal)
+        {
+            var modo = string.Equals(modoCredencial, "temporal", StringComparison.OrdinalIgnoreCase)
+                ? FuncionarioAccesoCredencialModo.ContrasenaTemporal
+                : FuncionarioAccesoCredencialModo.Invitacion;
+
+            var resultado = await _portalAccessService.ActivarAccesoAsync(
+                id,
+                email ?? string.Empty,
+                modo,
+                contrasenaTemporal,
+                HttpContext.RequestAborted);
+
+            if (!resultado.Exitoso)
+            {
+                TempData["Error"] = string.Join(" ", resultado.Errores);
+                return RedirectToAction(nameof(Edit), new { id });
+            }
+
+            await EnviarInvitacionSiCorrespondeAsync(resultado);
+
+            TempData["Mensaje"] = modo == FuncionarioAccesoCredencialModo.Invitacion
+                ? "Acceso habilitado. Se envió una invitación al correo del funcionario para definir su contraseña."
+                : "Acceso habilitado con contraseña temporal. Compártela de forma segura con el funcionario.";
+
+            return RedirectToAction(nameof(Edit), new { id });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> DesactivarAcceso(int id)
+        {
+            var resultado = await _portalAccessService.DesactivarAccesoAsync(id, HttpContext.RequestAborted);
+            SetAccesoTempData(resultado, "Acceso del funcionario bloqueado. Ya no podrá iniciar sesión.");
+            return RedirectToAction(nameof(Edit), new { id });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ReactivarAcceso(int id)
+        {
+            var resultado = await _portalAccessService.ReactivarAccesoAsync(id, HttpContext.RequestAborted);
+            SetAccesoTempData(resultado, "Acceso del funcionario reactivado.");
+            return RedirectToAction(nameof(Edit), new { id });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ReenviarInvitacionAcceso(int id)
+        {
+            var resultado = await _portalAccessService.GenerarEnlaceInvitacionAsync(id, HttpContext.RequestAborted);
+            if (!resultado.Exitoso)
+            {
+                TempData["Error"] = string.Join(" ", resultado.Errores);
+                return RedirectToAction(nameof(Edit), new { id });
+            }
+
+            await EnviarInvitacionSiCorrespondeAsync(resultado);
+            TempData["Mensaje"] = "Se reenvió la invitación al correo del funcionario.";
+            return RedirectToAction(nameof(Edit), new { id });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> CambiarCorreoAcceso(int id, string? email)
+        {
+            var resultado = await _portalAccessService.CambiarCorreoAsync(id, email ?? string.Empty, HttpContext.RequestAborted);
+            SetAccesoTempData(resultado, "Correo de acceso actualizado.");
+            return RedirectToAction(nameof(Edit), new { id });
+        }
+
+        private void SetAccesoTempData(FuncionarioAccesoResultado resultado, string mensajeExito)
+        {
+            if (resultado.Exitoso)
+            {
+                TempData["Mensaje"] = mensajeExito;
+            }
+            else
+            {
+                TempData["Error"] = string.Join(" ", resultado.Errores);
+            }
+        }
+
+        private async Task EnviarInvitacionSiCorrespondeAsync(FuncionarioAccesoResultado resultado)
+        {
+            if (!resultado.RequiereCorreoInvitacion ||
+                string.IsNullOrWhiteSpace(resultado.UserId) ||
+                string.IsNullOrWhiteSpace(resultado.EnlaceTokenCodificado) ||
+                string.IsNullOrWhiteSpace(resultado.Email))
+            {
+                return;
+            }
+
+            var enlace = Url.Action(
+                "ResetPassword",
+                "Accounts",
+                new { userId = resultado.UserId, token = resultado.EnlaceTokenCodificado },
+                Request.Scheme)!;
+
+            try
+            {
+                await _accountEmailService.SendFuncionarioInvitationEmailAsync(
+                    resultado.Email,
+                    resultado.NombreParaCorreo ?? "Funcionario",
+                    enlace,
+                    HttpContext.RequestAborted);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "No se pudo enviar la invitación de acceso al funcionario. UserId {UserId}.", resultado.UserId);
+                TempData["Error"] = "El acceso se configuró, pero no se pudo enviar el correo de invitación. Usa 'Reenviar invitación' más tarde.";
+            }
+        }
 
         [HttpGet]
         public async Task<IActionResult> GetActivos()

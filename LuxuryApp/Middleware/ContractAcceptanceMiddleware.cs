@@ -34,6 +34,15 @@ namespace LuxuryApp.Middleware
                 return;
             }
 
+            // El contrato del SaaS lo acepta el dueño del negocio (Administrador), no el
+            // funcionario. Las cuentas de funcionario quedan exentas de este gate.
+            if (context.User.IsInRole(Services.Identity.AppRoles.Funcionario) &&
+                !context.User.IsInRole(Services.Identity.AppRoles.Administrador))
+            {
+                await _next(context);
+                return;
+            }
+
             var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
             if (string.IsNullOrWhiteSpace(userId))
             {

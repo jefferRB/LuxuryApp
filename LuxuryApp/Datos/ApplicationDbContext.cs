@@ -113,6 +113,29 @@ namespace ProyectoIdentity.Datos
 
                 entity.HasIndex(f => new { f.TenantId, f.Nombre })
                     .HasDatabaseName("IX_Funcionarios_TenantId_Nombre");
+
+                // Acceso al portal: 1 cuenta como máximo por funcionario.
+                // Índice único filtrado para que un mismo usuario no se vincule a
+                // dos funcionarios. La integridad referencial al usuario se valida en
+                // código (AppUsuario no es ITenantEntity, no aplica el guard de tenant).
+                entity.HasIndex(f => f.AppUsuarioId)
+                    .IsUnique()
+                    .HasFilter("[AppUsuarioId] IS NOT NULL")
+                    .HasDatabaseName("UX_Funcionarios_AppUsuarioId");
+
+                entity.HasOne<AppUsuario>()
+                    .WithMany()
+                    .HasForeignKey(f => f.AppUsuarioId)
+                    .HasPrincipalKey(u => u.Id)
+                    .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<AppUsuario>(entity =>
+            {
+                // Conserva el índice histórico por TenantId para no regresar el desempeño
+                // de las búsquedas de usuarios por tenant. FuncionarioId no necesita índice
+                // propio: el vínculo se resuelve por Funcionario.AppUsuarioId.
+                entity.HasIndex(u => u.TenantId);
             });
 
             modelBuilder.Entity<Cita>(entity =>
@@ -335,10 +358,35 @@ namespace ProyectoIdentity.Datos
                     .HasFilter("[ClienteId] IS NOT NULL")
                     .HasDatabaseName("IX_Cobros_TenantId_ClienteId");
 
+                // Un cobro como máximo por cita: evita doble cobro de la misma cita.
+                entity.HasIndex(c => new { c.TenantId, c.CitaId })
+                    .IsUnique()
+                    .HasFilter("[CitaId] IS NOT NULL")
+                    .HasDatabaseName("UX_Cobros_TenantId_CitaId");
+
                 entity.HasOne(c => c.Cliente)
                     .WithMany()
                     .HasForeignKey(c => c.ClienteId)
                     .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(c => c.Cita)
+                    .WithMany()
+                    .HasForeignKey(c => c.CitaId)
+                    .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<FuncionarioPortalPermiso>(entity =>
+            {
+                entity.Property(p => p.Permiso).HasMaxLength(60).IsRequired();
+
+                entity.HasIndex(p => new { p.TenantId, p.FuncionarioId, p.Permiso })
+                    .IsUnique()
+                    .HasDatabaseName("UX_FuncionarioPortalPermisos_Tenant_Funcionario_Permiso");
+
+                entity.HasOne(p => p.Funcionario)
+                    .WithMany()
+                    .HasForeignKey(p => p.FuncionarioId)
+                    .OnDelete(DeleteBehavior.Cascade);
             });
 
             modelBuilder.Entity<ClienteServicioRealizado>(entity =>
@@ -1071,6 +1119,7 @@ namespace ProyectoIdentity.Datos
         public DbSet<MovimientoInventario> MovimientosInventario { get; set; }
         //Funcionarios
         public DbSet<Funcionario> Funcionarios { get; set; }
+        public DbSet<FuncionarioPortalPermiso> FuncionarioPortalPermisos { get; set; }
         public DbSet<Puesto> Puestos { get; set; }
         public DbSet<PagoFuncionario> PagosFuncionarios { get; set; }
         public DbSet<LiquidacionSemanal> LiquidacionesSemanales { get; set; }

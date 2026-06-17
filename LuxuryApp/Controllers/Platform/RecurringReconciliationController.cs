@@ -12,7 +12,7 @@ using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Controllers.Platform
 {
-    [Authorize]
+    [Authorize(Policy = PlatformAuthorizationPolicies.PlatformSuperAdmin)]
     [Route("Platform/RecurringCheckouts")]
     public sealed class RecurringReconciliationController : Controller
     {

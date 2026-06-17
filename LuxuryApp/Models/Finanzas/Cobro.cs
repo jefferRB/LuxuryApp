@@ -44,6 +44,11 @@ namespace LuxuryApp.Models.Finanzas
         [Display(Name = "Observaciones")]
         public string? Observaciones { get; set; }
 
+        // 🔗 Cita de origen (cuando el cobro se registra desde una cita del calendario).
+        // Permite evitar doble cobro de la misma cita (índice único filtrado).
+        public int? CitaId { get; set; }
+        public Cita? Cita { get; set; }
+
         // 🔗 Navegación EF
         public Funcionario? Funcionario { get; set; }
         public Servicio? Servicio { get; set; }

@@ -3,6 +3,7 @@ using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Account;
 using LuxuryApp.Services.Contracts;
+using LuxuryApp.Services.Identity;
 using LuxuryApp.Services.PublicSite;
 using LuxuryApp.Services.Security;
 using LuxuryApp.Services.Tenant;
@@ -277,6 +278,17 @@ namespace LuxuryApp.Controllers.Identity
                 }
 
                 await _signInManager.SignInAsync(usuario, model.RememberMe);
+
+                // Funcionario: portal limitado. No es la parte contratante del SaaS,
+                // por lo que se omite el gate de contrato y se le envía a su portal.
+                var esFuncionario = await _userManager.IsInRoleAsync(usuario, AppRoles.Funcionario);
+                var esAdministrador = await _userManager.IsInRoleAsync(usuario, AppRoles.Administrador);
+                if (esFuncionario && !esAdministrador)
+                {
+                    return safeReturnUrl.StartsWith("/MiPortal", StringComparison.OrdinalIgnoreCase)
+                        ? LocalRedirect(safeReturnUrl)
+                        : Redirect("/MiPortal");
+                }
 
                 var contractStatus = await _contractService.GetAcceptanceStatusAsync(usuario.Id);
                 if (contractStatus.BlocksApplicationAccess)

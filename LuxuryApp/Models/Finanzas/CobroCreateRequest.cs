@@ -13,5 +13,11 @@ namespace LuxuryApp.Models.Finanzas
         public string? Observaciones { get; init; }
         public bool ActualizarNotasServicio { get; init; }
         public string? NotasServicioTexto { get; init; }
+
+        /// <summary>
+        /// Cita de origen (opcional). Cuando viene del portal del funcionario, asocia el cobro
+        /// a la cita para impedir doble cobro. El servicio valida pertenencia y unicidad.
+        /// </summary>
+        public int? CitaId { get; init; }
     }
 }

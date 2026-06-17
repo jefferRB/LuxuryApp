@@ -38,6 +38,14 @@ namespace LuxuryApp.Models.Funcionarios
         public DateTime FechaIngreso { get; set; }
 
         public bool Activo { get; set; }
+
+        /// <summary>
+        /// Id de la cuenta de acceso (AspNetUsers) vinculada a este funcionario,
+        /// si el administrador le habilitó acceso al portal. Null = sin acceso.
+        /// La relación es 1:1 dentro del tenant.
+        /// </summary>
+        [MaxLength(450)]
+        public string? AppUsuarioId { get; set; }
     }
 
 }

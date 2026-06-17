@@ -25,6 +25,13 @@ namespace LuxuryApp.Controllers
         {
             if (User.Identity?.IsAuthenticated == true)
             {
+                // Funcionario: su área es el portal limitado, no el dashboard del negocio.
+                if (User.IsInRole(LuxuryApp.Services.Identity.AppRoles.Funcionario) &&
+                    !User.IsInRole(LuxuryApp.Services.Identity.AppRoles.Administrador))
+                {
+                    return Redirect("/MiPortal");
+                }
+
                 return RedirectToAction("Index", "Dashboard");
             }
 

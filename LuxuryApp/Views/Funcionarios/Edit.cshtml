@@ -1,7 +1,32 @@
 @model LuxuryApp.Models.Funcionarios.Funcionario
+@using LuxuryApp.Models.Funcionarios
+@{
+    var acceso = ViewData["Acceso"] as FuncionarioAccesoViewModel
+        ?? new FuncionarioAccesoViewModel { FuncionarioId = Model.IdFuncionario, Estado = FuncionarioAccesoEstado.SinAcceso };
+    var permisos = ViewData["Permisos"] as FuncionarioPortalPermisosSet
+        ?? FuncionarioPortalPermisosSet.Defaults();
+}
 
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 <link rel="stylesheet" href="~/css/funcionarios.css" asp-append-version="true">
+
+<style>
+    .func-access-card{margin-top:1.25rem;}
+    .func-access-head{display:flex;align-items:center;gap:.6rem;margin-bottom:.35rem;}
+    .func-access-head i{font-size:1.15rem;color:#2563eb;}
+    .func-access-title{font-size:1rem;font-weight:800;margin:0;color:var(--private-surface-text,#111827);}
+    .func-access-sub{font-size:.82rem;color:var(--private-muted-text,#64748b);margin:0 0 1rem;}
+    .func-access-status{display:inline-flex;align-items:center;gap:.4rem;font-size:.78rem;font-weight:700;
+        padding:.25rem .6rem;border-radius:999px;margin-bottom:1rem;}
+    .func-access-status--ok{background:rgba(16,185,129,.12);color:#047857;}
+    .func-access-status--blocked{background:rgba(220,38,38,.12);color:#b91c1c;}
+    .func-access-status--none{background:rgba(100,116,139,.12);color:#475569;}
+    .func-access-row{display:flex;flex-wrap:wrap;gap:.6rem;align-items:flex-end;}
+    .func-access-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.25rem;}
+    .func-access-modes{display:flex;flex-wrap:wrap;gap:1rem;margin:.25rem 0 .75rem;}
+    .func-access-modes label{font-size:.85rem;display:flex;align-items:center;gap:.4rem;cursor:pointer;}
+    .func-access-note{font-size:.78rem;color:var(--private-muted-text,#64748b);margin-top:.6rem;line-height:1.5;}
+</style>
 
 <div class="kpi-card func-main-card">
 
@@ -242,6 +267,258 @@
         </form>
     </div>
 
+</div>
+
+<!-- ── ACCESO AL SISTEMA ── -->
+<div class="kpi-card func-main-card func-access-card">
+    <div class="func-form-body">
+        <div class="func-access-head">
+            <i class="bi bi-shield-lock-fill"></i>
+            <h3 class="func-access-title">Acceso al sistema</h3>
+        </div>
+        <p class="func-access-sub">
+            Permite que este funcionario inicie sesión en su propio portal para ver su agenda,
+            su producción y sus pagos. Solo verá su información.
+        </p>
+
+        @if (TempData["Mensaje"] != null)
+        {
+            <div class="func-alert func-alert--success" style="margin-bottom:1rem;">
+                <i class="bi bi-check-circle-fill"></i> @TempData["Mensaje"]
+            </div>
+        }
+        @if (TempData["Error"] != null)
+        {
+            <div class="func-alert func-alert--danger" style="margin-bottom:1rem;">
+                <i class="bi bi-exclamation-triangle-fill"></i> @TempData["Error"]
+            </div>
+        }
+
+        @if (acceso.Estado == FuncionarioAccesoEstado.SinAcceso)
+        {
+            <span class="func-access-status func-access-status--none">
+                <i class="bi bi-dash-circle"></i> Sin acceso
+            </span>
+
+            @if (!Model.Activo)
+            {
+                <div class="func-modal-warning-box func-modal-warning-box--amber" style="margin-bottom:1rem;">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <span>El funcionario está inactivo. Actívalo primero para poder habilitar su acceso.</span>
+                </div>
+            }
+            else
+            {
+                <form asp-action="ActivarAcceso" method="post">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="id" value="@Model.IdFuncionario" />
+
+                    <div class="func-field func-form-full">
+                        <label class="func-label">Correo de acceso <span class="func-required">*</span></label>
+                        <div class="func-input-wrap">
+                            <span class="func-input-icon"><i class="bi bi-envelope"></i></span>
+                            <input type="email" name="email" class="func-input" placeholder="correo@ejemplo.com" required autocomplete="off" />
+                        </div>
+                    </div>
+
+                    <div class="func-access-modes">
+                        <label>
+                            <input type="radio" name="modoCredencial" value="invitacion" checked
+                                   onchange="document.getElementById('tempPwdWrap').style.display='none'" />
+                            Enviar invitación por correo (recomendado)
+                        </label>
+                        <label>
+                            <input type="radio" name="modoCredencial" value="temporal"
+                                   onchange="document.getElementById('tempPwdWrap').style.display='block'" />
+                            Definir contraseña temporal
+                        </label>
+                    </div>
+
+                    <div class="func-field func-form-full" id="tempPwdWrap" style="display:none;">
+                        <label class="func-label">Contraseña temporal</label>
+                        <div class="func-input-wrap">
+                            <span class="func-input-icon"><i class="bi bi-key"></i></span>
+                            <input type="text" name="contrasenaTemporal" class="func-input"
+                                   placeholder="Mínimo 5 caracteres, con una mayúscula" autocomplete="off" />
+                        </div>
+                        <span class="func-access-note">Compártela de forma segura. El funcionario podrá cambiarla luego.</span>
+                    </div>
+
+                    <div class="func-access-actions">
+                        <button type="submit" class="func-btn func-btn--primary">
+                            <i class="bi bi-key-fill"></i> Habilitar acceso
+                        </button>
+                    </div>
+                </form>
+                <p class="func-access-note">
+                    Con la opción recomendada, el funcionario recibe un correo para definir su propia
+                    contraseña. Nunca se guarda ni se muestra una contraseña en texto plano.
+                </p>
+            }
+        }
+        else
+        {
+            var esBloqueado = acceso.Estado == FuncionarioAccesoEstado.AccesoBloqueado;
+            <span class="func-access-status @(esBloqueado ? "func-access-status--blocked" : "func-access-status--ok")">
+                <i class="bi @(esBloqueado ? "bi-lock-fill" : "bi-key-fill")"></i>
+                @(esBloqueado ? "Acceso bloqueado" : "Acceso activo")
+            </span>
+
+            <div class="func-field func-form-full">
+                <label class="func-label">Correo de acceso</label>
+                <form asp-action="CambiarCorreoAcceso" method="post" class="func-access-row">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="id" value="@Model.IdFuncionario" />
+                    <div class="func-input-wrap" style="flex:1;min-width:220px;">
+                        <span class="func-input-icon"><i class="bi bi-envelope"></i></span>
+                        <input type="email" name="email" class="func-input" value="@acceso.Email" required autocomplete="off" />
+                    </div>
+                    <button type="submit" class="func-btn func-btn--ghost">
+                        <i class="bi bi-arrow-repeat"></i> Actualizar correo
+                    </button>
+                </form>
+            </div>
+
+            <div class="func-access-actions">
+                <form asp-action="ReenviarInvitacionAcceso" method="post">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="id" value="@Model.IdFuncionario" />
+                    <button type="submit" class="func-btn func-btn--ghost">
+                        <i class="bi bi-send"></i> Reenviar invitación / cambio de contraseña
+                    </button>
+                </form>
+
+                @if (esBloqueado)
+                {
+                    <form asp-action="ReactivarAcceso" method="post">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="id" value="@Model.IdFuncionario" />
+                        <button type="submit" class="func-btn func-btn--success">
+                            <i class="bi bi-unlock"></i> Reactivar acceso
+                        </button>
+                    </form>
+                }
+                else
+                {
+                    <form asp-action="DesactivarAcceso" method="post">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="id" value="@Model.IdFuncionario" />
+                        <button type="submit" class="func-btn func-btn--warning">
+                            <i class="bi bi-lock"></i> Bloquear acceso
+                        </button>
+                    </form>
+                }
+            </div>
+            <p class="func-access-note">
+                Bloquear el acceso impide que el funcionario inicie sesión, pero conserva todo su
+                historial de citas, producción y pagos. Puedes reactivarlo cuando quieras.
+            </p>
+        }
+    </div>
+</div>
+
+<!-- ── PERMISOS DEL PORTAL ── -->
+<style>
+    .perm-card{margin-top:1.25rem;}
+    .perm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem;margin-top:.5rem;}
+    .perm-block{border:1px solid var(--private-surface-border,rgba(15,23,42,.1));border-radius:.85rem;padding:1rem;background:rgba(148,163,184,.05);}
+    .perm-block h4{font-size:.9rem;font-weight:800;margin:0 0 .6rem;display:flex;align-items:center;gap:.45rem;}
+    .perm-item{display:flex;align-items:flex-start;gap:.5rem;padding:.35rem 0;font-size:.86rem;}
+    .perm-item input{margin-top:.15rem;width:1.05rem;height:1.05rem;flex-shrink:0;}
+    .perm-item--locked{opacity:.55;}
+    .perm-tag{font-size:.65rem;font-weight:700;color:#64748b;background:rgba(100,116,139,.15);border-radius:999px;padding:.05rem .4rem;margin-left:.3rem;}
+    .perm-help{font-size:.78rem;color:var(--private-muted-text,#64748b);margin:.8rem 0 0;line-height:1.5;}
+</style>
+<div class="kpi-card func-main-card perm-card">
+    <div class="func-form-body">
+        <div class="func-access-head">
+            <i class="bi bi-sliders"></i>
+            <h3 class="func-access-title">Permisos del portal</h3>
+        </div>
+        <p class="func-access-sub">Decide qué puede hacer este funcionario dentro de su portal.</p>
+
+        @if (!acceso.TienePortal)
+        {
+            <div class="func-modal-warning-box func-modal-warning-box--amber">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+                <span>Activa primero el acceso del funcionario para configurar sus permisos.</span>
+            </div>
+        }
+        else
+        {
+            <form asp-action="GuardarPermisos" method="post">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" value="@Model.IdFuncionario" />
+
+                <div class="perm-grid">
+                    <!-- Calendario -->
+                    <div class="perm-block">
+                        <h4><i class="bi bi-calendar3"></i> Calendario</h4>
+                        <label class="perm-item">
+                            <input type="checkbox" name="permisos" value="@FuncionarioPortalPermissions.VerMiCalendario"
+                                   checked="@permisos.Tiene(FuncionarioPortalPermissions.VerMiCalendario)" />
+                            <span>Ver mi calendario</span>
+                        </label>
+                        <label class="perm-item">
+                            <input type="checkbox" name="permisos" value="@FuncionarioPortalPermissions.CrearMisCitas"
+                                   checked="@permisos.Tiene(FuncionarioPortalPermissions.CrearMisCitas)" />
+                            <span>Agendar citas propias</span>
+                        </label>
+                        <label class="perm-item perm-item--locked">
+                            <input type="checkbox" disabled />
+                            <span>Editar mis citas <span class="perm-tag">Fase 2B</span></span>
+                        </label>
+                        <label class="perm-item perm-item--locked">
+                            <input type="checkbox" disabled />
+                            <span>Cancelar mis citas <span class="perm-tag">Fase 2B</span></span>
+                        </label>
+                    </div>
+
+                    <!-- Cobros propios -->
+                    <div class="perm-block">
+                        <h4><i class="bi bi-cash-coin"></i> Cobros propios</h4>
+                        <label class="perm-item">
+                            <input type="checkbox" name="permisos" value="@FuncionarioPortalPermissions.VerMisCobros"
+                                   checked="@permisos.Tiene(FuncionarioPortalPermissions.VerMisCobros)" />
+                            <span>Ver mis cobros propios</span>
+                        </label>
+                        <label class="perm-item">
+                            <input type="checkbox" name="permisos" value="@FuncionarioPortalPermissions.RegistrarMisCobros"
+                                   checked="@permisos.Tiene(FuncionarioPortalPermissions.RegistrarMisCobros)" />
+                            <span>Registrar cobros propios</span>
+                        </label>
+                    </div>
+
+                    <!-- Finanzas personales -->
+                    <div class="perm-block">
+                        <h4><i class="bi bi-graph-up-arrow"></i> Finanzas personales</h4>
+                        <label class="perm-item">
+                            <input type="checkbox" name="permisos" value="@FuncionarioPortalPermissions.VerMisGanancias"
+                                   checked="@permisos.Tiene(FuncionarioPortalPermissions.VerMisGanancias)" />
+                            <span>Ver mis ganancias</span>
+                        </label>
+                        <label class="perm-item">
+                            <input type="checkbox" name="permisos" value="@FuncionarioPortalPermissions.VerMisPagos"
+                                   checked="@permisos.Tiene(FuncionarioPortalPermissions.VerMisPagos)" />
+                            <span>Ver mis pagos recibidos</span>
+                        </label>
+                    </div>
+                </div>
+
+                <p class="perm-help">
+                    Estos permisos solo aplican al portal del funcionario. El funcionario nunca verá
+                    información de otros funcionarios. Los cobros registrados desde el portal quedan
+                    asociados al funcionario autenticado.
+                </p>
+
+                <div class="func-access-actions">
+                    <button type="submit" class="func-btn func-btn--primary">
+                        <i class="bi bi-floppy2-fill"></i> Guardar permisos
+                    </button>
+                </div>
+            </form>
+        }
+    </div>
 </div>
 
 <!-- ── FORM OCULTO: DESACTIVAR ── -->

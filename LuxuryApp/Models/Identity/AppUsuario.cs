@@ -18,5 +18,14 @@ namespace LuxuryApp.Models.Identity
         public Guid TenantId { get; set; }
 
         public Tenant? Tenant { get; set; }
+
+        /// <summary>
+        /// Cuando esta cuenta es de acceso de un funcionario, apunta al
+        /// <c>Funcionario.IdFuncionario</c> dentro del mismo tenant. Null para
+        /// cuentas administrativas. Se usa para emitir el claim funcionario_id
+        /// y aislar la información del portal de funcionarios.
+        /// </summary>
+        [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever]
+        public int? FuncionarioId { get; set; }
     }
 }

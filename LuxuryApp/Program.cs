@@ -79,6 +79,14 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy(
         PlatformAuthorizationPolicies.PlatformSuperAdmin,
         policy => policy.RequireClaim(CustomClaimTypes.PlatformSuperAdmin, bool.TrueString));
+
+    options.AddPolicy(
+        AppAuthorizationPolicies.RequireTenantAdmin,
+        policy => policy.RequireRole(AppRoles.Administrador));
+
+    options.AddPolicy(
+        AppAuthorizationPolicies.RequireFuncionario,
+        policy => policy.RequireRole(AppRoles.Funcionario));
 });
 
 builder.Services.AddScoped<TenantSessionSecurityValidator>();
@@ -201,6 +209,9 @@ builder.Services.AddScoped<IEgresoService, EgresoService>();
 builder.Services.AddScoped<IEgresoQueryService, EgresoQueryService>();
 builder.Services.AddScoped<IInformacionNegocioQueryService, InformacionNegocioQueryService>();
 builder.Services.AddScoped<ILiquidacionSemanalService, LiquidacionSemanalService>();
+builder.Services.AddScoped<IFuncionarioPortalAccessService, FuncionarioPortalAccessService>();
+builder.Services.AddScoped<IFuncionarioPortalQueryService, FuncionarioPortalQueryService>();
+builder.Services.AddScoped<IFuncionarioPortalPermissionService, FuncionarioPortalPermissionService>();
 builder.Services.AddScoped<IProductoService, ProductoService>();
 builder.Services.AddScoped<IProductoQueryService, ProductoQueryService>();
 builder.Services.AddScoped<IContractService, ContractService>();

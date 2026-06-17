@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ProyectoIdentity.Datos;
 
@@ -11,9 +12,11 @@ using ProyectoIdentity.Datos;
 namespace LuxuryApp.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260616230524_AddFuncionarioPortalAccess")]
+    partial class AddFuncionarioPortalAccess
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -354,9 +357,6 @@ namespace LuxuryApp.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("IdCobro"));
 
-                    b.Property<int?>("CitaId")
-                        .HasColumnType("int");
-
                     b.Property<int?>("ClienteId")
                         .HasColumnType("int");
 
@@ -391,8 +391,6 @@ namespace LuxuryApp.Migrations
 
                     b.HasKey("IdCobro");
 
-                    b.HasIndex("CitaId");
-
                     b.HasIndex("ClienteId");
 
                     b.HasIndex("FuncionarioId");
@@ -402,11 +400,6 @@ namespace LuxuryApp.Migrations
                     b.HasIndex("ServicioId");
 
                     b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "CitaId")
-                        .IsUnique()
-                        .HasDatabaseName("UX_Cobros_TenantId_CitaId")
-                        .HasFilter("[CitaId] IS NOT NULL");
 
                     b.HasIndex("TenantId", "ClienteId")
                         .HasDatabaseName("IX_Cobros_TenantId_ClienteId")
@@ -604,47 +597,6 @@ namespace LuxuryApp.Migrations
                         .HasDatabaseName("IX_Funcionarios_TenantId_Nombre");
 
                     b.ToTable("Funcionarios");
-                });
-
-            modelBuilder.Entity("LuxuryApp.Models.Funcionarios.FuncionarioPortalPermiso", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("FuncionarioId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Permiso")
-                        .IsRequired()
-                        .HasMaxLength(60)
-                        .HasColumnType("nvarchar(60)");
-
-                    b.Property<bool>("Permitido")
-                        .HasColumnType("bit");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("UpdatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("FuncionarioId");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "FuncionarioId", "Permiso")
-                        .IsUnique()
-                        .HasDatabaseName("UX_FuncionarioPortalPermisos_Tenant_Funcionario_Permiso");
-
-                    b.ToTable("FuncionarioPortalPermisos");
                 });
 
             modelBuilder.Entity("LuxuryApp.Models.Funcionarios.LiquidacionSemanal", b =>
@@ -2416,11 +2368,6 @@ namespace LuxuryApp.Migrations
 
             modelBuilder.Entity("LuxuryApp.Models.Finanzas.Cobro", b =>
                 {
-                    b.HasOne("LuxuryApp.Models.Calendar.Cita", "Cita")
-                        .WithMany()
-                        .HasForeignKey("CitaId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("LuxuryApp.Models.DataBase.ClientesModel", "Cliente")
                         .WithMany()
                         .HasForeignKey("ClienteId")
@@ -2439,8 +2386,6 @@ namespace LuxuryApp.Migrations
                     b.HasOne("LuxuryApp.Models.Finanzas.Servicio", "Servicio")
                         .WithMany()
                         .HasForeignKey("ServicioId");
-
-                    b.Navigation("Cita");
 
                     b.Navigation("Cliente");
 
@@ -2495,17 +2440,6 @@ namespace LuxuryApp.Migrations
                         .IsRequired();
 
                     b.Navigation("Puesto");
-                });
-
-            modelBuilder.Entity("LuxuryApp.Models.Funcionarios.FuncionarioPortalPermiso", b =>
-                {
-                    b.HasOne("LuxuryApp.Models.Funcionarios.Funcionario", "Funcionario")
-                        .WithMany()
-                        .HasForeignKey("FuncionarioId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Funcionario");
                 });
 
             modelBuilder.Entity("LuxuryApp.Models.Funcionarios.LiquidacionSemanal", b =>

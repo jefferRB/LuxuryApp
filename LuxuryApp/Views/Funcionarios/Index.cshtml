@@ -1,11 +1,29 @@
 @model LuxuryApp.Models.Funcionarios.FuncionariosIndexViewModel
 @using System.Globalization
+@using LuxuryApp.Models.Funcionarios
 
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 <link rel="stylesheet" href="~/css/funcionarios.css" asp-append-version="true">
 
+<style>
+    .func-acc-badge{display:inline-flex;align-items:center;gap:.3rem;margin-top:.3rem;
+        font-size:.68rem;font-weight:600;padding:.12rem .45rem;border-radius:999px;line-height:1.2;}
+    .func-acc-badge--ok{background:rgba(16,185,129,.12);color:#047857;}
+    .func-acc-badge--blocked{background:rgba(220,38,38,.12);color:#b91c1c;}
+    .func-acc-badge--none{background:rgba(100,116,139,.12);color:#475569;}
+</style>
+
 @{
     var ic = CultureInfo.InvariantCulture;
+}
+
+@functions {
+    static (string Text, string Css, string Icon) AccesoBadge(FuncionarioAccesoEstado estado) => estado switch
+    {
+        FuncionarioAccesoEstado.AccesoActivo => ("Acceso activo", "func-acc-badge--ok", "bi-key-fill"),
+        FuncionarioAccesoEstado.AccesoBloqueado => ("Acceso bloqueado", "func-acc-badge--blocked", "bi-lock-fill"),
+        _ => ("Sin acceso", "func-acc-badge--none", "bi-dash-circle")
+    };
 }
 
 <!-- ── CARD PRINCIPAL (header + botones + tabla en un solo contenedor) ── -->
@@ -205,6 +223,12 @@
                                         Inactivo
                                     </span>
                                 }
+                                @{ var accDesktop = AccesoBadge(f.AccesoEstado); }
+                                <br />
+                                <span class="func-acc-badge @accDesktop.Css" title="Acceso al portal del funcionario">
+                                    <i class="bi @accDesktop.Icon"></i>
+                                    @accDesktop.Text
+                                </span>
                             </td>
 
                             <!-- ACCIONES: Editar + Toggle activo/inactivo (SIN tres puntitos) -->
@@ -308,6 +332,11 @@
                                     Inactivo
                                 </span>
                             }
+                            @{ var accMobile = AccesoBadge(f.AccesoEstado); }
+                            <span class="func-acc-badge @accMobile.Css" title="Acceso al portal del funcionario">
+                                <i class="bi @accMobile.Icon"></i>
+                                @accMobile.Text
+                            </span>
                         </div>
                     </div>
 

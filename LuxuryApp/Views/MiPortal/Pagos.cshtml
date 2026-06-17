@@ -1,0 +1,78 @@
+@model LuxuryApp.Models.Funcionarios.MisPagosViewModel
+@using System.Globalization
+@{
+    ViewData["Title"] = "Mis Pagos";
+    ViewData["PortalActive"] = "pagos";
+    var cr = new CultureInfo("es-CR");
+    string Money(decimal v) => "₡" + v.ToString("#,##0.00", cr);
+}
+
+<div class="lp-card" style="margin-bottom:1rem;">
+    <h1 style="font-size:1.3rem;font-weight:800;margin:0;">Mis pagos recibidos</h1>
+    <p class="lp-muted" style="margin:.25rem 0 .8rem;">Historial de los pagos que tu negocio te ha registrado.</p>
+    <div class="lp-kpi" style="display:inline-block;">
+        <div class="lp-kpi-label">Total recibido (histórico)</div>
+        <div class="lp-kpi-value lp-kpi-value--green">@Money(Model.TotalPagadoHistorico)</div>
+    </div>
+</div>
+
+<div class="lp-card">
+    <h2 class="lp-section-title"><i class="bi bi-cash-stack"></i> Historial</h2>
+    @if (Model.Pagos.Count == 0)
+    {
+        <p class="lp-muted" style="margin:0;">Aún no tienes pagos registrados.</p>
+    }
+    else
+    {
+        <div style="display:flex;flex-direction:column;gap:.55rem;">
+            @foreach (var pago in Model.Pagos)
+            {
+                <div style="display:flex;align-items:center;gap:.75rem;padding:.7rem;border:1px solid var(--lp-border);border-radius:.7rem;">
+                    <div style="width:2.4rem;height:2.4rem;border-radius:.6rem;background:var(--lp-green-bg);color:var(--lp-green);display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;">
+                        <i class="bi bi-check2"></i>
+                    </div>
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-weight:800;font-size:1rem;">@Money(pago.Monto)</div>
+                        <div class="lp-muted" style="font-size:.78rem;">
+                            Pagado el @pago.FechaPago.ToString("dd/MM/yyyy", cr)
+                            @if (!string.IsNullOrWhiteSpace(pago.MetodoPago))
+                            {
+                                <span> · @pago.MetodoPago</span>
+                            }
+                        </div>
+                        <div class="lp-muted" style="font-size:.74rem;">
+                            Semana @pago.InicioSemana.ToString("dd/MM", cr) - @pago.FinSemana.ToString("dd/MM", cr)
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(pago.Observacion))
+                        {
+                            <div class="lp-muted" style="font-size:.74rem;font-style:italic;">@pago.Observacion</div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+        @if (Model.TotalPaginas > 1)
+        {
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem;">
+                @if (Model.Pagina > 1)
+                {
+                    <a href="/MiPortal/Pagos?pagina=@(Model.Pagina - 1)" class="lp-logout" style="border-color:var(--lp-border);color:var(--lp-text);">
+                        <i class="bi bi-chevron-left"></i> Anteriores
+                    </a>
+                }
+                else { <span></span> }
+
+                <span class="lp-muted" style="font-size:.8rem;">Página @Model.Pagina de @Model.TotalPaginas</span>
+
+                @if (Model.HayMas)
+                {
+                    <a href="/MiPortal/Pagos?pagina=@(Model.Pagina + 1)" class="lp-logout" style="border-color:var(--lp-border);color:var(--lp-text);">
+                        Siguientes <i class="bi bi-chevron-right"></i>
+                    </a>
+                }
+                else { <span></span> }
+            </div>
+        }
+    }
+</div>

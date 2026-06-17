@@ -116,12 +116,7 @@
             </main>
         </div>
 
-        <footer class="private-footer text-muted">
-            <div class="container d-flex flex-column flex-md-row justify-content-between gap-2">
-                <span>&copy; 2026 - LuxuryApp</span>
-                <a href="/privacidad">Privacidad</a>
-            </div>
-        </footer>
+        <partial name="_PrivateFooter" model="navigation" />
     </div>
 
     @if (navigation.IsAuthenticated)

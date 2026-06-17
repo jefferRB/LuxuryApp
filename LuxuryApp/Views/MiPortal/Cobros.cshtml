@@ -1,0 +1,87 @@
+@model LuxuryApp.Models.Funcionarios.MisCobrosViewModel
+@using System.Globalization
+@{
+    ViewData["Title"] = "Mis Cobros";
+    ViewData["PortalActive"] = "cobros";
+    var cr = new CultureInfo("es-CR");
+    string Money(decimal v) => "₡" + v.ToString("#,##0.00", cr);
+}
+
+<div class="lp-card" style="margin-bottom:1rem;">
+    <h1 style="font-size:1.3rem;font-weight:800;margin:0;">Mis cobros</h1>
+    <p class="lp-muted" style="margin:.25rem 0 0;">Cobros que has registrado por tus servicios. No incluye la caja general del negocio.</p>
+</div>
+
+<div class="lp-kpis" style="margin-bottom:1.2rem;">
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Cobrado hoy</div>
+        <div class="lp-kpi-value lp-kpi-value--gold">@Money(Model.TotalHoy)</div>
+    </div>
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Cobrado esta semana</div>
+        <div class="lp-kpi-value">@Money(Model.TotalSemana)</div>
+    </div>
+</div>
+
+@if (Model.PuedeRegistrarCobros)
+{
+    <p class="lp-muted" style="font-size:.82rem;margin-bottom:1rem;">
+        <i class="bi bi-info-circle"></i> Para registrar un cobro, ábrelo desde tu
+        <a href="/MiPortal/Calendario">calendario</a> o desde <a href="/MiPortal">Mi Panel</a> en una cita propia.
+    </p>
+}
+
+<div class="lp-card">
+    <h2 class="lp-section-title"><i class="bi bi-cash-stack"></i> Historial</h2>
+    @if (Model.Cobros.Count == 0)
+    {
+        <p class="lp-muted" style="margin:0;">Aún no tienes cobros registrados.</p>
+    }
+    else
+    {
+        <div style="display:flex;flex-direction:column;gap:.55rem;">
+            @foreach (var cobro in Model.Cobros)
+            {
+                <div style="display:flex;align-items:center;gap:.75rem;padding:.7rem;border:1px solid var(--lp-border);border-radius:.7rem;">
+                    <div style="width:2.4rem;height:2.4rem;border-radius:.6rem;background:var(--lp-green-bg);color:var(--lp-green);display:flex;align-items:center;justify-content:center;font-size:1.05rem;flex-shrink:0;">
+                        <i class="bi bi-cash"></i>
+                    </div>
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-weight:800;font-size:1rem;">@Money(cobro.Monto)</div>
+                        <div class="lp-muted" style="font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                            @cobro.Cliente · @cobro.Servicio
+                        </div>
+                        <div class="lp-muted" style="font-size:.74rem;">
+                            @cobro.FechaCobro.ToString("dd/MM/yyyy hh:mm tt", cr) · @cobro.MetodoPago
+                            @if (cobro.DesdeCita)
+                            {
+                                <span> · <i class="bi bi-calendar-check"></i> desde cita</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        @if (Model.TotalPaginas > 1)
+        {
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem;">
+                @if (Model.Pagina > 1)
+                {
+                    <a href="/MiPortal/Cobros?pagina=@(Model.Pagina - 1)" class="lp-btn lp-btn--ghost">
+                        <i class="bi bi-chevron-left"></i> Anteriores
+                    </a>
+                }
+                else { <span></span> }
+                <span class="lp-muted" style="font-size:.8rem;">Página @Model.Pagina de @Model.TotalPaginas</span>
+                @if (Model.HayMas)
+                {
+                    <a href="/MiPortal/Cobros?pagina=@(Model.Pagina + 1)" class="lp-btn lp-btn--ghost">
+                        Siguientes <i class="bi bi-chevron-right"></i>
+                    </a>
+                }
+                else { <span></span> }
+            </div>
+        }
+    }
+</div>

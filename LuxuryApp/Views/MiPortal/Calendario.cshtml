@@ -1,0 +1,138 @@
+@model LuxuryApp.Models.Funcionarios.MiCalendarioViewModel
+@using System.Globalization
+@{
+    ViewData["Title"] = "Mi Calendario";
+    ViewData["PortalActive"] = "calendario";
+    ViewData["PuedeRegistrarCobros"] = Model.PuedeRegistrarCobros;
+    ViewData["CobroRetorno"] = "calendario";
+    var cr = new CultureInfo("es-CR");
+}
+
+<div class="lp-card" style="margin-bottom:1rem;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;">
+        <a href="/MiPortal/Calendario?fecha=@Model.FechaAnterior.ToString("yyyy-MM-dd")"
+           class="lp-btn lp-btn--ghost" style="padding:.45rem .7rem;">
+            <i class="bi bi-chevron-left"></i>
+        </a>
+        <div style="text-align:center;">
+            <div style="font-weight:800;font-size:1.05rem;text-transform:capitalize;">
+                @Model.Fecha.ToString("dddd dd 'de' MMMM", cr)
+            </div>
+            @if (Model.EsHoy)
+            {
+                <span class="lp-muted" style="font-size:.75rem;">Hoy</span>
+            }
+            else
+            {
+                <a href="/MiPortal/Calendario" class="lp-muted" style="font-size:.75rem;">Ir a hoy</a>
+            }
+        </div>
+        <a href="/MiPortal/Calendario?fecha=@Model.FechaSiguiente.ToString("yyyy-MM-dd")"
+           class="lp-btn lp-btn--ghost" style="padding:.45rem .7rem;">
+            <i class="bi bi-chevron-right"></i>
+        </a>
+    </div>
+</div>
+
+@if (Model.PuedeCrearCitas)
+{
+    <div style="margin-bottom:1rem;text-align:right;">
+        <button type="button" class="lp-btn lp-btn--gold" data-bs-toggle="modal" data-bs-target="#nuevaCitaModal">
+            <i class="bi bi-plus-lg"></i> Nueva cita
+        </button>
+    </div>
+}
+
+<div class="lp-card">
+    <h2 class="lp-section-title"><i class="bi bi-calendar3"></i> Agenda del día</h2>
+    @if (Model.Citas.Count == 0)
+    {
+        <p class="lp-muted" style="margin:0;">No tienes citas para este día.</p>
+    }
+    else
+    {
+        <div style="display:flex;flex-direction:column;gap:.55rem;">
+            @foreach (var cita in Model.Citas)
+            {
+                <partial name="_PortalCitaRow" model="cita" />
+            }
+        </div>
+    }
+</div>
+
+@if (!Model.PuedeCrearCitas)
+{
+    <p class="lp-muted" style="font-size:.78rem;margin-top:1rem;text-align:center;">
+        Vista de solo lectura. Para cambios en tus citas, contacta a tu negocio.
+    </p>
+}
+
+@if (Model.PuedeRegistrarCobros)
+{
+    <partial name="_PortalCobroModal" />
+}
+
+@if (Model.PuedeCrearCitas)
+{
+    <!-- Modal: Nueva cita propia (FuncionarioId se toma del claim en el backend) -->
+    <div class="modal fade" id="nuevaCitaModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content" style="border-radius:1rem;border:none;">
+                <form method="post" action="/MiPortal/Calendario/CrearCita">
+                    @Html.AntiForgeryToken()
+                    <div class="modal-header" style="background:#111;color:#fff;border-radius:1rem 1rem 0 0;">
+                        <h5 class="modal-title" style="font-size:1rem;font-weight:800;"><i class="bi bi-calendar-plus"></i> Nueva cita</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+                    <div class="modal-body">
+                        <label class="lp-kpi-label" style="display:block;margin-bottom:.25rem;">Fecha y hora</label>
+                        <input type="datetime-local" name="fechaHora" required class="form-control"
+                               style="border-radius:.6rem;margin-bottom:.9rem;"
+                               value="@Model.Fecha.ToString("yyyy-MM-dd")T09:00" />
+
+                        <label class="lp-kpi-label" style="display:block;margin-bottom:.25rem;">Cliente</label>
+                        <input type="text" name="nombreCliente" maxlength="100" class="form-control"
+                               placeholder="Nombre del cliente" style="border-radius:.6rem;margin-bottom:.9rem;" />
+
+                        <label class="lp-kpi-label" style="display:block;margin-bottom:.25rem;">Teléfono (opcional)</label>
+                        <input type="tel" name="telefonoCliente" maxlength="20" class="form-control"
+                               placeholder="8888-8888" style="border-radius:.6rem;margin-bottom:.9rem;" />
+
+                        <label class="lp-kpi-label" style="display:block;margin-bottom:.25rem;">Servicio</label>
+                        <select name="servicioId" id="nuevaCitaServicio" class="form-select" style="border-radius:.6rem;margin-bottom:.9rem;">
+                            <option value="">— Servicio personalizado —</option>
+                            @foreach (var s in Model.Servicios)
+                            {
+                                <option value="@s.Id" data-duracion="@s.DuracionMinutos">@s.Nombre</option>
+                            }
+                        </select>
+
+                        <div id="personalizadoWrap">
+                            <label class="lp-kpi-label" style="display:block;margin-bottom:.25rem;">Nombre del servicio personalizado</label>
+                            <input type="text" name="servicioPersonalizado" maxlength="100" class="form-control"
+                                   placeholder="Ej: Corte especial" style="border-radius:.6rem;margin-bottom:.9rem;" />
+                            <label class="lp-kpi-label" style="display:block;margin-bottom:.25rem;">Duración (min)</label>
+                            <input type="number" name="duracionMinutos" min="5" max="480" value="30" class="form-control"
+                                   style="border-radius:.6rem;" />
+                        </div>
+                    </div>
+                    <div class="modal-footer" style="border:none;">
+                        <button type="button" class="lp-btn lp-btn--ghost" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="lp-btn lp-btn--gold"><i class="bi bi-check2"></i> Agendar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    @section Scripts {
+        <script>
+            (function () {
+                var sel = document.getElementById("nuevaCitaServicio");
+                var wrap = document.getElementById("personalizadoWrap");
+                function sync() { wrap.style.display = sel.value ? "none" : "block"; }
+                if (sel && wrap) { sel.addEventListener("change", sync); sync(); }
+            })();
+        </script>
+    }
+}

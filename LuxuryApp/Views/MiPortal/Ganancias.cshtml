@@ -1,0 +1,91 @@
+@model LuxuryApp.Models.Funcionarios.MisGananciasViewModel
+@using System.Globalization
+@using LuxuryApp.Models.Funcionarios
+@{
+    ViewData["Title"] = "Mis Ganancias";
+    ViewData["PortalActive"] = "ganancias";
+    var cr = new CultureInfo("es-CR");
+    string Money(decimal v) => "₡" + v.ToString("#,##0.00", cr);
+}
+
+<div class="lp-card" style="margin-bottom:1rem;">
+    <h1 style="font-size:1.3rem;font-weight:800;margin:0;">Mis ganancias</h1>
+    <p class="lp-muted" style="margin:.25rem 0 0;">
+        Estimaciones basadas en tu producción. Los montos pagados son los reales registrados por tu negocio.
+    </p>
+</div>
+
+@{
+    var bloques = new[]
+    {
+        new { Titulo = "Hoy", Icono = "bi-sun", Resumen = Model.Hoy },
+        new { Titulo = $"Esta semana ({Model.InicioSemana.ToString("dd/MM", cr)} - {Model.FinSemana.ToString("dd/MM", cr)})", Icono = "bi-calendar-week", Resumen = Model.Semana },
+        new { Titulo = $"Este mes ({Model.InicioMes.ToString("MMMM yyyy", cr)})", Icono = "bi-calendar3", Resumen = Model.Mes }
+    };
+}
+
+@foreach (var bloque in bloques)
+{
+    var r = bloque.Resumen;
+    <h2 class="lp-section-title"><i class="bi @bloque.Icono"></i> @bloque.Titulo</h2>
+    <div class="lp-kpis" style="margin-bottom:1.2rem;">
+        <div class="lp-kpi">
+            <div class="lp-kpi-label">Producción servicios</div>
+            <div class="lp-kpi-value">@Money(r.ProduccionServicios)</div>
+        </div>
+        <div class="lp-kpi">
+            <div class="lp-kpi-label">Comisión servicios</div>
+            <div class="lp-kpi-value">@Money(r.ComisionServicios)</div>
+        </div>
+        @if (r.TieneProductos)
+        {
+            <div class="lp-kpi">
+                <div class="lp-kpi-label">Producción productos</div>
+                <div class="lp-kpi-value">@Money(r.ProduccionProductos)</div>
+            </div>
+            <div class="lp-kpi">
+                <div class="lp-kpi-label">Comisión productos</div>
+                <div class="lp-kpi-value">@Money(r.ComisionProductos)</div>
+            </div>
+        }
+        <div class="lp-kpi">
+            <div class="lp-kpi-label">Total estimado</div>
+            <div class="lp-kpi-value lp-kpi-value--gold">@Money(r.TotalEstimado)</div>
+        </div>
+    </div>
+
+    @if (bloque.Titulo.StartsWith("Esta semana"))
+    {
+        <div class="lp-kpis" style="margin-bottom:1.2rem;">
+            <div class="lp-kpi">
+                <div class="lp-kpi-label">Pagado esta semana</div>
+                <div class="lp-kpi-value lp-kpi-value--green">@Money(Model.PagadoSemana)</div>
+            </div>
+            <div class="lp-kpi">
+                <div class="lp-kpi-label">Pendiente por pagar</div>
+                <div class="lp-kpi-value lp-kpi-value--gold">@Money(Model.PendienteSemana)</div>
+            </div>
+        </div>
+    }
+}
+
+@if (Model.DetalleDiasSemana.Count > 0)
+{
+    <div class="lp-card">
+        <h2 class="lp-section-title"><i class="bi bi-bar-chart"></i> Producción por día (semana)</h2>
+        <div style="display:flex;flex-direction:column;gap:.4rem;">
+            @foreach (var dia in Model.DetalleDiasSemana)
+            {
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem .6rem;border:1px solid var(--lp-border);border-radius:.6rem;">
+                    <span style="text-transform:capitalize;font-weight:600;">@dia.Dia</span>
+                    <span class="lp-muted" style="font-size:.82rem;">@dia.CantidadServicios serv.</span>
+                    <span style="font-weight:700;">@Money(dia.Monto)</span>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<p class="lp-muted" style="font-size:.78rem;margin-top:1rem;text-align:center;">
+    Las comisiones son estimadas según la configuración de tu negocio y pueden ajustarse al liquidar.
+</p>

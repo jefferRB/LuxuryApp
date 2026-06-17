@@ -15,7 +15,12 @@ namespace LuxuryApp.Datos
         {
             var roleManager = serviceProvider.GetRequiredService<RoleManager<IdentityRole>>();
 
-            string[] roles = { "Administrador", "Registrado" };
+            string[] roles =
+            {
+                Services.Identity.AppRoles.Administrador,
+                Services.Identity.AppRoles.Registrado,
+                Services.Identity.AppRoles.Funcionario
+            };
 
             foreach (var role in roles)
             {

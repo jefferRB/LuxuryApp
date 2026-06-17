@@ -54,6 +54,14 @@ namespace LuxuryApp.Services.Finanzas
                         currentFuncionarioId: null,
                         cancellationToken);
 
+                    if (normalizedRequest.CitaId.HasValue)
+                    {
+                        await EnsureCitaCobrableAsync(
+                            normalizedRequest.CitaId.Value,
+                            normalizedRequest.FuncionarioId,
+                            cancellationToken);
+                    }
+
                     if (normalizedRequest.ServicioId.HasValue)
                     {
                         var servicio = await LoadServicioAsync(
@@ -248,6 +256,52 @@ namespace LuxuryApp.Services.Finanzas
             }
         }
 
+        private async Task EnsureCitaCobrableAsync(
+            int citaId,
+            int funcionarioId,
+            CancellationToken cancellationToken)
+        {
+            // La cita debe existir, pertenecer al tenant actual (global filter) y al funcionario.
+            var cita = await _context.Citas
+                .AsNoTracking()
+                .Where(c => c.Id == citaId)
+                .Select(c => new { c.Id, c.FuncionarioId, c.Tipo })
+                .SingleOrDefaultAsync(cancellationToken);
+
+            if (cita is null)
+            {
+                throw new CobroValidationException(
+                    "La cita indicada no existe o no pertenece al tenant actual.",
+                    "Cobro.CitaId");
+            }
+
+            if (cita.FuncionarioId != funcionarioId)
+            {
+                throw new CobroValidationException(
+                    "No puedes cobrar una cita que no es tuya.",
+                    "Cobro.CitaId");
+            }
+
+            if (!string.Equals(cita.Tipo, "CITA", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new CobroValidationException(
+                    "Solo se pueden cobrar citas, no bloqueos de agenda.",
+                    "Cobro.CitaId");
+            }
+
+            // Evita doble cobro: la unicidad la garantiza el índice, pero damos mensaje claro.
+            var yaCobrada = await _context.Cobros
+                .AsNoTracking()
+                .AnyAsync(c => c.CitaId == citaId, cancellationToken);
+
+            if (yaCobrada)
+            {
+                throw new CobroValidationException(
+                    "Esta cita ya tiene un cobro registrado.",
+                    "Cobro.CitaId");
+            }
+        }
+
         private async Task EnsureFuncionarioActivoAsync(
             int funcionarioId,
             int? currentFuncionarioId,
@@ -408,6 +462,7 @@ namespace LuxuryApp.Services.Finanzas
                 FuncionarioId = request.FuncionarioId,
                 ServicioId = servicioId,
                 ProductoId = productoId,
+                CitaId = request.CitaId,
                 Monto = monto,
                 MetodoPago = request.MetodoPago,
                 Observaciones = request.Observaciones
@@ -440,6 +495,7 @@ namespace LuxuryApp.Services.Finanzas
                 FuncionarioId = request.FuncionarioId,
                 ServicioId = request.ServicioId,
                 ProductoId = request.ProductoId,
+                CitaId = request.CitaId,
                 Monto = Math.Round(request.Monto, 2, MidpointRounding.AwayFromZero),
                 MetodoPago = string.IsNullOrWhiteSpace(request.MetodoPago)
                     ? string.Empty
