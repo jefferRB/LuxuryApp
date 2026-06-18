@@ -31,12 +31,13 @@ namespace LuxuryApp.Services.Finanzas
             _logger = logger;
         }
 
-        public async Task RegistrarAsync(CobroCreateRequest request, CancellationToken cancellationToken = default)
+        public async Task<int> RegistrarAsync(CobroCreateRequest request, CancellationToken cancellationToken = default)
         {
             var normalizedRequest = NormalizeRequest(request);
             ValidateRequest(normalizedRequest);
 
             var executionStrategy = _context.Database.CreateExecutionStrategy();
+            var cobroId = 0;
 
             try
             {
@@ -73,6 +74,7 @@ namespace LuxuryApp.Services.Finanzas
 
                         _context.Cobros.Add(cobroServicio);
                         await _context.SaveChangesAsync(cancellationToken);
+                        cobroId = cobroServicio.IdCobro;
 
                         if (normalizedRequest.ActualizarNotasServicio &&
                             normalizedRequest.ClienteId.HasValue &&
@@ -92,6 +94,7 @@ namespace LuxuryApp.Services.Finanzas
 
                         _context.Cobros.Add(cobroProducto);
                         await _context.SaveChangesAsync(cancellationToken);
+                        cobroId = cobroProducto.IdCobro;
 
                         _context.DetalleCobroProductos.Add(new DetalleCobroProducto
                         {
@@ -133,6 +136,8 @@ namespace LuxuryApp.Services.Finanzas
                 _logger.LogError(ex, "Operacion invalida al registrar cobro para funcionario {FuncionarioId}.", normalizedRequest.FuncionarioId);
                 throw;
             }
+
+            return cobroId;
         }
 
         public async Task<bool> ActualizarAsync(

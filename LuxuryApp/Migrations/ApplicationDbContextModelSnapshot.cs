@@ -138,6 +138,267 @@ namespace LuxuryApp.Migrations
                     b.ToTable("Citas");
                 });
 
+            modelBuilder.Entity("LuxuryApp.Models.Comprobantes.ComprobanteCobro", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CedulaNegocioSnapshot")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<int?>("CitaId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ClienteId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("CobroId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<decimal>("Descuento")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("DireccionNegocioSnapshot")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("EmailDestino")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("EmailDestinoNormalizado")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("EmailNegocioSnapshot")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("ErrorEnvio")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<bool>("EsFiscal")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("EstadoEnvio")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime>("FechaEmision")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("FuncionarioId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("HaciendaClave")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<string>("HaciendaConsecutivo")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("HaciendaEstado")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("HaciendaRespuesta")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("HaciendaXmlPath")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<decimal>("Impuesto")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("IntentosEnvio")
+                        .HasColumnType("int");
+
+                    b.Property<string>("MetodoPago")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Moneda")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
+                    b.Property<string>("NombreClienteSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("NombreNegocioSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("NumeroInterno")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("Observacion")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("ResendEmailId")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("TelefonoClienteSnapshot")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("TelefonoNegocioSnapshot")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TipoComprobante")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("TokenPublico")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<decimal>("Total")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClienteId");
+
+                    b.HasIndex("CobroId");
+
+                    b.HasIndex("FuncionarioId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TokenPublico")
+                        .IsUnique()
+                        .HasDatabaseName("UX_ComprobantesCobro_TokenPublico");
+
+                    b.HasIndex("TenantId", "ClienteId")
+                        .HasDatabaseName("IX_ComprobantesCobro_TenantId_ClienteId")
+                        .HasFilter("[ClienteId] IS NOT NULL");
+
+                    b.HasIndex("TenantId", "CobroId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_ComprobantesCobro_TenantId_CobroId")
+                        .HasFilter("[EstadoEnvio] <> 'Cancelled'");
+
+                    b.HasIndex("TenantId", "EstadoEnvio")
+                        .HasDatabaseName("IX_ComprobantesCobro_TenantId_EstadoEnvio");
+
+                    b.HasIndex("TenantId", "NumeroInterno")
+                        .IsUnique()
+                        .HasDatabaseName("UX_ComprobantesCobro_TenantId_NumeroInterno");
+
+                    b.ToTable("ComprobantesCobro");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Comprobantes.ComprobanteCobroLinea", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Cantidad")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("ComprobanteCobroId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Descripcion")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("nvarchar(250)");
+
+                    b.Property<decimal>("Impuesto")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("PrecioUnitario")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int?>("ProductoId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ServicioId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TipoLinea")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<decimal>("Total")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ComprobanteCobroId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "ComprobanteCobroId")
+                        .HasDatabaseName("IX_ComprobanteCobroLineas_TenantId_ComprobanteCobroId");
+
+                    b.ToTable("ComprobanteCobroLineas");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Comprobantes.ComprobanteCobroSecuencia", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("UltimoNumero")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("TenantId");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("ComprobanteCobroSecuencias");
+                });
+
             modelBuilder.Entity("LuxuryApp.Models.DataBase.ClienteServicioRealizado", b =>
                 {
                     b.Property<int>("Id")
@@ -1155,6 +1416,198 @@ namespace LuxuryApp.Migrations
                         .HasDatabaseName("IX_Productos_TenantId_Activo_NombreProducto");
 
                     b.ToTable("Productos");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Reservas.BookingRequest", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("AceptaWhatsApp")
+                        .HasColumnType("bit");
+
+                    b.Property<int?>("ClienteId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("ConfirmedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ConfirmedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int?>("ConvertedCitaId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CorreoCliente")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("DuracionMinutos")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Estado")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<DateTime>("FechaHoraFinCalculada")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("FechaHoraInicioSolicitada")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("FuncionarioId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("IpHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("NombreCliente")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("NotasCliente")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Origen")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<DateTime?>("RejectedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("RejectedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("RejectedReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<int>("ServicioId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TelefonoCliente")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("UserAgent")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClienteId");
+
+                    b.HasIndex("ConvertedCitaId")
+                        .HasDatabaseName("IX_BookingRequests_ConvertedCitaId")
+                        .HasFilter("[ConvertedCitaId] IS NOT NULL");
+
+                    b.HasIndex("FuncionarioId");
+
+                    b.HasIndex("ServicioId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Estado", "FechaHoraInicioSolicitada")
+                        .HasDatabaseName("IX_BookingRequests_TenantId_Estado_Fecha");
+
+                    b.HasIndex("TenantId", "TelefonoCliente", "Estado")
+                        .HasDatabaseName("IX_BookingRequests_TenantId_Telefono_Estado");
+
+                    b.ToTable("BookingRequests");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Reservas.TenantBookingSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<TimeOnly>("CloseTime")
+                        .HasColumnType("time");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<TimeOnly>("OpenTime")
+                        .HasColumnType("time");
+
+                    b.Property<bool>("PublicBookingAllowAnyEmployee")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("PublicBookingAllowEmployeeSelection")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("PublicBookingConfirmationMessage")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<bool>("PublicBookingEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("PublicBookingMaxDaysAhead")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PublicBookingMinAdvanceMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PublicBookingMode")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("PublicBookingSlug")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<string>("PublicBookingWelcomeMessage")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<int>("SlotIntervalMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int>("WorkingDaysMask")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicBookingSlug")
+                        .IsUnique()
+                        .HasDatabaseName("UX_TenantBookingSettings_Slug")
+                        .HasFilter("[PublicBookingSlug] IS NOT NULL");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_TenantBookingSettings_TenantId");
+
+                    b.ToTable("TenantBookingSettings");
                 });
 
             modelBuilder.Entity("LuxuryApp.Models.SaaS.EventoPago", b =>
@@ -2364,6 +2817,42 @@ namespace LuxuryApp.Migrations
                     b.Navigation("Servicio");
                 });
 
+            modelBuilder.Entity("LuxuryApp.Models.Comprobantes.ComprobanteCobro", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.DataBase.ClientesModel", "Cliente")
+                        .WithMany()
+                        .HasForeignKey("ClienteId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("LuxuryApp.Models.Finanzas.Cobro", "Cobro")
+                        .WithMany()
+                        .HasForeignKey("CobroId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("LuxuryApp.Models.Funcionarios.Funcionario", "Funcionario")
+                        .WithMany()
+                        .HasForeignKey("FuncionarioId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Cliente");
+
+                    b.Navigation("Cobro");
+
+                    b.Navigation("Funcionario");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Comprobantes.ComprobanteCobroLinea", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Comprobantes.ComprobanteCobro", "ComprobanteCobro")
+                        .WithMany("Lineas")
+                        .HasForeignKey("ComprobanteCobroId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ComprobanteCobro");
+                });
+
             modelBuilder.Entity("LuxuryApp.Models.DataBase.ClienteServicioRealizado", b =>
                 {
                     b.HasOne("LuxuryApp.Models.Calendar.Cita", "Cita")
@@ -2598,6 +3087,49 @@ namespace LuxuryApp.Migrations
                         .IsRequired();
 
                     b.Navigation("Producto");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Reservas.BookingRequest", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.DataBase.ClientesModel", "Cliente")
+                        .WithMany()
+                        .HasForeignKey("ClienteId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("LuxuryApp.Models.Calendar.Cita", "ConvertedCita")
+                        .WithMany()
+                        .HasForeignKey("ConvertedCitaId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("LuxuryApp.Models.Funcionarios.Funcionario", "Funcionario")
+                        .WithMany()
+                        .HasForeignKey("FuncionarioId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("LuxuryApp.Models.Finanzas.Servicio", "Servicio")
+                        .WithMany()
+                        .HasForeignKey("ServicioId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Cliente");
+
+                    b.Navigation("ConvertedCita");
+
+                    b.Navigation("Funcionario");
+
+                    b.Navigation("Servicio");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Reservas.TenantBookingSettings", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.SaaS.Tenant", "Tenant")
+                        .WithOne()
+                        .HasForeignKey("LuxuryApp.Models.Reservas.TenantBookingSettings", "TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Tenant");
                 });
 
             modelBuilder.Entity("LuxuryApp.Models.SaaS.Factura", b =>
@@ -2845,6 +3377,11 @@ namespace LuxuryApp.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Comprobantes.ComprobanteCobro", b =>
+                {
+                    b.Navigation("Lineas");
                 });
 
             modelBuilder.Entity("LuxuryApp.Models.DataBase.ClientesModel", b =>

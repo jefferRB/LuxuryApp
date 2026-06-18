@@ -13,6 +13,8 @@ namespace LuxuryApp.Models.Funcionarios
         public const string CancelarMisCitas = "CancelarMisCitas";
         public const string VerMisCobros = "VerMisCobros";
         public const string RegistrarMisCobros = "RegistrarMisCobros";
+        public const string RegistrarMisCobrosManuales = "RegistrarMisCobrosManuales";
+        public const string EnviarMisComprobantes = "EnviarMisComprobantes";
         public const string VerMisGanancias = "VerMisGanancias";
         public const string VerMisPagos = "VerMisPagos";
 
@@ -26,6 +28,8 @@ namespace LuxuryApp.Models.Funcionarios
             CancelarMisCitas,
             VerMisCobros,
             RegistrarMisCobros,
+            RegistrarMisCobrosManuales,
+            EnviarMisComprobantes,
             VerMisGanancias,
             VerMisPagos
         };
@@ -46,7 +50,12 @@ namespace LuxuryApp.Models.Funcionarios
                 [CrearMisCitas] = false,
                 [EditarMisCitas] = false,
                 [CancelarMisCitas] = false,
-                [RegistrarMisCobros] = false
+                [RegistrarMisCobros] = false,
+                [RegistrarMisCobrosManuales] = false,
+                // Por defecto ENCENDIDO: quien puede registrar cobros también puede enviar
+                // comprobantes, salvo que el admin lo desactive explícitamente. La capacidad
+                // real se combina con RegistrarMisCobros (ver PuedeEnviarComprobantes).
+                [EnviarMisComprobantes] = true
             };
 
         public static bool EsPermisoValido(string? permiso) =>
@@ -73,8 +82,18 @@ namespace LuxuryApp.Models.Funcionarios
 
         public bool VerMiCalendario => Tiene(FuncionarioPortalPermissions.VerMiCalendario);
         public bool CrearMisCitas => Tiene(FuncionarioPortalPermissions.CrearMisCitas);
+        public bool EditarMisCitas => Tiene(FuncionarioPortalPermissions.EditarMisCitas);
+        public bool CancelarMisCitas => Tiene(FuncionarioPortalPermissions.CancelarMisCitas);
         public bool VerMisCobros => Tiene(FuncionarioPortalPermissions.VerMisCobros);
         public bool RegistrarMisCobros => Tiene(FuncionarioPortalPermissions.RegistrarMisCobros);
+        public bool RegistrarMisCobrosManuales => Tiene(FuncionarioPortalPermissions.RegistrarMisCobrosManuales);
+
+        /// <summary>
+        /// Capacidad efectiva de enviar comprobantes: solo si el funcionario puede registrar
+        /// cobros Y no se le desactivó el permiso de comprobantes. Así "default ligado a cobros".
+        /// </summary>
+        public bool PuedeEnviarComprobantes =>
+            RegistrarMisCobros && Tiene(FuncionarioPortalPermissions.EnviarMisComprobantes);
         public bool VerMisGanancias => Tiene(FuncionarioPortalPermissions.VerMisGanancias);
         public bool VerMisPagos => Tiene(FuncionarioPortalPermissions.VerMisPagos);
 

@@ -1,0 +1,154 @@
+/* ===========================================================================
+   Control de citas y cobros — vista admin del módulo Calendario
+   Estilo premium: cards blancas, bordes suaves, sombras ligeras, badges.
+   Todas las clases usan prefijo .cc- para no afectar otras pantallas.
+   =========================================================================== */
+
+.cc-shell { max-width: 1200px; margin: 0 auto; padding: 0 .25rem 2rem; }
+
+/* ── Hero ─────────────────────────────────────────────────────────────── */
+.cc-hero {
+    display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1rem;
+    justify-content: space-between; margin-bottom: 1.25rem;
+}
+.cc-badge {
+    display: inline-flex; align-items: center; gap: .4rem;
+    font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .4px;
+    color: #6d28d9; background: rgba(124, 58, 237, .1);
+    padding: .3rem .7rem; border-radius: 999px; margin-bottom: .5rem;
+}
+.cc-title { font-size: 1.5rem; font-weight: 800; margin: 0; color: #0f172a; }
+.cc-subtitle { font-size: .9rem; color: #64748b; margin: .25rem 0 0; max-width: 560px; }
+.cc-back {
+    display: inline-flex; align-items: center; gap: .45rem;
+    font-size: .85rem; font-weight: 700; text-decoration: none;
+    color: #334155; background: #fff; border: 1px solid #e2e8f0;
+    padding: .55rem .9rem; border-radius: .7rem; box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+    transition: background .15s, border-color .15s;
+}
+.cc-back:hover { background: #f8fafc; border-color: #cbd5e1; color: #0f172a; }
+
+/* ── Filtros ──────────────────────────────────────────────────────────── */
+.cc-filters {
+    background: #fff; border: 1px solid #eef1f6; border-radius: 1rem;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, .05); padding: 1rem 1.1rem; margin-bottom: 1.1rem;
+}
+.cc-filters-row { display: flex; flex-wrap: wrap; gap: .9rem; align-items: flex-end; }
+.cc-seg { display: inline-flex; background: #f1f5f9; border-radius: .7rem; padding: .25rem; gap: .15rem; }
+.cc-seg-btn {
+    border: none; background: transparent; color: #475569; font-weight: 700; font-size: .82rem;
+    padding: .45rem .85rem; border-radius: .55rem; cursor: pointer; display: inline-flex; align-items: center; gap: .35rem;
+    transition: background .15s, color .15s;
+}
+.cc-seg-btn:hover { color: #1e293b; }
+.cc-seg-btn.active { background: #fff; color: #6d28d9; box-shadow: 0 1px 3px rgba(15, 23, 42, .12); }
+.cc-field { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+.cc-field-label {
+    font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: #94a3b8;
+}
+.cc-input, .cc-select {
+    border: 1px solid #e2e8f0; border-radius: .6rem; padding: .5rem .7rem; font-size: .88rem;
+    color: #0f172a; background: #fff; min-height: 38px;
+}
+.cc-input:focus, .cc-select:focus { outline: none; border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124, 58, 237, .15); }
+.cc-field-search { flex: 1 1 220px; }
+.cc-field-search .cc-input { width: 100%; }
+
+/* ── KPIs ─────────────────────────────────────────────────────────────── */
+.cc-kpis {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: .8rem; margin-bottom: 1.1rem;
+}
+.cc-kpi {
+    display: flex; align-items: center; gap: .75rem; background: #fff;
+    border: 1px solid #eef1f6; border-radius: .9rem; padding: .85rem .9rem;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, .04);
+}
+.cc-kpi-ic {
+    width: 2.5rem; height: 2.5rem; border-radius: .7rem; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
+}
+.cc-ic-violet { background: rgba(124, 58, 237, .12); color: #7c3aed; }
+.cc-ic-green { background: rgba(16, 185, 129, .12); color: #059669; }
+.cc-ic-amber { background: rgba(245, 158, 11, .14); color: #d97706; }
+.cc-ic-red { background: rgba(239, 68, 68, .12); color: #dc2626; }
+.cc-kpi-body { display: flex; flex-direction: column; min-width: 0; }
+.cc-kpi-label { font-size: .72rem; color: #64748b; font-weight: 600; }
+.cc-kpi-val { font-size: 1.2rem; font-weight: 800; color: #0f172a; line-height: 1.1; }
+.cc-val-green { color: #059669; } .cc-val-amber { color: #d97706; } .cc-val-red { color: #dc2626; }
+
+/* ── Rango ────────────────────────────────────────────────────────────── */
+.cc-range { font-size: .82rem; color: #64748b; margin: 0 0 .7rem; display: inline-flex; align-items: center; gap: .4rem; }
+
+/* ── Tabla (desktop) ──────────────────────────────────────────────────── */
+.cc-card {
+    background: #fff; border: 1px solid #eef1f6; border-radius: 1rem;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, .05); overflow: hidden;
+}
+.cc-table { width: 100%; border-collapse: collapse; font-size: .87rem; }
+.cc-table thead th {
+    text-align: left; font-size: .68rem; text-transform: uppercase; letter-spacing: .4px;
+    color: #94a3b8; font-weight: 700; padding: .8rem .9rem; border-bottom: 1px solid #eef1f6; white-space: nowrap;
+}
+.cc-table tbody td { padding: .8rem .9rem; border-bottom: 1px solid #f1f5f9; color: #1e293b; vertical-align: middle; }
+.cc-table tbody tr:last-child td { border-bottom: none; }
+.cc-table tbody tr:hover { background: #faf9ff; }
+.cc-cell-strong { font-weight: 700; color: #0f172a; }
+.cc-cell-muted { color: #64748b; font-size: .8rem; }
+.cc-text-end { text-align: right; }
+.cc-money { font-weight: 700; color: #0f172a; }
+
+/* ── Badges ───────────────────────────────────────────────────────────── */
+.cc-badge-st {
+    display: inline-flex; align-items: center; gap: .3rem; font-size: .72rem; font-weight: 700;
+    padding: .25rem .55rem; border-radius: 999px; white-space: nowrap;
+}
+.cc-bg-ok { background: rgba(16, 185, 129, .12); color: #047857; }
+.cc-bg-pend { background: rgba(245, 158, 11, .15); color: #b45309; }
+.cc-bg-red { background: rgba(239, 68, 68, .12); color: #b91c1c; }
+.cc-bg-neutral { background: rgba(100, 116, 139, .12); color: #475569; }
+
+/* ── Acciones ─────────────────────────────────────────────────────────── */
+.cc-actions { display: inline-flex; gap: .35rem; flex-wrap: wrap; justify-content: flex-end; }
+.cc-act {
+    display: inline-flex; align-items: center; gap: .3rem; border: 1px solid #e2e8f0; background: #fff;
+    color: #334155; font-size: .76rem; font-weight: 700; padding: .35rem .6rem; border-radius: .55rem;
+    cursor: pointer; text-decoration: none; transition: background .15s, border-color .15s, color .15s;
+}
+.cc-act:hover { background: #f8fafc; border-color: #cbd5e1; color: #0f172a; }
+.cc-act-cobrar { background: linear-gradient(135deg, #7c3aed, #6366f1); color: #fff; border: none; box-shadow: 0 4px 12px rgba(99, 102, 241, .3); }
+.cc-act-cobrar:hover { filter: brightness(1.07); color: #fff; }
+.cc-act-danger { color: #b91c1c; border-color: #fecaca; }
+.cc-act-danger:hover { background: #fef2f2; border-color: #fca5a5; color: #991b1b; }
+.cc-act-wa { color: #047857; border-color: #a7f3d0; }
+.cc-act-wa:hover { background: #ecfdf5; color: #065f46; }
+
+/* ── Empty ────────────────────────────────────────────────────────────── */
+.cc-empty {
+    display: flex; flex-direction: column; align-items: center; gap: .5rem;
+    padding: 3rem 1rem; color: #94a3b8; text-align: center;
+}
+.cc-empty i { font-size: 2.2rem; }
+
+/* ── Cards móvil ──────────────────────────────────────────────────────── */
+.cc-cards { display: none; flex-direction: column; gap: .7rem; }
+.cc-rec { background: #fff; border: 1px solid #eef1f6; border-radius: .9rem; padding: .85rem .95rem; box-shadow: 0 2px 10px rgba(15, 23, 42, .04); }
+.cc-rec-top { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-bottom: .4rem; }
+.cc-rec-when { font-size: .78rem; color: #64748b; font-weight: 600; display: inline-flex; align-items: center; gap: .35rem; }
+.cc-rec-monto { font-weight: 800; color: #0f172a; font-size: .95rem; }
+.cc-rec-cliente { font-weight: 800; color: #0f172a; font-size: 1rem; }
+.cc-rec-meta { font-size: .82rem; color: #64748b; display: flex; flex-wrap: wrap; gap: .25rem .8rem; margin: .25rem 0 .5rem; }
+.cc-rec-meta span { display: inline-flex; align-items: center; gap: .3rem; }
+.cc-rec-badges { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .55rem; }
+.cc-rec-foot { display: flex; flex-wrap: wrap; gap: .4rem; }
+
+/* ── Spinner de carga ─────────────────────────────────────────────────── */
+.cc-loading { opacity: .5; pointer-events: none; transition: opacity .15s; }
+
+/* ── Responsive ───────────────────────────────────────────────────────── */
+@media (max-width: 820px) {
+    .cc-desktop { display: none; }
+    .cc-cards { display: flex; }
+    .cc-hero { flex-direction: column; }
+    .cc-kpi-val { font-size: 1.05rem; }
+}

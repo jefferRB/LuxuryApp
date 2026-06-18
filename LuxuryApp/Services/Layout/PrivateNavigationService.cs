@@ -17,6 +17,7 @@ namespace LuxuryApp.Services.Layout
             new() { Text = "Funcionarios", Controller = "Funcionarios", Action = "Index", Icon = "bi-person-badge" },
             new() { Text = "Productos", Controller = "Productos", Action = "Index", Icon = "bi-box-seam" },
             new() { Text = "Calendario", Controller = "Calendar", Action = "Index", Icon = "bi-calendar3" },
+            new() { Text = "Reservas", Controller = "Reservas", Action = "Index", Icon = "bi-calendar-check" },
             new() { Text = "Ingresos", Controller = "Cobros", Action = "Index", Icon = "bi-cash-coin" },
             new() { Text = "Egresos", Controller = "Egresos", Action = "Index", Icon = "bi-receipt" },
             new() { Text = "Informacion", Controller = "Informacion", Action = "Index", Icon = "bi-bar-chart-line" }

@@ -202,6 +202,45 @@
                     </div>
                 </div>
 
+                <!-- Comprobante digital interno (opcional) -->
+                <div class="finance-form-field finance-form-full">
+                    <div class="finance-historial-section">
+                        <div class="finance-historial-check-row">
+                            <input type="checkbox" id="EnviarComprobante" name="EnviarComprobante" value="true" />
+                            <input type="hidden" name="EnviarComprobante" value="false" />
+                            <label class="finance-historial-check-label" for="EnviarComprobante">
+                                <i class="bi bi-envelope-paper me-1"></i>
+                                Enviar comprobante por correo
+                            </label>
+                        </div>
+                        <p class="finance-historial-help">
+                            Genera un comprobante digital interno (no fiscal) y lo envía al correo del cliente.
+                        </p>
+                        <div id="comprobante-email-container" style="display:none; margin-top:0.75rem;">
+                            <label class="finance-form-label" for="EmailComprobante" style="margin-bottom:0.35rem;">
+                                Correo del cliente
+                            </label>
+                            <div class="finance-input-wrap">
+                                <span class="finance-input-icon"><i class="bi bi-at"></i></span>
+                                <input type="email"
+                                       id="EmailComprobante"
+                                       name="EmailComprobante"
+                                       class="finance-form-control"
+                                       placeholder="correo@ejemplo.com"
+                                       autocomplete="off" />
+                            </div>
+                            <div class="finance-historial-check-row" id="guardar-email-row" style="display:none; margin-top:0.6rem;">
+                                <input type="checkbox" id="GuardarEmailEnCliente" name="GuardarEmailEnCliente" value="true" />
+                                <input type="hidden" name="GuardarEmailEnCliente" value="false" />
+                                <label class="finance-historial-check-label" for="GuardarEmailEnCliente">
+                                    <i class="bi bi-person-check me-1"></i>
+                                    Guardar este correo en el perfil del cliente
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Historial de servicio (condicional) -->
                 <div class="finance-form-field finance-form-full"
                      id="historial-servicios-section"
@@ -276,11 +315,17 @@
     var notasContainer = document.getElementById('notas-servicio-container');
     var notasTextarea  = document.getElementById('NotasServicioTexto');
 
+    var enviarCompCheck   = document.getElementById('EnviarComprobante');
+    var compEmailContainer= document.getElementById('comprobante-email-container');
+    var compEmailInput    = document.getElementById('EmailComprobante');
+    var guardarEmailRow   = document.getElementById('guardar-email-row');
+
     if (!input || !hiddenId || !dropdown) return;
 
     var debounceTimer = null;
     var abortController = null;
     var cachedNotas = null;
+    var clienteCorreo = '';
 
     /* ── autocomplete ─────────────────────────────────────── */
     function showDropdown() { dropdown.classList.remove('d-none'); }
@@ -289,15 +334,19 @@
     function clearClienteId() {
         hiddenId.value = '';
         cachedNotas = null;
+        clienteCorreo = '';
         updateHistorialSection();
+        updateComprobanteSection();
     }
 
-    function setCliente(id, nombre) {
+    function setCliente(id, nombre, correo) {
         input.value = nombre;
         hiddenId.value = id;
+        clienteCorreo = correo || '';
         hideDropdown();
         fetchNotasCliente(id);
         updateHistorialSection();
+        updateComprobanteSection();
     }
 
     async function fetchNotasCliente(clienteId) {
@@ -329,7 +378,7 @@
         btn.appendChild(name);
         btn.appendChild(phone);
         btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
-        btn.addEventListener('click', function () { setCliente(String(cliente.id), cliente.nombre || ''); });
+        btn.addEventListener('click', function () { setCliente(String(cliente.id), cliente.nombre || '', cliente.correo || ''); });
         return btn;
     }
 
@@ -465,6 +514,25 @@
     }
 
     updateHistorialSection();
+
+    /* ── comprobante por correo ───────────────────────────── */
+    function updateComprobanteSection() {
+        if (!enviarCompCheck || !compEmailContainer) return;
+        var activo = enviarCompCheck.checked;
+        compEmailContainer.style.display = activo ? '' : 'none';
+
+        if (activo && compEmailInput && !compEmailInput.value && clienteCorreo) {
+            compEmailInput.value = clienteCorreo;
+        }
+
+        var tieneCliente = hiddenId.value !== '';
+        if (guardarEmailRow) {
+            guardarEmailRow.style.display = (activo && tieneCliente) ? '' : 'none';
+        }
+    }
+
+    if (enviarCompCheck) enviarCompCheck.addEventListener('change', updateComprobanteSection);
+    updateComprobanteSection();
 }());
 </script>
 }

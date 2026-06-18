@@ -6,6 +6,7 @@ using LuxuryApp.Middleware;
 using LuxuryApp.Services;
 using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Calendar;
+using LuxuryApp.Services.Comprobantes;
 using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.DataBase;
 using LuxuryApp.Services.Finanzas;
@@ -17,6 +18,7 @@ using LuxuryApp.Services.Localization;
 using LuxuryApp.Services.Payments;
 using LuxuryApp.Services.PublicSite;
 using LuxuryApp.Services.Productos;
+using LuxuryApp.Services.Reservas;
 using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Services.Tilopay;
@@ -44,6 +46,10 @@ if (AppContext.TryGetSwitch("System.Globalization.Invariant", out var globalizat
 var defaultCulture = CultureInfo.GetCultureInfo("es-CR");
 CultureInfo.DefaultThreadCurrentCulture = defaultCulture;
 CultureInfo.DefaultThreadCurrentUICulture = defaultCulture;
+
+// QuestPDF (generación de PDF del comprobante interno). Licencia Community:
+// gratuita para empresas con ingresos anuales < USD 1M.
+QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 
 //Builders para host en linux nginx 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
@@ -202,8 +208,14 @@ builder.Services.AddScoped<ITenantWhatsAppFeatureService, TenantWhatsAppFeatureS
 builder.Services.AddScoped<IWhatsAppInboxService, WhatsAppInboxService>();
 builder.Services.AddScoped<ICalendarCommandService, CalendarCommandService>();
 builder.Services.AddScoped<ICalendarQueryService, CalendarQueryService>();
+builder.Services.AddScoped<IControlCobrosQueryService, ControlCobrosQueryService>();
 builder.Services.AddScoped<ICobroService, CobroService>();
 builder.Services.AddScoped<ICobroQueryService, CobroQueryService>();
+// Comprobante digital interno (no fiscal)
+builder.Services.AddScoped<IComprobantePdfService, ComprobantePdfService>();
+builder.Services.AddSingleton<IComprobanteHtmlRenderer, ComprobanteHtmlRenderer>();
+builder.Services.AddScoped<IComprobanteEmailService, ComprobanteEmailService>();
+builder.Services.AddScoped<IComprobanteCobroService, ComprobanteCobroService>();
 builder.Services.AddScoped<IDashboardFinancieroQueryService, DashboardFinancieroQueryService>();
 builder.Services.AddScoped<IEgresoService, EgresoService>();
 builder.Services.AddScoped<IEgresoQueryService, EgresoQueryService>();
@@ -217,6 +229,11 @@ builder.Services.AddScoped<IProductoQueryService, ProductoQueryService>();
 builder.Services.AddScoped<IContractService, ContractService>();
 builder.Services.AddScoped<IPrivateNavigationService, PrivateNavigationService>();
 builder.Services.AddScoped<IPublicSiteContentService, PublicSiteContentService>();
+// Reservas online por tenant (Fase 1)
+builder.Services.AddScoped<IBookingAvailabilityService, BookingAvailabilityService>();
+builder.Services.AddScoped<IBookingSettingsService, BookingSettingsService>();
+builder.Services.AddScoped<IPublicBookingService, PublicBookingService>();
+builder.Services.AddScoped<IBookingRequestService, BookingRequestService>();
 builder.Services.AddHostedService<ReminderWorker>();
 builder.Services.AddScoped<VisitasAutomaticasService>();
 builder.Services.AddHostedService<VisitasBackgroundService>();

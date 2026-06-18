@@ -681,6 +681,7 @@ namespace LuxuryApp.Controllers.DataBase
                     id = c.Id,
                     nombre = c.Nombre,
                     telefono = c.NumeroTelefono,
+                    correo = c.CorreoElectronico,
                     aceptaMensajesWhatsApp = tenantWhatsAppEnabled && c.AceptaMensajesWhatsApp
                 })
                 .ToListAsync();

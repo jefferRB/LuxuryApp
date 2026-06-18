@@ -1,0 +1,314 @@
+@model LuxuryApp.Models.Reservas.PublicBookingPageViewModel
+@{
+    Layout = null;
+    ViewData["Title"] = $"Reservar en {Model.NombreNegocio}";
+    var pasoFuncionario = Model.PermiteElegirFuncionario;
+    int paso = 1;
+}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>@ViewData["Title"]</title>
+    <link rel="stylesheet" href="~/css/public-reservas.css" asp-append-version="true" />
+</head>
+<body>
+    <div class="pb-wrap">
+        <header class="pb-header">
+            <div class="pb-logo">@(string.IsNullOrEmpty(Model.NombreNegocio) ? "R" : Model.NombreNegocio.Substring(0, 1).ToUpper())</div>
+            <span class="pb-eyebrow">Reservá tu cita</span>
+            <h1 class="pb-negocio">@Model.NombreNegocio</h1>
+            @if (!string.IsNullOrWhiteSpace(Model.MensajeBienvenida))
+            {
+                <p class="pb-bienvenida">@Model.MensajeBienvenida</p>
+            }
+            else
+            {
+                <p class="pb-bienvenida">Solicitá tu cita en pocos pasos. El negocio la confirmará y te avisará.</p>
+            }
+        </header>
+
+        <main class="pb-card" id="pbCard">
+            <!-- Servicio -->
+            <section class="pb-step">
+                <label class="pb-label" for="pbServicio"><span class="pb-num">@(paso)</span> Elegí el servicio</label>
+                <select id="pbServicio" class="pb-input">
+                    <option value="">Seleccioná un servicio</option>
+                    @foreach (var s in Model.Servicios)
+                    {
+                        <option value="@s.Id" data-dur="@s.DuracionMinutos" data-nombre="@s.Nombre">@s.Nombre · @s.DuracionMinutos min</option>
+                    }
+                </select>
+            </section>
+            @{ paso++; }
+
+            @if (pasoFuncionario)
+            {
+                <section class="pb-step">
+                    <label class="pb-label" for="pbFuncionario"><span class="pb-num">@(paso)</span> Elegí el profesional</label>
+                    <select id="pbFuncionario" class="pb-input">
+                        @if (Model.PermiteCualquierFuncionario)
+                        {
+                            <option value="">Cualquier profesional disponible</option>
+                        }
+                        else
+                        {
+                            <option value="">Seleccioná un profesional</option>
+                        }
+                        @foreach (var f in Model.Funcionarios)
+                        {
+                            <option value="@f.Id">@f.Nombre</option>
+                        }
+                    </select>
+                </section>
+                paso++;
+            }
+
+            <!-- Fecha -->
+            <section class="pb-step">
+                <label class="pb-label" for="pbFecha"><span class="pb-num">@(paso)</span> Elegí la fecha</label>
+                <input type="date" id="pbFecha" class="pb-input" min="@Model.MinDateIso" max="@Model.MaxDateIso" />
+            </section>
+            @{ paso++; }
+
+            <!-- Horarios -->
+            <section class="pb-step">
+                <span class="pb-label"><span class="pb-num">@(paso)</span> Elegí la hora</span>
+                <div id="pbHorarios" class="pb-horarios"></div>
+                <p id="pbHorariosMsg" class="pb-msg">Elegí un servicio para ver horarios disponibles.</p>
+            </section>
+            @{ paso++; }
+
+            <!-- Formulario -->
+            <section class="pb-step pb-datos" id="pbFormWrap" hidden>
+                <span class="pb-label"><span class="pb-num">@(paso)</span> Tus datos</span>
+                <input type="text" id="pbNombre" class="pb-input" placeholder="Nombre completo" maxlength="100" autocomplete="name" />
+                <input type="tel" id="pbTelefono" class="pb-input" placeholder="Teléfono" maxlength="30" autocomplete="tel" />
+                @if (Model.MostrarWhatsApp)
+                {
+                    <label class="pb-check">
+                        <input type="checkbox" id="pbWhatsApp" checked />
+                        <span>Quiero recibir la confirmación por WhatsApp.</span>
+                    </label>
+                }
+                <!-- Honeypot anti-bot: oculto para humanos -->
+                <input type="text" id="pbWebsite" class="pb-honeypot" tabindex="-1" autocomplete="off" aria-hidden="true" />
+
+                <button type="button" id="pbEnviar" class="pb-btn">Enviar solicitud</button>
+                <div id="pbError" class="pb-error" hidden></div>
+            </section>
+        </main>
+
+        <!-- Éxito (oculto hasta enviar una solicitud real) -->
+        <section class="pb-card pb-success" id="pbSuccess" hidden>
+            <div class="pb-success-icon">
+                <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+            </div>
+            <h2>Solicitud enviada</h2>
+            <p id="pbSuccessMsg">El negocio revisará tu solicitud y te confirmará pronto.</p>
+
+            <div class="pb-resumen">
+                <div class="pb-resumen-row"><span>Servicio</span><strong id="pbResServicio">—</strong></div>
+                <div class="pb-resumen-row" id="pbResFuncWrap" hidden><span>Profesional</span><strong id="pbResFunc">—</strong></div>
+                <div class="pb-resumen-row"><span>Fecha</span><strong id="pbResFecha">—</strong></div>
+                <div class="pb-resumen-row"><span>Hora</span><strong id="pbResHora">—</strong></div>
+            </div>
+
+            <button type="button" id="pbOtra" class="pb-btn pb-btn-ghost">Solicitar otra cita</button>
+        </section>
+
+        <footer class="pb-footer">
+            <span>Reservas con tecnología <strong>LuxuryCloud</strong></span>
+        </footer>
+    </div>
+
+    @Html.AntiForgeryToken()
+
+    <script>
+        (function () {
+            const slug = @Json.Serialize(Model.Slug);
+            const permiteFuncionario = @Json.Serialize(Model.PermiteElegirFuncionario);
+            const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+            const dispUrl = `/reservar/${slug}/disponibilidad`;
+            const submitUrl = `/reservar/${slug}/solicitar`;
+
+            const $card = document.getElementById('pbCard');
+            const $success = document.getElementById('pbSuccess');
+            const $servicio = document.getElementById('pbServicio');
+            const $funcionario = permiteFuncionario ? document.getElementById('pbFuncionario') : null;
+            const $fecha = document.getElementById('pbFecha');
+            const $horarios = document.getElementById('pbHorarios');
+            const $horariosMsg = document.getElementById('pbHorariosMsg');
+            const $formWrap = document.getElementById('pbFormWrap');
+            const $error = document.getElementById('pbError');
+            const $enviar = document.getElementById('pbEnviar');
+            const $whatsApp = document.getElementById('pbWhatsApp');
+            let horaSeleccionada = null;
+            let enviando = false;
+            let reqId = 0;
+
+            function showError(msg) {
+                $error.textContent = msg || '';
+                $error.hidden = !msg;
+            }
+            function setMsg(text) {
+                $horariosMsg.textContent = text || '';
+                $horariosMsg.hidden = !text;
+            }
+            function resetHoras() {
+                horaSeleccionada = null;
+                $horarios.innerHTML = '';
+                $formWrap.hidden = true;
+                showError('');
+            }
+
+            function refrescar() {
+                resetHoras();
+                if (!$servicio.value) { setMsg('Elegí un servicio para ver horarios disponibles.'); return; }
+                if (!$fecha.value) { setMsg('Elegí una fecha para ver horarios disponibles.'); return; }
+                cargarHorarios();
+            }
+
+            async function cargarHorarios() {
+                setMsg('Buscando horarios…');
+                const myReq = ++reqId;
+                const params = new URLSearchParams({ servicioId: $servicio.value, fecha: $fecha.value });
+                if (permiteFuncionario && $funcionario && $funcionario.value) {
+                    params.append('funcionarioId', $funcionario.value);
+                }
+                try {
+                    const resp = await fetch(`${dispUrl}?${params.toString()}`);
+                    if (myReq !== reqId) { return; } // respuesta obsoleta
+                    if (!resp.ok) { throw new Error(); }
+                    const data = await resp.json();
+                    $horarios.innerHTML = '';
+                    if (!data.horas || data.horas.length === 0) {
+                        setMsg(data.mensaje || 'No hay espacios disponibles para ese día. Probá con otra fecha.');
+                        return;
+                    }
+                    setMsg('');
+                    data.horas.forEach(h => {
+                        const btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.className = 'pb-hora';
+                        btn.textContent = h;
+                        btn.addEventListener('click', () => seleccionarHora(btn, h));
+                        $horarios.appendChild(btn);
+                    });
+                } catch {
+                    if (myReq !== reqId) { return; }
+                    $horarios.innerHTML = '';
+                    setMsg('No pudimos cargar los horarios. Intentá de nuevo.');
+                }
+            }
+
+            function seleccionarHora(btn, h) {
+                horaSeleccionada = h;
+                $horarios.querySelectorAll('.pb-hora').forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                $formWrap.hidden = false;
+                $formWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+
+            $servicio.addEventListener('change', refrescar);
+            if ($funcionario) { $funcionario.addEventListener('change', refrescar); }
+            $fecha.addEventListener('change', refrescar);
+
+            function formatearFecha(iso) {
+                try {
+                    const d = new Date(iso + 'T00:00:00');
+                    return d.toLocaleDateString('es-CR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+                } catch { return iso; }
+            }
+
+            function mostrarExito(mensaje) {
+                document.getElementById('pbResServicio').textContent =
+                    $servicio.options[$servicio.selectedIndex]?.dataset.nombre || $servicio.options[$servicio.selectedIndex]?.text || '—';
+                if (permiteFuncionario && $funcionario) {
+                    const txt = $funcionario.value
+                        ? $funcionario.options[$funcionario.selectedIndex].text
+                        : 'Cualquier profesional disponible';
+                    document.getElementById('pbResFunc').textContent = txt;
+                    document.getElementById('pbResFuncWrap').hidden = false;
+                }
+                document.getElementById('pbResFecha').textContent = formatearFecha($fecha.value);
+                document.getElementById('pbResHora').textContent = horaSeleccionada;
+                if (mensaje) { document.getElementById('pbSuccessMsg').textContent = mensaje; }
+
+                $card.hidden = true;
+                $success.hidden = false;
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+
+            document.getElementById('pbOtra').addEventListener('click', function () {
+                // Reinicio seguro del formulario.
+                $success.hidden = true;
+                $card.hidden = false;
+                $servicio.selectedIndex = 0;
+                if ($funcionario) { $funcionario.selectedIndex = 0; }
+                $fecha.value = '';
+                document.getElementById('pbNombre').value = '';
+                document.getElementById('pbTelefono').value = '';
+                if ($whatsApp) { $whatsApp.checked = true; }
+                refrescar();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+
+            $enviar.addEventListener('click', async function () {
+                if (enviando) { return; }
+                showError('');
+                const nombre = document.getElementById('pbNombre').value.trim();
+                const telefono = document.getElementById('pbTelefono').value.trim();
+
+                if (!$servicio.value || !$fecha.value || !horaSeleccionada) {
+                    showError('Completá el servicio, la fecha y la hora.');
+                    return;
+                }
+                if (!nombre) { showError('Indicá tu nombre completo.'); return; }
+                if (!telefono) { showError('Indicá tu número de teléfono.'); return; }
+
+                const body = new URLSearchParams({
+                    ServicioId: $servicio.value,
+                    Fecha: $fecha.value,
+                    Hora: horaSeleccionada,
+                    Nombre: nombre,
+                    Telefono: telefono,
+                    AceptaWhatsApp: $whatsApp ? $whatsApp.checked : false,
+                    Website: document.getElementById('pbWebsite').value
+                });
+                if (permiteFuncionario && $funcionario && $funcionario.value) {
+                    body.append('FuncionarioId', $funcionario.value);
+                }
+
+                enviando = true;
+                $enviar.disabled = true;
+                $enviar.textContent = 'Enviando…';
+
+                try {
+                    const resp = await fetch(submitUrl, {
+                        method: 'POST',
+                        headers: { 'RequestVerificationToken': token, 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: body.toString()
+                    });
+                    let data = null;
+                    try { data = await resp.json(); } catch { }
+
+                    if (resp.ok && data && data.success) {
+                        mostrarExito(data.message);
+                    } else {
+                        showError((data && data.message) || 'No pudimos enviar tu solicitud. Intentá de nuevo.');
+                    }
+                } catch {
+                    showError('No pudimos enviar tu solicitud. Intentá de nuevo.');
+                } finally {
+                    enviando = false;
+                    $enviar.disabled = false;
+                    $enviar.textContent = 'Enviar solicitud';
+                }
+            });
+        })();
+    </script>
+</body>
+</html>

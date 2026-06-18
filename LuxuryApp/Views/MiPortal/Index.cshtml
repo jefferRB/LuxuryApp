@@ -1,7 +1,7 @@
 @model LuxuryApp.Models.Funcionarios.MiPanelViewModel
 @using System.Globalization
 @{
-    ViewData["Title"] = "Mi Panel";
+    ViewData["Title"] = "Mi Portal";
     ViewData["PortalActive"] = "panel";
     var cr = new CultureInfo("es-CR");
     string Money(decimal v) => "₡" + v.ToString("#,##0.00", cr);
@@ -10,8 +10,15 @@
 
 <div class="lp-card" style="margin-bottom:1rem;">
     <h1 style="font-size:1.35rem;font-weight:800;margin:0;">Hola, @Model.Nombre 👋</h1>
-    <p class="lp-muted" style="margin:.25rem 0 0;text-transform:capitalize;">
+    <p class="lp-muted" style="margin:.25rem 0 .15rem;font-size:.9rem;text-transform:none;">
+        Este es tu portal de trabajo: citas, cobros, ganancias y pagos en un solo lugar.
+    </p>
+    <p class="lp-muted" style="margin:0;text-transform:capitalize;font-size:.82rem;">
         @Model.Hoy.ToString("dddd, dd 'de' MMMM 'de' yyyy", cr)
+    </p>
+    <p class="lp-muted" style="margin:.35rem 0 0;font-size:.85rem;text-transform:none;">
+        <i class="bi bi-info-circle"></i>
+        Tienes @Model.KpisHoy.CitasHoy cita@(Model.KpisHoy.CitasHoy == 1 ? "" : "s") hoy y @Model.KpisHoy.PendientesHoy pendiente@(Model.KpisHoy.PendientesHoy == 1 ? "" : "s") de cobro.
     </p>
 </div>
 
@@ -19,23 +26,21 @@
 <h2 class="lp-section-title"><i class="bi bi-sun"></i> Resumen de hoy</h2>
 <div class="lp-kpis" style="margin-bottom:1.2rem;">
     <div class="lp-kpi">
-        <div class="lp-kpi-label">Producción servicios</div>
-        <div class="lp-kpi-value">@Money(Model.ResumenHoy.ProduccionServicios)</div>
+        <div class="lp-kpi-label"><i class="bi bi-calendar-check"></i> Citas de hoy</div>
+        <div class="lp-kpi-value">@Model.KpisHoy.CitasHoy</div>
+        <div class="lp-muted" style="font-size:.72rem;">@Model.KpisHoy.PendientesHoy pendiente@(Model.KpisHoy.PendientesHoy == 1 ? "" : "s")</div>
     </div>
     <div class="lp-kpi">
-        <div class="lp-kpi-label">Comisión servicios</div>
-        <div class="lp-kpi-value">@Money(Model.ResumenHoy.ComisionServicios)</div>
+        <div class="lp-kpi-label"><i class="bi bi-scissors"></i> Producción de hoy</div>
+        <div class="lp-kpi-value lp-kpi-value--green">@Money(Model.ResumenHoy.ProduccionTotal)</div>
     </div>
-    @if (Model.ResumenHoy.TieneProductos)
-    {
-        <div class="lp-kpi">
-            <div class="lp-kpi-label">Comisión productos</div>
-            <div class="lp-kpi-value">@Money(Model.ResumenHoy.ComisionProductos)</div>
-        </div>
-    }
     <div class="lp-kpi">
-        <div class="lp-kpi-label">Total estimado hoy</div>
-        <div class="lp-kpi-value lp-kpi-value--gold">@Money(Model.ResumenHoy.TotalEstimado)</div>
+        <div class="lp-kpi-label"><i class="bi bi-graph-up-arrow"></i> Comisión estimada hoy</div>
+        <div class="lp-kpi-value lp-kpi-value--green">@Money(Model.ResumenHoy.TotalEstimado)</div>
+    </div>
+    <div class="lp-kpi">
+        <div class="lp-kpi-label"><i class="bi bi-hourglass-split"></i> Pendiente de cobrar</div>
+        <div class="lp-kpi-value lp-kpi-value--amber">@Money(Model.KpisHoy.PendienteCobrarHoy)</div>
     </div>
 </div>
 
@@ -86,11 +91,11 @@
 <div class="lp-kpis">
     <div class="lp-kpi">
         <div class="lp-kpi-label">Producción</div>
-        <div class="lp-kpi-value">@Money(Model.ProduccionSemana)</div>
+        <div class="lp-kpi-value lp-kpi-value--green">@Money(Model.ProduccionSemana)</div>
     </div>
     <div class="lp-kpi">
         <div class="lp-kpi-label">Comisión estimada</div>
-        <div class="lp-kpi-value">@Money(Model.ComisionSemana)</div>
+        <div class="lp-kpi-value lp-kpi-value--green">@Money(Model.ComisionSemana)</div>
     </div>
     <div class="lp-kpi">
         <div class="lp-kpi-label">Pagado</div>
@@ -98,7 +103,7 @@
     </div>
     <div class="lp-kpi">
         <div class="lp-kpi-label">Pendiente</div>
-        <div class="lp-kpi-value lp-kpi-value--gold">@Money(Model.PendienteSemana)</div>
+        <div class="lp-kpi-value lp-kpi-value--amber">@Money(Model.PendienteSemana)</div>
     </div>
 </div>
 

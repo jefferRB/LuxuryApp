@@ -1,6 +1,7 @@
 using ClosedXML.Excel;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Services.BusinessTime;
+using LuxuryApp.Services.Comprobantes;
 using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.Finanzas;
 using Microsoft.AspNetCore.Authorization;
@@ -13,15 +14,18 @@ namespace LuxuryApp.Controllers.Finanzas
     {
         private readonly ICobroService _cobroService;
         private readonly ICobroQueryService _cobroQueryService;
+        private readonly IComprobanteCobroService _comprobanteService;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
 
         public CobrosController(
             ICobroService cobroService,
             ICobroQueryService cobroQueryService,
+            IComprobanteCobroService comprobanteService,
             IBusinessDateTimeProvider businessDateTimeProvider)
         {
             _cobroService = cobroService;
             _cobroQueryService = cobroQueryService;
+            _comprobanteService = comprobanteService;
             _businessDateTimeProvider = businessDateTimeProvider;
         }
 
@@ -46,24 +50,57 @@ namespace LuxuryApp.Controllers.Finanzas
                 return View(await _cobroQueryService.BuildCreateViewModelAsync(vm.Cobro));
             }
 
+            // Opciones de comprobante (no están en el modelo Cobro; se leen del formulario).
+            var enviarComprobante = ContractAcceptanceBindingHelper.IsAccepted(Request.Form, "EnviarComprobante");
+            var emailComprobante = (Request.Form["EmailComprobante"].FirstOrDefault() ?? string.Empty).Trim();
+            var guardarEmailEnCliente = ContractAcceptanceBindingHelper.IsAccepted(Request.Form, "GuardarEmailEnCliente");
+
+            if (enviarComprobante && !ComprobanteEmailHelper.EsValido(emailComprobante))
+            {
+                ModelState.AddModelError("EmailComprobante", "Indica un correo válido para enviar el comprobante.");
+                return View(await _cobroQueryService.BuildCreateViewModelAsync(vm.Cobro));
+            }
+
+            // 1) Registrar el cobro. Solo los errores DE COBRO re-renderizan el formulario.
+            int cobroId;
             try
             {
                 var actualizarNotas = ContractAcceptanceBindingHelper.IsAccepted(Request.Form, "ActualizarNotasServicio");
                 var notasTexto = Request.Form["NotasServicioTexto"].FirstOrDefault();
-                await _cobroService.RegistrarAsync(MapRequest(vm.Cobro, actualizarNotas, notasTexto));
-                TempData["Mensaje"] = "Cobro registrado correctamente.";
-                return RedirectToAction(nameof(Index));
+                cobroId = await _cobroService.RegistrarAsync(MapRequest(vm.Cobro, actualizarNotas, notasTexto));
             }
             catch (CobroValidationException ex)
             {
                 ModelState.AddModelError(ex.ModelStateKey ?? string.Empty, ex.Message);
+                return View(await _cobroQueryService.BuildCreateViewModelAsync(vm.Cobro));
             }
             catch (InvalidOperationException ex)
             {
                 ModelState.AddModelError(string.Empty, ex.Message);
+                return View(await _cobroQueryService.BuildCreateViewModelAsync(vm.Cobro));
             }
 
-            return View(await _cobroQueryService.BuildCreateViewModelAsync(vm.Cobro));
+            // 2) Cobro YA registrado. El comprobante es best-effort: el servicio nunca lanza;
+            //    si no se pudo enviar, el cobro queda igual y se reintenta desde el historial.
+            if (enviarComprobante)
+            {
+                var comprobante = await _comprobanteService.CrearYEnviarDesdeCobroAsync(
+                    cobroId,
+                    emailComprobante,
+                    guardarEmailEnCliente,
+                    User.Identity?.Name,
+                    funcionarioScopeId: null);
+
+                TempData["Mensaje"] = ComprobanteFueEnviado(comprobante)
+                    ? "Cobro registrado y comprobante enviado correctamente."
+                    : "Cobro registrado correctamente, pero no se pudo enviar el comprobante. Puedes reenviarlo desde el historial.";
+            }
+            else
+            {
+                TempData["Mensaje"] = "Cobro registrado correctamente.";
+            }
+
+            return RedirectToAction(nameof(Index));
         }
 
         [HttpGet]
@@ -141,6 +178,30 @@ namespace LuxuryApp.Controllers.Finanzas
 
             return RedirectToAction(nameof(Index));
         }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ReenviarComprobante(int comprobanteId, CancellationToken cancellationToken)
+        {
+            var comprobante = await _comprobanteService.ReenviarAsync(comprobanteId, funcionarioScopeId: null, cancellationToken);
+
+            if (comprobante is null)
+            {
+                TempData["Error"] = "No se encontró el comprobante indicado.";
+            }
+            else
+            {
+                TempData["Mensaje"] = ComprobanteFueEnviado(comprobante)
+                    ? "Comprobante reenviado correctamente."
+                    : "No fue posible reenviar el comprobante. Intenta de nuevo en unos minutos.";
+            }
+
+            return RedirectToAction(nameof(Index));
+        }
+
+        private static bool ComprobanteFueEnviado(LuxuryApp.Models.Comprobantes.ComprobanteCobro? comprobante) =>
+            comprobante is not null &&
+            comprobante.EstadoEnvio == LuxuryApp.Models.Comprobantes.ComprobanteEstadoEnvio.Sent;
 
         [HttpGet]
         public async Task<JsonResult> ObtenerPrecioServicio(int id)

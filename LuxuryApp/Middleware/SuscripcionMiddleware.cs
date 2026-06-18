@@ -141,6 +141,8 @@ public class SuscripcionMiddleware
             path.StartsWith("/error") ||
             path.StartsWith("/billing") ||
             path.StartsWith("/platform") ||
+            path.StartsWith("/comprobantes") ||
+            path.StartsWith("/reservar") ||
             path.StartsWith("/api/webhooks/meta-whatsapp");
     }
 }

@@ -5,6 +5,7 @@ using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Calendar;
+using LuxuryApp.Services.Comprobantes;
 using LuxuryApp.Services.Finanzas;
 using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Services.Identity;
@@ -26,6 +27,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         private readonly IFuncionarioPortalPermissionService _permissionService;
         private readonly ICalendarCommandService _calendarCommandService;
         private readonly ICobroService _cobroService;
+        private readonly IComprobanteCobroService _comprobanteService;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ILogger<MiPortalController> _logger;
 
@@ -34,6 +36,7 @@ namespace LuxuryApp.Controllers.Funcionarios
             IFuncionarioPortalPermissionService permissionService,
             ICalendarCommandService calendarCommandService,
             ICobroService cobroService,
+            IComprobanteCobroService comprobanteService,
             IBusinessDateTimeProvider businessDateTimeProvider,
             ILogger<MiPortalController> logger)
         {
@@ -41,6 +44,7 @@ namespace LuxuryApp.Controllers.Funcionarios
             _permissionService = permissionService;
             _calendarCommandService = calendarCommandService;
             _cobroService = cobroService;
+            _comprobanteService = comprobanteService;
             _businessDateTimeProvider = businessDateTimeProvider;
             _logger = logger;
         }
@@ -63,7 +67,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         [HttpGet("Calendario")]
-        public async Task<IActionResult> Calendario(string? fecha, CancellationToken cancellationToken)
+        public async Task<IActionResult> Calendario(string? fecha, string? rango, CancellationToken cancellationToken)
         {
             var ctx = await ResolverContextoAsync(cancellationToken);
             if (ctx.Bloqueo is not null)
@@ -83,15 +87,90 @@ namespace LuxuryApp.Controllers.Funcionarios
             var model = await _portalQueryService.ObtenerCalendarioAsync(
                 ctx.FuncionarioId,
                 fechaSeleccionada,
+                rango ?? "dia",
                 ctx.Permisos.CrearMisCitas,
+                ctx.Permisos.EditarMisCitas,
+                ctx.Permisos.CancelarMisCitas,
                 ctx.Permisos.RegistrarMisCobros,
                 cancellationToken);
 
             return View(model);
         }
 
+        [HttpGet("Calendario/Control")]
+        public async Task<IActionResult> Control(string? fecha, string? rango, CancellationToken cancellationToken)
+        {
+            var ctx = await ResolverContextoAsync(cancellationToken);
+            if (ctx.Bloqueo is not null)
+            {
+                return Unauthorized();
+            }
+
+            if (!ctx.Permisos!.VerMiCalendario)
+            {
+                return StatusCode(403);
+            }
+
+            var fechaSeleccionada = TryParseFecha(fecha, out var parsed)
+                ? parsed
+                : _businessDateTimeProvider.Today();
+
+            // Tenant + FuncionarioId del claim. El rango se sanitiza en el servicio.
+            var control = await _portalQueryService.ObtenerControlAsync(
+                ctx.FuncionarioId, fechaSeleccionada, rango ?? "dia", cancellationToken);
+
+            ViewData["PuedeRegistrarCobros"] = ctx.Permisos.RegistrarMisCobros;
+            return PartialView("_PortalControlBody", control);
+        }
+
+        [HttpGet("Calendario/CitasDia")]
+        public async Task<IActionResult> CitasDia(string? fecha, CancellationToken cancellationToken)
+        {
+            var ctx = await ResolverContextoAsync(cancellationToken);
+            if (ctx.Bloqueo is not null)
+            {
+                return Ok(Array.Empty<object>());
+            }
+
+            if (!ctx.Permisos!.VerMiCalendario)
+            {
+                return Ok(Array.Empty<object>());
+            }
+
+            var fechaSeleccionada = TryParseFecha(fecha, out var parsed)
+                ? parsed
+                : _businessDateTimeProvider.Today();
+
+            // Siempre del funcionario del claim. Nunca de la URL/form.
+            var citas = await _portalQueryService.ObtenerCitasDiaAsync(ctx.FuncionarioId, fechaSeleccionada, cancellationToken);
+
+            return Ok(citas.Select(c => new
+            {
+                id = c.Id,
+                fechaHora = c.FechaHora.ToString("yyyy-MM-ddTHH:mm:ss"),
+                horaMinutos = (c.FechaHora.Hour * 60) + c.FechaHora.Minute,
+                duracion = c.DuracionEfectiva,
+                cliente = c.Cliente,
+                servicio = c.Servicio,
+                telefono = c.Telefono,
+                tipo = c.Tipo,
+                esCita = c.EsCita,
+                yaCobrada = c.YaCobrada,
+                esCobrable = c.EsCobrable,
+                servicioId = c.ServicioId,
+                clienteId = c.ClienteId,
+                servicioPersonalizado = c.ServicioPersonalizado,
+                nombreClienteRaw = c.NombreClienteRaw,
+                fechaHoraInput = c.FechaHoraInput,
+                precio = c.PrecioServicio,
+                puedeEditar = ctx.Permisos.EditarMisCitas,
+                puedeCancelar = ctx.Permisos.CancelarMisCitas,
+                puedeCobrar = ctx.Permisos.RegistrarMisCobros
+            }));
+        }
+
         [HttpGet("Ganancias")]
-        public async Task<IActionResult> Ganancias(CancellationToken cancellationToken)
+        public async Task<IActionResult> Ganancias(string? semana, string? mes, CancellationToken cancellationToken)
         {
             var ctx = await ResolverContextoAsync(cancellationToken);
             if (ctx.Bloqueo is not null)
@@ -104,7 +183,11 @@ namespace LuxuryApp.Controllers.Funcionarios
                 return SinPermiso("tus ganancias");
             }
 
-            var model = await _portalQueryService.ObtenerGananciasAsync(ctx.FuncionarioId, cancellationToken);
+            DateTime? semanaAnchor = TryParseFecha(semana, out var s) ? s : (DateTime?)null;
+            DateTime? mesAnchor = TryParseFecha(mes, out var m) ? m : (DateTime?)null;
+
+            var model = await _portalQueryService.ObtenerGananciasAsync(
+                ctx.FuncionarioId, semanaAnchor, mesAnchor, cancellationToken);
             return View(model);
         }
 
@@ -127,7 +210,12 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         [HttpGet("Cobros")]
-        public async Task<IActionResult> Cobros(int pagina = 1, CancellationToken cancellationToken = default)
+        public async Task<IActionResult> Cobros(
+            int pagina = 1,
+            string? rango = null,
+            string? metodo = null,
+            string? origen = null,
+            CancellationToken cancellationToken = default)
         {
             var ctx = await ResolverContextoAsync(cancellationToken);
             if (ctx.Bloqueo is not null)
@@ -143,7 +231,11 @@ namespace LuxuryApp.Controllers.Funcionarios
             var model = await _portalQueryService.ObtenerCobrosAsync(
                 ctx.FuncionarioId,
                 pagina,
+                rango ?? "semana",
+                metodo,
+                origen,
                 ctx.Permisos.RegistrarMisCobros,
+                ctx.Permisos.RegistrarMisCobrosManuales,
                 cancellationToken);
 
             return View(model);
@@ -220,6 +312,176 @@ namespace LuxuryApp.Controllers.Funcionarios
             return RedirectToAction(nameof(Calendario), new { fecha = fechaHoraCita.ToString("yyyy-MM-dd") });
         }
 
+        [HttpPost("Calendario/EditarCita")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> EditarCita(
+            int citaId,
+            string? fechaHora,
+            string? nombreCliente,
+            string? telefonoCliente,
+            int? clienteId,
+            int? servicioId,
+            string? servicioPersonalizado,
+            int? duracionMinutos,
+            CancellationToken cancellationToken)
+        {
+            var ctx = await ResolverContextoAsync(cancellationToken);
+            if (ctx.Bloqueo is not null)
+            {
+                return ctx.Bloqueo;
+            }
+
+            if (!ctx.Permisos!.EditarMisCitas)
+            {
+                _logger.LogWarning(
+                    "Intento de editar cita sin permiso. FuncionarioId {FuncionarioId}. UserId {UserId}.",
+                    ctx.FuncionarioId,
+                    User.FindFirstValue(CustomClaimTypes.UserId));
+                return SinPermiso("editar citas");
+            }
+
+            // 🔒 Verifica que la cita es del funcionario ANTES de actualizar
+            // (UpdateAsync reasigna FuncionarioId, así que sin este check se podría secuestrar una cita ajena).
+            var propia = await _portalQueryService.ObtenerCitaCobrableAsync(ctx.FuncionarioId, citaId, cancellationToken);
+            if (propia is null)
+            {
+                TempData["PortalError"] = "La cita no existe o no es tuya.";
+                return RedirectToAction(nameof(Calendario));
+            }
+
+            if (!TryParseFechaHora(fechaHora, out var fechaHoraCita))
+            {
+                TempData["PortalError"] = "Indica una fecha y hora válidas para la cita.";
+                return RedirectToAction(nameof(Calendario));
+            }
+
+            var esPersonalizado = !servicioId.HasValue || servicioId.Value <= 0;
+
+            var request = new CalendarUpsertRequest
+            {
+                FuncionarioId = ctx.FuncionarioId, // 🔒 del claim
+                Tipo = "CITA",
+                FechaHoraCita = fechaHoraCita,
+                NombreCliente = nombreCliente,
+                TelefonoCliente = telefonoCliente,
+                ClienteId = clienteId,
+                ServicioId = esPersonalizado ? null : servicioId,
+                EsServicioPersonalizado = esPersonalizado,
+                ServicioNombrePersonalizado = esPersonalizado ? servicioPersonalizado : null,
+                DuracionMinutos = esPersonalizado ? duracionMinutos : null
+            };
+
+            try
+            {
+                await _calendarCommandService.UpdateAsync(citaId, request, cancellationToken);
+                _logger.LogInformation(
+                    "Cita editada desde portal. FuncionarioId {FuncionarioId}. CitaId {CitaId}. UserId {UserId}.",
+                    ctx.FuncionarioId,
+                    citaId,
+                    User.FindFirstValue(CustomClaimTypes.UserId));
+                TempData["PortalMensaje"] = "Cita actualizada correctamente.";
+            }
+            catch (CalendarValidationException ex)
+            {
+                TempData["PortalError"] = ex.Message;
+            }
+            catch (InvalidOperationException ex)
+            {
+                TempData["PortalError"] = ex.Message;
+            }
+
+            return RedirectToAction(nameof(Calendario), new { fecha = fechaHoraCita.ToString("yyyy-MM-dd") });
+        }
+
+        [HttpPost("Calendario/CancelarCita")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> CancelarCita(int citaId, string? fecha, CancellationToken cancellationToken)
+        {
+            var ctx = await ResolverContextoAsync(cancellationToken);
+            if (ctx.Bloqueo is not null)
+            {
+                return ctx.Bloqueo;
+            }
+
+            if (!ctx.Permisos!.CancelarMisCitas)
+            {
+                _logger.LogWarning(
+                    "Intento de cancelar cita sin permiso. FuncionarioId {FuncionarioId}. UserId {UserId}.",
+                    ctx.FuncionarioId,
+                    User.FindFirstValue(CustomClaimTypes.UserId));
+                return SinPermiso("cancelar citas");
+            }
+
+            // 🔒 Solo se puede cancelar una cita propia.
+            var propia = await _portalQueryService.ObtenerCitaCobrableAsync(ctx.FuncionarioId, citaId, cancellationToken);
+            if (propia is null)
+            {
+                TempData["PortalError"] = "La cita no existe o no es tuya.";
+                return RedirectToAction(nameof(Calendario));
+            }
+
+            try
+            {
+                await _calendarCommandService.DeleteAsync(citaId, cancellationToken);
+                _logger.LogInformation(
+                    "Cita cancelada desde portal. FuncionarioId {FuncionarioId}. CitaId {CitaId}. UserId {UserId}.",
+                    ctx.FuncionarioId,
+                    citaId,
+                    User.FindFirstValue(CustomClaimTypes.UserId));
+                TempData["PortalMensaje"] = "Cita cancelada correctamente.";
+            }
+            catch (InvalidOperationException ex)
+            {
+                TempData["PortalError"] = ex.Message;
+            }
+
+            return RedirectToAction(nameof(Calendario), new { fecha });
+        }
+
+        [HttpPost("Calendario/RedimensionarCita")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> RedimensionarCita(int citaId, int duracionMinutos, CancellationToken cancellationToken)
+        {
+            var ctx = await ResolverContextoAsync(cancellationToken);
+            if (ctx.Bloqueo is not null)
+            {
+                return Unauthorized();
+            }
+
+            if (!ctx.Permisos!.EditarMisCitas)
+            {
+                _logger.LogWarning(
+                    "Intento de redimensionar cita sin permiso. FuncionarioId {FuncionarioId}. UserId {UserId}.",
+                    ctx.FuncionarioId,
+                    User.FindFirstValue(CustomClaimTypes.UserId));
+                return BadRequest(new { error = "No tienes permiso para editar citas." });
+            }
+
+            // 🔒 Solo redimensiona una cita propia (ResizeDurationAsync no filtra por funcionario).
+            var propia = await _portalQueryService.ObtenerCitaCobrableAsync(ctx.FuncionarioId, citaId, cancellationToken);
+            if (propia is null)
+            {
+                return BadRequest(new { error = "La cita no existe o no es tuya." });
+            }
+
+            try
+            {
+                await _calendarCommandService.ResizeDurationAsync(citaId, duracionMinutos, cancellationToken);
+                _logger.LogInformation(
+                    "Cita redimensionada desde portal. FuncionarioId {FuncionarioId}. CitaId {CitaId}. Duracion {Dur}.",
+                    ctx.FuncionarioId, citaId, duracionMinutos);
+                return Ok(new { success = true });
+            }
+            catch (CalendarValidationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+        }
+
         [HttpPost("Cobros/Registrar")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> RegistrarCobro(
@@ -228,6 +490,9 @@ namespace LuxuryApp.Controllers.Funcionarios
             string? metodoPago,
             string? observacion,
             string? retorno,
+            bool enviarComprobante,
+            string? emailComprobante,
+            bool guardarEmailEnCliente,
             CancellationToken cancellationToken)
         {
             var ctx = await ResolverContextoAsync(cancellationToken);
@@ -243,6 +508,12 @@ namespace LuxuryApp.Controllers.Funcionarios
                     ctx.FuncionarioId,
                     User.FindFirstValue(CustomClaimTypes.UserId));
                 return SinPermiso("registrar cobros");
+            }
+
+            if (enviarComprobante && !ComprobanteEmailHelper.EsValido(emailComprobante))
+            {
+                TempData["PortalError"] = "Indica un correo válido para enviar el comprobante.";
+                return RedirectToActionRetorno(retorno);
             }
 
             // Resuelve la cita en backend; valida pertenencia al funcionario y al tenant.
@@ -270,6 +541,7 @@ namespace LuxuryApp.Controllers.Funcionarios
                 FechaCobro = _businessDateTimeProvider.Now(),
                 NombreCliente = string.IsNullOrWhiteSpace(cita.Cliente) ? "Cliente" : cita.Cliente,
                 FuncionarioId = ctx.FuncionarioId, // 🔒 del claim, no del form
+                ClienteId = cita.ClienteId,        // liga el cobro al cliente para su historial
                 ServicioId = cita.ServicioId,
                 CitaId = cita.Id,
                 Monto = monto,
@@ -279,13 +551,16 @@ namespace LuxuryApp.Controllers.Funcionarios
 
             try
             {
-                await _cobroService.RegistrarAsync(request, cancellationToken);
+                var cobroId = await _cobroService.RegistrarAsync(request, cancellationToken);
                 _logger.LogInformation(
                     "Cobro registrado desde portal. FuncionarioId {FuncionarioId}. CitaId {CitaId}. UserId {UserId}.",
                     ctx.FuncionarioId,
                     cita.Id,
                     User.FindFirstValue(CustomClaimTypes.UserId));
-                TempData["PortalMensaje"] = "Cobro registrado correctamente.";
+
+                TempData["PortalMensaje"] = await EnviarComprobantePortalAsync(
+                    ctx, cobroId, enviarComprobante, emailComprobante, guardarEmailEnCliente,
+                    "Cobro registrado correctamente.", cancellationToken);
             }
             catch (CobroValidationException ex)
             {
@@ -297,6 +572,187 @@ namespace LuxuryApp.Controllers.Funcionarios
             }
 
             return RedirectToActionRetorno(retorno);
+        }
+
+        [HttpPost("Cobros/RegistrarManual")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> RegistrarCobroManual(
+            string? nombreCliente,
+            int? clienteId,
+            int? servicioId,
+            decimal monto,
+            string? metodoPago,
+            string? observacion,
+            bool enviarComprobante,
+            string? emailComprobante,
+            bool guardarEmailEnCliente,
+            CancellationToken cancellationToken)
+        {
+            var ctx = await ResolverContextoAsync(cancellationToken);
+            if (ctx.Bloqueo is not null)
+            {
+                return ctx.Bloqueo;
+            }
+
+            if (!ctx.Permisos!.RegistrarMisCobrosManuales)
+            {
+                _logger.LogWarning(
+                    "Intento de cobro manual sin permiso. FuncionarioId {FuncionarioId}. UserId {UserId}.",
+                    ctx.FuncionarioId, User.FindFirstValue(CustomClaimTypes.UserId));
+                return SinPermiso("registrar cobros manuales");
+            }
+
+            if (enviarComprobante && !ComprobanteEmailHelper.EsValido(emailComprobante))
+            {
+                TempData["PortalError"] = "Indica un correo válido para enviar el comprobante.";
+                return RedirectToAction(nameof(Cobros));
+            }
+
+            // ClienteId solo se acepta si pertenece al tenant actual; si no, se ignora (queda texto libre).
+            int? clienteValidado = null;
+            if (clienteId.HasValue && clienteId.Value > 0 &&
+                await _portalQueryService.ClienteExisteAsync(clienteId.Value, cancellationToken))
+            {
+                clienteValidado = clienteId.Value;
+            }
+
+            var request = new CobroCreateRequest
+            {
+                FechaCobro = _businessDateTimeProvider.Now(), // hora del negocio (America/Costa_Rica)
+                NombreCliente = string.IsNullOrWhiteSpace(nombreCliente) ? "Cliente" : nombreCliente,
+                ClienteId = clienteValidado,
+                FuncionarioId = ctx.FuncionarioId, // 🔒 del claim, nunca del form
+                ServicioId = servicioId,           // CobroService valida que sea del tenant y esté activo
+                CitaId = null,                     // cobro manual: sin cita de origen
+                Monto = monto,
+                MetodoPago = metodoPago ?? string.Empty,
+                Observaciones = observacion
+            };
+
+            try
+            {
+                var cobroId = await _cobroService.RegistrarAsync(request, cancellationToken);
+                _logger.LogInformation(
+                    "Cobro manual registrado desde portal. FuncionarioId {FuncionarioId}. UserId {UserId}.",
+                    ctx.FuncionarioId, User.FindFirstValue(CustomClaimTypes.UserId));
+
+                TempData["PortalMensaje"] = await EnviarComprobantePortalAsync(
+                    ctx, cobroId, enviarComprobante, emailComprobante, guardarEmailEnCliente,
+                    "Cobro manual registrado correctamente.", cancellationToken);
+            }
+            catch (CobroValidationException ex)
+            {
+                TempData["PortalError"] = ex.Message;
+            }
+            catch (InvalidOperationException ex)
+            {
+                TempData["PortalError"] = ex.Message;
+            }
+
+            return RedirectToAction(nameof(Cobros));
+        }
+
+        [HttpPost("Comprobantes/Reenviar")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ReenviarComprobante(int comprobanteId, CancellationToken cancellationToken)
+        {
+            var ctx = await ResolverContextoAsync(cancellationToken);
+            if (ctx.Bloqueo is not null)
+            {
+                return ctx.Bloqueo;
+            }
+
+            // Solo si puede enviar comprobantes; el scope obliga a que sea suyo.
+            if (!ctx.Permisos!.PuedeEnviarComprobantes)
+            {
+                return SinPermiso("reenviar comprobantes");
+            }
+
+            var comprobante = await _comprobanteService.ReenviarAsync(comprobanteId, ctx.FuncionarioId, cancellationToken);
+            if (comprobante is null)
+            {
+                TempData["PortalError"] = "No se encontró el comprobante o no es tuyo.";
+            }
+            else
+            {
+                TempData["PortalMensaje"] =
+                    comprobante.EstadoEnvio == Models.Comprobantes.ComprobanteEstadoEnvio.Sent
+                        ? "Comprobante reenviado correctamente."
+                        : "No fue posible reenviar el comprobante. Intenta de nuevo en unos minutos.";
+            }
+
+            return RedirectToAction(nameof(Cobros));
+        }
+
+        /// <summary>
+        /// Genera y envía el comprobante de un cobro recién registrado, respetando el permiso y
+        /// el scope del funcionario. Devuelve el mensaje a mostrar (combina el resultado del cobro
+        /// con el del envío). Nunca lanza: el cobro ya quedó registrado.
+        /// </summary>
+        private async Task<string> EnviarComprobantePortalAsync(
+            PortalContexto ctx,
+            int cobroId,
+            bool enviarComprobante,
+            string? emailComprobante,
+            bool guardarEmailEnCliente,
+            string mensajeBase,
+            CancellationToken cancellationToken)
+        {
+            if (!enviarComprobante)
+            {
+                return mensajeBase;
+            }
+
+            if (!ctx.Permisos!.PuedeEnviarComprobantes)
+            {
+                _logger.LogWarning(
+                    "Intento de enviar comprobante sin permiso. FuncionarioId {FuncionarioId}.",
+                    ctx.FuncionarioId);
+                return mensajeBase + " (no tienes permiso para enviar comprobantes)";
+            }
+
+            try
+            {
+                var comprobante = await _comprobanteService.CrearYEnviarDesdeCobroAsync(
+                    cobroId,
+                    emailComprobante!,
+                    guardarEmailEnCliente,
+                    User.FindFirstValue(CustomClaimTypes.UserId),
+                    ctx.FuncionarioId,
+                    cancellationToken);
+
+                var enviado = comprobante is not null &&
+                    comprobante.EstadoEnvio == Models.Comprobantes.ComprobanteEstadoEnvio.Sent;
+
+                return enviado
+                    ? mensajeBase + " Comprobante enviado."
+                    : mensajeBase + " El comprobante quedó pendiente: puedes reintentarlo desde tus cobros.";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error enviando comprobante del cobro {CobroId} desde portal.", cobroId);
+                return mensajeBase + " (el comprobante no pudo enviarse)";
+            }
+        }
+
+        [HttpGet("Clientes/Autocompletado")]
+        public async Task<IActionResult> AutocompletarClientes(string? term, CancellationToken cancellationToken)
+        {
+            var ctx = await ResolverContextoAsync(cancellationToken);
+            if (ctx.Bloqueo is not null)
+            {
+                // Para una petición AJAX devolvemos lista vacía en vez de redirigir.
+                return Ok(Array.Empty<object>());
+            }
+
+            // Solo necesario para agendar/editar/cobro manual; si no puede, no exponemos el buscador.
+            if (!ctx.Permisos!.CrearMisCitas && !ctx.Permisos.EditarMisCitas && !ctx.Permisos.RegistrarMisCobrosManuales)
+            {
+                return Ok(Array.Empty<object>());
+            }
+
+            var clientes = await _portalQueryService.BuscarClientesAsync(term, cancellationToken);
+            return Ok(clientes.Select(c => new { id = c.Id, nombre = c.Nombre, telefono = c.Telefono, correo = c.Correo }));
         }
 
         [HttpGet("NoDisponible")]

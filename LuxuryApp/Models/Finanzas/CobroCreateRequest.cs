@@ -19,5 +19,16 @@ namespace LuxuryApp.Models.Finanzas
         /// a la cita para impedir doble cobro. El servicio valida pertenencia y unicidad.
         /// </summary>
         public int? CitaId { get; init; }
+
+        // ─────────────── Comprobante digital interno (opcional) ───────────────
+
+        /// <summary>Si es true, tras registrar el cobro se genera y envía un comprobante por correo.</summary>
+        public bool EnviarComprobante { get; init; }
+
+        /// <summary>Correo destino del comprobante. Obligatorio y válido solo si <see cref="EnviarComprobante"/>.</summary>
+        public string? EmailComprobante { get; init; }
+
+        /// <summary>Si es true y el cobro está ligado a un cliente, guarda el correo en su perfil.</summary>
+        public bool GuardarEmailEnCliente { get; init; }
     }
 }

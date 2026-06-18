@@ -46,7 +46,38 @@ namespace LuxuryApp.Services.Finanzas
                         : (c.Producto != null ? c.Producto.NombreProducto : "Sin detalle"),
                     Monto = c.Monto,
                     MetodoPago = c.MetodoPago,
-                    EsServicio = c.ServicioId != null
+                    EsServicio = c.ServicioId != null,
+                    // Comprobante "vivo" más reciente del cobro (OUTER APPLY: una sola consulta).
+                    ComprobanteId = _context.ComprobantesCobro
+                        .Where(cc => cc.CobroId == c.IdCobro && cc.EstadoEnvio != Models.Comprobantes.ComprobanteEstadoEnvio.Cancelled)
+                        .OrderByDescending(cc => cc.Id)
+                        .Select(cc => (int?)cc.Id)
+                        .FirstOrDefault(),
+                    ComprobanteEstado = _context.ComprobantesCobro
+                        .Where(cc => cc.CobroId == c.IdCobro && cc.EstadoEnvio != Models.Comprobantes.ComprobanteEstadoEnvio.Cancelled)
+                        .OrderByDescending(cc => cc.Id)
+                        .Select(cc => (Models.Comprobantes.ComprobanteEstadoEnvio?)cc.EstadoEnvio)
+                        .FirstOrDefault(),
+                    ComprobanteToken = _context.ComprobantesCobro
+                        .Where(cc => cc.CobroId == c.IdCobro && cc.EstadoEnvio != Models.Comprobantes.ComprobanteEstadoEnvio.Cancelled)
+                        .OrderByDescending(cc => cc.Id)
+                        .Select(cc => cc.TokenPublico)
+                        .FirstOrDefault(),
+                    ComprobanteNumero = _context.ComprobantesCobro
+                        .Where(cc => cc.CobroId == c.IdCobro && cc.EstadoEnvio != Models.Comprobantes.ComprobanteEstadoEnvio.Cancelled)
+                        .OrderByDescending(cc => cc.Id)
+                        .Select(cc => cc.NumeroInterno)
+                        .FirstOrDefault(),
+                    ComprobanteEmail = _context.ComprobantesCobro
+                        .Where(cc => cc.CobroId == c.IdCobro && cc.EstadoEnvio != Models.Comprobantes.ComprobanteEstadoEnvio.Cancelled)
+                        .OrderByDescending(cc => cc.Id)
+                        .Select(cc => cc.EmailDestino)
+                        .FirstOrDefault(),
+                    ComprobanteSentAt = _context.ComprobantesCobro
+                        .Where(cc => cc.CobroId == c.IdCobro && cc.EstadoEnvio != Models.Comprobantes.ComprobanteEstadoEnvio.Cancelled)
+                        .OrderByDescending(cc => cc.Id)
+                        .Select(cc => cc.SentAt)
+                        .FirstOrDefault()
                 })
                 .ToListAsync(cancellationToken);
 

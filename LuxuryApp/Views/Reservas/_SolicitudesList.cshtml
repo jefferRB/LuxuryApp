@@ -1,0 +1,80 @@
+@model LuxuryApp.Models.Reservas.BookingRequestsPageViewModel
+@using LuxuryApp.Models.Reservas
+
+@if (Model.Solicitudes.Count == 0)
+{
+    <div class="reservas-empty">
+        <div class="reservas-empty-icon"><i class="bi bi-calendar2-week"></i></div>
+        <p class="reservas-empty-title">No hay solicitudes en este filtro.</p>
+        <p class="reservas-empty-sub">Cuando tus clientes soliciten una cita desde tu link, aparecerán aquí.</p>
+    </div>
+}
+else
+{
+    <div class="reservas-cards">
+        @foreach (var s in Model.Solicitudes)
+        {
+            var (badgeClass, badgeText) = s.Estado switch
+            {
+                BookingRequestStates.Pending => ("rsv-badge rsv-pending", "Pendiente"),
+                BookingRequestStates.Confirmed => ("rsv-badge rsv-confirmed", "Confirmada"),
+                BookingRequestStates.Rejected => ("rsv-badge rsv-rejected", "Rechazada"),
+                BookingRequestStates.Expired => ("rsv-badge rsv-muted", "Expirada"),
+                _ => ("rsv-badge rsv-muted", s.Estado)
+            };
+
+            <article class="reservas-card" data-id="@s.Id">
+                <header class="reservas-card-top">
+                    <span class="reservas-nombre">@s.NombreCliente</span>
+                    <span class="@badgeClass">@badgeText</span>
+                </header>
+                <a class="reservas-tel" href="tel:@s.TelefonoCliente"><i class="bi bi-telephone"></i> @s.TelefonoCliente</a>
+
+                <div class="reservas-sep"></div>
+
+                <dl class="reservas-detalle">
+                    <div class="reservas-row">
+                        <dt><i class="bi bi-scissors"></i></dt>
+                        <dd>@s.ServicioNombre <span class="rsv-dim">· @s.DuracionMinutos min</span></dd>
+                    </div>
+                    <div class="reservas-row">
+                        <dt><i class="bi bi-person-badge"></i></dt>
+                        <dd>@s.FuncionarioNombre</dd>
+                    </div>
+                    <div class="reservas-row">
+                        <dt><i class="bi bi-calendar-event"></i></dt>
+                        <dd class="rsv-cap">@s.FechaHoraInicioSolicitada.ToString("dddd dd MMM") · @s.FechaHoraInicioSolicitada.ToString("HH:mm")</dd>
+                    </div>
+                    <div class="reservas-row">
+                        <dt><i class="bi bi-whatsapp"></i></dt>
+                        <dd class="rsv-dim">@(s.AceptaWhatsApp ? "Autoriza confirmación por WhatsApp" : "Sin autorización de WhatsApp")</dd>
+                    </div>
+                </dl>
+
+                @if (s.Estado == BookingRequestStates.Rejected && !string.IsNullOrWhiteSpace(s.RejectedReason))
+                {
+                    <div class="reservas-nota rsv-motivo"><i class="bi bi-x-circle"></i> @s.RejectedReason</div>
+                }
+                @if (s.Estado == BookingRequestStates.Confirmed && s.ConvertedCitaId.HasValue)
+                {
+                    <div class="reservas-nota rsv-ok"><i class="bi bi-check2-circle"></i> Cita #@s.ConvertedCitaId creada en el calendario.</div>
+                }
+
+                <footer class="reservas-card-foot">
+                    <span class="reservas-meta rsv-dim">Recibida @s.CreatedAtUtc.ToLocalTime().ToString("dd MMM, HH:mm")</span>
+                    @if (s.Estado == BookingRequestStates.Pending)
+                    {
+                        <div class="reservas-acciones">
+                            <button type="button" class="btn-rsv btn-rsv-reject" data-reject="@s.Id"><i class="bi bi-x-lg"></i> Rechazar</button>
+                            <button type="button" class="btn-rsv btn-rsv-confirm" data-confirm="@s.Id"><i class="bi bi-check-lg"></i> Confirmar</button>
+                        </div>
+                    }
+                </footer>
+                @if (s.Estado == BookingRequestStates.Pending && s.SolicitoCualquierFuncionario)
+                {
+                    <p class="rsv-hint rsv-dim">Se asignará un profesional disponible al confirmar.</p>
+                }
+            </article>
+        }
+    </div>
+}

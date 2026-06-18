@@ -214,6 +214,9 @@ namespace LuxuryApp.Tests.TenantIsolation
         {
             public Task SendPasswordResetEmailAsync(string toEmail, string displayName, string resetLink, CancellationToken cancellationToken = default)
                 => Task.CompletedTask;
+
+            public Task SendFuncionarioInvitationEmailAsync(string toEmail, string displayName, string setPasswordLink, CancellationToken cancellationToken = default)
+                => Task.CompletedTask;
         }
 
         private sealed class FakePublicSiteContentService : IPublicSiteContentService

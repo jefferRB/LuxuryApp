@@ -256,6 +256,35 @@
 
                             <td>
                                 <div class="finance-actions-cell">
+                                    @if (cobro.TieneComprobante)
+                                    {
+                                        var compTitle = $"Comprobante {cobro.ComprobanteNumero}" +
+                                            (string.IsNullOrWhiteSpace(cobro.ComprobanteEmail) ? "" : $" · {cobro.ComprobanteEmail}") +
+                                            (cobro.ComprobanteSentAt.HasValue ? $" · Enviado {cobro.ComprobanteSentAt.Value:dd/MM/yyyy HH:mm}" : "");
+                                        if (cobro.ComprobanteEnviado)
+                                        {
+                                            <span class="finance-method-badge" style="background:rgba(5,150,105,.12);color:#059669;" title="@compTitle">
+                                                <i class="bi bi-envelope-check"></i> Enviado
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="finance-method-badge" style="background:rgba(217,119,6,.12);color:#b45309;" title="@compTitle">
+                                                <i class="bi bi-envelope-exclamation"></i> Pendiente
+                                            </span>
+                                        }
+                                        <a href="/comprobantes/@cobro.ComprobanteToken" target="_blank" rel="noopener" class="finance-btn-row-edit" title="Ver comprobante">
+                                            <i class="bi bi-eye"></i> Ver
+                                        </a>
+                                        <form asp-action="ReenviarComprobante" method="post" style="display:inline;">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="comprobanteId" value="@cobro.ComprobanteId" />
+                                            <button type="submit" class="finance-btn-row-edit" title="Reenviar comprobante por correo">
+                                                <i class="bi bi-arrow-repeat"></i> Reenviar
+                                            </button>
+                                        </form>
+                                    }
+
                                     <a asp-action="Edit"
                                        asp-route-id="@cobro.IdCobro"
                                        class="finance-btn-row-edit">
@@ -347,6 +376,20 @@
                     </div>
 
                     <div class="finance-mobile-card-footer">
+                        @if (cobro.TieneComprobante)
+                        {
+                            <a href="/comprobantes/@cobro.ComprobanteToken" target="_blank" rel="noopener" class="finance-btn-row-edit">
+                                <i class="bi @(cobro.ComprobanteEnviado ? "bi-envelope-check" : "bi-envelope-exclamation")"></i> Ver comprobante
+                            </a>
+                            <form asp-action="ReenviarComprobante" method="post" style="display:inline;">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="comprobanteId" value="@cobro.ComprobanteId" />
+                                <button type="submit" class="finance-btn-row-edit">
+                                    <i class="bi bi-arrow-repeat"></i> Reenviar
+                                </button>
+                            </form>
+                        }
+
                         <a asp-action="Edit"
                            asp-route-id="@cobro.IdCobro"
                            class="finance-btn-row-edit">

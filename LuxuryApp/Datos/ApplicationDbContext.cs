@@ -1,12 +1,14 @@
 ﻿using System.Linq.Expressions;
 using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.Common;
+using LuxuryApp.Models.Comprobantes;
 using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.Legal;
 using LuxuryApp.Models.Productos;
+using LuxuryApp.Models.Reservas;
 using LuxuryApp.Models.Saas;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Models.WhatsApp;
@@ -375,6 +377,92 @@ namespace ProyectoIdentity.Datos
                     .OnDelete(DeleteBehavior.SetNull);
             });
 
+            modelBuilder.Entity<ComprobanteCobro>(entity =>
+            {
+                entity.Property(c => c.NumeroInterno).HasMaxLength(40).IsRequired();
+                entity.Property(c => c.TipoComprobante).HasMaxLength(40).IsRequired();
+                entity.Property(c => c.TokenPublico).HasMaxLength(64).IsRequired();
+                entity.Property(c => c.EmailDestino).HasMaxLength(256);
+                entity.Property(c => c.EmailDestinoNormalizado).HasMaxLength(256);
+                entity.Property(c => c.Moneda).HasMaxLength(3);
+                entity.Property(c => c.MetodoPago).HasMaxLength(20);
+
+                // Estado de envío como string legible en BD.
+                entity.Property(c => c.EstadoEnvio)
+                    .HasConversion<string>()
+                    .HasMaxLength(20);
+
+                entity.Property(c => c.Subtotal).HasColumnType("decimal(18,2)");
+                entity.Property(c => c.Descuento).HasColumnType("decimal(18,2)");
+                entity.Property(c => c.Impuesto).HasColumnType("decimal(18,2)");
+                entity.Property(c => c.Total).HasColumnType("decimal(18,2)");
+
+                // Número interno único por tenant (red de seguridad de la numeración).
+                entity.HasIndex(c => new { c.TenantId, c.NumeroInterno })
+                    .IsUnique()
+                    .HasDatabaseName("UX_ComprobantesCobro_TenantId_NumeroInterno");
+
+                // Un comprobante "vivo" por cobro: evita duplicados por doble submit/retry.
+                // Filtrado para no chocar con estados anulados (Cancelled) futuros.
+                entity.HasIndex(c => new { c.TenantId, c.CobroId })
+                    .IsUnique()
+                    .HasFilter("[EstadoEnvio] <> 'Cancelled'")
+                    .HasDatabaseName("UX_ComprobantesCobro_TenantId_CobroId");
+
+                entity.HasIndex(c => new { c.TenantId, c.ClienteId })
+                    .HasFilter("[ClienteId] IS NOT NULL")
+                    .HasDatabaseName("IX_ComprobantesCobro_TenantId_ClienteId");
+
+                entity.HasIndex(c => new { c.TenantId, c.EstadoEnvio })
+                    .HasDatabaseName("IX_ComprobantesCobro_TenantId_EstadoEnvio");
+
+                // Token único global: la ruta pública lo resuelve sin contexto de tenant.
+                entity.HasIndex(c => c.TokenPublico)
+                    .IsUnique()
+                    .HasDatabaseName("UX_ComprobantesCobro_TokenPublico");
+
+                // No borrar comprobantes históricos al borrar el cobro.
+                entity.HasOne(c => c.Cobro)
+                    .WithMany()
+                    .HasForeignKey(c => c.CobroId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(c => c.Cliente)
+                    .WithMany()
+                    .HasForeignKey(c => c.ClienteId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(c => c.Funcionario)
+                    .WithMany()
+                    .HasForeignKey(c => c.FuncionarioId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasMany(c => c.Lineas)
+                    .WithOne(l => l.ComprobanteCobro!)
+                    .HasForeignKey(l => l.ComprobanteCobroId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<ComprobanteCobroLinea>(entity =>
+            {
+                entity.Property(l => l.Descripcion).HasMaxLength(250).IsRequired();
+                entity.Property(l => l.TipoLinea).HasMaxLength(20).IsRequired();
+                entity.Property(l => l.Cantidad).HasColumnType("decimal(18,2)");
+                entity.Property(l => l.PrecioUnitario).HasColumnType("decimal(18,2)");
+                entity.Property(l => l.Subtotal).HasColumnType("decimal(18,2)");
+                entity.Property(l => l.Impuesto).HasColumnType("decimal(18,2)");
+                entity.Property(l => l.Total).HasColumnType("decimal(18,2)");
+
+                entity.HasIndex(l => new { l.TenantId, l.ComprobanteCobroId })
+                    .HasDatabaseName("IX_ComprobanteCobroLineas_TenantId_ComprobanteCobroId");
+            });
+
+            modelBuilder.Entity<ComprobanteCobroSecuencia>(entity =>
+            {
+                entity.HasKey(s => s.TenantId);
+                entity.Property(s => s.UltimoNumero).IsRequired();
+            });
+
             modelBuilder.Entity<FuncionarioPortalPermiso>(entity =>
             {
                 entity.Property(p => p.Permiso).HasMaxLength(60).IsRequired();
@@ -561,6 +649,75 @@ namespace ProyectoIdentity.Datos
                     .WithMany(l => l.DistribucionesMensuales)
                     .HasForeignKey(d => d.LiquidacionSemanalId)
                     .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<TenantBookingSettings>(entity =>
+            {
+                entity.Property(s => s.PublicBookingSlug).HasMaxLength(80);
+                entity.Property(s => s.PublicBookingMode).HasMaxLength(40).IsRequired();
+                entity.Property(s => s.PublicBookingWelcomeMessage).HasMaxLength(500);
+                entity.Property(s => s.PublicBookingConfirmationMessage).HasMaxLength(500);
+                entity.Property(s => s.UpdatedByUserId).HasMaxLength(450);
+
+                entity.HasIndex(s => s.TenantId)
+                    .IsUnique()
+                    .HasDatabaseName("UX_TenantBookingSettings_TenantId");
+
+                // Slug único entre tenants (solo cuando está definido).
+                entity.HasIndex(s => s.PublicBookingSlug)
+                    .IsUnique()
+                    .HasFilter("[PublicBookingSlug] IS NOT NULL")
+                    .HasDatabaseName("UX_TenantBookingSettings_Slug");
+
+                entity.HasOne(s => s.Tenant)
+                    .WithOne()
+                    .HasForeignKey<TenantBookingSettings>(s => s.TenantId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<BookingRequest>(entity =>
+            {
+                entity.Property(r => r.NombreCliente).HasMaxLength(100).IsRequired();
+                entity.Property(r => r.TelefonoCliente).HasMaxLength(30).IsRequired();
+                entity.Property(r => r.CorreoCliente).HasMaxLength(256);
+                entity.Property(r => r.NotasCliente).HasMaxLength(500);
+                entity.Property(r => r.Estado).HasMaxLength(30).IsRequired();
+                entity.Property(r => r.Origen).HasMaxLength(40).IsRequired();
+                entity.Property(r => r.ConfirmedByUserId).HasMaxLength(450);
+                entity.Property(r => r.RejectedByUserId).HasMaxLength(450);
+                entity.Property(r => r.RejectedReason).HasMaxLength(300);
+                entity.Property(r => r.IpHash).HasMaxLength(64);
+                entity.Property(r => r.UserAgent).HasMaxLength(400);
+
+                entity.HasIndex(r => new { r.TenantId, r.Estado, r.FechaHoraInicioSolicitada })
+                    .HasDatabaseName("IX_BookingRequests_TenantId_Estado_Fecha");
+
+                entity.HasIndex(r => new { r.TenantId, r.TelefonoCliente, r.Estado })
+                    .HasDatabaseName("IX_BookingRequests_TenantId_Telefono_Estado");
+
+                entity.HasIndex(r => r.ConvertedCitaId)
+                    .HasFilter("[ConvertedCitaId] IS NOT NULL")
+                    .HasDatabaseName("IX_BookingRequests_ConvertedCitaId");
+
+                entity.HasOne(r => r.Servicio)
+                    .WithMany()
+                    .HasForeignKey(r => r.ServicioId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(r => r.Funcionario)
+                    .WithMany()
+                    .HasForeignKey(r => r.FuncionarioId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(r => r.Cliente)
+                    .WithMany()
+                    .HasForeignKey(r => r.ClienteId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(r => r.ConvertedCita)
+                    .WithMany()
+                    .HasForeignKey(r => r.ConvertedCitaId)
+                    .OnDelete(DeleteBehavior.SetNull);
             });
 
             modelBuilder.Entity<Tenant>(entity =>
@@ -1111,6 +1268,10 @@ namespace ProyectoIdentity.Datos
         //Finanzas
         public DbSet<Cobro> Cobros { get; set; }
         public DbSet<Servicio> Servicios { get; set; }
+        //Comprobantes (comprobante digital interno, no fiscal)
+        public DbSet<ComprobanteCobro> ComprobantesCobro { get; set; }
+        public DbSet<ComprobanteCobroLinea> ComprobanteCobroLineas { get; set; }
+        public DbSet<ComprobanteCobroSecuencia> ComprobanteCobroSecuencias { get; set; }
         public DbSet<Egreso> Egresos { get; set; }
         public DbSet<Categoria> Categorias { get; set; }
         //Productos
@@ -1141,6 +1302,9 @@ namespace ProyectoIdentity.Datos
         public DbSet<PromotionalCodeRedemption> PromotionalCodeRedemptions { get; set; }
         public DbSet<ContractDocument> ContractDocuments { get; set; }
         public DbSet<ContractAcceptanceRecord> ContractAcceptanceRecords { get; set; }
+        //Reservas online (Fase 1)
+        public DbSet<TenantBookingSettings> TenantBookingSettings { get; set; }
+        public DbSet<BookingRequest> BookingRequests { get; set; }
 
 
 

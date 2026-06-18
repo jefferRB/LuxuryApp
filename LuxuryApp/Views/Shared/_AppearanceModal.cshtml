@@ -1,0 +1,83 @@
+@*
+    Modal de personalización visual (4 temas). Fuente única reutilizada por el layout
+    administrativo y por el portal de funcionarios. La lógica vive en site.js (motor de
+    apariencia: data-luxury-appearance-option / data-luxury-theme-check, persistencia en
+    localStorage). No incluye links administrativos: es seguro para el portal.
+*@
+<div class="modal fade theme-style-modal" id="themeStyleModal" tabindex="-1" aria-labelledby="themeStyleModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content private-theme-modal">
+            <div class="modal-header private-theme-modal-header">
+                <div>
+                    <span class="private-theme-modal-kicker">Personalizacion visual</span>
+                    <h5 class="modal-title private-theme-modal-title" id="themeStyleModalLabel">Apariencia del espacio de trabajo</h5>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+
+            <div class="modal-body private-theme-modal-body">
+                <p class="private-theme-modal-copy">
+                    Elige una apariencia para el espacio privado. El cambio se aplica de inmediato y se conserva solo en este navegador.
+                </p>
+
+                <div class="private-theme-grid">
+                    <button type="button"
+                            class="private-theme-card"
+                            data-luxury-appearance-option="classic-marble"
+                            aria-pressed="false">
+                        <span class="private-theme-card-preview private-theme-card-preview-marble" aria-hidden="true"></span>
+                        <span class="private-theme-card-body">
+                            <span class="private-theme-card-title">Clasico marmol</span>
+                            <span class="private-theme-card-copy">Fondo marmol blanco con cards claras y estilo operativo tradicional.</span>
+                        </span>
+                        <span class="private-theme-card-state">
+                            <i class="bi bi-check-circle-fill d-none" data-luxury-theme-check aria-hidden="true"></i>
+                        </span>
+                    </button>
+
+                    <button type="button"
+                            class="private-theme-card"
+                            data-luxury-appearance-option="futuristic-premium"
+                            aria-pressed="false">
+                        <span class="private-theme-card-preview private-theme-card-preview-futuristic" aria-hidden="true"></span>
+                        <span class="private-theme-card-body">
+                            <span class="private-theme-card-title">Futurista premium</span>
+                            <span class="private-theme-card-copy">Fondo azul/morado con paneles glass, tablas oscuras y estilo SaaS moderno.</span>
+                        </span>
+                        <span class="private-theme-card-state">
+                            <i class="bi bi-check-circle-fill d-none" data-luxury-theme-check aria-hidden="true"></i>
+                        </span>
+                    </button>
+
+                    <button type="button"
+                            class="private-theme-card"
+                            data-luxury-appearance-option="absolute-black"
+                            aria-pressed="false">
+                        <span class="private-theme-card-preview private-theme-card-preview-black" aria-hidden="true"></span>
+                        <span class="private-theme-card-body">
+                            <span class="private-theme-card-title">Negro absoluto</span>
+                            <span class="private-theme-card-copy">Fondo completamente negro, paneles oscuros y máximo contraste para trabajo nocturno.</span>
+                        </span>
+                        <span class="private-theme-card-state">
+                            <i class="bi bi-check-circle-fill d-none" data-luxury-theme-check aria-hidden="true"></i>
+                        </span>
+                    </button>
+
+                    <button type="button"
+                            class="private-theme-card"
+                            data-luxury-appearance-option="clean-white"
+                            aria-pressed="false">
+                        <span class="private-theme-card-preview private-theme-card-preview-clean-white" aria-hidden="true"></span>
+                        <span class="private-theme-card-body">
+                            <span class="private-theme-card-title">Blanco limpio</span>
+                            <span class="private-theme-card-copy">Fondo completamente blanco, paneles claros y una experiencia limpia para espacios iluminados.</span>
+                        </span>
+                        <span class="private-theme-card-state">
+                            <i class="bi bi-check-circle-fill d-none" data-luxury-theme-check aria-hidden="true"></i>
+                        </span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

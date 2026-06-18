@@ -464,13 +464,15 @@
                                    checked="@permisos.Tiene(FuncionarioPortalPermissions.CrearMisCitas)" />
                             <span>Agendar citas propias</span>
                         </label>
-                        <label class="perm-item perm-item--locked">
-                            <input type="checkbox" disabled />
-                            <span>Editar mis citas <span class="perm-tag">Fase 2B</span></span>
+                        <label class="perm-item">
+                            <input type="checkbox" name="permisos" value="@FuncionarioPortalPermissions.EditarMisCitas"
+                                   checked="@permisos.Tiene(FuncionarioPortalPermissions.EditarMisCitas)" />
+                            <span>Editar mis citas</span>
                         </label>
-                        <label class="perm-item perm-item--locked">
-                            <input type="checkbox" disabled />
-                            <span>Cancelar mis citas <span class="perm-tag">Fase 2B</span></span>
+                        <label class="perm-item">
+                            <input type="checkbox" name="permisos" value="@FuncionarioPortalPermissions.CancelarMisCitas"
+                                   checked="@permisos.Tiene(FuncionarioPortalPermissions.CancelarMisCitas)" />
+                            <span>Cancelar mis citas</span>
                         </label>
                     </div>
 
@@ -485,7 +487,12 @@
                         <label class="perm-item">
                             <input type="checkbox" name="permisos" value="@FuncionarioPortalPermissions.RegistrarMisCobros"
                                    checked="@permisos.Tiene(FuncionarioPortalPermissions.RegistrarMisCobros)" />
-                            <span>Registrar cobros propios</span>
+                            <span>Registrar cobros desde mis citas</span>
+                        </label>
+                        <label class="perm-item">
+                            <input type="checkbox" name="permisos" value="@FuncionarioPortalPermissions.RegistrarMisCobrosManuales"
+                                   checked="@permisos.Tiene(FuncionarioPortalPermissions.RegistrarMisCobrosManuales)" />
+                            <span>Registrar cobros manuales</span>
                         </label>
                     </div>
 

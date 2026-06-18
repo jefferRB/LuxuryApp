@@ -86,6 +86,8 @@ namespace LuxuryApp.Middleware
                 path.StartsWith("/error") ||
                 path.StartsWith("/contract") ||
                 path.StartsWith("/billing") ||
+                path.StartsWith("/comprobantes") ||
+                path.StartsWith("/reservar") ||
                 path.StartsWith("/api/webhooks/meta-whatsapp");
         }
     }

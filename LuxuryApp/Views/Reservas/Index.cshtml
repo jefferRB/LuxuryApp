@@ -1,0 +1,167 @@
+@model LuxuryApp.Models.Reservas.BookingRequestsPageViewModel
+@using LuxuryApp.Models.Reservas
+@{
+    ViewData["Title"] = "Solicitudes de reserva";
+
+    string EstadoActivo(string e) => string.Equals(Model.EstadoFiltro, e, StringComparison.OrdinalIgnoreCase) ? "active" : "";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/reservas-admin.css" asp-append-version="true" />
+}
+
+<div class="reservas-shell">
+    <div class="reservas-head">
+        <div class="reservas-head-text">
+            <span class="reservas-eyebrow"><i class="bi bi-calendar-check"></i> Gestión de reservas</span>
+            <h1 class="reservas-title">Solicitudes de reserva</h1>
+            <p class="reservas-sub">Revisá las solicitudes que llegan desde tu enlace público y confirmalas o rechazalas.</p>
+        </div>
+        <a asp-controller="Reservas" asp-action="Configuracion" class="btn-rsv btn-rsv-soft">
+            <i class="bi bi-gear"></i> Configuración
+        </a>
+    </div>
+
+    @if (!Model.ReservasActivas)
+    {
+        <div class="reservas-aviso">
+            <span><i class="bi bi-info-circle"></i> Las reservas online están desactivadas. Activá tu enlace para empezar a recibir solicitudes.</span>
+            <a asp-controller="Reservas" asp-action="Configuracion" class="btn-rsv btn-rsv-primary"><i class="bi bi-toggle-on"></i> Activar reservas</a>
+        </div>
+    }
+
+    <div class="reservas-filtros">
+        <div class="reservas-tabs" id="estadoTabs">
+            <a class="rsv-tab @EstadoActivo(BookingRequestStates.Pending)" data-estado="Pending">Pendientes <span class="rsv-count">@Model.PendientesCount</span></a>
+            <a class="rsv-tab @EstadoActivo(BookingRequestStates.Confirmed)" data-estado="Confirmed">Confirmadas <span class="rsv-count">@Model.ConfirmadasCount</span></a>
+            <a class="rsv-tab @EstadoActivo(BookingRequestStates.Rejected)" data-estado="Rejected">Rechazadas <span class="rsv-count">@Model.RechazadasCount</span></a>
+            <a class="rsv-tab @EstadoActivo("all")" data-estado="all">Todas</a>
+        </div>
+        <select id="rangoSelect" class="reservas-rango">
+            <option value="hoy" selected="@(Model.RangoFiltro == "hoy")">Hoy</option>
+            <option value="semana" selected="@(Model.RangoFiltro == "semana")">Esta semana</option>
+            <option value="mes" selected="@(Model.RangoFiltro == "mes")">Este mes</option>
+        </select>
+    </div>
+
+    <div id="reservasLista">
+        <partial name="_SolicitudesList" model="Model" />
+    </div>
+</div>
+
+<!-- Modal rechazar -->
+<div class="rsv-modal-backdrop" id="rejectModal" hidden>
+    <div class="rsv-modal">
+        <h3>Rechazar solicitud</h3>
+        <p class="rsv-dim">Podés indicar un motivo (opcional). El cliente no recibe este mensaje en Fase 1.</p>
+        <textarea id="rejectMotivo" maxlength="300" rows="3" placeholder="Motivo (opcional)"></textarea>
+        <div class="rsv-modal-actions">
+            <button type="button" class="btn-rsv btn-rsv-soft" id="rejectCancel">Cancelar</button>
+            <button type="button" class="btn-rsv btn-rsv-reject" id="rejectConfirm">Rechazar</button>
+        </div>
+    </div>
+</div>
+
+@Html.AntiForgeryToken()
+
+@section Scripts {
+    <script>
+        (function () {
+            const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+            const listaEl = document.getElementById('reservasLista');
+            const tabs = document.getElementById('estadoTabs');
+            const rangoSelect = document.getElementById('rangoSelect');
+            let estado = '@Model.EstadoFiltro';
+            let rango = '@Model.RangoFiltro';
+            let rejectId = null;
+
+            async function recargar() {
+                const url = `@Url.Action("Lista", "Reservas")?estado=${encodeURIComponent(estado)}&rango=${encodeURIComponent(rango)}`;
+                const resp = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                if (resp.ok) {
+                    listaEl.innerHTML = await resp.text();
+                    bindAcciones();
+                }
+            }
+
+            function setActiveTab() {
+                tabs.querySelectorAll('.rsv-tab').forEach(t => {
+                    t.classList.toggle('active', t.dataset.estado === estado);
+                });
+            }
+
+            tabs.addEventListener('click', function (e) {
+                const tab = e.target.closest('.rsv-tab');
+                if (!tab) return;
+                estado = tab.dataset.estado;
+                setActiveTab();
+                recargar();
+            });
+
+            rangoSelect.addEventListener('change', function () {
+                rango = this.value;
+                recargar();
+            });
+
+            async function postAccion(url, body) {
+                const resp = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'RequestVerificationToken': token,
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: body
+                });
+                let data = {};
+                try { data = await resp.json(); } catch { }
+                return { ok: resp.ok, data };
+            }
+
+            function bindAcciones() {
+                listaEl.querySelectorAll('[data-confirm]').forEach(btn => {
+                    btn.addEventListener('click', async function () {
+                        const id = this.dataset.confirm;
+                        this.disabled = true;
+                        const { ok, data } = await postAccion('@Url.Action("Confirmar", "Reservas")', `id=${id}`);
+                        if (ok && data.success) {
+                            recargar();
+                        } else {
+                            alert(data.message || 'No fue posible confirmar.');
+                            this.disabled = false;
+                        }
+                    });
+                });
+
+                listaEl.querySelectorAll('[data-reject]').forEach(btn => {
+                    btn.addEventListener('click', function () {
+                        rejectId = this.dataset.reject;
+                        document.getElementById('rejectMotivo').value = '';
+                        document.getElementById('rejectModal').hidden = false;
+                    });
+                });
+            }
+
+            document.getElementById('rejectCancel').addEventListener('click', function () {
+                document.getElementById('rejectModal').hidden = true;
+                rejectId = null;
+            });
+
+            document.getElementById('rejectConfirm').addEventListener('click', async function () {
+                if (!rejectId) return;
+                const motivo = document.getElementById('rejectMotivo').value || '';
+                this.disabled = true;
+                const { ok, data } = await postAccion('@Url.Action("Rechazar", "Reservas")', `id=${rejectId}&motivo=${encodeURIComponent(motivo)}`);
+                this.disabled = false;
+                document.getElementById('rejectModal').hidden = true;
+                if (ok && data.success) {
+                    recargar();
+                } else {
+                    alert(data.message || 'No fue posible rechazar.');
+                }
+                rejectId = null;
+            });
+
+            bindAcciones();
+        })();
+    </script>
+}

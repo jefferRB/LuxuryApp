@@ -6,86 +6,180 @@
     ViewData["PortalActive"] = "ganancias";
     var cr = new CultureInfo("es-CR");
     string Money(decimal v) => "₡" + v.ToString("#,##0.00", cr);
+    string Day(DateTime d) => d.ToString("yyyy-MM-dd");
+    // Navegación independiente: al cambiar semana se conserva el mes y viceversa.
+    string UrlSemana(DateTime wk) => $"/MiPortal/Ganancias?semana={Day(wk)}&mes={Day(Model.InicioMes)}";
+    string UrlMes(DateTime ms) => $"/MiPortal/Ganancias?semana={Day(Model.InicioSemana)}&mes={Day(ms)}";
+}
+
+@section Styles {
+    <style>
+        .gan-hero { background:linear-gradient(135deg, rgba(124,58,237,.16), rgba(99,102,241,.10));
+            border:1px solid var(--private-surface-border,rgba(15,23,42,.08)); border-radius:18px; padding:1.4rem 1.5rem; margin-bottom:1.2rem;
+            box-shadow:var(--private-card-shadow,0 10px 26px rgba(15,23,42,.08)); }
+        .gan-hero-label { font-size:.78rem; font-weight:700; color:var(--private-muted-text,#94a3b8); text-transform:uppercase; letter-spacing:.4px; display:flex; align-items:center; gap:.4rem; }
+        .gan-hero-val { font-size:2.4rem; font-weight:800; color:var(--lp-amber,#d97706); line-height:1.1; margin:.25rem 0; }
+        .gan-hero-sub { font-size:.82rem; color:var(--private-muted-text,#64748b); margin:0; }
+        .gan-chart { display:flex; align-items:flex-end; gap:.5rem; height:170px; padding:.5rem .2rem 0; }
+        .gan-bar-wrap { flex:1; display:flex; flex-direction:column; align-items:center; gap:.35rem; height:100%; justify-content:flex-end; min-width:0; }
+        .gan-bar { width:100%; max-width:34px; border-radius:7px 7px 0 0; background:linear-gradient(180deg,#a78bfa,#6366f1); transition:height .3s; min-height:3px; }
+        .gan-bar-day { font-size:.72rem; font-weight:700; color:var(--private-muted-text,#94a3b8); text-transform:capitalize; }
+        .gan-bar-val { font-size:.66rem; color:var(--private-muted-text,#94a3b8); white-space:nowrap; }
+        .gan-explain { background:var(--private-surface-bg,#fff); border:1px solid var(--private-surface-border,#eef1f6); border-radius:16px; padding:1.2rem 1.4rem; }
+        .gan-explain h3 { font-size:1rem; font-weight:800; margin:0 0 .6rem; display:flex; align-items:center; gap:.45rem; color:var(--private-surface-text,#0f172a); }
+        .gan-explain li { font-size:.84rem; color:var(--private-muted-text,#475569); margin-bottom:.35rem; line-height:1.45; }
+        .gan-explain b { color:var(--private-surface-text,#0f172a); }
+        .gan-period { display:flex; align-items:center; justify-content:space-between; gap:.6rem; flex-wrap:wrap; margin-bottom:.85rem; }
+        .gan-nav { display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
+        .gan-date { background:var(--private-input-bg,#fff); color:var(--private-input-text,#0f172a);
+            border:1px solid var(--private-input-border,rgba(15,23,42,.14)); border-radius:.6rem; padding:.35rem .55rem; font-size:.82rem; }
+        .gan-date::-webkit-calendar-picker-indicator { filter:var(--gan-cal-filter, none); }
+        html.surface-glass .gan-date::-webkit-calendar-picker-indicator,
+        html.surface-dark .gan-date::-webkit-calendar-picker-indicator { filter:invert(1) opacity(.7); }
+    </style>
 }
 
 <div class="lp-card" style="margin-bottom:1rem;">
     <h1 style="font-size:1.3rem;font-weight:800;margin:0;">Mis ganancias</h1>
     <p class="lp-muted" style="margin:.25rem 0 0;">
-        Estimaciones basadas en tu producción. Los montos pagados son los reales registrados por tu negocio.
+        Producción, comisiones, pagado y pendiente de pagar.
     </p>
 </div>
 
-@{
-    var bloques = new[]
-    {
-        new { Titulo = "Hoy", Icono = "bi-sun", Resumen = Model.Hoy },
-        new { Titulo = $"Esta semana ({Model.InicioSemana.ToString("dd/MM", cr)} - {Model.FinSemana.ToString("dd/MM", cr)})", Icono = "bi-calendar-week", Resumen = Model.Semana },
-        new { Titulo = $"Este mes ({Model.InicioMes.ToString("MMMM yyyy", cr)})", Icono = "bi-calendar3", Resumen = Model.Mes }
-    };
-}
+<div class="gan-hero">
+    <div class="gan-hero-label"><i class="bi bi-hourglass-split"></i> Pendiente estimado por pagar</div>
+    <div class="gan-hero-val">@Money(Model.PendienteSemana)</div>
+    <p class="gan-hero-sub">Calculado con servicios/productos registrados y pagos recibidos.</p>
+</div>
 
-@foreach (var bloque in bloques)
-{
-    var r = bloque.Resumen;
-    <h2 class="lp-section-title"><i class="bi @bloque.Icono"></i> @bloque.Titulo</h2>
-    <div class="lp-kpis" style="margin-bottom:1.2rem;">
-        <div class="lp-kpi">
-            <div class="lp-kpi-label">Producción servicios</div>
-            <div class="lp-kpi-value">@Money(r.ProduccionServicios)</div>
-        </div>
-        <div class="lp-kpi">
-            <div class="lp-kpi-label">Comisión servicios</div>
-            <div class="lp-kpi-value">@Money(r.ComisionServicios)</div>
-        </div>
-        @if (r.TieneProductos)
-        {
-            <div class="lp-kpi">
-                <div class="lp-kpi-label">Producción productos</div>
-                <div class="lp-kpi-value">@Money(r.ProduccionProductos)</div>
-            </div>
-            <div class="lp-kpi">
-                <div class="lp-kpi-label">Comisión productos</div>
-                <div class="lp-kpi-value">@Money(r.ComisionProductos)</div>
-            </div>
-        }
-        <div class="lp-kpi">
-            <div class="lp-kpi-label">Total estimado</div>
-            <div class="lp-kpi-value lp-kpi-value--gold">@Money(r.TotalEstimado)</div>
-        </div>
+@{ var h = Model.Hoy; }
+<!-- HOY -->
+<h2 class="lp-section-title"><i class="bi bi-sun"></i> Hoy</h2>
+<div class="lp-kpis" style="margin-bottom:1.2rem;">
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Producción servicios</div>
+        <div class="lp-kpi-value">@Money(h.ProduccionServicios)</div>
     </div>
-
-    @if (bloque.Titulo.StartsWith("Esta semana"))
+    @if (h.TieneProductos)
     {
-        <div class="lp-kpis" style="margin-bottom:1.2rem;">
-            <div class="lp-kpi">
-                <div class="lp-kpi-label">Pagado esta semana</div>
-                <div class="lp-kpi-value lp-kpi-value--green">@Money(Model.PagadoSemana)</div>
-            </div>
-            <div class="lp-kpi">
-                <div class="lp-kpi-label">Pendiente por pagar</div>
-                <div class="lp-kpi-value lp-kpi-value--gold">@Money(Model.PendienteSemana)</div>
-            </div>
+        <div class="lp-kpi">
+            <div class="lp-kpi-label">Producción productos</div>
+            <div class="lp-kpi-value">@Money(h.ProduccionProductos)</div>
         </div>
     }
-}
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Comisión servicios</div>
+        <div class="lp-kpi-value">@Money(h.ComisionServicios)</div>
+    </div>
+    @if (h.TieneProductos)
+    {
+        <div class="lp-kpi">
+            <div class="lp-kpi-label">Comisión productos</div>
+            <div class="lp-kpi-value">@Money(h.ComisionProductos)</div>
+        </div>
+    }
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Total estimado</div>
+        <div class="lp-kpi-value lp-kpi-value--green">@Money(h.TotalEstimado)</div>
+    </div>
+</div>
+
+@{ var s = Model.Semana; }
+<!-- ESTA SEMANA -->
+<div class="gan-period">
+    <h2 class="lp-section-title" style="margin:0;"><i class="bi bi-calendar-week"></i> Semana @Model.InicioSemana.ToString("dd/MM", cr) - @Model.FinSemana.ToString("dd/MM", cr)</h2>
+    <div class="gan-nav">
+        <a href="@UrlSemana(Model.SemanaAnterior)" class="lp-icon-btn" title="Semana anterior"><i class="bi bi-chevron-left"></i></a>
+        @if (!Model.EsSemanaActual)
+        {
+            <a href="/MiPortal/Ganancias?mes=@Day(Model.InicioMes)" class="lp-btn lp-btn--ghost" style="padding:.35rem .7rem;">Actual</a>
+        }
+        <input type="date" class="gan-date" value="@Day(Model.InicioSemana)"
+               onchange="if(this.value)location.href='/MiPortal/Ganancias?semana='+this.value+'&mes=@Day(Model.InicioMes)'" />
+        <a href="@UrlSemana(Model.SemanaSiguiente)" class="lp-icon-btn" title="Semana siguiente"><i class="bi bi-chevron-right"></i></a>
+    </div>
+</div>
+<div class="lp-kpis" style="margin-bottom:1.2rem;">
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Producción total</div>
+        <div class="lp-kpi-value">@Money(s.ProduccionTotal)</div>
+    </div>
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Comisión estimada</div>
+        <div class="lp-kpi-value">@Money(s.TotalEstimado)</div>
+    </div>
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Pagado esta semana</div>
+        <div class="lp-kpi-value lp-kpi-value--green">@Money(Model.PagadoSemana)</div>
+    </div>
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Pendiente por pagar</div>
+        <div class="lp-kpi-value lp-kpi-value--amber">@Money(Model.PendienteSemana)</div>
+    </div>
+</div>
+
+@{ var m = Model.Mes; }
+<!-- ESTE MES -->
+<div class="gan-period">
+    <h2 class="lp-section-title" style="margin:0;text-transform:capitalize;"><i class="bi bi-calendar3"></i> @Model.InicioMes.ToString("MMMM yyyy", cr)</h2>
+    <div class="gan-nav">
+        <a href="@UrlMes(Model.MesAnterior)" class="lp-icon-btn" title="Mes anterior"><i class="bi bi-chevron-left"></i></a>
+        @if (!Model.EsMesActual)
+        {
+            <a href="/MiPortal/Ganancias?semana=@Day(Model.InicioSemana)" class="lp-btn lp-btn--ghost" style="padding:.35rem .7rem;">Actual</a>
+        }
+        <input type="month" class="gan-date" value="@Model.InicioMes.ToString("yyyy-MM")"
+               onchange="if(this.value)location.href='/MiPortal/Ganancias?semana=@Day(Model.InicioSemana)&mes='+this.value+'-01'" />
+        <a href="@UrlMes(Model.MesSiguiente)" class="lp-icon-btn" title="Mes siguiente"><i class="bi bi-chevron-right"></i></a>
+    </div>
+</div>
+<div class="lp-kpis" style="margin-bottom:1.2rem;">
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Producción mensual</div>
+        <div class="lp-kpi-value">@Money(m.ProduccionTotal)</div>
+    </div>
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Comisión mensual</div>
+        <div class="lp-kpi-value">@Money(m.TotalEstimado)</div>
+    </div>
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Pagado en el mes</div>
+        <div class="lp-kpi-value lp-kpi-value--green">@Money(Model.PagadoMes)</div>
+    </div>
+    <div class="lp-kpi">
+        <div class="lp-kpi-label">Pendiente mensual</div>
+        <div class="lp-kpi-value lp-kpi-value--amber">@Money(Model.PendienteMes)</div>
+    </div>
+</div>
 
 @if (Model.DetalleDiasSemana.Count > 0)
 {
-    <div class="lp-card">
-        <h2 class="lp-section-title"><i class="bi bi-bar-chart"></i> Producción por día (semana)</h2>
-        <div style="display:flex;flex-direction:column;gap:.4rem;">
+    var maxMonto = Model.DetalleDiasSemana.Max(d => d.Monto);
+    if (maxMonto <= 0) { maxMonto = 1; }
+    <div class="lp-card" style="margin-bottom:1.2rem;">
+        <h2 class="lp-section-title"><i class="bi bi-bar-chart"></i> Producción por día de la semana</h2>
+        <div class="gan-chart">
             @foreach (var dia in Model.DetalleDiasSemana)
             {
-                <div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem .6rem;border:1px solid var(--lp-border);border-radius:.6rem;">
-                    <span style="text-transform:capitalize;font-weight:600;">@dia.Dia</span>
-                    <span class="lp-muted" style="font-size:.82rem;">@dia.CantidadServicios serv.</span>
-                    <span style="font-weight:700;">@Money(dia.Monto)</span>
+                var pct = (int)Math.Round((double)(dia.Monto / maxMonto) * 100);
+                <div class="gan-bar-wrap" title="@dia.Dia: @Money(dia.Monto) (@dia.CantidadServicios serv.)">
+                    <span class="gan-bar-val">@(dia.Monto > 0 ? Money(dia.Monto) : "")</span>
+                    <div class="gan-bar" style="height:@(pct)%;"></div>
+                    <span class="gan-bar-day">@(dia.Dia.Length >= 3 ? dia.Dia.Substring(0, 3) : dia.Dia)</span>
                 </div>
             }
         </div>
     </div>
 }
 
-<p class="lp-muted" style="font-size:.78rem;margin-top:1rem;text-align:center;">
-    Las comisiones son estimadas según la configuración de tu negocio y pueden ajustarse al liquidar.
-</p>
+<div class="gan-explain">
+    <h3><i class="bi bi-question-circle"></i> ¿Cómo se calcula?</h3>
+    <ul style="margin:0;padding-left:1.1rem;">
+        <li><b>Servicios:</b> monto del servicio × tu porcentaje de comisión de servicios.</li>
+        <li><b>Productos:</b> monto del producto × tu porcentaje de comisión de productos.</li>
+        <li>Respeta si el negocio <b>rebaja impuestos antes de la comisión</b>.</li>
+        <li><b>Pagado:</b> pagos realmente registrados por tu negocio.</li>
+        <li><b>Pendiente estimado:</b> comisión estimada menos lo ya pagado.</li>
+        <li>Consulta con administración para ver el detalle.</li>
+    </ul>
+</div>

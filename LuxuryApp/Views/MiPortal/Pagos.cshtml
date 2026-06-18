@@ -9,10 +9,25 @@
 
 <div class="lp-card" style="margin-bottom:1rem;">
     <h1 style="font-size:1.3rem;font-weight:800;margin:0;">Mis pagos recibidos</h1>
-    <p class="lp-muted" style="margin:.25rem 0 .8rem;">Historial de los pagos que tu negocio te ha registrado.</p>
-    <div class="lp-kpi" style="display:inline-block;">
-        <div class="lp-kpi-label">Total recibido (histórico)</div>
+    <p class="lp-muted" style="margin:.25rem 0 0;">Historial de pagos registrados por tu negocio.</p>
+</div>
+
+<div class="lp-kpis" style="margin-bottom:1.2rem;">
+    <div class="lp-kpi">
+        <div class="lp-kpi-label"><i class="bi bi-wallet2"></i> Total recibido histórico</div>
         <div class="lp-kpi-value lp-kpi-value--green">@Money(Model.TotalPagadoHistorico)</div>
+    </div>
+    <div class="lp-kpi">
+        <div class="lp-kpi-label"><i class="bi bi-calendar-month"></i> Recibido este mes</div>
+        <div class="lp-kpi-value lp-kpi-value--green">@Money(Model.RecibidoMes)</div>
+    </div>
+    <div class="lp-kpi">
+        <div class="lp-kpi-label"><i class="bi bi-clock-history"></i> Último pago</div>
+        <div class="lp-kpi-value" style="font-size:1.05rem;">@(Model.UltimoPago?.ToString("dd/MM/yyyy", cr) ?? "—")</div>
+    </div>
+    <div class="lp-kpi">
+        <div class="lp-kpi-label"><i class="bi bi-receipt"></i> Pagos registrados</div>
+        <div class="lp-kpi-value">@Model.PagosRegistrados</div>
     </div>
 </div>
 
@@ -32,7 +47,7 @@
                         <i class="bi bi-check2"></i>
                     </div>
                     <div style="flex:1;min-width:0;">
-                        <div style="font-weight:800;font-size:1rem;">@Money(pago.Monto)</div>
+                        <div style="font-weight:800;font-size:1rem;color:var(--lp-green);">@Money(pago.Monto)</div>
                         <div class="lp-muted" style="font-size:.78rem;">
                             Pagado el @pago.FechaPago.ToString("dd/MM/yyyy", cr)
                             @if (!string.IsNullOrWhiteSpace(pago.MetodoPago))
@@ -52,27 +67,24 @@
             }
         </div>
 
-        @if (Model.TotalPaginas > 1)
-        {
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem;">
-                @if (Model.Pagina > 1)
-                {
-                    <a href="/MiPortal/Pagos?pagina=@(Model.Pagina - 1)" class="lp-logout" style="border-color:var(--lp-border);color:var(--lp-text);">
-                        <i class="bi bi-chevron-left"></i> Anteriores
-                    </a>
-                }
-                else { <span></span> }
-
-                <span class="lp-muted" style="font-size:.8rem;">Página @Model.Pagina de @Model.TotalPaginas</span>
-
-                @if (Model.HayMas)
-                {
-                    <a href="/MiPortal/Pagos?pagina=@(Model.Pagina + 1)" class="lp-logout" style="border-color:var(--lp-border);color:var(--lp-text);">
-                        Siguientes <i class="bi bi-chevron-right"></i>
-                    </a>
-                }
-                else { <span></span> }
-            </div>
-        }
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem;gap:.5rem;flex-wrap:wrap;">
+            <span class="lp-muted" style="font-size:.8rem;">
+                Mostrando @Model.DesdeRegistro a @Model.HastaRegistro de @Model.TotalRegistros pagos
+            </span>
+            @if (Model.TotalPaginas > 1)
+            {
+                <div style="display:flex;gap:.5rem;align-items:center;">
+                    @if (Model.Pagina > 1)
+                    {
+                        <a href="/MiPortal/Pagos?pagina=@(Model.Pagina - 1)" class="lp-btn lp-btn--ghost"><i class="bi bi-chevron-left"></i></a>
+                    }
+                    <span class="lp-muted" style="font-size:.8rem;">@Model.Pagina / @Model.TotalPaginas</span>
+                    @if (Model.HayMas)
+                    {
+                        <a href="/MiPortal/Pagos?pagina=@(Model.Pagina + 1)" class="lp-btn lp-btn--ghost"><i class="bi bi-chevron-right"></i></a>
+                    }
+                </div>
+            }
+        </div>
     }
 </div>

@@ -1,0 +1,186 @@
+@model LuxuryApp.Models.Reservas.BookingSettingsViewModel
+@{
+    ViewData["Title"] = "Reservas online";
+    var diasNombres = new[] { "Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado" };
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/reservas-admin.css" asp-append-version="true" />
+}
+
+<div class="reservas-shell">
+    <div class="reservas-head">
+        <div class="reservas-head-text">
+            <span class="reservas-eyebrow"><i class="bi bi-calendar-check"></i> Gestión de reservas</span>
+            <h1 class="reservas-title">Reservas online</h1>
+            <p class="reservas-sub">Activá tu enlace público para que tus clientes soliciten citas. Vos las confirmás o rechazás desde LuxuryCloud.</p>
+        </div>
+        <a asp-controller="Reservas" asp-action="Index" class="btn-rsv btn-rsv-soft">
+            <i class="bi bi-arrow-left"></i> Volver a solicitudes
+        </a>
+    </div>
+
+    <div class="reservas-info" id="reservasInfo">
+        <i class="bi bi-info-circle reservas-info-icon"></i>
+        <p>Los clientes podrán solicitar citas a través del enlace público. Las solicitudes deberán ser confirmadas o rechazadas desde la sección de solicitudes.</p>
+        <button type="button" class="reservas-info-close" id="reservasInfoClose" aria-label="Cerrar aviso"><i class="bi bi-x-lg"></i></button>
+    </div>
+
+    @if (TempData["ReservasConfigOk"] is string okMsg)
+    {
+        <div class="reservas-alert reservas-alert-ok"><i class="bi bi-check2-circle"></i> @okMsg</div>
+    }
+
+    <div asp-validation-summary="All" class="reservas-alert reservas-alert-error"></div>
+
+    <form asp-controller="Reservas" asp-action="Configuracion" method="post" class="reservas-form" id="reservasConfigForm">
+        @Html.AntiForgeryToken()
+
+        <section class="reservas-form-card">
+            <h3 class="rsv-card-title"><i class="bi bi-toggle-on"></i> Estado y enlace</h3>
+            <label class="rsv-switch rsv-switch-lg">
+                <input type="checkbox" asp-for="PublicBookingEnabled" />
+                <span class="rsv-switch-text">
+                    <span>Activar reservas online</span>
+                    <small>Mientras esté desactivado, tu enlace mostrará “Reservas no disponibles”.</small>
+                </span>
+            </label>
+
+            @if (!string.IsNullOrWhiteSpace(Model.LinkPublico))
+            {
+                <div class="reservas-link-bar">
+                    <div class="reservas-link-text">
+                        <span class="rsv-dim">Tu enlace público</span>
+                        <code id="reservasLink">@Model.LinkPublico</code>
+                    </div>
+                    <div class="reservas-link-actions">
+                        <button type="button" class="btn-rsv btn-rsv-soft" id="btnCopiarLink"><i class="bi bi-clipboard"></i> Copiar</button>
+                        <a href="@Model.LinkPublico" target="_blank" rel="noopener" class="btn-rsv btn-rsv-soft"><i class="bi bi-box-arrow-up-right"></i> Abrir</a>
+                    </div>
+                </div>
+            }
+
+            <div class="rsv-field">
+                <label asp-for="PublicBookingSlug">Enlace personalizado</label>
+                <div class="rsv-slug-row">
+                    <span class="rsv-slug-prefix">/reservar/</span>
+                    <input asp-for="PublicBookingSlug" class="rsv-input" placeholder="mi-negocio" autocomplete="off" spellcheck="false" />
+                </div>
+                <span asp-validation-for="PublicBookingSlug" class="field-validation-error"></span>
+                <span class="rsv-field-hint">Solo minúsculas, números y guiones. Si lo dejás vacío, lo generamos desde el nombre de tu negocio.</span>
+            </div>
+        </section>
+
+        <section class="reservas-form-card">
+            <h3 class="rsv-card-title"><i class="bi bi-people"></i> Profesionales</h3>
+            <label class="rsv-switch">
+                <input type="checkbox" asp-for="PublicBookingAllowEmployeeSelection" />
+                <span class="rsv-switch-text">
+                    <span>Permitir que el cliente elija profesional</span>
+                    <small>Si está apagado, el negocio asigna el profesional al confirmar.</small>
+                </span>
+            </label>
+            <label class="rsv-switch">
+                <input type="checkbox" asp-for="PublicBookingAllowAnyEmployee" />
+                <span class="rsv-switch-text">
+                    <span>Ofrecer “Cualquier profesional disponible”</span>
+                    <small>Muestra más horarios libres combinando la agenda de todo el equipo.</small>
+                </span>
+            </label>
+        </section>
+
+        <section class="reservas-form-card">
+            <h3 class="rsv-card-title"><i class="bi bi-clock-history"></i> Reglas de tiempo</h3>
+            <div class="rsv-grid2">
+                <div class="rsv-field">
+                    <label asp-for="PublicBookingMinAdvanceMinutes">Anticipación mínima (minutos)</label>
+                    <input asp-for="PublicBookingMinAdvanceMinutes" type="number" min="0" max="43200" class="rsv-input" />
+                </div>
+                <div class="rsv-field">
+                    <label asp-for="PublicBookingMaxDaysAhead">Días máximos hacia el futuro</label>
+                    <input asp-for="PublicBookingMaxDaysAhead" type="number" min="1" max="365" class="rsv-input" />
+                </div>
+                <div class="rsv-field">
+                    <label asp-for="OpenTime">Hora de apertura</label>
+                    <input asp-for="OpenTime" type="time" class="rsv-input" />
+                </div>
+                <div class="rsv-field">
+                    <label asp-for="CloseTime">Hora de cierre</label>
+                    <input asp-for="CloseTime" type="time" class="rsv-input" />
+                </div>
+                <div class="rsv-field">
+                    <label asp-for="SlotIntervalMinutes">Intervalo entre horarios (minutos)</label>
+                    <input asp-for="SlotIntervalMinutes" type="number" min="5" max="240" class="rsv-input" />
+                </div>
+            </div>
+
+            <div class="rsv-field">
+                <label>Días laborales</label>
+                <div class="rsv-dias">
+                    @for (var i = 0; i < 7; i++)
+                    {
+                        <label class="rsv-dia">
+                            <input type="checkbox" asp-for="DiasLaborales[@i]" />
+                            <span>@diasNombres[i]</span>
+                        </label>
+                    }
+                </div>
+            </div>
+        </section>
+
+        <section class="reservas-form-card">
+            <h3 class="rsv-card-title"><i class="bi bi-chat-heart"></i> Mensajes</h3>
+            <div class="rsv-field">
+                <label asp-for="PublicBookingWelcomeMessage">Mensaje de bienvenida (opcional)</label>
+                <textarea asp-for="PublicBookingWelcomeMessage" rows="2" maxlength="500" class="rsv-input"
+                          placeholder="Ej: ¡Gracias por reservar con nosotros!"></textarea>
+            </div>
+            <div class="rsv-field">
+                <label asp-for="PublicBookingConfirmationMessage">Mensaje tras enviar la solicitud (opcional)</label>
+                <textarea asp-for="PublicBookingConfirmationMessage" rows="2" maxlength="500" class="rsv-input"
+                          placeholder="Ej: Tu solicitud fue enviada, te confirmamos pronto."></textarea>
+            </div>
+        </section>
+
+        <div class="reservas-form-actions">
+            <button type="submit" class="btn-rsv btn-rsv-primary" id="btnGuardar"><i class="bi bi-save"></i> Guardar cambios</button>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const infoClose = document.getElementById('reservasInfoClose');
+            if (infoClose) {
+                infoClose.addEventListener('click', function () {
+                    const info = document.getElementById('reservasInfo');
+                    if (info) info.remove();
+                });
+            }
+
+            const btnCopiar = document.getElementById('btnCopiarLink');
+            if (btnCopiar) {
+                btnCopiar.addEventListener('click', function () {
+                    const link = document.getElementById('reservasLink').textContent.trim();
+                    navigator.clipboard.writeText(link).then(() => {
+                        const original = this.innerHTML;
+                        this.innerHTML = '<i class="bi bi-check2"></i> Copiado';
+                        setTimeout(() => { this.innerHTML = original; }, 1500);
+                    });
+                });
+            }
+
+            // Feedback de envío: deshabilita el botón durante el POST. Como es navegación
+            // completa, al recargar (éxito o error) el botón vuelve a su estado normal.
+            const form = document.getElementById('reservasConfigForm');
+            const btn = document.getElementById('btnGuardar');
+            if (form && btn) {
+                form.addEventListener('submit', function () {
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Guardando…';
+                });
+            }
+        })();
+    </script>
+}

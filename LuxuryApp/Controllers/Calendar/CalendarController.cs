@@ -1,7 +1,10 @@
 using System.Globalization;
 using LuxuryApp.Models.Calendar;
+using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Calendar;
+using LuxuryApp.Services.Comprobantes;
+using LuxuryApp.Services.Finanzas;
 using LuxuryApp.Services.WhatsApp;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -14,17 +17,26 @@ namespace LuxuryApp.Controllers.Calendar
         private const string TenantWhatsAppEnabledViewDataKey = "TenantWhatsAppEnabled";
         private readonly ICalendarCommandService _calendarCommandService;
         private readonly ICalendarQueryService _calendarQueryService;
+        private readonly IControlCobrosQueryService _controlCobrosQueryService;
+        private readonly ICobroService _cobroService;
+        private readonly IComprobanteCobroService _comprobanteService;
         private readonly ITenantWhatsAppFeatureService _tenantWhatsAppFeatureService;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
 
         public CalendarController(
             ICalendarCommandService calendarCommandService,
             ICalendarQueryService calendarQueryService,
+            IControlCobrosQueryService controlCobrosQueryService,
+            ICobroService cobroService,
+            IComprobanteCobroService comprobanteService,
             ITenantWhatsAppFeatureService tenantWhatsAppFeatureService,
             IBusinessDateTimeProvider businessDateTimeProvider)
         {
             _calendarCommandService = calendarCommandService;
             _calendarQueryService = calendarQueryService;
+            _controlCobrosQueryService = controlCobrosQueryService;
+            _cobroService = cobroService;
+            _comprobanteService = comprobanteService;
             _tenantWhatsAppFeatureService = tenantWhatsAppFeatureService;
             _businessDateTimeProvider = businessDateTimeProvider;
         }
@@ -59,6 +71,152 @@ namespace LuxuryApp.Controllers.Calendar
                 Stats = stats,
                 BusinessTodayIso = _businessDateTimeProvider.Today().ToString("yyyy-MM-dd")
             });
+        }
+
+        // ─────────────── Control de citas y cobros (vista admin) ───────────────
+
+        [HttpGet("Calendar/ControlCobros")]
+        public async Task<IActionResult> ControlCobros(
+            string? rango,
+            string? fecha,
+            int? funcionarioId,
+            string? estado,
+            string? buscar,
+            CancellationToken cancellationToken)
+        {
+            var model = await BuildControlCobrosAsync(rango, fecha, funcionarioId, estado, buscar, cancellationToken);
+            return View(model);
+        }
+
+        [HttpGet("Calendar/ControlCobrosData")]
+        public async Task<IActionResult> ControlCobrosData(
+            string? rango,
+            string? fecha,
+            int? funcionarioId,
+            string? estado,
+            string? buscar,
+            CancellationToken cancellationToken)
+        {
+            var model = await BuildControlCobrosAsync(rango, fecha, funcionarioId, estado, buscar, cancellationToken);
+            return PartialView("_ControlCobrosResultados", model);
+        }
+
+        [HttpPost("Calendar/CobrarCita")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> CobrarCita(
+            int citaId,
+            decimal monto,
+            string? metodoPago,
+            string? observacion,
+            bool enviarComprobante,
+            string? emailComprobante,
+            bool guardarEmailEnCliente,
+            CancellationToken cancellationToken)
+        {
+            if (citaId <= 0)
+            {
+                return BadRequest(new { error = "La cita indicada no es válida." });
+            }
+
+            if (enviarComprobante && !ComprobanteEmailHelper.EsValido(emailComprobante))
+            {
+                return BadRequest(new { error = "Indica un correo válido para enviar el comprobante." });
+            }
+
+            // Resuelve la cita en backend (tenant-safe). El FuncionarioId del cobro es el de
+            // la cita, nunca un valor del formulario, para que la comisión vaya a quien corresponde.
+            var cita = await _controlCobrosQueryService.ObtenerCitaParaCobroAsync(citaId, cancellationToken);
+            if (cita is null)
+            {
+                return BadRequest(new { error = "La cita no existe o no pertenece a tu negocio." });
+            }
+
+            if (!cita.ServicioId.HasValue)
+            {
+                return BadRequest(new { error = "Esta cita usa un servicio personalizado y debe cobrarse desde el módulo de cobros." });
+            }
+
+            if (cita.YaCobrada)
+            {
+                return BadRequest(new { error = "Esta cita ya tiene un cobro registrado." });
+            }
+
+            var request = new CobroCreateRequest
+            {
+                FechaCobro = _businessDateTimeProvider.Now(),
+                NombreCliente = cita.NombreCliente,
+                FuncionarioId = cita.FuncionarioId,
+                ClienteId = cita.ClienteId,
+                ServicioId = cita.ServicioId,
+                CitaId = cita.CitaId,
+                Monto = monto,
+                MetodoPago = metodoPago ?? string.Empty,
+                Observaciones = observacion
+            };
+
+            // 1) Registrar el cobro. Solo los errores DE COBRO devuelven BadRequest.
+            int cobroId;
+            try
+            {
+                // CobroService valida monto/método, pertenencia y unicidad (anti doble cobro
+                // a nivel de servicio + índice único UX_Cobros_TenantId_CitaId).
+                cobroId = await _cobroService.RegistrarAsync(request, cancellationToken);
+            }
+            catch (CobroValidationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+
+            // 2) Cobro YA registrado. Comprobante best-effort (el servicio nunca lanza).
+            if (!enviarComprobante)
+            {
+                return Ok(new { success = true, message = "Cobro registrado correctamente." });
+            }
+
+            var comprobante = await _comprobanteService.CrearYEnviarDesdeCobroAsync(
+                cobroId,
+                emailComprobante!,
+                guardarEmailEnCliente,
+                User.Identity?.Name,
+                funcionarioScopeId: null,
+                cancellationToken);
+
+            var enviado = comprobante is not null &&
+                comprobante.EstadoEnvio == Models.Comprobantes.ComprobanteEstadoEnvio.Sent;
+
+            return Ok(new
+            {
+                success = true,
+                message = enviado
+                    ? "Cobro registrado y comprobante enviado."
+                    : "Cobro registrado correctamente, pero no se pudo enviar el comprobante. Puedes reenviarlo desde el historial."
+            });
+        }
+
+        private async Task<ControlCitasCobrosViewModel> BuildControlCobrosAsync(
+            string? rango,
+            string? fecha,
+            int? funcionarioId,
+            string? estado,
+            string? buscar,
+            CancellationToken cancellationToken)
+        {
+            var hasAddon = await _tenantWhatsAppFeatureService.HasWhatsAppAddonAsync(cancellationToken);
+
+            var filtro = new ControlCitasCobrosFiltroViewModel
+            {
+                Rango = rango ?? "dia",
+                Fecha = TryParseLocalDate(fecha, out var parsed) ? parsed : _businessDateTimeProvider.Today(),
+                FuncionarioId = funcionarioId,
+                EstadoPago = estado ?? "todos",
+                Buscar = buscar
+            };
+
+            return await _controlCobrosQueryService.ObtenerAsync(filtro, hasAddon, cancellationToken);
         }
 
         [HttpPost]
