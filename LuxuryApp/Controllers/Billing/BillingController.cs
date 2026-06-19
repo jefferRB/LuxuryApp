@@ -917,7 +917,12 @@ namespace LuxuryApp.Controllers
 
             if (recurringValidationError is not null)
             {
-                TempData["BillingError"] = recurringValidationError;
+                _logger.LogError(
+                    "Checkout recurrente bloqueado por configuracion. TenantId {TenantId}. PlanId {PlanId}. Reason {Reason}",
+                    user.TenantId,
+                    selectedPlan.Id,
+                    recurringValidationError);
+                TempData["BillingError"] = "El plan seleccionado no esta disponible para checkout en este momento. Contacta soporte para revisar la configuracion de pagos.";
                 return RedirectToAction(nameof(Planes), new { selectedPlanId = planId });
             }
 
@@ -994,7 +999,7 @@ namespace LuxuryApp.Controllers
                     "Checkout Tilopay bloqueado por validacion/configuracion. TenantId {TenantId}. PlanId {PlanId}.",
                     user.TenantId,
                     selectedPlan.Id);
-                TempData["BillingError"] = ex.Message;
+                TempData["BillingError"] = "No fue posible iniciar el checkout con Tilopay. Contacta soporte para revisar la configuracion de pagos.";
                 return RedirectToAction(nameof(Planes), new { selectedPlanId = planId });
             }
             catch (Exception ex)

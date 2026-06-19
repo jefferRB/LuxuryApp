@@ -16,6 +16,7 @@ namespace LuxuryApp.Services.Payments
     public class SaaSPaymentService
     {
         private static readonly TimeSpan RecurringPendingLifetime = TimeSpan.FromHours(72);
+        private static readonly TimeSpan PendingCheckoutReuseWindow = TimeSpan.FromMinutes(30);
 
         private readonly ApplicationDbContext _db;
         private readonly PaymentProviderResolver _providerResolver;
@@ -85,6 +86,23 @@ namespace LuxuryApp.Services.Payments
                 ["Provider"] = providerType,
                 ["Reference"] = SensitiveDataMasker.MaskReference(reference)
             });
+
+            var reusableCheckout = await FindReusablePendingCheckoutAsync(
+                tenantId,
+                planId,
+                providerType,
+                customerEmail,
+                tilopayRecurringPlanId: null,
+                cancellationToken);
+
+            if (reusableCheckout is not null)
+            {
+                _logger.LogInformation(
+                    "Checkout pendiente reutilizado para evitar duplicar intento de pago. PaymentId {PaymentId}.",
+                    reusableCheckout.Id);
+
+                return BuildCheckoutResultFromAttempt(providerType, reusableCheckout);
+            }
 
             var intento = new PagoSuscripcion
             {
@@ -240,6 +258,23 @@ namespace LuxuryApp.Services.Payments
             {
                 throw new InvalidOperationException(
                     $"Falta CheckoutUrl para {repeatRegistration.Plan.Code}: TilopayRepeat:{repeatRegistration.SectionKey}:CheckoutUrl.");
+            }
+
+            var reusableCheckout = await FindReusablePendingCheckoutAsync(
+                tenantId,
+                planId,
+                PaymentProviderType.Tilopay,
+                customerEmail,
+                repeatRegistration.Plan.TilopayPlanId,
+                cancellationToken);
+
+            if (reusableCheckout is not null)
+            {
+                _logger.LogInformation(
+                    "Checkout recurrente pendiente reutilizado para evitar duplicar intento de pago. PaymentId {PaymentId}.",
+                    reusableCheckout.Id);
+
+                return BuildCheckoutResultFromAttempt(PaymentProviderType.Tilopay, reusableCheckout);
             }
 
             await ExpireOpenRecurringPendingAttemptsAsync(
@@ -767,10 +802,49 @@ namespace LuxuryApp.Services.Payments
 
                 EnsureVerificationMatchesAttempt(intento, webhook, verification);
 
+                var verifiedProviderTransactionId =
+                    verification.ProviderTransactionId ??
+                    webhook.ProviderTransactionId;
+
+                if (intento.Estado == EstadoPagoProveedor.Confirmado)
+                {
+                    if (MatchesConfirmedAttempt(
+                        intento,
+                        verifiedProviderTransactionId,
+                        resolvedProviderReference))
+                    {
+                        return await MarkAlreadyProcessedPaymentEventAsDuplicateAsync(
+                            evento,
+                            intento,
+                            webhook,
+                            resolvedProviderReference,
+                            cancellationToken);
+                    }
+
+                    evento.TenantId = intento.TenantId;
+                    evento.PlanId = intento.PlanId;
+                    evento.PagoSuscripcionId = intento.Id;
+                    evento.ProviderTransactionId = verifiedProviderTransactionId ?? intento.ProviderTransactionId;
+
+                    await MarkEventForManualReviewAsync(
+                        evento,
+                        "El intento de pago ya estaba confirmado y Tilopay envio una transaccion distinta. No se extendio la suscripcion automaticamente.",
+                        cancellationToken);
+
+                    return new PaymentWebhookProcessingResult
+                    {
+                        EventId = webhook.EventId,
+                        Reference = webhook.Reference,
+                        IsProcessed = false,
+                        Message = "Webhook pendiente de revision manual por posible doble pago.",
+                        EstadoPago = intento.Estado
+                    };
+                }
+
                 transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
 
                 intento.ProviderCheckoutId = webhook.ProviderCheckoutId ?? intento.ProviderCheckoutId;
-                intento.ProviderTransactionId = verification.ProviderTransactionId ?? webhook.ProviderTransactionId ?? intento.ProviderTransactionId;
+                intento.ProviderTransactionId = verifiedProviderTransactionId ?? intento.ProviderTransactionId;
                 intento.ProviderReference = resolvedProviderReference;
                 intento.ProviderAuthorizationCode = verification.AuthorizationCode ?? webhook.AuthorizationCode;
                 intento.ProviderCardBrand = webhook.CardBrand ?? intento.ProviderCardBrand;
@@ -787,19 +861,6 @@ namespace LuxuryApp.Services.Payments
                     intento.Estado = EstadoPagoProveedor.Confirmado;
                     intento.FechaConfirmacionUtc = DateTime.UtcNow;
 
-                    await _suscripcionService.ActivarSuscripcionAsync(
-                        intento.TenantId,
-                        intento.PlanId,
-                        intento.Proveedor,
-                        providerCustomerId: null,
-                        providerSubscriptionId: null,
-                        providerPaymentLinkId: intento.ProviderCheckoutId,
-                        providerTransactionId: intento.ProviderTransactionId,
-                        providerReference: intento.ProviderReference,
-                        trialEnd: null,
-                        motivo: "Pago validado por webhook Tilopay.",
-                        cancellationToken: cancellationToken);
-
                     await _suscripcionService.RegistrarPagoConfirmadoAsync(
                         intento.TenantId,
                         intento.PlanId,
@@ -812,6 +873,20 @@ namespace LuxuryApp.Services.Payments
                         intento.Moneda,
                         "Pago confirmado por Tilopay.",
                         cancellationToken);
+
+                    if (!string.IsNullOrWhiteSpace(intento.ProviderCheckoutId))
+                    {
+                        var suscripcion = await _db.Suscripciones
+                            .IgnoreQueryFilters()
+                            .FirstOrDefaultAsync(
+                                subscription => subscription.TenantId == intento.TenantId,
+                                cancellationToken);
+
+                        if (suscripcion is not null)
+                        {
+                            suscripcion.ProviderPaymentLinkId = intento.ProviderCheckoutId;
+                        }
+                    }
                 }
                 else
                 {
@@ -1195,6 +1270,33 @@ namespace LuxuryApp.Services.Payments
                     var paymentAttempt = intento ?? throw new InvalidOperationException(
                         "No fue posible crear el intento recurrente requerido para aprobar el pago.");
 
+                    var approvedProviderTransactionId = ResolveApprovedProviderTransactionId(webhook);
+                    var approvedProviderReference = ResolveProviderReference(webhook);
+
+                    if (paymentAttempt.Estado == EstadoPagoProveedor.Confirmado)
+                    {
+                        if (MatchesConfirmedAttempt(
+                            paymentAttempt,
+                            approvedProviderTransactionId,
+                            approvedProviderReference))
+                        {
+                            return await MarkAlreadyProcessedPaymentEventAsDuplicateAsync(
+                                evento,
+                                paymentAttempt,
+                                webhook,
+                                approvedProviderReference,
+                                cancellationToken);
+                        }
+
+                        paymentAttempt = await EnsureRecurringPaymentAttemptAsync(
+                            tenantId,
+                            internalPlan,
+                            webhook,
+                            resolvedPlan,
+                            cancellationToken);
+                        intento = paymentAttempt;
+                    }
+
                     if (resolvedPlan.IsAddon)
                     {
                         var addonAutoActivation = await ValidateAddonAutomaticActivationAsync(
@@ -1284,12 +1386,12 @@ namespace LuxuryApp.Services.Payments
                         new RecurringPaymentApprovalRequest
                         {
                             PaymentId = paymentAttempt.Id,
-                            ProviderTransactionId = ResolveApprovedProviderTransactionId(webhook) ?? throw new InvalidOperationException(
+                            ProviderTransactionId = approvedProviderTransactionId ?? throw new InvalidOperationException(
                                 "Tilopay no envio transactionId, numero de orden ni referencia util para aprobar el pago recurrente."),
                             ApprovedAmount = webhook.Amount.Value,
                             Currency = string.IsNullOrWhiteSpace(webhook.Currency) ? paymentAttempt.Moneda : webhook.Currency!,
                             ProviderSubscriberId = webhook.ProviderSubscriberId,
-                            ProviderReference = ResolveProviderReference(webhook),
+                            ProviderReference = approvedProviderReference,
                             ProviderAuthorizationCode = webhook.AuthorizationCode,
                             NextBillingDateUtc = webhook.NextBillingDateUtc,
                             Source = "webhook",
@@ -1779,6 +1881,37 @@ namespace LuxuryApp.Services.Payments
                 }
             }
 
+            var providerTransactionLookup = ResolveApprovedProviderTransactionId(webhook);
+            if (!string.IsNullOrWhiteSpace(providerTransactionLookup))
+            {
+                var byTransaction = await _db.PagosSuscripcion
+                    .IgnoreQueryFilters()
+                    .Where(p =>
+                        p.Proveedor == PaymentProviderType.Tilopay &&
+                        (p.ProviderTransactionId == providerTransactionLookup ||
+                         p.ProviderReference == providerTransactionLookup))
+                    .OrderByDescending(p => p.FechaCreacionUtc)
+                    .Take(2)
+                    .ToListAsync(cancellationToken);
+
+                if (byTransaction.Count == 1)
+                {
+                    var payment = byTransaction[0];
+                    return new RecurringCorrelationResolution(
+                        payment.TenantId,
+                        payment.PlanId,
+                        PaymentAttempt: payment,
+                        Status: RecurringCorrelationStatus.Matched,
+                        ManualReviewReason: null);
+                }
+
+                if (byTransaction.Count > 1)
+                {
+                    return RecurringCorrelationResolution.Manual(
+                        "El webhook recurrente coincide con mas de un intento local usando el transactionId u orderNumber del proveedor.");
+                }
+            }
+
             if (!string.IsNullOrWhiteSpace(webhook.ProviderSubscriberId))
             {
                 var baseSubscription = await _db.Suscripciones
@@ -2179,6 +2312,47 @@ namespace LuxuryApp.Services.Payments
             await _db.SaveChangesAsync(cancellationToken);
         }
 
+        private async Task<PagoSuscripcion?> FindReusablePendingCheckoutAsync(
+            Guid tenantId,
+            Guid planId,
+            PaymentProviderType providerType,
+            string customerEmail,
+            int? tilopayRecurringPlanId,
+            CancellationToken cancellationToken)
+        {
+            var cutoffUtc = DateTime.UtcNow.Subtract(PendingCheckoutReuseWindow);
+
+            return await _db.PagosSuscripcion
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(payment =>
+                    payment.TenantId == tenantId &&
+                    payment.PlanId == planId &&
+                    payment.Proveedor == providerType &&
+                    payment.Estado == EstadoPagoProveedor.Pendiente &&
+                    payment.ClienteEmail == customerEmail &&
+                    payment.FechaCreacionUtc >= cutoffUtc &&
+                    payment.CheckoutUrl != null &&
+                    payment.CheckoutUrl != string.Empty &&
+                    payment.TilopayRecurringPlanId == tilopayRecurringPlanId)
+                .OrderByDescending(payment => payment.FechaCreacionUtc)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        private static PaymentCheckoutResult BuildCheckoutResultFromAttempt(
+            PaymentProviderType providerType,
+            PagoSuscripcion paymentAttempt) =>
+            new()
+            {
+                ProviderType = providerType,
+                RedirectUrl = paymentAttempt.CheckoutUrl ?? string.Empty,
+                ProviderCheckoutId = paymentAttempt.ProviderCheckoutId,
+                ProviderReference = paymentAttempt.ProviderReference,
+                ProviderOrderNumber = paymentAttempt.ProviderTransactionId,
+                CorrelationId = paymentAttempt.CorrelationToken,
+                RawResponse = paymentAttempt.UltimoPayloadProveedor
+            };
+
         private static bool IsOpenRecurringPaymentStatus(EstadoPagoProveedor status) =>
             status == EstadoPagoProveedor.Pendiente || status == EstadoPagoProveedor.ManualReview;
 
@@ -2349,6 +2523,75 @@ namespace LuxuryApp.Services.Payments
                 throw new InvalidOperationException(
                     "Ya existe otro pago recurrente confirmado con ese transactionId o numero de orden.");
             }
+        }
+
+        private async Task<PaymentWebhookProcessingResult> MarkAlreadyProcessedPaymentEventAsDuplicateAsync(
+            EventoPago evento,
+            PagoSuscripcion intento,
+            PaymentProviderWebhookData webhook,
+            string? providerReference,
+            CancellationToken cancellationToken)
+        {
+            evento.TenantId = intento.TenantId;
+            evento.PlanId = intento.PlanId;
+            evento.PagoSuscripcionId = intento.Id;
+            evento.ProviderTransactionId = FirstNonEmpty(
+                intento.ProviderTransactionId,
+                webhook.ProviderTransactionId,
+                webhook.ProviderOrderNumber);
+            evento.ReferenciaExterna = FirstNonEmpty(providerReference, evento.ReferenciaExterna);
+            evento.EstadoProcesamiento = "Procesado";
+            evento.Procesado = true;
+            evento.FechaProcesamientoUtc = DateTime.UtcNow;
+            evento.Error = null;
+
+            await _db.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "Webhook Tilopay duplicado para pago ya confirmado. PaymentId {PaymentId}. EventIdSuffix {EventIdSuffix}.",
+                intento.Id,
+                SensitiveDataMasker.MaskReference(webhook.EventId));
+
+            return new PaymentWebhookProcessingResult
+            {
+                EventId = webhook.EventId,
+                Reference = webhook.Reference,
+                IsDuplicate = true,
+                IsProcessed = true,
+                Message = "Pago ya confirmado previamente.",
+                EstadoPago = intento.Estado
+            };
+        }
+
+        private static bool MatchesConfirmedAttempt(
+            PagoSuscripcion intento,
+            string? providerTransactionId,
+            string? providerReference)
+        {
+            if (intento.Estado != EstadoPagoProveedor.Confirmado)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(providerTransactionId))
+            {
+                return string.Equals(
+                           intento.ProviderTransactionId,
+                           providerTransactionId,
+                           StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(
+                           NormalizeProviderOrderNumber(intento.ProviderTransactionId),
+                           NormalizeProviderOrderNumber(providerTransactionId),
+                           StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (string.IsNullOrWhiteSpace(providerReference))
+            {
+                return false;
+            }
+
+            return string.Equals(intento.ProviderReference, providerReference, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(intento.ReferenciaInterna, providerReference, StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task EnsureInvoiceAsync(
@@ -2690,8 +2933,8 @@ namespace LuxuryApp.Services.Payments
         private static string ResolveProviderReference(PaymentProviderWebhookData webhook) =>
             FirstNonEmpty(
                 webhook.ProviderOrderNumber,
-                webhook.Reference,
-                webhook.ProviderTransactionId) ?? string.Empty;
+                webhook.ProviderTransactionId,
+                webhook.Reference) ?? string.Empty;
 
         private static string? ResolveApprovedProviderTransactionId(PaymentProviderWebhookData webhook) =>
             FirstNonEmpty(

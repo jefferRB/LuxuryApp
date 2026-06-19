@@ -141,6 +141,76 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
+        public async Task CreateCheckoutAsync_ShouldReuseRecentPendingCheckoutForSameTenantPlanAndEmail()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var tenantId = Guid.NewGuid();
+            var planId = Guid.NewGuid();
+
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = "Tenant Reuse Checkout",
+                Activo = true
+            });
+
+            context.Planes.Add(new Plan
+            {
+                Id = planId,
+                Nombre = "Plan Pro",
+                PrecioMensual = 25,
+                Moneda = "CRC",
+                Activo = true
+            });
+
+            await context.SaveChangesAsync();
+
+            var fakeProvider = new FakePaymentProvider
+            {
+                CheckoutResult = new PaymentCheckoutResult
+                {
+                    ProviderType = PaymentProviderType.Tilopay,
+                    RedirectUrl = "https://pay.local/checkout/reuse",
+                    ProviderCheckoutId = "checkout-reuse",
+                    ProviderReference = "LXA-REUSE-1234567890",
+                    RawResponse = "{\"ok\":true}"
+                }
+            };
+
+            var service = CreatePaymentService(context, fakeProvider);
+
+            var first = await service.CreateCheckoutAsync(
+                tenantId,
+                planId,
+                "Owner",
+                "owner@test.local",
+                "https://app.local/Billing/Exito",
+                "https://app.local/Billing/Cancelado",
+                "https://app.local/api/webhooks/tilopay?access_token=secret-token");
+
+            var second = await service.CreateCheckoutAsync(
+                tenantId,
+                planId,
+                "Owner",
+                "owner@test.local",
+                "https://app.local/Billing/Exito",
+                "https://app.local/Billing/Cancelado",
+                "https://app.local/api/webhooks/tilopay?access_token=secret-token");
+
+            var attempts = await context.PagosSuscripcion
+                .IgnoreQueryFilters()
+                .ToListAsync();
+
+            Assert.Single(attempts);
+            Assert.Equal(EstadoPagoProveedor.Pendiente, attempts[0].Estado);
+            Assert.Equal(first.RedirectUrl, second.RedirectUrl);
+            Assert.Equal(first.ProviderCheckoutId, second.ProviderCheckoutId);
+            Assert.Equal(1, fakeProvider.CreateCheckoutCalls);
+        }
+
+        [Fact]
         public async Task ProcessTilopayWebhookAsync_ShouldRejectCheckoutIdMismatch()
         {
             var (context, connection) = CreateSystemContext();
@@ -329,6 +399,214 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.True(evento.Procesado);
             Assert.Equal("Procesado", evento.EstadoProcesamiento);
             Assert.Equal(providerOrderNumber, evento.ReferenciaExterna);
+        }
+
+        [Fact]
+        public async Task ProcessTilopayWebhookAsync_ShouldActivateLinkPaymentForExactlyOneMonth()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var tenantId = Guid.NewGuid();
+            var planId = Guid.NewGuid();
+            const string internalReference = "LXA-ABCDEF-1234567890";
+            const string providerOrderNumber = "TYP4447_203710";
+            const string checkoutId = "203710";
+
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = "Tenant A",
+                Activo = true
+            });
+
+            context.Planes.Add(new Plan
+            {
+                Id = planId,
+                Nombre = "Plan Pro",
+                PrecioMensual = 40,
+                Moneda = "CRC",
+                Activo = true
+            });
+
+            context.PagosSuscripcion.Add(new PagoSuscripcion
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                PlanId = planId,
+                Proveedor = PaymentProviderType.Tilopay,
+                ReferenciaInterna = internalReference,
+                ProviderReference = internalReference,
+                ProviderCheckoutId = checkoutId,
+                Estado = EstadoPagoProveedor.Pendiente,
+                Descripcion = "Checkout seguro",
+                Monto = 40,
+                Moneda = "CRC"
+            });
+
+            context.Suscripciones.Add(new Suscripcion
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                PlanId = planId,
+                Proveedor = PaymentProviderType.Tilopay,
+                ProviderReference = internalReference,
+                Estado = EstadoSuscripcion.Pendiente,
+                FechaInicio = DateTime.UtcNow
+            });
+
+            await context.SaveChangesAsync();
+
+            var fakeProvider = new FakePaymentProvider
+            {
+                WebhookData = new PaymentProviderWebhookData
+                {
+                    ProviderType = PaymentProviderType.Tilopay,
+                    EventId = "evt-one-month",
+                    EventType = "tilopay.link.completed",
+                    Reference = internalReference,
+                    ProviderOrderNumber = providerOrderNumber,
+                    ProviderCheckoutId = checkoutId,
+                    ProviderTransactionId = "4747077",
+                    AuthorizationCode = "430678"
+                },
+                VerificationResult = new PaymentVerificationResult
+                {
+                    ProviderType = PaymentProviderType.Tilopay,
+                    Exists = true,
+                    IsSuccess = true,
+                    Reference = internalReference,
+                    ProviderOrderNumber = $"PFC026726-{providerOrderNumber}",
+                    ProviderTransactionId = "4747077",
+                    Amount = 40,
+                    Currency = "CRC",
+                    StatusCode = "1",
+                    StatusDescription = "Aprobado",
+                    RawResponse = "{\"approved\":true}"
+                }
+            };
+
+            var service = CreatePaymentService(context, fakeProvider);
+
+            var result = await service.ProcessTilopayWebhookAsync("{}", "corr-one-month");
+
+            Assert.True(result.IsProcessed);
+
+            var expectedStartUtc = new DateTimeOffset(
+                new DateTime(2026, 5, 26, 10, 30, 0),
+                TimeSpan.FromHours(-6)).UtcDateTime;
+            var subscription = context.Suscripciones.IgnoreQueryFilters().Single();
+
+            Assert.Equal(EstadoSuscripcion.Activa, subscription.Estado);
+            Assert.Equal(expectedStartUtc, subscription.FechaInicio);
+            Assert.Equal(expectedStartUtc.AddMonths(1), subscription.FechaFin);
+            Assert.Equal(subscription.FechaFin, subscription.FechaProximoCobroUtc);
+            Assert.Equal(checkoutId, subscription.ProviderPaymentLinkId);
+        }
+
+        [Fact]
+        public async Task ProcessTilopayWebhookAsync_ShouldIgnoreDuplicateLinkPaymentTransactionWithoutExtendingAgain()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var tenantId = Guid.NewGuid();
+            var planId = Guid.NewGuid();
+            var currentPeriodEndUtc = new DateTime(2026, 6, 26, 16, 30, 0, DateTimeKind.Utc);
+            const string internalReference = "LXA-ABCDEF-1234567890";
+            const string providerOrderNumber = "TYP4447_203711";
+
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = "Tenant A",
+                Activo = true
+            });
+
+            context.Planes.Add(new Plan
+            {
+                Id = planId,
+                Nombre = "Plan Pro",
+                PrecioMensual = 40,
+                Moneda = "CRC",
+                Activo = true
+            });
+
+            context.PagosSuscripcion.Add(new PagoSuscripcion
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                PlanId = planId,
+                Proveedor = PaymentProviderType.Tilopay,
+                ReferenciaInterna = internalReference,
+                ProviderReference = providerOrderNumber,
+                ProviderTransactionId = "4747078",
+                ProviderCheckoutId = "203711",
+                Estado = EstadoPagoProveedor.Confirmado,
+                Descripcion = "Checkout seguro",
+                Monto = 40,
+                Moneda = "CRC",
+                FechaConfirmacionUtc = currentPeriodEndUtc.AddMonths(-1)
+            });
+
+            context.Suscripciones.Add(new Suscripcion
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                PlanId = planId,
+                Proveedor = PaymentProviderType.Tilopay,
+                ProviderReference = providerOrderNumber,
+                ProviderTransactionId = "4747078",
+                ProviderPaymentLinkId = "203711",
+                Estado = EstadoSuscripcion.Activa,
+                FechaInicio = currentPeriodEndUtc.AddMonths(-1),
+                FechaFin = currentPeriodEndUtc,
+                FechaProximoCobroUtc = currentPeriodEndUtc
+            });
+
+            await context.SaveChangesAsync();
+
+            var fakeProvider = new FakePaymentProvider
+            {
+                WebhookData = new PaymentProviderWebhookData
+                {
+                    ProviderType = PaymentProviderType.Tilopay,
+                    EventId = "evt-link-duplicate-second-event",
+                    EventType = "tilopay.link.completed",
+                    Reference = internalReference,
+                    ProviderOrderNumber = providerOrderNumber,
+                    ProviderCheckoutId = "203711",
+                    ProviderTransactionId = "4747078"
+                },
+                VerificationResult = new PaymentVerificationResult
+                {
+                    ProviderType = PaymentProviderType.Tilopay,
+                    Exists = true,
+                    IsSuccess = true,
+                    Reference = internalReference,
+                    ProviderOrderNumber = $"PFC026726-{providerOrderNumber}",
+                    ProviderTransactionId = "4747078",
+                    Amount = 40,
+                    Currency = "CRC",
+                    StatusCode = "1",
+                    StatusDescription = "Aprobado",
+                    RawResponse = "{\"approved\":true}"
+                }
+            };
+
+            var service = CreatePaymentService(context, fakeProvider);
+
+            var result = await service.ProcessTilopayWebhookAsync("{}", "corr-link-duplicate");
+
+            var subscription = context.Suscripciones.IgnoreQueryFilters().Single();
+            var facturas = context.Facturas.IgnoreQueryFilters().ToList();
+            var evento = context.EventosPago.IgnoreQueryFilters().Single();
+
+            Assert.True(result.IsDuplicate);
+            Assert.True(result.IsProcessed);
+            Assert.Equal(currentPeriodEndUtc, subscription.FechaFin);
+            Assert.Empty(facturas);
+            Assert.True(evento.Procesado);
         }
 
         [Fact]
@@ -1243,10 +1521,15 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             public int VerifyCalls { get; private set; }
 
+            public int CreateCheckoutCalls { get; private set; }
+
             public Task<PaymentCheckoutResult> CreateCheckoutAsync(
                 PaymentCheckoutRequest request,
-                CancellationToken cancellationToken = default) =>
-                Task.FromResult(CheckoutResult);
+                CancellationToken cancellationToken = default)
+            {
+                CreateCheckoutCalls++;
+                return Task.FromResult(CheckoutResult);
+            }
 
             public PaymentProviderWebhookData ParseWebhook(string payload) => WebhookData;
 

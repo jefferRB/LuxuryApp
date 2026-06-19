@@ -774,7 +774,7 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
-        public async Task CreateRecurringCheckoutAsync_ShouldExpirePreviousOpenRecurringAttemptForSameTenantEmailAndPlan()
+        public async Task CreateRecurringCheckoutAsync_ShouldReuseRecentPendingRecurringAttemptForSameTenantEmailAndPlan()
         {
             var (context, connection) = CreateSystemContext();
             using var disposableContext = context;
@@ -813,13 +813,13 @@ namespace LuxuryApp.Tests.TenantIsolation
                     WebhookAccessToken = "token-seguro"
                 });
 
-            await service.CreateRecurringCheckoutAsync(
+            var first = await service.CreateRecurringCheckoutAsync(
                 tenantId,
                 planId,
                 "Owner",
                 "owner@test.local");
 
-            await service.CreateRecurringCheckoutAsync(
+            var second = await service.CreateRecurringCheckoutAsync(
                 tenantId,
                 planId,
                 "Owner",
@@ -830,10 +830,10 @@ namespace LuxuryApp.Tests.TenantIsolation
                 .OrderBy(payment => payment.FechaCreacionUtc)
                 .ToListAsync();
 
-            Assert.Equal(2, attempts.Count);
-            Assert.Equal(EstadoPagoProveedor.Expirado, attempts[0].Estado);
-            Assert.Equal("EXPIRED_BY_NEW_CHECKOUT", attempts[0].ProviderResultCode);
-            Assert.Equal(EstadoPagoProveedor.Pendiente, attempts[1].Estado);
+            var attempt = Assert.Single(attempts);
+            Assert.Equal(EstadoPagoProveedor.Pendiente, attempt.Estado);
+            Assert.Equal(first.RedirectUrl, second.RedirectUrl);
+            Assert.Equal(first.CorrelationId, second.CorrelationId);
         }
 
         [Fact]
@@ -1061,6 +1061,128 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal("PRE123456", suscripcion.ProviderTransactionId);
             Assert.Equal(nextPaymentDateUtc, suscripcion.FechaProximoCobroUtc);
             Assert.Equal(1, suscripcion.MaxFuncionarios);
+        }
+
+        [Fact]
+        public async Task ProcessTilopayWebhookAsync_ShouldIgnoreDuplicateRecurringPaymentTransactionWithDifferentEventType()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var tenantId = Guid.NewGuid();
+            var planId = Guid.NewGuid();
+            const string providerOrderNumber = "PRE-DUP-RECURRING-001";
+
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = "Tenant Duplicate Recurring",
+                Activo = true
+            });
+
+            context.Planes.Add(new Plan
+            {
+                Id = planId,
+                Codigo = PlanCodes.TestRecurring,
+                Nombre = "Test recurrente",
+                PrecioMensual = 1000,
+                Moneda = "CRC",
+                MaxFuncionarios = 1,
+                Activo = true,
+                EsPlanValidacion = true
+            });
+
+            await context.SaveChangesAsync();
+
+            var fakeProvider = new FakeTilopayPaymentProvider();
+            var repeatOptions = BuildTestRecurringOptions();
+            var service = CreatePaymentService(
+                context,
+                repeatOptions,
+                new OpcionesTilopay
+                {
+                    MerchantId = "merchant-1",
+                    WebhookAccessToken = "token-seguro"
+                },
+                fakeProvider);
+
+            await service.CreateRecurringCheckoutAsync(
+                tenantId,
+                planId,
+                "Owner",
+                "owner@test.local");
+
+            fakeProvider.WebhookData = new PaymentProviderWebhookData
+            {
+                ProviderType = PaymentProviderType.Tilopay,
+                EventType = "tilopay.repeat.notification",
+                Reference = string.Empty,
+                RecurringPlanId = 5834,
+                CustomerEmail = "owner@test.local",
+                Amount = 1000m,
+                ProviderSubscriberId = "subscriber-dup-5834",
+                ProviderOrderNumber = providerOrderNumber,
+                AuthorizationCode = "123456",
+                IsRecurring = true
+            };
+
+            var firstResult = await service.ProcessTilopayWebhookAsync(
+                """
+                {
+                  "id_plan": 5834,
+                  "email": "owner@test.local",
+                  "amount": 1000,
+                  "auth": "123456",
+                  "orderNumber": "PRE-DUP-RECURRING-001"
+                }
+                """,
+                "corr-repeat-duplicate-first",
+                "repeat_payment_success");
+
+            var firstPeriodEndUtc = context.Suscripciones
+                .IgnoreQueryFilters()
+                .Single()
+                .FechaFin;
+
+            fakeProvider.WebhookData = new PaymentProviderWebhookData
+            {
+                ProviderType = PaymentProviderType.Tilopay,
+                EventType = "tilopay.repeat.notification",
+                Reference = string.Empty,
+                RecurringPlanId = 5834,
+                CustomerEmail = "owner@test.local",
+                Amount = 1000m,
+                ProviderSubscriberId = "subscriber-dup-5834",
+                ProviderOrderNumber = providerOrderNumber,
+                AuthorizationCode = "123456",
+                IsRecurring = true
+            };
+
+            var duplicateResult = await service.ProcessTilopayWebhookAsync(
+                """
+                {
+                  "id_plan": 5834,
+                  "email": "owner@test.local",
+                  "amount": 1000,
+                  "auth": "123456",
+                  "orderNumber": "PRE-DUP-RECURRING-001"
+                }
+                """,
+                "corr-repeat-duplicate-second",
+                "repeat_payment_paid");
+
+            var subscription = context.Suscripciones.IgnoreQueryFilters().Single();
+            var payments = context.PagosSuscripcion.IgnoreQueryFilters().ToList();
+            var events = context.EventosPago.IgnoreQueryFilters().ToList();
+
+            Assert.True(firstResult.IsProcessed);
+            Assert.True(duplicateResult.IsDuplicate);
+            Assert.True(duplicateResult.IsProcessed);
+            Assert.Equal(firstPeriodEndUtc, subscription.FechaFin);
+            Assert.Single(payments);
+            Assert.Equal(2, events.Count);
+            Assert.All(events, evento => Assert.True(evento.Procesado));
         }
 
         [Theory]
