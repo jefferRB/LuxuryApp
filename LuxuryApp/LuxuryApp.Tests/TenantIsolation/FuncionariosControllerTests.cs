@@ -613,7 +613,11 @@ namespace LuxuryApp.Tests.TenantIsolation
             var controller = new FuncionariosController(
                 context,
                 ControllerTestSupport.CreateLiquidacionSemanalService(context),
+                ControllerTestSupport.CreateFuncionarioPortalAccessService(),
+                ControllerTestSupport.CreateFuncionarioPortalPermissionService(),
+                ControllerTestSupport.CreateAccountEmailService(),
                 ControllerTestSupport.BusinessDateTimeProvider,
+                ControllerTestSupport.CreateTenantDisplayNameService(),
                 NullLogger<FuncionariosController>.Instance);
 
             ControllerTestSupport.AttachHttpContext(

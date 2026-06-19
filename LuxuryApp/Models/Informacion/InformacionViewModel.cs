@@ -45,6 +45,7 @@
         // KPIs mensuales calculados
         public int CantidadServiciosMes { get; set; }
         public int CantidadProductosMes { get; set; }
+        public int ReservasOnlineMes { get; set; }
 
         // GRAFICOS
 

@@ -29,6 +29,7 @@ namespace LuxuryApp.Controllers.Identity
         private readonly TilopayRepeatOptions _tilopayRepeatOptions;
         private readonly IWebHostEnvironment _environment;
         private readonly IAccountEmailService _accountEmailService;
+        private readonly ITenantDisplayNameService _tenantDisplayNameService;
         private readonly ILogger<AccountsController> _logger;
 
         public AccountsController(
@@ -41,6 +42,7 @@ namespace LuxuryApp.Controllers.Identity
             IOptions<TilopayRepeatOptions> tilopayRepeatOptions,
             IWebHostEnvironment environment,
             IAccountEmailService accountEmailService,
+            ITenantDisplayNameService tenantDisplayNameService,
             ILogger<AccountsController> logger)
         {
             _userManager = userManager;
@@ -52,6 +54,7 @@ namespace LuxuryApp.Controllers.Identity
             _tilopayRepeatOptions = tilopayRepeatOptions.Value;
             _environment = environment;
             _accountEmailService = accountEmailService;
+            _tenantDisplayNameService = tenantDisplayNameService;
             _logger = logger;
         }
 
@@ -444,17 +447,36 @@ namespace LuxuryApp.Controllers.Identity
                 return RedirectToAction(nameof(Acceso));
             }
 
+            var normalizedName = _tenantDisplayNameService.NormalizeDisplayName(model.Name);
+            if (string.IsNullOrWhiteSpace(normalizedName))
+            {
+                ModelState.AddModelError(nameof(CuentaViewModel.Name), "El nombre es requerido.");
+            }
+
+            const string invalidDisplayNameMessage = "El nombre no puede contener saltos de línea ni caracteres de control.";
+            var alreadyHasInvalidCharacterError =
+                ModelState.TryGetValue(nameof(CuentaViewModel.Name), out var nameState) &&
+                nameState.Errors.Any(error => error.ErrorMessage == invalidDisplayNameMessage);
+
+            if (_tenantDisplayNameService.ContainsInvalidDisplayNameCharacters(model.Name) &&
+                !alreadyHasInvalidCharacterError)
+            {
+                ModelState.AddModelError(
+                    nameof(CuentaViewModel.Name),
+                    invalidDisplayNameMessage);
+            }
+
             if (!ModelState.IsValid)
             {
                 return View(new CuentaViewModel
                 {
                     Email = user.Email ?? string.Empty,
-                    Name = model.Name,
+                    Name = normalizedName.Length > 0 ? normalizedName : model.Name,
                     PhoneNumber = model.PhoneNumber
                 });
             }
 
-            user.Name = model.Name.Trim();
+            user.Name = normalizedName;
             user.PhoneNumber = string.IsNullOrWhiteSpace(model.PhoneNumber)
                 ? null
                 : model.PhoneNumber.Trim();
@@ -462,6 +484,7 @@ namespace LuxuryApp.Controllers.Identity
             var result = await _userManager.UpdateAsync(user);
             if (result.Succeeded)
             {
+                await _signInManager.RefreshSignInAsync(user);
                 TempData["Mensaje"] = "Datos actualizados correctamente.";
             }
             else

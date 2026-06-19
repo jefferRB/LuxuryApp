@@ -103,7 +103,7 @@
         </div>
 
         <!-- Producto más/menos vendido del mes -->
-        <div class="binfo-product-grid">
+            <div class="binfo-kpi-big-grid">
 
             <div class="kpi-card binfo-kpi-big">
                 <div class="binfo-kpi-icon binfo-icon-green"><i class="bi bi-box-seam"></i></div>
@@ -128,6 +128,17 @@
                     <span class="binfo-kpi-value binfo-color-red">
                         @(string.IsNullOrEmpty(Model.ProductoMenosVendido) ? "—" : Model.ProductoMenosVendido)
                     </span>
+                </div>
+            </div>
+
+            <div class="kpi-card binfo-kpi-big ">
+                <div class="binfo-kpi-icon binfo-icon-purple"><i class="bi bi-calendar-check"></i></div>
+                <div class="binfo-kpi-body">
+                    <span class="binfo-kpi-label">
+                        Citas en línea reservadas este mes
+                        <span class="binfo-month-badge">@mesNombre</span>
+                    </span>
+                    <span class="binfo-kpi-value binfo-color-purple">@Model.ReservasOnlineMes</span>
                 </div>
             </div>
 

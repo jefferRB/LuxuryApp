@@ -17,6 +17,10 @@
     }
 
     function selectedDateStr() {
+        if (typeof window.getTodayAppointmentsSelectedDateStr === "function") {
+            return window.getTodayAppointmentsSelectedDateStr();
+        }
+
         const base = (typeof currentDate !== "undefined" && currentDate) ? currentDate : new Date();
         if (typeof formatLocalDate === "function") {
             return formatLocalDate(base);
@@ -25,14 +29,28 @@
         return `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}`;
     }
 
+    function selectedFuncionarioId(funcionarioId) {
+        if (typeof window.resolveTodayAppointmentsFuncionarioFilter === "function") {
+            return window.resolveTodayAppointmentsFuncionarioFilter(funcionarioId);
+        }
+
+        return funcionarioId || "";
+    }
+
     /* ── Override del cargador de calendar.js ──────────────────── */
-    window.loadUpcomingAppointments = async function (funcionarioId = "") {
+    window.loadUpcomingAppointments = async function (funcionarioId = undefined) {
         const requestId = ++panelSequence;
 
         try {
             const dateStr = selectedDateStr();
-            const url = funcionarioId
-                ? `/Calendar/GetUpcomingAppointments?date=${encodeURIComponent(dateStr)}&funcionarioId=${encodeURIComponent(funcionarioId)}`
+            const resolvedFuncionarioId = selectedFuncionarioId(funcionarioId);
+
+            if (typeof window.syncTodayAppointmentsHeader === "function") {
+                window.syncTodayAppointmentsHeader();
+            }
+
+            const url = resolvedFuncionarioId
+                ? `/Calendar/GetUpcomingAppointments?date=${encodeURIComponent(dateStr)}&funcionarioId=${encodeURIComponent(resolvedFuncionarioId)}`
                 : `/Calendar/GetUpcomingAppointments?date=${encodeURIComponent(dateStr)}`;
 
             const data = await fetchJson(url);
@@ -97,11 +115,15 @@
         const title = document.createElement("div");
         title.style.fontWeight = "700";
         title.style.color = "var(--private-surface-text)";
-        title.textContent = "No hay citas pendientes para hoy";
+        title.textContent = typeof window.getTodayAppointmentsEmptyTitle === "function"
+            ? window.getTodayAppointmentsEmptyTitle()
+            : "No hay citas pendientes para hoy";
 
         const sub = document.createElement("div");
         sub.style.fontSize = "0.82rem";
-        sub.textContent = "Las próximas citas aparecerán aquí conforme estén programadas.";
+        sub.textContent = typeof window.getTodayAppointmentsEmptySubtitle === "function"
+            ? window.getTodayAppointmentsEmptySubtitle()
+            : "Las próximas citas aparecerán aquí conforme estén programadas.";
 
         li.appendChild(icon);
         li.appendChild(title);

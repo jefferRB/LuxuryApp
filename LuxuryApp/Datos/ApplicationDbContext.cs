@@ -7,6 +7,8 @@ using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.Legal;
+using LuxuryApp.Models.Notifications;
+using LuxuryApp.Models.Platform;
 using LuxuryApp.Models.Productos;
 using LuxuryApp.Models.Reservas;
 using LuxuryApp.Models.Saas;
@@ -720,6 +722,54 @@ namespace ProyectoIdentity.Datos
                     .OnDelete(DeleteBehavior.SetNull);
             });
 
+            modelBuilder.Entity<TenantNotification>(entity =>
+            {
+                entity.Property(n => n.Type).HasMaxLength(60).IsRequired();
+                entity.Property(n => n.Title).HasMaxLength(150).IsRequired();
+                entity.Property(n => n.Message).HasMaxLength(400).IsRequired();
+                entity.Property(n => n.ActionUrl).HasMaxLength(300);
+                entity.Property(n => n.EntityType).HasMaxLength(60);
+                entity.Property(n => n.Source).HasMaxLength(40).IsRequired();
+
+                // Burbuja: contar no leídas y traer recientes por tenant de forma barata.
+                entity.HasIndex(n => new { n.TenantId, n.IsRead, n.CreatedAtUtc })
+                    .IsDescending(false, false, true)
+                    .HasDatabaseName("IX_TenantNotifications_TenantId_IsRead_CreatedAtUtc");
+
+                // Idempotencia anti-duplicados por evento (Type + EntityType + EntityId) por tenant.
+                entity.HasIndex(n => new { n.TenantId, n.Type, n.EntityType, n.EntityId })
+                    .IsUnique()
+                    .HasFilter("[EntityType] IS NOT NULL AND [EntityId] IS NOT NULL")
+                    .HasDatabaseName("UX_TenantNotifications_TenantId_Type_Entity");
+            });
+
+            modelBuilder.Entity<PlatformAuditLog>(entity =>
+            {
+                // Bitácora append-only cross-tenant. NO es ITenantEntity: queda fuera del RLS.
+                entity.Property(log => log.ActorUserId).HasMaxLength(450).IsRequired();
+                entity.Property(log => log.ActorEmail).HasMaxLength(256).IsRequired();
+                entity.Property(log => log.Action).HasMaxLength(80).IsRequired();
+                entity.Property(log => log.EntityType).HasMaxLength(60).IsRequired();
+                entity.Property(log => log.EntityId).HasMaxLength(450);
+                entity.Property(log => log.TenantName).HasMaxLength(150);
+                entity.Property(log => log.TargetUserId).HasMaxLength(450);
+                entity.Property(log => log.TargetUserEmail).HasMaxLength(256);
+                entity.Property(log => log.Reason).HasMaxLength(500);
+                entity.Property(log => log.IpAddress).HasMaxLength(64);
+                entity.Property(log => log.UserAgent).HasMaxLength(512);
+
+                entity.HasIndex(log => log.CreatedAtUtc)
+                    .HasDatabaseName("IX_PlatformAuditLogs_CreatedAtUtc");
+                entity.HasIndex(log => log.ActorUserId)
+                    .HasDatabaseName("IX_PlatformAuditLogs_ActorUserId");
+                entity.HasIndex(log => log.TenantId)
+                    .HasDatabaseName("IX_PlatformAuditLogs_TenantId");
+                entity.HasIndex(log => new { log.EntityType, log.EntityId })
+                    .HasDatabaseName("IX_PlatformAuditLogs_EntityType_EntityId");
+                entity.HasIndex(log => log.Action)
+                    .HasDatabaseName("IX_PlatformAuditLogs_Action");
+            });
+
             modelBuilder.Entity<Tenant>(entity =>
             {
                 entity.Property(t => t.Nombre).IsRequired();
@@ -1305,6 +1355,10 @@ namespace ProyectoIdentity.Datos
         //Reservas online (Fase 1)
         public DbSet<TenantBookingSettings> TenantBookingSettings { get; set; }
         public DbSet<BookingRequest> BookingRequests { get; set; }
+        //Centro de Notificaciones
+        public DbSet<TenantNotification> TenantNotifications { get; set; }
+
+        public DbSet<PlatformAuditLog> PlatformAuditLogs { get; set; }
 
 
 

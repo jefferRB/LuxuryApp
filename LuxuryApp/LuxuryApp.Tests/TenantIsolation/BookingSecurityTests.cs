@@ -3,6 +3,7 @@ using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Reservas;
+using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Calendar;
 using LuxuryApp.Services.Reservas;
 using LuxuryApp.Tests.Support;
@@ -106,7 +107,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             // Servicio y funcionario pertenecen al tenant A.
             var servicio = await SeedServicioAsync(context, 30);
             await SeedFuncionarioAsync(context);
-            await SeedSettingsAsync(context, workingMask: 0b1111111);
+            await SeedSettingsAsync(context, tenantProvider, workingMask: 0b1111111);
 
             // El atacante actúa como tenant B pero reenvía el ServicioId del tenant A.
             tenantProvider.TenantId = tenantB;
@@ -195,7 +196,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var servicio = await SeedServicioAsync(context, 30);
             await SeedFuncionarioAsync(context);
             // Solo lunes laboral (bit 1). 2026-05-27 es miércoles.
-            await SeedSettingsAsync(context, workingMask: 0b0000010);
+            await SeedSettingsAsync(context, tenantProvider, workingMask: 0b0000010);
 
             var service = new BookingAvailabilityService(context, new FixedBusinessDateTimeProvider());
             var resolucion = await service.ResolveSlotAsync(
@@ -216,7 +217,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var servicio = await SeedServicioAsync(context, 30);
             await SeedFuncionarioAsync(context);
-            await SeedSettingsAsync(context, workingMask: 0b1111111, open: new TimeOnly(8, 0), close: new TimeOnly(12, 0));
+            await SeedSettingsAsync(context, tenantProvider, workingMask: 0b1111111, open: new TimeOnly(8, 0), close: new TimeOnly(12, 0));
 
             var service = new BookingAvailabilityService(context, new FixedBusinessDateTimeProvider());
             // 13:00 está fuera de la jornada 08:00–12:00.
@@ -238,7 +239,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var servicio = await SeedServicioAsync(context, 30);
             var funcionario = await SeedFuncionarioAsync(context);
-            await SeedSettingsAsync(context, workingMask: 0b1111111, open: new TimeOnly(8, 0), close: new TimeOnly(18, 0));
+            await SeedSettingsAsync(context, tenantProvider, workingMask: 0b1111111, open: new TimeOnly(8, 0), close: new TimeOnly(18, 0));
 
             var service = new BookingAvailabilityService(context, new FixedBusinessDateTimeProvider());
             var resolucion = await service.ResolveSlotAsync(
@@ -300,10 +301,13 @@ namespace LuxuryApp.Tests.TenantIsolation
 
         private static async Task SeedSettingsAsync(
             ApplicationDbContext context,
+            TestTenantProvider tenantProvider,
             int workingMask,
             TimeOnly? open = null,
             TimeOnly? close = null)
         {
+            await EnsureTenantAsync(context, tenantProvider.TenantId);
+
             context.TenantBookingSettings.Add(new TenantBookingSettings
             {
                 PublicBookingEnabled = true,
@@ -316,6 +320,29 @@ namespace LuxuryApp.Tests.TenantIsolation
                 PublicBookingMinAdvanceMinutes = 0
             });
             await context.SaveChangesAsync();
+        }
+
+        private static async Task EnsureTenantAsync(ApplicationDbContext context, Guid tenantId)
+        {
+            if (tenantId == Guid.Empty)
+            {
+                return;
+            }
+
+            if (await context.Tenants.IgnoreQueryFilters().AnyAsync(tenant => tenant.Id == tenantId))
+            {
+                return;
+            }
+
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = $"Tenant {tenantId:N}",
+                Activo = true
+            });
+
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
         }
 
         private static async Task<BookingRequest> SeedBookingRequestAsync(ApplicationDbContext context, string estado)

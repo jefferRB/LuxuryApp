@@ -15,6 +15,7 @@ using LuxuryApp.Services.Identity;
 using LuxuryApp.Services.Informacion;
 using LuxuryApp.Services.Layout;
 using LuxuryApp.Services.Localization;
+using LuxuryApp.Services.Notifications;
 using LuxuryApp.Services.Payments;
 using LuxuryApp.Services.PublicSite;
 using LuxuryApp.Services.Productos;
@@ -160,6 +161,28 @@ builder.Services.AddAntiforgery(options =>
 
 builder.Services.AddMemoryCache();
 
+// Rate limiting acotado al enlace público de reservas (/reservar/*). Frena floods y spam
+// por IP sin tocar el resto del pipeline: solo el controlador público opta con
+// [EnableRateLimiting("PublicBooking")]. Detrás de nginx, UseForwardedHeaders ya deja el
+// IP real del cliente en RemoteIpAddress, así que la partición por IP es correcta.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.AddPolicy("PublicBooking", httpContext =>
+    {
+        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida";
+        return System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ip,
+            factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 60,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            });
+    });
+});
+
 builder.Services.Configure<OpcionesPago>(builder.Configuration.GetSection("Payments"));
 builder.Services.Configure<OpcionesTilopay>(builder.Configuration.GetSection("Tilopay"));
 builder.Services.Configure<TilopayRepeatOptions>(builder.Configuration.GetSection("TilopayRepeat"));
@@ -229,11 +252,13 @@ builder.Services.AddScoped<IProductoQueryService, ProductoQueryService>();
 builder.Services.AddScoped<IContractService, ContractService>();
 builder.Services.AddScoped<IPrivateNavigationService, PrivateNavigationService>();
 builder.Services.AddScoped<IPublicSiteContentService, PublicSiteContentService>();
+builder.Services.AddScoped<ITenantDisplayNameService, TenantDisplayNameService>();
 // Reservas online por tenant (Fase 1)
 builder.Services.AddScoped<IBookingAvailabilityService, BookingAvailabilityService>();
 builder.Services.AddScoped<IBookingSettingsService, BookingSettingsService>();
 builder.Services.AddScoped<IPublicBookingService, PublicBookingService>();
 builder.Services.AddScoped<IBookingRequestService, BookingRequestService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHostedService<ReminderWorker>();
 builder.Services.AddScoped<VisitasAutomaticasService>();
 builder.Services.AddHostedService<VisitasBackgroundService>();
@@ -249,6 +274,12 @@ builder.Services.AddScoped<SuscripcionService>();
 builder.Services.AddSingleton<ITenantCommercialAccessCache, TenantCommercialAccessCache>();
 builder.Services.AddScoped<ITenantCommercialAccessResolver, TenantCommercialAccessResolver>();
 builder.Services.AddScoped<IPromotionalCodeService, PromotionalCodeService>();
+builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformAuditService, LuxuryApp.Services.Platform.PlatformAuditService>();
+builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformUserAdminService, LuxuryApp.Services.Platform.PlatformUserAdminService>();
+builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformMetricsService, LuxuryApp.Services.Platform.PlatformMetricsService>();
+builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformHealthService, LuxuryApp.Services.Platform.PlatformHealthService>();
+builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformWhatsAppStatusService, LuxuryApp.Services.Platform.PlatformWhatsAppStatusService>();
+builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformTenantProfileService, LuxuryApp.Services.Platform.PlatformTenantProfileService>();
 builder.Services.AddScoped<SaaSPaymentService>();
 builder.Services.AddScoped<PaymentProviderResolver>();
 builder.Services.AddHttpClient<PublicCallbackHealthService>(client =>
@@ -294,6 +325,8 @@ app.UseStaticFiles();
 app.UseRequestLocalization(app.Services.GetRequiredService<IOptions<RequestLocalizationOptions>>().Value);
 
 app.UseRouting();
+
+app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseMiddleware<ContractAcceptanceMiddleware>();

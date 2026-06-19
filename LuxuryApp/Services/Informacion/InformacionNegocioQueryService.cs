@@ -1,5 +1,6 @@
 using System.Globalization;
 using LuxuryApp.Models.Informacion;
+using LuxuryApp.Models.Reservas;
 using LuxuryApp.Services.BusinessTime;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
@@ -138,6 +139,13 @@ namespace LuxuryApp.Services.Informacion
                 .Take(normalizedTop)
                 .ToListAsync(cancellationToken);
 
+            var reservasOnlineMes = await _context.BookingRequests
+                .AsNoTracking()
+                .Where(r => r.Estado == BookingRequestStates.Confirmed
+                         && r.FechaHoraInicioSolicitada >= selection.MonthStart
+                         && r.FechaHoraInicioSolicitada < selection.MonthEnd)
+                .CountAsync(cancellationToken);
+
             var semanaActual = await BuildWeekSeriesInternalAsync(
                 GetStartOfWeek(_businessDateTimeProvider.Today()),
                 FullWeekLabels,
@@ -162,7 +170,8 @@ namespace LuxuryApp.Services.Informacion
                 CitasPorMes = ComposeYearSeries(citasAnuales),
                 ProductosVendidosPorMes = ComposeYearSeries(cobrosAnuales),
                 CantidadServiciosMes = serviciosMes.Sum(x => x.Total),
-                CantidadProductosMes = productosMes.Sum(x => x.Total)
+                CantidadProductosMes = productosMes.Sum(x => x.Total),
+                ReservasOnlineMes = reservasOnlineMes
             };
 
             ApplyHistoricalMonthExtremes(vm, citasPorMesHistorico);

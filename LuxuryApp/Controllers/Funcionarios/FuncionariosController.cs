@@ -3,8 +3,10 @@ using ClosedXML.Excel;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.BusinessTime;
+using LuxuryApp.Services.Exports;
 using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Services.Identity;
+using LuxuryApp.Services.Tenant;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -21,6 +23,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         private readonly IFuncionarioPortalPermissionService _portalPermissionService;
         private readonly LuxuryApp.Services.Account.IAccountEmailService _accountEmailService;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
+        private readonly ITenantDisplayNameService _tenantDisplayNameService;
         private readonly ILogger<FuncionariosController> _logger;
 
         public FuncionariosController(
@@ -30,6 +33,7 @@ namespace LuxuryApp.Controllers.Funcionarios
             IFuncionarioPortalPermissionService portalPermissionService,
             LuxuryApp.Services.Account.IAccountEmailService accountEmailService,
             IBusinessDateTimeProvider businessDateTimeProvider,
+            ITenantDisplayNameService tenantDisplayNameService,
             ILogger<FuncionariosController> logger)
         {
             _context = context;
@@ -38,6 +42,7 @@ namespace LuxuryApp.Controllers.Funcionarios
             _portalPermissionService = portalPermissionService;
             _accountEmailService = accountEmailService;
             _businessDateTimeProvider = businessDateTimeProvider;
+            _tenantDisplayNameService = tenantDisplayNameService;
             _logger = logger;
         }
 
@@ -474,10 +479,12 @@ namespace LuxuryApp.Controllers.Funcionarios
 
             try
             {
+                var nombreNegocio = await _tenantDisplayNameService.GetCurrentTenantDisplayNameAsync(HttpContext.RequestAborted);
                 await _accountEmailService.SendFuncionarioInvitationEmailAsync(
                     resultado.Email,
                     resultado.NombreParaCorreo ?? "Funcionario",
                     enlace,
+                    nombreNegocio,
                     HttpContext.RequestAborted);
             }
             catch (Exception ex)
@@ -684,8 +691,10 @@ namespace LuxuryApp.Controllers.Funcionarios
             var colorDorado = XLColor.FromHtml("#C6A55C");
             var colorGris = XLColor.FromHtml("#F5F5F5");
 
+            var nombreNegocio = await _tenantDisplayNameService.GetCurrentTenantDisplayNameAsync(HttpContext.RequestAborted);
+
             ws.Range("A1:I1").Merge();
-            ws.Cell("A1").Value = "LUXE CENTRO DE BELLEZA";
+            ws.Cell("A1").Value = nombreNegocio;
             ws.Cell("A1").Style.Font.FontSize = 20;
             ws.Cell("A1").Style.Font.Bold = true;
             ws.Cell("A1").Style.Font.FontColor = colorDorado;
@@ -848,7 +857,7 @@ namespace LuxuryApp.Controllers.Funcionarios
             return File(
                 stream.ToArray(),
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                $"LuxePagosFuncionarios_{generatedAt:yyyyMMdd_HHmm}.xlsx");
+                ExcelReportFileNameBuilder.Build(nombreNegocio, "Pagos Funcionarios", generatedAt));
         }
 
         private async Task<IActionResult> SetActivoAsync(int id, bool activo)

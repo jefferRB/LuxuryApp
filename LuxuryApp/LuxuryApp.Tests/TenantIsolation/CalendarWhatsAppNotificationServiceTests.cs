@@ -1,6 +1,7 @@
 using System.Net;
 using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.Funcionarios;
+using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Models.WhatsApp;
 using LuxuryApp.Services.Calendar;
@@ -8,6 +9,7 @@ using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Services.WhatsApp;
 using LuxuryApp.Tests.Support;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
@@ -170,6 +172,30 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(WhatsAppMessageStatuses.Sent, sent.Status);
             var updatedCita = await fixture.Context.Citas.SingleAsync(c => c.Id == cita.Id);
             Assert.NotNull(updatedCita.ConfirmacionWhatsAppEnviadaUtc);
+        }
+
+        [Fact]
+        public async Task ProcessPending_ShouldUseUpdatedAccountDisplayNameAsBusinessName()
+        {
+            using var fixture = await Fixture.CreateAsync();
+            await fixture.SeedAccountDisplayNameAsync("Barberia jor");
+            await fixture.UpdateAutomationAsync(new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = true,
+                DailyMessageLimit = 30,
+                ConfirmationHoursBefore = 24,
+                SendConfirmationImmediatelyIfInsideWindow = true,
+                ReminderHoursBefore = 3
+            });
+
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 26, 20, 30, 0));
+            await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
+
+            await fixture.Notifications.ProcessPendingNotificationsAsync();
+
+            Assert.Equal("Barberia jor", fixture.MetaClient.LastBusinessName);
         }
 
         [Fact]
@@ -820,6 +846,10 @@ namespace LuxuryApp.Tests.TenantIsolation
                 var tenantExecution = new TenantExecutionService(
                     serviceProvider.GetRequiredService<IServiceScopeFactory>(),
                     NullLogger<TenantExecutionService>.Instance);
+                var tenantDisplayNameService = new TenantDisplayNameService(
+                    context,
+                    tenantProvider,
+                    new HttpContextAccessor());
                 var metaClient = new FakeMetaWhatsAppClient();
                 var notifications = new CalendarWhatsAppNotificationService(
                     context,
@@ -828,6 +858,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                     businessDateTimeProvider,
                     settings,
                     tenantProvider,
+                    tenantDisplayNameService,
                     tenantExecution,
                     NullLogger<CalendarWhatsAppNotificationService>.Instance);
 
@@ -922,6 +953,22 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             public Task UpdateAutomationAsync(TenantWhatsAppSettingsUpdateDto dto) =>
                 Settings.UpdateSettingsAsync(TenantId, dto, "platform-user");
+
+            public async Task SeedAccountDisplayNameAsync(string displayName)
+            {
+                Context.Users.Add(new AppUsuario
+                {
+                    Id = $"owner-{TenantId:N}",
+                    TenantId = TenantId,
+                    UserName = $"owner-{TenantId:N}@test.local",
+                    Email = $"owner-{TenantId:N}@test.local",
+                    Name = displayName,
+                    State = true
+                });
+
+                await Context.SaveChangesAsync();
+                Context.ChangeTracker.Clear();
+            }
 
             public async Task<LuxuryApp.Models.DataBase.ClientesModel> SeedClienteAsync(
                 string nombre,
@@ -1018,6 +1065,7 @@ namespace LuxuryApp.Tests.TenantIsolation
         private sealed class FakeMetaWhatsAppClient : IMetaWhatsAppClient
         {
             public int SendCount { get; private set; }
+            public string? LastBusinessName { get; private set; }
 
             public MetaWhatsAppSendResult? NextSendResult { get; set; }
 
@@ -1039,6 +1087,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 CancellationToken cancellationToken = default)
             {
                 SendCount++;
+                LastBusinessName = businessName;
                 return Task.FromResult(ConsumeResult($"confirmation-{SendCount}"));
             }
 
@@ -1051,6 +1100,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 CancellationToken cancellationToken = default)
             {
                 SendCount++;
+                LastBusinessName = businessName;
                 return Task.FromResult(ConsumeResult($"reminder-{SendCount}"));
             }
 

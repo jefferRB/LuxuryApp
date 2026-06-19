@@ -1,12 +1,16 @@
 using System.Security.Claims;
+using LuxuryApp.Models.Comprobantes;
+using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Services;
 using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Calendar;
+using LuxuryApp.Services.Comprobantes;
 using LuxuryApp.Services.Finanzas;
 using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Services.Identity;
 using LuxuryApp.Services.Informacion;
 using LuxuryApp.Services.Productos;
+using LuxuryApp.Services.Tenant;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
@@ -102,6 +106,31 @@ namespace LuxuryApp.Tests.Support
 
         public static IProductoQueryService CreateProductoQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
             new ProductoQueryService(context);
+
+        public static ITenantDisplayNameService CreateTenantDisplayNameService(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            ITenantProvider tenantProvider) =>
+            new TenantDisplayNameService(context, tenantProvider, new HttpContextAccessor());
+
+        // No-arg overload para tests que no necesitan nombre de tenant real.
+        public static ITenantDisplayNameService CreateTenantDisplayNameService() =>
+            new NoOpTenantDisplayNameService();
+
+        public static IControlCobrosQueryService CreateControlCobrosQueryService(
+            ProyectoIdentity.Datos.ApplicationDbContext context) =>
+            new ControlCobrosQueryService(context, BusinessDateTimeProvider);
+
+        public static IComprobanteCobroService CreateComprobanteCobroService() =>
+            new NoOpComprobanteCobroService();
+
+        public static IFuncionarioPortalAccessService CreateFuncionarioPortalAccessService() =>
+            new NoOpFuncionarioPortalAccessService();
+
+        public static IFuncionarioPortalPermissionService CreateFuncionarioPortalPermissionService() =>
+            new NoOpFuncionarioPortalPermissionService();
+
+        public static LuxuryApp.Services.Account.IAccountEmailService CreateAccountEmailService() =>
+            new NoOpAccountEmailService();
     }
 
     internal sealed class TestTempDataProvider : ITempDataProvider
@@ -115,6 +144,84 @@ namespace LuxuryApp.Tests.Support
         {
             _values = values.ToDictionary(pair => pair.Key, pair => pair.Value);
         }
+    }
+
+    internal sealed class NoOpTenantDisplayNameService : ITenantDisplayNameService
+    {
+        public Task<string> GetCurrentTenantDisplayNameAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(string.Empty);
+
+        public Task<string> GetTenantDisplayNameAsync(Guid tenantId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(string.Empty);
+
+        public Task<string?> GetPublicTenantDisplayNameBySlugAsync(string slug, CancellationToken cancellationToken = default) =>
+            Task.FromResult<string?>(null);
+
+        public string NormalizeDisplayName(string? value) => value ?? string.Empty;
+
+        public bool ContainsInvalidDisplayNameCharacters(string? value) => false;
+    }
+
+    internal sealed class NoOpComprobanteCobroService : IComprobanteCobroService
+    {
+        public Task<ComprobanteCobro?> CrearYEnviarDesdeCobroAsync(int cobroId, string emailDestino, bool guardarEmailEnCliente, string? createdByUserId, int? funcionarioScopeId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ComprobanteCobro?>(null);
+
+        public Task<ComprobanteCobro?> ReenviarAsync(int comprobanteId, int? funcionarioScopeId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ComprobanteCobro?>(null);
+
+        public Task<ComprobanteCobro?> ObtenerParaAppAsync(int comprobanteId, int? funcionarioScopeId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ComprobanteCobro?>(null);
+
+        public Task<ComprobanteCobro?> ObtenerPorTokenPublicoAsync(string token, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ComprobanteCobro?>(null);
+
+        public byte[] GenerarPdf(ComprobanteCobro comprobante) => Array.Empty<byte>();
+    }
+
+    internal sealed class NoOpFuncionarioPortalAccessService : IFuncionarioPortalAccessService
+    {
+        public Task<FuncionarioAccesoViewModel> ObtenerEstadoAsync(int funcionarioId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new FuncionarioAccesoViewModel { FuncionarioId = funcionarioId });
+
+        public Task<FuncionarioAccesoResultado> ActivarAccesoAsync(int funcionarioId, string email, FuncionarioAccesoCredencialModo modo, string? contrasenaTemporal, CancellationToken cancellationToken = default) =>
+            Task.FromResult(FuncionarioAccesoResultado.Falla("NoOp"));
+
+        public Task<FuncionarioAccesoResultado> DesactivarAccesoAsync(int funcionarioId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(FuncionarioAccesoResultado.Falla("NoOp"));
+
+        public Task<FuncionarioAccesoResultado> ReactivarAccesoAsync(int funcionarioId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(FuncionarioAccesoResultado.Falla("NoOp"));
+
+        public Task<FuncionarioAccesoResultado> GenerarEnlaceInvitacionAsync(int funcionarioId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(FuncionarioAccesoResultado.Falla("NoOp"));
+
+        public Task<FuncionarioAccesoResultado> CambiarCorreoAsync(int funcionarioId, string nuevoEmail, CancellationToken cancellationToken = default) =>
+            Task.FromResult(FuncionarioAccesoResultado.Falla("NoOp"));
+    }
+
+    internal sealed class NoOpFuncionarioPortalPermissionService : IFuncionarioPortalPermissionService
+    {
+        public Task<FuncionarioPortalPermisosSet> ObtenerAsync(int funcionarioId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new FuncionarioPortalPermisosSet(new Dictionary<string, bool>()));
+
+        public Task<bool> TienePermisoAsync(int funcionarioId, string permiso, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+
+        public Task CrearDefaultsAsync(int funcionarioId, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task<bool> GuardarAsync(int funcionarioId, IReadOnlyDictionary<string, bool> valores, CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
+    }
+
+    internal sealed class NoOpAccountEmailService : LuxuryApp.Services.Account.IAccountEmailService
+    {
+        public Task SendPasswordResetEmailAsync(string toEmail, string displayName, string resetLink, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task SendFuncionarioInvitationEmailAsync(string toEmail, string displayName, string setPasswordLink, string businessName, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 
     internal sealed class NoOpCalendarWhatsAppNotificationService : ICalendarWhatsAppNotificationService

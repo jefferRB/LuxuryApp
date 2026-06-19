@@ -6,6 +6,7 @@ using LuxuryApp.Models.Platform;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Models.WhatsApp;
 using LuxuryApp.Services.BusinessTime;
+using LuxuryApp.Services.Platform;
 using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Services.WhatsApp;
@@ -103,7 +104,11 @@ namespace LuxuryApp.Tests.TenantIsolation
                 CreateResolver(context, cache, accessCache),
                 accessCache,
                 provider.GetRequiredService<TenantExecutionService>(),
-                new StubMetaWhatsAppClient());
+                new StubMetaWhatsAppClient(),
+                new NullPlatformAuditService(),
+                new NullPlatformMetricsService(),
+                new NullPlatformHealthService(),
+                new NullPlatformWhatsAppStatusService());
             ControllerTestSupport.AttachHttpContext(
                 controller,
                 ControllerTestSupport.BuildTenantPrincipal("platform-user", Guid.NewGuid(), isPlatformSuperAdmin: true));
@@ -163,7 +168,11 @@ namespace LuxuryApp.Tests.TenantIsolation
                 CreateResolver(context, cache, accessCache),
                 accessCache,
                 provider.GetRequiredService<TenantExecutionService>(),
-                new StubMetaWhatsAppClient());
+                new StubMetaWhatsAppClient(),
+                new NullPlatformAuditService(),
+                new NullPlatformMetricsService(),
+                new NullPlatformHealthService(),
+                new NullPlatformWhatsAppStatusService());
             ControllerTestSupport.AttachHttpContext(
                 controller,
                 ControllerTestSupport.BuildTenantPrincipal("platform-user", Guid.NewGuid(), isPlatformSuperAdmin: true));
@@ -289,7 +298,11 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new TenantExecutionService(
                     serviceProvider.GetRequiredService<IServiceScopeFactory>(),
                     NullLogger<TenantExecutionService>.Instance),
-                new StubMetaWhatsAppClient())
+                new StubMetaWhatsAppClient(),
+                new NullPlatformAuditService(),
+                new NullPlatformMetricsService(),
+                new NullPlatformHealthService(),
+                new NullPlatformWhatsAppStatusService())
             {
                 ControllerContext = new ControllerContext
                 {
@@ -449,6 +462,74 @@ namespace LuxuryApp.Tests.TenantIsolation
                         FbTraceId: null,
                         ResponsePreview: null),
                     PhoneNumberBelongsToConfiguredWaba: true));
+        }
+
+        private sealed class NullPlatformAuditService : IPlatformAuditService
+        {
+            public Task LogAsync(PlatformAuditEntry entry, CancellationToken cancellationToken = default) =>
+                Task.CompletedTask;
+
+            public Task<IReadOnlyList<PlatformAuditLog>> GetRecentAsync(int take = 100, CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<PlatformAuditLog>>(Array.Empty<PlatformAuditLog>());
+
+            public Task<IReadOnlyList<PlatformAuditLog>> GetByTenantAsync(Guid tenantId, int take = 100, CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<PlatformAuditLog>>(Array.Empty<PlatformAuditLog>());
+
+            public Task<IReadOnlyList<PlatformAuditLog>> GetByUserAsync(string targetUserId, int take = 100, CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<PlatformAuditLog>>(Array.Empty<PlatformAuditLog>());
+
+            public Task<int> CountActorFailuresSinceAsync(string actorUserId, DateTime sinceUtc, CancellationToken cancellationToken = default) =>
+                Task.FromResult(0);
+        }
+
+        private sealed class NullPlatformMetricsService : IPlatformMetricsService
+        {
+            public Task<Dictionary<Guid, PlatformTenantUsageViewModel>> GetTenantUsageBatchAsync(
+                IReadOnlyList<Guid> tenantIds,
+                CancellationToken cancellationToken = default)
+            {
+                var result = tenantIds
+                    .Distinct()
+                    .ToDictionary(tenantId => tenantId, _ => new PlatformTenantUsageViewModel());
+
+                return Task.FromResult(result);
+            }
+
+            public Task<PlatformTenantUsageViewModel> GetTenantUsageAsync(
+                Guid tenantId,
+                CancellationToken cancellationToken = default) =>
+                Task.FromResult(new PlatformTenantUsageViewModel());
+        }
+
+        private sealed class NullPlatformHealthService : IPlatformHealthService
+        {
+            public PlatformTenantHealthViewModel ComputeHealth(
+                bool canAccessApp,
+                PlatformTenantUsageViewModel usage,
+                bool whatsAppEnabled,
+                bool hasWhatsAppRecentError,
+                bool hasPendingCheckout,
+                bool isExpiringSoon) =>
+                new() { State = TenantHealthState.Saludable };
+        }
+
+        private sealed class NullPlatformWhatsAppStatusService : IPlatformWhatsAppStatusService
+        {
+            public Task<Dictionary<Guid, PlatformWhatsAppAddonState>> GetBatchStatusAsync(
+                IReadOnlyList<Guid> tenantIds,
+                CancellationToken cancellationToken = default)
+            {
+                var result = tenantIds
+                    .Distinct()
+                    .ToDictionary(tenantId => tenantId, _ => new PlatformWhatsAppAddonState());
+
+                return Task.FromResult(result);
+            }
+
+            public Task<PlatformWhatsAppAddonState> GetSingleStatusAsync(
+                Guid tenantId,
+                CancellationToken cancellationToken = default) =>
+                Task.FromResult(new PlatformWhatsAppAddonState());
         }
 
         private sealed class FakeTempDataProvider : ITempDataProvider

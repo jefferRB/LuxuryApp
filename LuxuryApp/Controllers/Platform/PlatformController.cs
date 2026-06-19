@@ -3,6 +3,7 @@ using LuxuryApp.Models.Platform;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Models.WhatsApp;
 using LuxuryApp.Services.Identity;
+using LuxuryApp.Services.Platform;
 using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Services.WhatsApp;
@@ -22,19 +23,46 @@ namespace LuxuryApp.Controllers.Platform
         private readonly ITenantCommercialAccessCache _accessCache;
         private readonly TenantExecutionService _tenantExecutionService;
         private readonly IMetaWhatsAppClient _metaWhatsAppClient;
+        private readonly IPlatformAuditService _auditService;
+        private readonly IPlatformMetricsService _metricsService;
+        private readonly IPlatformHealthService _healthService;
+        private readonly IPlatformWhatsAppStatusService _whatsAppStatusService;
 
         public PlatformController(
             ApplicationDbContext context,
             ITenantCommercialAccessResolver commercialAccessResolver,
             ITenantCommercialAccessCache accessCache,
             TenantExecutionService tenantExecutionService,
-            IMetaWhatsAppClient metaWhatsAppClient)
+            IMetaWhatsAppClient metaWhatsAppClient,
+            IPlatformAuditService auditService,
+            IPlatformMetricsService metricsService,
+            IPlatformHealthService healthService,
+            IPlatformWhatsAppStatusService whatsAppStatusService)
         {
             _context = context;
             _commercialAccessResolver = commercialAccessResolver;
             _accessCache = accessCache;
             _tenantExecutionService = tenantExecutionService;
             _metaWhatsAppClient = metaWhatsAppClient;
+            _auditService = auditService;
+            _metricsService = metricsService;
+            _healthService = healthService;
+            _whatsAppStatusService = whatsAppStatusService;
+        }
+
+        /// <summary>
+        /// Audita una acción de plataforma sin romper el flujo si la bitácora falla.
+        /// </summary>
+        private async Task SafeAuditAsync(PlatformAuditEntry entry, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await _auditService.LogAsync(entry, cancellationToken);
+            }
+            catch
+            {
+                // La auditoría no debe tumbar una acción comercial/WhatsApp que ya funcionó.
+            }
         }
 
         [HttpGet]
@@ -52,18 +80,68 @@ namespace LuxuryApp.Controllers.Platform
                 .OrderBy(tenant => tenant.Nombre)
                 .ToListAsync(cancellationToken);
 
+            var tenantIds = tenants.Select(t => t.Id).ToList();
+
+            // Batch: un solo query para el email del primer usuario por tenant (orden alfab.)
+            var ownersByTenant = await _context.Users
+                .AsNoTracking()
+                .Where(user => tenantIds.Contains(user.TenantId))
+                .GroupBy(user => user.TenantId)
+                .Select(group => new
+                {
+                    TenantId = group.Key,
+                    Email = group.OrderBy(user => user.Email).Select(user => user.Email).FirstOrDefault()
+                })
+                .ToDictionaryAsync(row => row.TenantId, row => row.Email, cancellationToken);
+
+            // Batch: todos los datos WhatsApp en 4 queries totales (no N scopes DI)
+            var whatsAppByTenant = await _whatsAppStatusService.GetBatchStatusAsync(tenantIds, cancellationToken);
+
+            // Batch: métricas de uso (citas/cobros/reservas/última actividad) — 8 queries fijas
+            var usageByTenant = await _metricsService.GetTenantUsageBatchAsync(tenantIds, cancellationToken);
+
+            // Batch: tenants con checkouts pendientes (1 query antes del loop)
+            var pendingCheckoutTenants = (await _context.PagosSuscripcion
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(p => tenantIds.Contains(p.TenantId) &&
+                            (p.Estado == EstadoPagoProveedor.Pendiente || p.Estado == EstadoPagoProveedor.ManualReview))
+                .Select(p => p.TenantId)
+                .Distinct()
+                .ToListAsync(cancellationToken))
+                .ToHashSet();
+
+            // Batch: suscripciones próximas a vencer (1 query antes del loop)
+            var nowUtcForExpiry = DateTime.UtcNow;
+            var expirySoonCutoff = nowUtcForExpiry.AddDays(7);
+            var expiringSoonTenants = (await _context.Suscripciones
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(s => tenantIds.Contains(s.TenantId) &&
+                            (s.Estado == EstadoSuscripcion.Activa || s.Estado == EstadoSuscripcion.Trial) &&
+                            s.FechaFin.HasValue && s.FechaFin.Value >= nowUtcForExpiry && s.FechaFin.Value <= expirySoonCutoff)
+                .Select(s => s.TenantId)
+                .Distinct()
+                .ToListAsync(cancellationToken))
+                .ToHashSet();
+
             var tenantRows = new List<PlatformTenantRowViewModel>(tenants.Count);
             foreach (var tenant in tenants)
             {
-                var ownerEmail = await _context.Users
-                    .AsNoTracking()
-                    .Where(user => user.TenantId == tenant.Id)
-                    .OrderBy(user => user.Email)
-                    .Select(user => user.Email)
-                    .FirstOrDefaultAsync(cancellationToken);
-
+                ownersByTenant.TryGetValue(tenant.Id, out var ownerEmail);
                 var access = await _commercialAccessResolver.ResolveAsync(tenant.Id, cancellationToken: cancellationToken);
-                var whatsApp = await GetTenantWhatsAppSummaryAsync(tenant.Id, cancellationToken);
+                var whatsApp = whatsAppByTenant[tenant.Id];
+                usageByTenant.TryGetValue(tenant.Id, out var usage);
+                usage ??= new PlatformTenantUsageViewModel();
+
+                var health = _healthService.ComputeHealth(
+                    access.CanAccessApp,
+                    usage,
+                    whatsApp.AddonActive && whatsApp.SettingsEnabled,
+                    whatsApp.LastErrorCode is not null,
+                    hasPendingCheckout: pendingCheckoutTenants.Contains(tenant.Id),
+                    isExpiringSoon: expiringSoonTenants.Contains(tenant.Id));
+
                 tenantRows.Add(new PlatformTenantRowViewModel
                 {
                     TenantId = tenant.Id,
@@ -77,7 +155,8 @@ namespace LuxuryApp.Controllers.Platform
                     CanAccessApp = access.CanAccessApp,
                     EffectivePlanName = access.EffectivePlanName,
                     Reason = access.Reason,
-                    WhatsAppEnabled = whatsApp.IsEnabled,
+                    WhatsAppEnabled = whatsApp.SettingsEnabled,
+                    WhatsAppAddonActive = whatsApp.AddonActive,
                     SendWhatsAppConfirmationOnCreate = whatsApp.SendConfirmationOnCreate,
                     SendWhatsAppReminderThreeHoursBefore = whatsApp.SendReminderThreeHoursBefore,
                     WhatsAppDailyMessageLimit = whatsApp.DailyMessageLimit,
@@ -90,7 +169,13 @@ namespace LuxuryApp.Controllers.Platform
                     WhatsAppAddonCode = whatsApp.AddonCode,
                     WhatsAppAddonIsManual = whatsApp.AddonIsManual,
                     WhatsAppAddonFechaFin = whatsApp.AddonFechaFin,
-                    WhatsAppAddonMonthlyLimit = whatsApp.AddonMonthlyLimit
+                    WhatsAppAddonMonthlyLimit = whatsApp.AddonMonthlyLimit,
+                    Health = health,
+                    Citas30d = usage.Citas30d,
+                    Cobros30d = usage.Cobros30d,
+                    BookingRequests30d = usage.BookingRequests30d,
+                    BookingRequestsPending = usage.BookingRequestsPending,
+                    LastActivityUtc = usage.LastActivityUtc
                 });
             }
 
@@ -345,6 +430,24 @@ namespace LuxuryApp.Controllers.Platform
                     cancellationToken);
             }
 
+            var tenantNameForAudit = await _context.Tenants
+                .AsNoTracking()
+                .Where(tenant => tenant.Id == tenantId)
+                .Select(tenant => tenant.Nombre)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            await SafeAuditAsync(new PlatformAuditEntry
+            {
+                Action = PlatformAuditActions.WhatsAppSettingsUpdated,
+                EntityType = PlatformAuditEntityTypes.Tenant,
+                EntityId = tenantId.ToString(),
+                TenantId = tenantId,
+                TenantName = tenantNameForAudit,
+                Reason = string.IsNullOrWhiteSpace(whatsappSettings.AddonCode)
+                    ? null
+                    : $"Addon: {whatsappSettings.AddonCode}. {whatsappSettings.ManualAssignmentObservation}"
+            }, cancellationToken);
+
             TempData["PlatformSuccess"] = "Configuracion WhatsApp del tenant actualizada.";
             return RedirectToAction(nameof(Index));
         }
@@ -368,6 +471,15 @@ namespace LuxuryApp.Controllers.Platform
             }
 
             var diagnostic = await _metaWhatsAppClient.TestConfigurationAsync(cancellationToken);
+
+            await SafeAuditAsync(new PlatformAuditEntry
+            {
+                Action = PlatformAuditActions.MetaDiagnosticExecuted,
+                EntityType = PlatformAuditEntityTypes.Tenant,
+                EntityId = tenantId?.ToString(),
+                TenantId = tenantId,
+                Reason = diagnostic.Success ? "Diagnóstico Meta OK." : "Diagnóstico Meta con errores."
+            }, cancellationToken);
 
             TenantWhatsAppSettingsSnapshot? tenantSettings = null;
             if (tenantId.HasValue)
@@ -431,6 +543,21 @@ namespace LuxuryApp.Controllers.Platform
 
             await _context.SaveChangesAsync(cancellationToken);
             _accessCache.Invalidate(tenant.Id);
+
+            await SafeAuditAsync(new PlatformAuditEntry
+            {
+                Action = PlatformAuditActions.TenantCommercialAccessUpdated,
+                EntityType = PlatformAuditEntityTypes.Tenant,
+                EntityId = tenant.Id.ToString(),
+                TenantId = tenant.Id,
+                TenantName = tenant.Nombre,
+                AfterJson = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    Mode = commercialAccessMode.ToString(),
+                    ForcedPlanId = tenant.ForcedPlanId
+                }),
+                Reason = tenant.CommercialNotes
+            }, cancellationToken);
 
             TempData["PlatformSuccess"] = "Configuracion comercial del tenant actualizada.";
             return RedirectToAction(nameof(Index));
@@ -634,63 +761,6 @@ namespace LuxuryApp.Controllers.Platform
             };
         }
 
-        private async Task<PlatformTenantWhatsAppSummary> GetTenantWhatsAppSummaryAsync(
-            Guid tenantId,
-            CancellationToken cancellationToken)
-        {
-            PlatformTenantWhatsAppSummary? summary = null;
-
-            await _tenantExecutionService.RunForTenantAsync(
-                tenantId,
-                async (serviceProvider, scopedTenantId, ct) =>
-                {
-                    var settingsService = serviceProvider.GetRequiredService<ITenantWhatsAppSettingsService>();
-                    var settings = await settingsService.GetSettingsForTenantAsync(scopedTenantId, ct);
-                    var todayUsage = await settingsService.GetTodayUsageAsync(scopedTenantId, ct);
-                    var db = serviceProvider.GetRequiredService<ApplicationDbContext>();
-                    var lastError = await db.WhatsAppMessageLogs
-                        .AsNoTracking()
-                        .Where(message =>
-                            message.Direction == WhatsAppMessageDirections.Outbound &&
-                            message.ErrorCode != null)
-                        .OrderByDescending(message => message.CreatedAtUtc)
-                        .Select(message => new
-                        {
-                            message.ErrorCode,
-                            message.ErrorMessage,
-                            message.CreatedAtUtc
-                        })
-                        .FirstOrDefaultAsync(ct);
-
-                    var addonRecord = await db.TenantSubscriptionAddons
-                        .IgnoreQueryFilters()
-                        .AsNoTracking()
-                        .FirstOrDefaultAsync(a => a.TenantId == tenantId, ct);
-
-                    var subscriptionSvc = serviceProvider.GetRequiredService<SuscripcionService>();
-                    var addonIsActive = addonRecord is not null && subscriptionSvc.IsWhatsAppAddonActive(addonRecord);
-
-                    summary = new PlatformTenantWhatsAppSummary(
-                        settings.IsEnabled,
-                        settings.SendConfirmationOnCreate,
-                        settings.SendReminderThreeHoursBefore,
-                        settings.DailyMessageLimit,
-                        todayUsage,
-                        settings.TimeZoneId,
-                        settings.Notes,
-                        lastError?.ErrorCode,
-                        lastError?.ErrorMessage,
-                        lastError?.CreatedAtUtc,
-                        addonIsActive ? addonRecord!.AddonCode : null,
-                        addonIsActive && addonRecord!.TilopayRecurringPlanId is null,
-                        addonIsActive ? addonRecord!.FechaFin : null,
-                        addonIsActive ? addonRecord!.MonthlyMessageLimit : null);
-                },
-                cancellationToken);
-
-            return summary ?? throw new InvalidOperationException("No fue posible cargar la configuracion WhatsApp del tenant.");
-        }
-
         private static string ResolveCheckoutKind(PagoSuscripcion payment, Suscripcion? currentSubscription)
         {
             var planCode = payment.Plan?.Codigo?.Trim();
@@ -714,20 +784,5 @@ namespace LuxuryApp.Controllers.Platform
             return "PendingRecurringCheckout";
         }
 
-        private sealed record PlatformTenantWhatsAppSummary(
-            bool IsEnabled,
-            bool SendConfirmationOnCreate,
-            bool SendReminderThreeHoursBefore,
-            int DailyMessageLimit,
-            int TodayUsage,
-            string TimeZoneId,
-            string? Notes,
-            string? LastErrorCode,
-            string? LastErrorMessage,
-            DateTime? LastErrorAtUtc,
-            string? AddonCode,
-            bool AddonIsManual,
-            DateTime? AddonFechaFin,
-            int? AddonMonthlyLimit);
     }
 }

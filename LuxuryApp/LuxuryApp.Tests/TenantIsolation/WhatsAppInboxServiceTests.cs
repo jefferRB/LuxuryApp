@@ -136,6 +136,32 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
+        public async Task FuncionarioExistsForCurrentTenantAsync_ShouldRespectTenantIsolation()
+        {
+            var tenantA = Guid.NewGuid();
+            var tenantB = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantA };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var ownFuncionario = await SeedFuncionarioAsync(context, "Propio");
+
+            tenantProvider.TenantId = tenantB;
+            context.ChangeTracker.Clear();
+            var foreignFuncionario = await SeedFuncionarioAsync(context, "Ajeno");
+
+            tenantProvider.TenantId = tenantA;
+            context.ChangeTracker.Clear();
+
+            var service = CreateService(context, tenantProvider);
+
+            Assert.True(await service.FuncionarioExistsForCurrentTenantAsync(ownFuncionario.IdFuncionario));
+            Assert.False(await service.FuncionarioExistsForCurrentTenantAsync(foreignFuncionario.IdFuncionario));
+            Assert.False(await service.FuncionarioExistsForCurrentTenantAsync(0));
+        }
+
+        [Fact]
         public async Task GetInboxAsync_ShouldExcludePastAppointmentsOnlyWhenSelectedDateIsToday()
         {
             var businessNow = new DateTime(2026, 5, 26, 15, 0, 0);

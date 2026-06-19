@@ -120,14 +120,15 @@ namespace LuxuryApp.Services.Calendar
         {
             var (startDay, endDay) = ResolveDayRange(date);
             var now = _businessDateTimeProvider.Now();
+            var today = _businessDateTimeProvider.Today();
+            var startInclusive = startDay == today ? now : startDay;
 
             var query = _context.Citas
                 .AsNoTracking()
                 .Where(c =>
                     c.Tipo == "CITA" &&
-                    c.FechaHoraCita >= startDay &&
-                    c.FechaHoraCita < endDay &&
-                    c.FechaHoraCita >= now);
+                    c.FechaHoraCita >= startInclusive &&
+                    c.FechaHoraCita < endDay);
 
             if (funcionarioId.HasValue && funcionarioId.Value > 0)
             {
@@ -178,6 +179,20 @@ namespace LuxuryApp.Services.Calendar
                         latestLogs.GetValueOrDefault(appointment.Id))
                 })
                 .ToList();
+        }
+
+        public async Task<bool> FuncionarioExistsForCurrentTenantAsync(
+            int funcionarioId,
+            CancellationToken cancellationToken = default)
+        {
+            if (funcionarioId <= 0)
+            {
+                return false;
+            }
+
+            return await _context.Funcionarios
+                .AsNoTracking()
+                .AnyAsync(f => f.IdFuncionario == funcionarioId, cancellationToken);
         }
 
         public async Task<IReadOnlyList<CalendarServiceOptionResponse>> GetServiciosActivosAsync(CancellationToken cancellationToken = default)

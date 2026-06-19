@@ -45,6 +45,11 @@ namespace LuxuryApp.Controllers.WhatsApp
                 return Forbid();
             }
 
+            if (!await ValidateFuncionarioFilterAsync(funcionarioId, cancellationToken))
+            {
+                return BadRequest("El funcionario solicitado no es valido.");
+            }
+
             var whatsAppEnabled = await _tenantWhatsAppFeatureService
                 .IsWhatsAppEnabledForCurrentTenantAsync(cancellationToken);
 
@@ -65,6 +70,11 @@ namespace LuxuryApp.Controllers.WhatsApp
             if (!hasAddon)
             {
                 return Forbid();
+            }
+
+            if (!await ValidateFuncionarioFilterAsync(funcionarioId, cancellationToken))
+            {
+                return BadRequest("El funcionario solicitado no es valido.");
             }
 
             var rangeKey = string.IsNullOrWhiteSpace(range) ? "5d" : range.Trim().ToLowerInvariant();
@@ -210,5 +220,17 @@ namespace LuxuryApp.Controllers.WhatsApp
                 CultureInfo.InvariantCulture,
                 DateTimeStyles.None,
                 out parsedDate);
+
+        private async Task<bool> ValidateFuncionarioFilterAsync(int? funcionarioId, CancellationToken cancellationToken)
+        {
+            if (!funcionarioId.HasValue)
+            {
+                return true;
+            }
+
+            return await _inboxService.FuncionarioExistsForCurrentTenantAsync(
+                funcionarioId.Value,
+                cancellationToken);
+        }
     }
 }

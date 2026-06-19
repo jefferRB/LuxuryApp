@@ -57,7 +57,7 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
-        public void RecurringReconciliationController_ShouldRequireAuthenticatedUser()
+        public void RecurringReconciliationController_ShouldRequirePlatformSuperAdminPolicy()
         {
             var authorizeAttribute = typeof(RecurringReconciliationController)
                 .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
@@ -66,7 +66,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             Assert.NotNull(authorizeAttribute);
             Assert.Null(authorizeAttribute!.Roles);
-            Assert.Null(authorizeAttribute.Policy);
+            Assert.Equal(PlatformAuthorizationPolicies.PlatformSuperAdmin, authorizeAttribute.Policy);
         }
     }
 }

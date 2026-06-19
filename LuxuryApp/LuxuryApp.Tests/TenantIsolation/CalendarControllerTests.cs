@@ -266,6 +266,9 @@ namespace LuxuryApp.Tests.TenantIsolation
             var controller = new CalendarController(
                 ControllerTestSupport.CreateCalendarCommandService(context),
                 ControllerTestSupport.CreateCalendarQueryService(context),
+                ControllerTestSupport.CreateControlCobrosQueryService(context),
+                ControllerTestSupport.CreateCobroService(context),
+                ControllerTestSupport.CreateComprobanteCobroService(),
                 new FakeTenantWhatsAppFeatureService
                 {
                     IsEnabled = tenantWhatsAppEnabled

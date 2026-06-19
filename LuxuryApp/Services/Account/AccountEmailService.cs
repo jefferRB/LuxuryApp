@@ -79,6 +79,7 @@ namespace LuxuryApp.Services.Account
             string toEmail,
             string displayName,
             string setPasswordLink,
+            string businessName,
             CancellationToken cancellationToken = default)
         {
             var opts = _emailOptions.Value;
@@ -104,7 +105,7 @@ namespace LuxuryApp.Services.Account
             message.Subject = "Tu acceso al portal de LuxuryCloud";
             message.Body = new TextPart(TextFormat.Html)
             {
-                Text = BuildInvitationEmailHtml(displayName, setPasswordLink)
+                Text = BuildInvitationEmailHtml(displayName, setPasswordLink, businessName)
             };
 
             using var client = new SmtpClient();
@@ -129,10 +130,12 @@ namespace LuxuryApp.Services.Account
             }
         }
 
-        internal static string BuildInvitationEmailHtml(string displayName, string setPasswordLink)
+        internal static string BuildInvitationEmailHtml(string displayName, string setPasswordLink, string businessName = "")
         {
             var safeDisplayName = HtmlEncoder.Default.Encode(displayName);
             var safeLink = HtmlEncoder.Default.Encode(setPasswordLink);
+            var safeBusinessName = HtmlEncoder.Default.Encode(
+                string.IsNullOrWhiteSpace(businessName) ? "Tu negocio" : businessName);
 
             return $"""
                 <!DOCTYPE html>
@@ -156,7 +159,7 @@ namespace LuxuryApp.Services.Account
                             <td style="padding:36px 32px 24px;">
                               <p style="margin:0 0 16px;font-size:16px;color:#333333;">Hola, <strong>{safeDisplayName}</strong>,</p>
                               <p style="margin:0 0 24px;font-size:15px;color:#555555;line-height:1.6;">
-                                Tu negocio te habilitó acceso a tu portal personal en LuxuryCloud, donde podrás ver
+                                <strong>{safeBusinessName}</strong> te habilitó acceso a tu portal personal en LuxuryCloud, donde podrás ver
                                 tu agenda, tus citas, tu producción y tus pagos. Para empezar, define tu contraseña
                                 con el siguiente botón.
                               </p>

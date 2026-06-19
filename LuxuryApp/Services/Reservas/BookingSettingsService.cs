@@ -25,11 +25,16 @@ namespace LuxuryApp.Services.Reservas
 
         private readonly ApplicationDbContext _context;
         private readonly ITenantProvider _tenantProvider;
+        private readonly ITenantDisplayNameService _tenantDisplayNameService;
 
-        public BookingSettingsService(ApplicationDbContext context, ITenantProvider tenantProvider)
+        public BookingSettingsService(
+            ApplicationDbContext context,
+            ITenantProvider tenantProvider,
+            ITenantDisplayNameService tenantDisplayNameService)
         {
             _context = context;
             _tenantProvider = tenantProvider;
+            _tenantDisplayNameService = tenantDisplayNameService;
         }
 
         public async Task<BookingSettingsViewModel> BuildSettingsViewModelAsync(CancellationToken cancellationToken = default)
@@ -158,23 +163,24 @@ namespace LuxuryApp.Services.Reservas
                     s.PublicBookingAllowAnyEmployee,
                     s.PublicBookingMinAdvanceMinutes,
                     s.PublicBookingMaxDaysAhead,
-                    NombreNegocio = _context.Tenants
-                        .Where(t => t.Id == s.TenantId && t.Activo)
-                        .Select(t => t.Nombre)
-                        .FirstOrDefault()
+                    TenantActivo = _context.Tenants
+                        .Any(t => t.Id == s.TenantId && t.Activo)
                 })
                 .FirstOrDefaultAsync(cancellationToken);
 
-            // NombreNegocio null => tenant inactivo o inexistente => no disponible.
-            if (match is null || string.IsNullOrEmpty(match.NombreNegocio))
+            if (match is null || !match.TenantActivo)
             {
                 return null;
             }
 
+            var nombreNegocio = await _tenantDisplayNameService.GetTenantDisplayNameAsync(
+                match.TenantId,
+                cancellationToken);
+
             return new PublicBookingTenantContext
             {
                 TenantId = match.TenantId,
-                NombreNegocio = match.NombreNegocio,
+                NombreNegocio = nombreNegocio,
                 Slug = match.PublicBookingSlug!,
                 MensajeBienvenida = match.PublicBookingWelcomeMessage,
                 MensajeConfirmacion = match.PublicBookingConfirmationMessage,
@@ -285,13 +291,7 @@ namespace LuxuryApp.Services.Reservas
                 return string.Empty;
             }
 
-            var nombre = await _context.Tenants
-                .AsNoTracking()
-                .Where(t => t.Id == tenantId)
-                .Select(t => t.Nombre)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            return nombre ?? string.Empty;
+            return await _tenantDisplayNameService.GetTenantDisplayNameAsync(tenantId, cancellationToken);
         }
 
         // ─────────────── Helpers de slug y días ───────────────

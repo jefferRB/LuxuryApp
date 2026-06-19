@@ -1,6 +1,8 @@
 ﻿using System.Net.Mail;
 using LuxuryApp.Models.DataBase;
+using LuxuryApp.Services.Account;
 using LuxuryApp.Services.DataBase;
+using Microsoft.Extensions.Options;
 using Resend;
 
 namespace LuxuryApp.Emails
@@ -9,11 +11,13 @@ namespace LuxuryApp.Emails
     {
         private readonly IConfiguration _config;
         private readonly IResend _resend;
+        private readonly AccountEmailOptions _emailOpts;
 
-        public EmailSender(IConfiguration config, IResend resend)
+        public EmailSender(IConfiguration config, IResend resend, IOptions<AccountEmailOptions> emailOptions)
         {
             _config = config;
             _resend = resend;
+            _emailOpts = emailOptions.Value;
         }
         public async Task SendEmailAsync(string toEmail, string subject, string message)
         {
@@ -23,7 +27,7 @@ namespace LuxuryApp.Emails
         public async Task Execute(string subject, string message, string toEmail)
         {
             var resendMessage = new EmailMessage();
-            resendMessage.From = "Luxe <soporte@luxecentrobelleza.com>";
+            resendMessage.From = $"{_emailOpts.FromName} <{_emailOpts.FromEmail}>";
             resendMessage.To.Add(toEmail);
             resendMessage.Subject = subject;
             resendMessage.HtmlBody = message;

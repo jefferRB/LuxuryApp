@@ -172,11 +172,16 @@
     font-size: 0.7rem;
     font-weight: 700;
 }
+.dfin-badge-margen.dfin-color-danger {
+    background: rgba(220, 38, 38, 0.12);
+}
 
-.dfin-color-income   { color: var(--private-chart-accent, #2563eb); }
-.dfin-color-expenses { color: var(--private-surface-text, #111827); }
+.dfin-color-income   { color: var(--private-chart-accent,   #2563eb); }
+.dfin-color-expenses { color: var(--private-surface-text,  #111827); }
 .dfin-color-profit   { color: var(--private-chart-success, #16a34a); }
 .dfin-color-warning  { color: var(--private-chart-warning, #d97706); }
+.dfin-color-danger   { color: var(--private-chart-danger,  #dc2626); }
+.dfin-color-neutral  { color: var(--private-surface-text,  #6b7280); }
 
 /* ── C. KPI GRID ───────────────────────────────────────── */
 .dfin-kpi-grid {

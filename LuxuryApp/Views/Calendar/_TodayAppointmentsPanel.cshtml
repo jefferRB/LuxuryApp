@@ -9,18 +9,43 @@
 
     <div class="whatsapp-inbox-header">
         <div>
-            <h2 class="whatsapp-inbox-title">
-                <span class="today-apt-mark"><i class="bi bi-calendar-check"></i></span>
-                Citas de hoy
-            </h2>
-            <p class="today-apt-subtitle">Clientes agendados para hoy.</p>
+            <div class="today-apt-title-row">
+                <button type="button"
+                        id="todayAppointmentsPrevBtn"
+                        class="action-icon-button today-apt-nav-btn"
+                        aria-label="Dia anterior"
+                        title="Dia anterior">
+                    <i class="bi bi-chevron-left"></i>
+                </button>
+                <h2 class="whatsapp-inbox-title" id="todayAppointmentsTitle">
+                    <span class="today-apt-mark"><i class="bi bi-calendar-check"></i></span>
+                    <span id="todayAppointmentsTitleText">Citas de hoy</span>
+                </h2>
+                <button type="button"
+                        id="todayAppointmentsNextBtn"
+                        class="action-icon-button today-apt-nav-btn"
+                        aria-label="Dia siguiente"
+                        title="Dia siguiente">
+                    <i class="bi bi-chevron-right"></i>
+                </button>
+            </div>
+            <p class="today-apt-subtitle" id="todayAppointmentsSubtitle">Clientes agendados para hoy.</p>
         </div>
-        <button id="toggleTareasBtn"
-                class="action-icon-button"
-                onclick="toggleTareas()"
-                title="Ocultar / mostrar lista">
-            Ocultar
-        </button>
+        <div class="today-apt-header-actions">
+            <button type="button"
+                    id="todayAppointmentsTodayBtn"
+                    class="action-icon-button d-none"
+                    title="Volver a hoy">
+                Hoy
+            </button>
+            <button type="button"
+                    id="toggleTareasBtn"
+                    class="action-icon-button"
+                    onclick="toggleTareas()"
+                    title="Ocultar / mostrar lista">
+                Ocultar
+            </button>
+        </div>
     </div>
 
     <div class="today-apt-toolbar">

@@ -29,6 +29,10 @@
     }
 
     function selectedDateStr() {
+        if (typeof window.getTodayAppointmentsSelectedDateStr === "function") {
+            return window.getTodayAppointmentsSelectedDateStr();
+        }
+
         const base = (typeof currentDate !== "undefined" && currentDate) ? currentDate : new Date();
         if (typeof formatLocalDate === "function") {
             return formatLocalDate(base);
@@ -37,16 +41,30 @@
         return `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}`;
     }
 
+    function selectedFuncionarioId(funcionarioId) {
+        if (typeof window.resolveTodayAppointmentsFuncionarioFilter === "function") {
+            return window.resolveTodayAppointmentsFuncionarioFilter(funcionarioId);
+        }
+
+        return funcionarioId || "";
+    }
+
     /* ════════════════════════════════════════════════════════════
        1) PANEL DERECHO — "Citas de hoy" (futuras, con badge + chat)
        ════════════════════════════════════════════════════════════ */
-    window.loadUpcomingAppointments = async function (funcionarioId = "") {
+    window.loadUpcomingAppointments = async function (funcionarioId = undefined) {
         const requestId = ++panelSequence;
 
         try {
             const dateStr = selectedDateStr();
-            const url = funcionarioId
-                ? `/WhatsAppInbox/Inbox?date=${encodeURIComponent(dateStr)}&funcionarioId=${encodeURIComponent(funcionarioId)}`
+            const resolvedFuncionarioId = selectedFuncionarioId(funcionarioId);
+
+            if (typeof window.syncTodayAppointmentsHeader === "function") {
+                window.syncTodayAppointmentsHeader();
+            }
+
+            const url = resolvedFuncionarioId
+                ? `/WhatsAppInbox/Inbox?date=${encodeURIComponent(dateStr)}&funcionarioId=${encodeURIComponent(resolvedFuncionarioId)}`
                 : `/WhatsAppInbox/Inbox?date=${encodeURIComponent(dateStr)}`;
 
             const data = await fetchJson(url);
@@ -83,8 +101,12 @@
 
         if (!items.length) {
             lista.appendChild(buildEmptyState(
-                "No hay citas pendientes para hoy",
-                "Las próximas citas aparecerán aquí conforme estén programadas.",
+                typeof window.getTodayAppointmentsEmptyTitle === "function"
+                    ? window.getTodayAppointmentsEmptyTitle()
+                    : "No hay citas pendientes para hoy",
+                typeof window.getTodayAppointmentsEmptySubtitle === "function"
+                    ? window.getTodayAppointmentsEmptySubtitle()
+                    : "Las próximas citas aparecerán aquí conforme estén programadas.",
                 "bi-calendar-x",
                 "today-apt-empty-icon"));
             return;

@@ -26,6 +26,20 @@
             _ => ("cc-bg-pend", "bi-clock", "Por confirmar")
         };
     }
+
+    string CobroUrl(LuxuryApp.Models.Calendar.CitaCobroItemViewModel it) =>
+        Url.Action(
+            "Index",
+            "Cobros",
+            new
+            {
+                VistaTiempo = "fechas",
+                FechaInicio = it.FechaHora.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                FechaFin = it.FechaHora.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                FuncionarioId = it.FuncionarioId,
+                MostrarServicios = true,
+                MostrarProductos = true
+            }) ?? "/Cobros";
 }
 
 <p class="cc-range"><i class="bi bi-calendar3"></i> @Model.Desde.ToString("dd/MM/yyyy", cr) – @Model.Hasta.ToString("dd/MM/yyyy", cr)</p>
@@ -93,7 +107,7 @@ else
                     @foreach (var it in Model.Items)
                     {
                         var ec = EstadoCita(it);
-                        <tr data-cita-id="@it.CitaId">
+                        <tr>
                             <td>@it.FechaHora.ToString("dd/MM", cr)</td>
                             <td>@it.FechaHora.ToString("hh:mm tt", cr)</td>
                             <td class="cc-cell-strong">
@@ -135,30 +149,15 @@ else
                                     }
                                     @if (it.YaCobrada)
                                     {
-                                        <a class="cc-act" href="/Cobros" title="Ver en el módulo de cobros"><i class="bi bi-receipt"></i> Ver cobro</a>
+                                        <a class="cc-act" href="@CobroUrl(it)" title="Ver en el módulo de cobros"><i class="bi bi-receipt"></i> Ver cobro</a>
                                         @if (it.TieneComprobante)
                                         {
                                             <a class="cc-act" href="/comprobantes/@it.ComprobanteToken" target="_blank" rel="noopener"
                                                title="@(it.ComprobanteEnviado ? "Comprobante enviado" : "Comprobante pendiente de envío")">
                                                 <i class="bi @(it.ComprobanteEnviado ? "bi-envelope-check" : "bi-envelope-exclamation")"></i>
-                                                @(it.ComprobanteEnviado ? "Comprobante" : "Comprobante (pend.)")
+                                                Ver comprobante
                                             </a>
                                         }
-                                    }
-                                    <a class="cc-act" href="/Calendar" title="Editar en el calendario"><i class="bi bi-pencil"></i> Editar</a>
-                                    @if (!it.YaCobrada)
-                                    {
-                                        <button type="button" class="cc-act cc-act-danger js-cc-cancelar"
-                                                data-cita-id="@it.CitaId" data-cliente="@it.Cliente">
-                                            <i class="bi bi-x-circle"></i> Cancelar
-                                        </button>
-                                    }
-                                    @if (addon && !string.IsNullOrWhiteSpace(it.Telefono))
-                                    {
-                                        <a class="cc-act cc-act-wa" target="_blank" rel="noopener"
-                                           href="https://wa.me/@System.Text.RegularExpressions.Regex.Replace(it.Telefono, "[^0-9]", "")">
-                                            <i class="bi bi-whatsapp"></i> Ver chat
-                                        </a>
                                     }
                                 </div>
                             </td>
@@ -174,7 +173,7 @@ else
         @foreach (var it in Model.Items)
         {
             var ec = EstadoCita(it);
-            <div class="cc-rec" data-cita-id="@it.CitaId">
+            <div class="cc-rec">
                 <div class="cc-rec-top">
                     <span class="cc-rec-when"><i class="bi bi-calendar3"></i> @it.FechaHora.ToString("dd/MM", cr) · @it.FechaHora.ToString("hh:mm tt", cr)</span>
                     <span class="cc-rec-monto">@(it.MontoMostrado.HasValue ? Money(it.MontoMostrado.Value) : "—")</span>
@@ -215,29 +214,14 @@ else
                     }
                     @if (it.YaCobrada)
                     {
-                        <a class="cc-act" href="/Cobros"><i class="bi bi-receipt"></i> Ver cobro</a>
+                        <a class="cc-act" href="@CobroUrl(it)"><i class="bi bi-receipt"></i> Ver cobro</a>
                         @if (it.TieneComprobante)
                         {
                             <a class="cc-act" href="/comprobantes/@it.ComprobanteToken" target="_blank" rel="noopener">
                                 <i class="bi @(it.ComprobanteEnviado ? "bi-envelope-check" : "bi-envelope-exclamation")"></i>
-                                @(it.ComprobanteEnviado ? "Comprobante" : "Comprobante (pend.)")
+                                Ver comprobante
                             </a>
                         }
-                    }
-                    <a class="cc-act" href="/Calendar"><i class="bi bi-pencil"></i> Editar</a>
-                    @if (!it.YaCobrada)
-                    {
-                        <button type="button" class="cc-act cc-act-danger js-cc-cancelar"
-                                data-cita-id="@it.CitaId" data-cliente="@it.Cliente">
-                            <i class="bi bi-x-circle"></i> Cancelar
-                        </button>
-                    }
-                    @if (addon && !string.IsNullOrWhiteSpace(it.Telefono))
-                    {
-                        <a class="cc-act cc-act-wa" target="_blank" rel="noopener"
-                           href="https://wa.me/@System.Text.RegularExpressions.Regex.Replace(it.Telefono, "[^0-9]", "")">
-                            <i class="bi bi-whatsapp"></i> Ver chat
-                        </a>
                     }
                 </div>
             </div>

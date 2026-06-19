@@ -188,6 +188,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             services.AddScoped<IPromotionalCodeService, PromotionalCodeService>();
             services.AddScoped<IContractService, ContractService>();
             services.AddScoped<TenantProvisioningService>();
+            services.AddScoped<ITenantDisplayNameService, TenantDisplayNameService>();
             services.AddScoped<IPublicSiteContentService, FakePublicSiteContentService>();
             services.AddScoped<IAccountEmailService, NoOpAccountEmailService>();
 
@@ -215,7 +216,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             public Task SendPasswordResetEmailAsync(string toEmail, string displayName, string resetLink, CancellationToken cancellationToken = default)
                 => Task.CompletedTask;
 
-            public Task SendFuncionarioInvitationEmailAsync(string toEmail, string displayName, string setPasswordLink, CancellationToken cancellationToken = default)
+            public Task SendFuncionarioInvitationEmailAsync(string toEmail, string displayName, string setPasswordLink, string businessName, CancellationToken cancellationToken = default)
                 => Task.CompletedTask;
         }
 

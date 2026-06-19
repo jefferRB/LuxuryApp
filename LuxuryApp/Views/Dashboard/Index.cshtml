@@ -9,6 +9,14 @@
         ? Math.Round(Model.ResultadoAnalitico / Model.TotalGenerado * 100, 1)
         : 0m;
 
+    var gananciaCssClass = Model.ResultadoAnalitico > 0 ? "dfin-color-profit"
+                         : Model.ResultadoAnalitico < 0 ? "dfin-color-danger"
+                         : "dfin-color-neutral";
+
+    var margenCssClass = margenPct > 0 ? "dfin-color-profit"
+                       : margenPct < 0 ? "dfin-color-danger"
+                       : "dfin-color-neutral";
+
     var totalMetodos = Model.IngresosEfectivo + Model.IngresosSinpe + Model.IngresosTarjeta;
     var pctEfectivo = totalMetodos > 0 ? Math.Round(Model.IngresosEfectivo / totalMetodos * 100, 0) : 0m;
     var pctSinpe    = totalMetodos > 0 ? Math.Round(Model.IngresosSinpe    / totalMetodos * 100, 0) : 0m;
@@ -88,11 +96,12 @@
 
         <div class="dfin-summary-col">
             <span class="dfin-sum-label">GANANCIA DEL MES</span>
-            <span class="dfin-sum-value dfin-color-profit">&#8353; @Model.ResultadoAnalitico.ToString("N2")</span>
+            <span class="dfin-sum-value @gananciaCssClass">&#8353; @Model.ResultadoAnalitico.ToString("N2")</span>
             <span class="dfin-sum-sub">
-                @if (margenPct > 0)
+                @if (margenPct != 0)
                 {
-                    <span class="dfin-badge-margen">&#8593; @margenPct%</span>
+                    var arrow = margenPct > 0 ? "&#8593;" : "&#8595;";
+                    <span class="dfin-badge-margen @margenCssClass">@Html.Raw(arrow) @margenPct%</span>
                 }
                 <span>margen @margenPct%</span>
             </span>
@@ -146,11 +155,8 @@
         <div class="kpi-card dfin-kpi-card">
             <div class="dfin-kpi-icon dfin-icon-green"><i class="bi bi-graph-up-arrow"></i></div>
             <div class="dfin-kpi-body">
-                <span class="dfin-kpi-label-text">
-                    Margen de Ganancia
-                    
-                </span>
-                <span class="dfin-kpi-value-text dfin-color-profit">@margenPct%</span>
+                <span class="dfin-kpi-label-text">Margen de Ganancia</span>
+                <span class="dfin-kpi-value-text @margenCssClass">@margenPct%</span>
             </div>
         </div>
 

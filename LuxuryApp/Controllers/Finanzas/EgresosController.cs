@@ -1,7 +1,9 @@
 using ClosedXML.Excel;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Services.BusinessTime;
+using LuxuryApp.Services.Exports;
 using LuxuryApp.Services.Finanzas;
+using LuxuryApp.Services.Tenant;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -13,15 +15,18 @@ namespace LuxuryApp.Controllers.Finanzas
         private readonly IEgresoService _egresoService;
         private readonly IEgresoQueryService _egresoQueryService;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
+        private readonly ITenantDisplayNameService _tenantDisplayNameService;
 
         public EgresosController(
             IEgresoService egresoService,
             IEgresoQueryService egresoQueryService,
-            IBusinessDateTimeProvider businessDateTimeProvider)
+            IBusinessDateTimeProvider businessDateTimeProvider,
+            ITenantDisplayNameService tenantDisplayNameService)
         {
             _egresoService = egresoService;
             _egresoQueryService = egresoQueryService;
             _businessDateTimeProvider = businessDateTimeProvider;
+            _tenantDisplayNameService = tenantDisplayNameService;
         }
 
         public async Task<IActionResult> Index(EgresoFiltroViewModel filtros)
@@ -157,8 +162,10 @@ namespace LuxuryApp.Controllers.Finanzas
             var colorGrisSuave = XLColor.FromHtml("#F5F5F5");
             const string excelCurrencyFormat = "CRC #,##0.00";
 
+            var nombreNegocio = await _tenantDisplayNameService.GetCurrentTenantDisplayNameAsync(HttpContext.RequestAborted);
+
             ws.Range("A1:E1").Merge();
-            ws.Cell("A1").Value = "LUXE CENTRO DE BELLEZA";
+            ws.Cell("A1").Value = nombreNegocio;
             ws.Cell("A1").Style.Font.FontSize = 20;
             ws.Cell("A1").Style.Font.Bold = true;
             ws.Cell("A1").Style.Font.FontColor = colorDorado;
@@ -225,7 +232,7 @@ namespace LuxuryApp.Controllers.Finanzas
             return File(
                 stream.ToArray(),
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                $"LuxeReporteEgresos_{generatedAt:yyyyMMdd_HHmm}.xlsx");
+                ExcelReportFileNameBuilder.Build(nombreNegocio, "Reporte Egresos", generatedAt));
         }
 
         private static EgresoCreateRequest MapRequest(Egreso egreso) =>

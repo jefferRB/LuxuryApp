@@ -76,6 +76,20 @@ namespace LuxuryApp.Services.WhatsApp
             };
         }
 
+        public async Task<bool> FuncionarioExistsForCurrentTenantAsync(
+            int funcionarioId,
+            CancellationToken cancellationToken = default)
+        {
+            if (funcionarioId <= 0)
+            {
+                return false;
+            }
+
+            return await _context.Funcionarios
+                .AsNoTracking()
+                .AnyAsync(f => f.IdFuncionario == funcionarioId, cancellationToken);
+        }
+
         public async Task<WhatsAppFollowUpResponse> GetFollowUpAsync(
             DateTime from,
             DateTime toExclusive,

@@ -10,6 +10,10 @@ namespace LuxuryApp.Services.WhatsApp
             bool whatsAppEnabled,
             CancellationToken cancellationToken = default);
 
+        Task<bool> FuncionarioExistsForCurrentTenantAsync(
+            int funcionarioId,
+            CancellationToken cancellationToken = default);
+
         /// <summary>
         /// Seguimiento de confirmaciones WhatsApp en un rango de fechas (Centro de confirmaciones).
         /// <paramref name="toExclusive"/> es exclusivo. <paramref name="statusKey"/> filtra por grupo de

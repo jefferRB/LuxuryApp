@@ -21,6 +21,7 @@ namespace LuxuryApp.Services.Comprobantes
         private readonly IComprobanteEmailService _emailService;
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly IConfiguration _configuration;
+        private readonly ITenantDisplayNameService _displayNameService;
         private readonly ILogger<ComprobanteCobroService> _logger;
 
         public ComprobanteCobroService(
@@ -31,6 +32,7 @@ namespace LuxuryApp.Services.Comprobantes
             IComprobanteEmailService emailService,
             IHttpContextAccessor httpContextAccessor,
             IConfiguration configuration,
+            ITenantDisplayNameService displayNameService,
             ILogger<ComprobanteCobroService> logger)
         {
             _context = context;
@@ -40,6 +42,7 @@ namespace LuxuryApp.Services.Comprobantes
             _emailService = emailService;
             _httpContextAccessor = httpContextAccessor;
             _configuration = configuration;
+            _displayNameService = displayNameService;
             _logger = logger;
         }
 
@@ -133,10 +136,7 @@ namespace LuxuryApp.Services.Comprobantes
             try
             {
                 var tenantId = _tenantProvider.GetTenantId();
-                var nombreNegocio = await _context.Tenants
-                    .Where(t => t.Id == tenantId)
-                    .Select(t => t.Nombre)
-                    .FirstOrDefaultAsync(cancellationToken) ?? "Mi negocio";
+                var nombreNegocio = await _displayNameService.GetTenantDisplayNameAsync(tenantId, cancellationToken);
 
                 var numero = await GenerarNumeroInternoAsync(tenantId, nombreNegocio, _clock.Now(), cancellationToken);
 

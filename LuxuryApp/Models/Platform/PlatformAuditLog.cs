@@ -1,0 +1,67 @@
+namespace LuxuryApp.Models.Platform
+{
+    /// <summary>
+    /// Registro append-only de acciones internas del SuperAdmin sobre la plataforma.
+    /// No implementa <c>ITenantEntity</c> a propósito: es una bitácora cross-tenant que
+    /// queda fuera del Row-Level Security. Nunca debe exponerse un endpoint de borrado.
+    /// </summary>
+    public class PlatformAuditLog
+    {
+        public Guid Id { get; set; } = Guid.NewGuid();
+
+        /// <summary>UserId del SuperAdmin que ejecutó la acción.</summary>
+        public string ActorUserId { get; set; } = string.Empty;
+
+        /// <summary>Snapshot del correo/usuario del actor al momento de la acción.</summary>
+        public string ActorEmail { get; set; } = string.Empty;
+
+        /// <summary>Acción ejecutada. Ver <see cref="PlatformAuditActions"/>.</summary>
+        public string Action { get; set; } = string.Empty;
+
+        /// <summary>Tipo de entidad afectada. Ver <see cref="PlatformAuditEntityTypes"/>.</summary>
+        public string EntityType { get; set; } = string.Empty;
+
+        /// <summary>Id de la entidad afectada (string para soportar Guid o Id de Identity).</summary>
+        public string? EntityId { get; set; }
+
+        public Guid? TenantId { get; set; }
+
+        /// <summary>Snapshot del nombre del tenant al momento de la acción.</summary>
+        public string? TenantName { get; set; }
+
+        public string? TargetUserId { get; set; }
+
+        /// <summary>Snapshot del correo del usuario objetivo.</summary>
+        public string? TargetUserEmail { get; set; }
+
+        public string? BeforeJson { get; set; }
+
+        public string? AfterJson { get; set; }
+
+        public string? Reason { get; set; }
+
+        public string? IpAddress { get; set; }
+
+        public string? UserAgent { get; set; }
+
+        public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+    }
+
+    /// <summary>Acciones auditables de la consola de plataforma.</summary>
+    public static class PlatformAuditActions
+    {
+        public const string UserDeactivated = "UserDeactivated";
+        public const string UserReactivated = "UserReactivated";
+        public const string DangerousActionPasswordFailed = "DangerousActionPasswordFailed";
+        public const string DangerousActionBlocked = "DangerousActionBlocked";
+        public const string TenantCommercialAccessUpdated = "TenantCommercialAccessUpdated";
+        public const string WhatsAppSettingsUpdated = "WhatsAppSettingsUpdated";
+        public const string MetaDiagnosticExecuted = "MetaDiagnosticExecuted";
+    }
+
+    public static class PlatformAuditEntityTypes
+    {
+        public const string User = "User";
+        public const string Tenant = "Tenant";
+    }
+}

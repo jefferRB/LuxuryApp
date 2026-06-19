@@ -275,7 +275,9 @@ namespace LuxuryApp.Tests.TenantIsolation
             var controller = new CobrosController(
                 ControllerTestSupport.CreateCobroService(context),
                 ControllerTestSupport.CreateCobroQueryService(context),
-                ControllerTestSupport.BusinessDateTimeProvider);
+                ControllerTestSupport.CreateComprobanteCobroService(),
+                ControllerTestSupport.BusinessDateTimeProvider,
+                ControllerTestSupport.CreateTenantDisplayNameService());
             var result = await controller.Index(new CobroFiltroViewModel { VistaTiempo = "todo" });
 
             var view = Assert.IsType<ViewResult>(result);

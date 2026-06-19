@@ -380,8 +380,25 @@ namespace LuxuryApp.Controllers.Calendar
                 return BadRequest("La fecha solicitada no es valida.");
             }
 
+            if (!await ValidateFuncionarioFilterAsync(funcionarioId, cancellationToken))
+            {
+                return BadRequest("El funcionario solicitado no es valido.");
+            }
+
             var citas = await _calendarQueryService.GetUpcomingAppointmentsAsync(parsedDate, funcionarioId, cancellationToken);
             return Ok(citas);
+        }
+
+        private async Task<bool> ValidateFuncionarioFilterAsync(int? funcionarioId, CancellationToken cancellationToken)
+        {
+            if (!funcionarioId.HasValue)
+            {
+                return true;
+            }
+
+            return await _calendarQueryService.FuncionarioExistsForCurrentTenantAsync(
+                funcionarioId.Value,
+                cancellationToken);
         }
 
         [HttpGet]

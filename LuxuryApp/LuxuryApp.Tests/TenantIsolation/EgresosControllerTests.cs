@@ -1,6 +1,8 @@
 using ClosedXML.Excel;
 using LuxuryApp.Controllers.Finanzas;
 using LuxuryApp.Models.Finanzas;
+using LuxuryApp.Models.Identity;
+using LuxuryApp.Models.SaaS;
 using LuxuryApp.Tests.Support;
 using Microsoft.AspNetCore.Mvc;
 
@@ -19,7 +21,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var disposableConnection = connection;
 
             var categoria = await SeedCategoriaAsync(context, "Operativo", "Caja");
-            var controller = CreateController(context, tenantId);
+            var controller = CreateController(context, tenantProvider, tenantId);
 
             var result = await controller.Create(new EgresoViewModel
             {
@@ -53,17 +55,21 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var disposableConnection = connection;
 
             var categoria = await SeedCategoriaAsync(context, "Operativo", "Caja");
+            await SeedTenantDisplayNameAsync(context, tenantId, "Jorhanna Diaz", "Barberia jor");
             await SeedEgresoAsync(context, categoria, new DateTime(2026, 4, 23, 9, 0, 0), 100m, "EFECTIVO", "Compra Insumos");
             await SeedEgresoAsync(context, categoria, new DateTime(2026, 4, 23, 10, 0, 0), 150m, "TARJETA", "Pago Servicios");
 
-            var controller = CreateController(context, tenantId);
+            var controller = CreateController(context, tenantProvider, tenantId);
             var result = await controller.ExportarExcel(new EgresoFiltroViewModel { VistaTiempo = "todo" });
 
             var file = Assert.IsType<FileContentResult>(result);
+            Assert.Equal("BarberiaJor_ReporteEgresos_2026-05-26.xlsx", file.FileDownloadName);
+            Assert.DoesNotContain("LuxeReporteEgresos", file.FileDownloadName, StringComparison.OrdinalIgnoreCase);
             using var workbook = new XLWorkbook(new MemoryStream(file.FileContents));
             var worksheet = workbook.Worksheet("Reporte Egresos");
             var text = string.Join("|", worksheet.CellsUsed().Select(cell => cell.GetString()));
 
+            Assert.Contains("Barberia jor", text, StringComparison.Ordinal);
             Assert.Contains("Reporte Financiero de Egresos", text, StringComparison.Ordinal);
             Assert.Contains("Compra Insumos", text, StringComparison.Ordinal);
             Assert.Contains("Pago Servicios", text, StringComparison.Ordinal);
@@ -72,18 +78,46 @@ namespace LuxuryApp.Tests.TenantIsolation
 
         private static EgresosController CreateController(
             ProyectoIdentity.Datos.ApplicationDbContext context,
+            TestTenantProvider tenantProvider,
             Guid tenantId)
         {
             var controller = new EgresosController(
                 ControllerTestSupport.CreateEgresoService(context),
                 ControllerTestSupport.CreateEgresoQueryService(context),
-                ControllerTestSupport.BusinessDateTimeProvider);
+                ControllerTestSupport.BusinessDateTimeProvider,
+                ControllerTestSupport.CreateTenantDisplayNameService(context, tenantProvider));
 
             ControllerTestSupport.AttachHttpContext(
                 controller,
                 ControllerTestSupport.BuildTenantPrincipal("user-egresos", tenantId));
 
             return controller;
+        }
+
+        private static async Task SeedTenantDisplayNameAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            Guid tenantId,
+            string tenantName,
+            string displayName)
+        {
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = tenantName,
+                Activo = true
+            });
+
+            context.Users.Add(new AppUsuario
+            {
+                Id = $"owner-{tenantId:N}",
+                TenantId = tenantId,
+                UserName = $"owner-{tenantId:N}@test.local",
+                Email = $"owner-{tenantId:N}@test.local",
+                Name = displayName,
+                State = true
+            });
+
+            await context.SaveChangesAsync();
         }
 
         private static async Task<Categoria> SeedCategoriaAsync(

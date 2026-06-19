@@ -4,6 +4,7 @@ using System.Text;
 using LuxuryApp.Models.Reservas;
 using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Calendar;
+using LuxuryApp.Services.Notifications;
 using LuxuryApp.Services.WhatsApp;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
@@ -20,7 +21,9 @@ namespace LuxuryApp.Services.Reservas
         private readonly IBookingAvailabilityService _availabilityService;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ITenantWhatsAppFeatureService _whatsAppFeatureService;
+        private readonly INotificationService _notificationService;
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly ILogger<PublicBookingService> _logger;
 
         public PublicBookingService(
             ApplicationDbContext context,
@@ -28,14 +31,18 @@ namespace LuxuryApp.Services.Reservas
             IBookingAvailabilityService availabilityService,
             IBusinessDateTimeProvider businessDateTimeProvider,
             ITenantWhatsAppFeatureService whatsAppFeatureService,
-            IHttpContextAccessor httpContextAccessor)
+            INotificationService notificationService,
+            IHttpContextAccessor httpContextAccessor,
+            ILogger<PublicBookingService> logger)
         {
             _context = context;
             _settingsService = settingsService;
             _availabilityService = availabilityService;
             _businessDateTimeProvider = businessDateTimeProvider;
             _whatsAppFeatureService = whatsAppFeatureService;
+            _notificationService = notificationService;
             _httpContextAccessor = httpContextAccessor;
+            _logger = logger;
         }
 
         public async Task<PublicBookingTenantContext?> ResolveContextAsync(
@@ -286,6 +293,20 @@ namespace LuxuryApp.Services.Reservas
             {
                 return PublicBookingSubmitResult.Fail(
                     "No pudimos registrar tu solicitud en este momento. Intentá de nuevo.");
+            }
+
+            // Centro de Notificaciones: avisa al negocio que llegó una solicitud nueva.
+            // Nunca debe romper el flujo público si la notificación falla.
+            try
+            {
+                await _notificationService.CreateBookingRequestReceivedAsync(solicitud, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "No se pudo generar la notificación de la solicitud de reserva {RequestId}.",
+                    solicitud.Id);
             }
 
             return PublicBookingSubmitResult.Ok(mensajeExito);

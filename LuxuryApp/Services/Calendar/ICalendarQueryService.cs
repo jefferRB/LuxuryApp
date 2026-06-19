@@ -10,6 +10,8 @@ namespace LuxuryApp.Services.Calendar
 
         Task<IReadOnlyList<CalendarUpcomingAppointmentResponse>> GetUpcomingAppointmentsAsync(DateTime date, int? funcionarioId, CancellationToken cancellationToken = default);
 
+        Task<bool> FuncionarioExistsForCurrentTenantAsync(int funcionarioId, CancellationToken cancellationToken = default);
+
         Task<IReadOnlyList<CalendarServiceOptionResponse>> GetServiciosActivosAsync(CancellationToken cancellationToken = default);
 
         Task<IReadOnlyList<CalendarOccupiedDateResponse>> GetFechasOcupadasAsync(

@@ -23,6 +23,8 @@ const CLIENTE_AUTOCOMPLETE_MIN_LENGTH = 3;
 const CLIENTE_AUTOCOMPLETE_DEBOUNCE_MS = 300;
 const TENANT_WHATSAPP_ENABLED = window.LUXURY_CALENDAR_CONFIG?.tenantWhatsAppEnabled === true;
 const BUSINESS_TODAY_ISO = window.LUXURY_CALENDAR_CONFIG?.businessToday || null;
+let todayAppointmentsDate = getBusinessTodayDate();
+let todayAppointmentsNavInFlight = false;
 
 /* ───────────────────────────────────────────────────────────
    MANEJO CENTRALIZADO DE MODALES (Bootstrap)
@@ -83,6 +85,163 @@ function isBusinessToday(date) {
         date.getMonth() === today.getMonth() &&
         date.getDate() === today.getDate();
 }
+
+function normalizeBusinessDate(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+        return getBusinessTodayDate();
+    }
+
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0);
+}
+
+function getTodayAppointmentsSelectedDate() {
+    todayAppointmentsDate = normalizeBusinessDate(todayAppointmentsDate);
+    return todayAppointmentsDate;
+}
+
+function getTodayAppointmentsSelectedDateStr() {
+    return formatLocalDate(getTodayAppointmentsSelectedDate());
+}
+
+function resolveTodayAppointmentsFuncionarioFilter(funcionarioId = undefined) {
+    if (funcionarioId !== undefined && funcionarioId !== null) {
+        return String(funcionarioId).trim();
+    }
+
+    return document.getElementById("funcionarioFiltro")?.value || "";
+}
+
+function getTodayAppointmentsRelativeDay(date = getTodayAppointmentsSelectedDate()) {
+    const selected = normalizeBusinessDate(date);
+    const today = getBusinessTodayDate();
+    const selectedUtc = Date.UTC(selected.getFullYear(), selected.getMonth(), selected.getDate());
+    const todayUtc = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+
+    return Math.round((selectedUtc - todayUtc) / 86400000);
+}
+
+function formatTodayAppointmentsDisplayDate(date = getTodayAppointmentsSelectedDate()) {
+    return normalizeBusinessDate(date)
+        .toLocaleDateString("es-CR", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric"
+        })
+        .replace(/\./g, "");
+}
+
+function getTodayAppointmentsTitle(date = getTodayAppointmentsSelectedDate()) {
+    const relativeDay = getTodayAppointmentsRelativeDay(date);
+
+    if (relativeDay === 0) {
+        return "Citas de hoy";
+    }
+
+    if (relativeDay === 1) {
+        return "Citas de ma\u00f1ana";
+    }
+
+    if (relativeDay === -1) {
+        return "Citas de ayer";
+    }
+
+    return `Citas del ${formatTodayAppointmentsDisplayDate(date)}`;
+}
+
+function getTodayAppointmentsSubtitle(date = getTodayAppointmentsSelectedDate()) {
+    const relativeDay = getTodayAppointmentsRelativeDay(date);
+
+    if (relativeDay === 0) {
+        return "Clientes agendados para hoy.";
+    }
+
+    if (relativeDay === 1) {
+        return "Clientes agendados para ma\u00f1ana.";
+    }
+
+    if (relativeDay === -1) {
+        return "Clientes agendados para ayer.";
+    }
+
+    return `Clientes agendados para ${formatTodayAppointmentsDisplayDate(date)}.`;
+}
+
+function getTodayAppointmentsEmptyTitle(date = getTodayAppointmentsSelectedDate()) {
+    return getTodayAppointmentsRelativeDay(date) === 0
+        ? "No hay citas pendientes para hoy"
+        : "No hay citas para esta fecha";
+}
+
+function getTodayAppointmentsEmptySubtitle(date = getTodayAppointmentsSelectedDate()) {
+    return getTodayAppointmentsRelativeDay(date) === 0
+        ? "Las pr\u00f3ximas citas aparecer\u00e1n aqu\u00ed conforme est\u00e9n programadas."
+        : `No hay citas registradas para ${formatTodayAppointmentsDisplayDate(date)}.`;
+}
+
+function syncTodayAppointmentsHeader() {
+    const selectedDate = getTodayAppointmentsSelectedDate();
+    const titleText = document.getElementById("todayAppointmentsTitleText");
+    const subtitle = document.getElementById("todayAppointmentsSubtitle");
+    const todayBtn = document.getElementById("todayAppointmentsTodayBtn");
+
+    if (titleText) {
+        titleText.textContent = getTodayAppointmentsTitle(selectedDate);
+    }
+
+    if (subtitle) {
+        subtitle.textContent = getTodayAppointmentsSubtitle(selectedDate);
+    }
+
+    if (todayBtn) {
+        todayBtn.classList.toggle("d-none", isBusinessToday(selectedDate));
+    }
+}
+
+async function refreshTodayAppointmentsPanel() {
+    syncTodayAppointmentsHeader();
+
+    if (typeof window.loadUpcomingAppointments === "function") {
+        await window.loadUpcomingAppointments(resolveTodayAppointmentsFuncionarioFilter());
+    }
+}
+
+async function navigateTodayAppointments(delta) {
+    if (todayAppointmentsNavInFlight) {
+        return;
+    }
+
+    todayAppointmentsNavInFlight = true;
+
+    try {
+        const current = getTodayAppointmentsSelectedDate();
+        todayAppointmentsDate = delta === "today"
+            ? getBusinessTodayDate()
+            : new Date(current.getFullYear(), current.getMonth(), current.getDate() + delta, 12, 0, 0);
+
+        await refreshTodayAppointmentsPanel();
+    } finally {
+        todayAppointmentsNavInFlight = false;
+    }
+}
+
+function initTodayAppointmentsNavigation() {
+    document.getElementById("todayAppointmentsPrevBtn")
+        ?.addEventListener("click", () => navigateTodayAppointments(-1));
+
+    document.getElementById("todayAppointmentsNextBtn")
+        ?.addEventListener("click", () => navigateTodayAppointments(1));
+
+    document.getElementById("todayAppointmentsTodayBtn")
+        ?.addEventListener("click", () => navigateTodayAppointments("today"));
+
+    syncTodayAppointmentsHeader();
+}
+
+window.getTodayAppointmentsSelectedDateStr = getTodayAppointmentsSelectedDateStr;
+window.resolveTodayAppointmentsFuncionarioFilter = resolveTodayAppointmentsFuncionarioFilter;
+window.getTodayAppointmentsEmptyTitle = getTodayAppointmentsEmptyTitle;
+window.getTodayAppointmentsEmptySubtitle = getTodayAppointmentsEmptySubtitle;
+window.syncTodayAppointmentsHeader = syncTodayAppointmentsHeader;
 
 function calendarDebugLog(message, payload = null) {
 
@@ -794,6 +953,7 @@ function initApp() {
     initAutocomplete();
     initUIState();
     initEvents();
+    initTodayAppointmentsNavigation();
 
     renderCalendar(currentDate);
     loadUpcomingAppointments();
@@ -2278,7 +2438,7 @@ function formatLocalDateTime(date) {
         + `T${pad(date.getHours())}:${pad(date.getMinutes())}:00`;
 }
 
-async function loadUpcomingAppointments(funcionarioId = "") {
+async function loadUpcomingAppointments(funcionarioId = undefined) {
 
     const lista = document.getElementById("listaTareas");
     if (!lista) {
@@ -2289,11 +2449,14 @@ async function loadUpcomingAppointments(funcionarioId = "") {
 
     try {
 
-        const dateStr = formatLocalDate(currentDate);
+        syncTodayAppointmentsHeader();
 
-        const url = funcionarioId
-            ? `/Calendar/GetUpcomingAppointments?date=${dateStr}&funcionarioId=${funcionarioId}`
-            : `/Calendar/GetUpcomingAppointments?date=${dateStr}`;
+        const dateStr = getTodayAppointmentsSelectedDateStr();
+        const resolvedFuncionarioId = resolveTodayAppointmentsFuncionarioFilter(funcionarioId);
+
+        const url = resolvedFuncionarioId
+            ? `/Calendar/GetUpcomingAppointments?date=${encodeURIComponent(dateStr)}&funcionarioId=${encodeURIComponent(resolvedFuncionarioId)}`
+            : `/Calendar/GetUpcomingAppointments?date=${encodeURIComponent(dateStr)}`;
 
         const citas = await apiFetchJson(url, { signal: request.signal });
 
@@ -2306,7 +2469,7 @@ async function loadUpcomingAppointments(funcionarioId = "") {
         if (!citas.length) {
             const emptyItem = document.createElement("li");
             emptyItem.className = "list-group-item text-muted";
-            emptyItem.textContent = "No hay citas";
+            emptyItem.textContent = getTodayAppointmentsEmptyTitle();
             lista.appendChild(emptyItem);
             return;
         }

@@ -175,6 +175,7 @@
 .binfo-color-red    { color: var(--private-chart-danger,  #dc2626) !important; }
 .binfo-color-blue   { color: var(--private-chart-accent,  #2563eb) !important; }
 .binfo-color-yellow { color: var(--private-chart-warning, #d97706) !important; }
+.binfo-color-purple { color: #7c3aed !important; }
 
 /* ── PRODUCT CARDS (2-col) ──────────────────────────────── */
 .binfo-product-grid {
@@ -182,6 +183,9 @@
     grid-template-columns: 1fr 1fr;
     gap: 1rem;
 }
+
+/* Card que ocupa ambas columnas del product-grid */
+.binfo-product-full { grid-column: 1 / -1; }
 
 .binfo-month-badge {
     display: inline-flex;

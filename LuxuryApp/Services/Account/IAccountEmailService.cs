@@ -16,6 +16,7 @@ namespace LuxuryApp.Services.Account
             string toEmail,
             string displayName,
             string setPasswordLink,
+            string businessName,
             CancellationToken cancellationToken = default);
     }
 }

@@ -3,20 +3,6 @@
 
 @{
     ViewData["Title"] = "Plataforma";
-
-    string DescribeMode(TenantCommercialAccessMode mode) => mode switch
-    {
-        TenantCommercialAccessMode.Exempt => "Exento",
-        TenantCommercialAccessMode.Internal => "Interno",
-        _ => "Requiere suscripcion"
-    };
-
-    string ModeBadgeClass(TenantCommercialAccessMode mode) => mode switch
-    {
-        TenantCommercialAccessMode.Exempt => "platform-badge-success",
-        TenantCommercialAccessMode.Internal => "platform-badge-blue",
-        _ => "platform-badge-warning"
-    };
 }
 
 @section Styles {
@@ -36,6 +22,14 @@
             </p>
         </div>
         <div class="platform-toolbar">
+            <a class="btn btn-outline-dark platform-btn" asp-controller="PlatformUsers" asp-action="Usuarios">
+                <i class="bi bi-people"></i>
+                Usuarios
+            </a>
+            <a class="btn btn-outline-dark platform-btn" asp-controller="PlatformUsers" asp-action="Auditoria">
+                <i class="bi bi-clipboard-check"></i>
+                Auditoría
+            </a>
             <a class="btn btn-outline-dark platform-btn" asp-action="PromotionalCodes">
                 <i class="bi bi-ticket-perforated"></i>
                 Gestionar codigos
@@ -132,10 +126,11 @@
                 <thead>
                     <tr>
                         <th>Tenant</th>
-                        <th>Estado</th>
+                        <th>Estado / Salud</th>
+                        <th>Uso 30d</th>
                         <th>Configuracion comercial</th>
                         <th>Plan efectivo</th>
-                        <th>Motivo</th>
+                        <th class="text-end">Acciones</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -144,19 +139,43 @@
                         <tr>
                             <td>
                                 <div class="platform-table-title">@tenant.TenantName</div>
-                                <div class="platform-table-meta">Owner: @(tenant.OwnerEmail ?? "Sin usuario principal")</div>
+                                <div class="platform-table-meta">@(tenant.OwnerEmail ?? "Sin usuario principal")</div>
+                                @if (tenant.LastActivityUtc.HasValue)
+                                {
+                                    <div class="platform-table-meta">
+                                        Última actividad: @tenant.LastActivityUtc.Value.ToString("yyyy-MM-dd")
+                                    </div>
+                                }
                             </td>
                             <td>
-                                <div class="platform-badge-row">
+                                <div class="platform-stack">
+                                    <span class="platform-badge @tenant.Health.BadgeClass">
+                                        <i class="bi @tenant.Health.Icon"></i>
+                                        @tenant.Health.Label
+                                    </span>
                                     <span class="platform-badge @(tenant.TenantActive ? "platform-badge-success" : "platform-badge-danger")">
                                         <i class="bi @(tenant.TenantActive ? "bi-check-circle" : "bi-pause-circle")"></i>
-                                        @(tenant.TenantActive ? "Tenant activo" : "Tenant suspendido")
-                                    </span>
-                                    <span class="platform-badge @ModeBadgeClass(tenant.CommercialAccessMode)">
-                                        <i class="bi bi-sliders"></i>
-                                        @DescribeMode(tenant.CommercialAccessMode)
+                                        @(tenant.TenantActive ? "Activo" : "Suspendido")
                                     </span>
                                 </div>
+                            </td>
+                            <td>
+                                <div class="platform-table-meta">
+                                    <i class="bi bi-calendar-check"></i> @tenant.Citas30d citas
+                                </div>
+                                <div class="platform-table-meta">
+                                    <i class="bi bi-cash-stack"></i> @tenant.Cobros30d cobros
+                                </div>
+                                @if (tenant.BookingRequests30d > 0)
+                                {
+                                    <div class="platform-table-meta">
+                                        <i class="bi bi-globe"></i> @tenant.BookingRequests30d reservas
+                                        @if (tenant.BookingRequestsPending > 0)
+                                        {
+                                            <span class="platform-badge platform-badge-warning ms-1">@tenant.BookingRequestsPending pend.</span>
+                                        }
+                                    </div>
+                                }
                             </td>
                             <td>
                                 <form asp-action="UpdateTenantCommercialSettings" method="post" class="row g-2 platform-inline-form">
@@ -192,16 +211,20 @@
                             <td>
                                 <div class="platform-stack">
                                     <div class="platform-table-title">@(tenant.EffectivePlanName ?? "Sin acceso comercial")</div>
-                                    <div class="platform-table-meta">Plan forzado: @(tenant.ForcedPlanName ?? "No aplica")</div>
-                                </div>
-                            </td>
-                            <td>
-                                <div class="platform-stack">
                                     <span class="platform-badge @(tenant.CanAccessApp ? "platform-badge-success" : "platform-badge-danger")">
                                         <i class="bi @(tenant.CanAccessApp ? "bi-unlock" : "bi-lock")"></i>
-                                        @(tenant.CanAccessApp ? "Puede acceder hoy" : "Requiere regularizacion")
+                                        @(tenant.CanAccessApp ? "Con acceso" : "Sin acceso")
                                     </span>
-                                    <div class="platform-table-meta">@tenant.Reason</div>
+                                </div>
+                            </td>
+                            <td class="text-end">
+                                <div class="platform-table-actions justify-content-end">
+                                    <a class="btn btn-dark btn-sm platform-btn"
+                                       asp-controller="PlatformTenant" asp-action="Ficha"
+                                       asp-route-tenantId="@tenant.TenantId">
+                                        <i class="bi bi-person-lines-fill"></i>
+                                        Ver ficha
+                                    </a>
                                 </div>
                             </td>
                         </tr>
@@ -244,9 +267,20 @@
                             </td>
                             <td>@(tenant.EffectivePlanName ?? "Sin acceso comercial")</td>
                             <td>
-                                <span class="platform-badge @(tenant.WhatsAppEnabled ? "platform-badge-success" : "platform-badge-danger")">
-                                    <i class="bi @(tenant.WhatsAppEnabled ? "bi-whatsapp" : "bi-pause-circle")"></i>
-                                    @(tenant.WhatsAppEnabled ? "Activo" : "Desactivado")
+                                @{
+                                    var waBadge = tenant.WhatsAppAddonActive
+                                        ? (tenant.WhatsAppEnabled ? "platform-badge-success" : "platform-badge-warning")
+                                        : "platform-badge-dark";
+                                    var waIcon = tenant.WhatsAppAddonActive
+                                        ? (tenant.WhatsAppEnabled ? "bi-whatsapp" : "bi-pause-circle")
+                                        : "bi-slash-circle";
+                                    var waLabel = tenant.WhatsAppAddonActive
+                                        ? (tenant.WhatsAppEnabled ? "Activo" : "Disponible")
+                                        : "Sin add-on";
+                                }
+                                <span class="platform-badge @waBadge">
+                                    <i class="bi @waIcon"></i>
+                                    @waLabel
                                 </span>
                             </td>
                             <td>

@@ -257,7 +257,11 @@ namespace LuxuryApp.Tests.TenantIsolation
             var controller = new FuncionariosController(
                 context,
                 ControllerTestSupport.CreateLiquidacionSemanalService(context),
+                ControllerTestSupport.CreateFuncionarioPortalAccessService(),
+                ControllerTestSupport.CreateFuncionarioPortalPermissionService(),
+                ControllerTestSupport.CreateAccountEmailService(),
                 ControllerTestSupport.BusinessDateTimeProvider,
+                ControllerTestSupport.CreateTenantDisplayNameService(),
                 NullLogger<FuncionariosController>.Instance);
             var result = await controller.GetActivos();
 
@@ -349,7 +353,9 @@ namespace LuxuryApp.Tests.TenantIsolation
             var controller = new CobrosController(
                 ControllerTestSupport.CreateCobroService(context),
                 ControllerTestSupport.CreateCobroQueryService(context),
-                ControllerTestSupport.BusinessDateTimeProvider);
+                ControllerTestSupport.CreateComprobanteCobroService(),
+                ControllerTestSupport.BusinessDateTimeProvider,
+                ControllerTestSupport.CreateTenantDisplayNameService());
             var result = await controller.ExportarExcel(new CobroFiltroViewModel { VistaTiempo = "todo" });
 
             var file = Assert.IsType<FileContentResult>(result);
@@ -419,7 +425,8 @@ namespace LuxuryApp.Tests.TenantIsolation
             var controller = new EgresosController(
                 ControllerTestSupport.CreateEgresoService(context),
                 ControllerTestSupport.CreateEgresoQueryService(context),
-                ControllerTestSupport.BusinessDateTimeProvider);
+                ControllerTestSupport.BusinessDateTimeProvider,
+                ControllerTestSupport.CreateTenantDisplayNameService());
             var result = await controller.ExportarExcel(new EgresoFiltroViewModel { VistaTiempo = "dia" });
 
             var file = Assert.IsType<FileContentResult>(result);

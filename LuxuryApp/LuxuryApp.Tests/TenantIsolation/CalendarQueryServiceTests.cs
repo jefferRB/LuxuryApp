@@ -97,6 +97,60 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
+        public async Task GetUpcomingAppointmentsAsync_ShouldExcludePastAppointmentsOnlyWhenSelectedDateIsToday()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Sofia");
+            var servicio = await SeedServicioAsync(context, "Corte", 30);
+            var businessToday = ControllerTestSupport.BusinessDateTimeProvider.Today();
+
+            var yesterdayMorning = await SeedCitaAsync(context, funcionario.IdFuncionario, businessToday.AddDays(-1).AddHours(8), servicio.Id);
+            await SeedCitaAsync(context, funcionario.IdFuncionario, businessToday.AddHours(8), servicio.Id);
+            var futureToday = await SeedCitaAsync(context, funcionario.IdFuncionario, businessToday.AddHours(12), servicio.Id);
+            var tomorrowMorning = await SeedCitaAsync(context, funcionario.IdFuncionario, businessToday.AddDays(1).AddHours(8), servicio.Id);
+
+            var service = ControllerTestSupport.CreateCalendarQueryService(context);
+
+            var todayAppointments = await service.GetUpcomingAppointmentsAsync(businessToday, null);
+            var yesterdayAppointments = await service.GetUpcomingAppointmentsAsync(businessToday.AddDays(-1), null);
+            var tomorrowAppointments = await service.GetUpcomingAppointmentsAsync(businessToday.AddDays(1), null);
+
+            Assert.Equal(futureToday.Id, Assert.Single(todayAppointments).Id);
+            Assert.Equal(yesterdayMorning.Id, Assert.Single(yesterdayAppointments).Id);
+            Assert.Equal(tomorrowMorning.Id, Assert.Single(tomorrowAppointments).Id);
+        }
+
+        [Fact]
+        public async Task FuncionarioExistsForCurrentTenantAsync_ShouldRespectTenantIsolation()
+        {
+            var tenantA = Guid.NewGuid();
+            var tenantB = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantA };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var ownFuncionario = await SeedFuncionarioAsync(context, "Propio");
+
+            tenantProvider.TenantId = tenantB;
+            context.ChangeTracker.Clear();
+            var foreignFuncionario = await SeedFuncionarioAsync(context, "Ajeno");
+
+            tenantProvider.TenantId = tenantA;
+            context.ChangeTracker.Clear();
+
+            var service = ControllerTestSupport.CreateCalendarQueryService(context);
+
+            Assert.True(await service.FuncionarioExistsForCurrentTenantAsync(ownFuncionario.IdFuncionario));
+            Assert.False(await service.FuncionarioExistsForCurrentTenantAsync(foreignFuncionario.IdFuncionario));
+            Assert.False(await service.FuncionarioExistsForCurrentTenantAsync(0));
+        }
+
+        [Fact]
         public async Task GetFechasOcupadasAsync_ShouldRespectRequestedRange()
         {
             var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };

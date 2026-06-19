@@ -4,6 +4,13 @@ namespace LuxuryApp.Models.Platform
 {
     public sealed class PlatformTenantRowViewModel
     {
+        // ── Fase 2: salud y métricas de uso ───────────────────────────────────
+        public PlatformTenantHealthViewModel Health { get; init; } = new();
+        public int Citas30d { get; init; }
+        public int Cobros30d { get; init; }
+        public int BookingRequests30d { get; init; }
+        public int BookingRequestsPending { get; init; }
+        public DateTime? LastActivityUtc { get; init; }
         public Guid TenantId { get; init; }
         public string TenantName { get; init; } = string.Empty;
         public bool TenantActive { get; init; }
@@ -16,6 +23,7 @@ namespace LuxuryApp.Models.Platform
         public string? EffectivePlanName { get; init; }
         public string Reason { get; init; } = string.Empty;
         public bool WhatsAppEnabled { get; init; }
+        public bool WhatsAppAddonActive { get; init; }
         public bool SendWhatsAppConfirmationOnCreate { get; init; }
         public bool SendWhatsAppReminderThreeHoursBefore { get; init; }
         public int WhatsAppDailyMessageLimit { get; init; }

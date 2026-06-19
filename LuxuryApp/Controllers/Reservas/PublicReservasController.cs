@@ -2,6 +2,7 @@ using LuxuryApp.Models.Reservas;
 using LuxuryApp.Services.Reservas;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace LuxuryApp.Controllers.Reservas
 {
@@ -11,6 +12,7 @@ namespace LuxuryApp.Controllers.Reservas
     /// No crea citas: registra una solicitud Pending que el negocio confirma desde la plataforma.
     /// </summary>
     [AllowAnonymous]
+    [EnableRateLimiting("PublicBooking")]
     [Route("reservar")]
     public sealed class PublicReservasController : Controller
     {

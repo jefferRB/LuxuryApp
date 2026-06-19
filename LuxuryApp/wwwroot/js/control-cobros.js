@@ -1,9 +1,8 @@
 /* ===========================================================================
-   Control de citas y cobros — interacción de la vista admin.
-   - Filtros (Día/Semana/Mes, fecha, funcionario, estado, búsqueda) por AJAX.
-   - Cobro rápido con modal -> POST /Calendar/CobrarCita (reusa CobroService).
-   - Cancelar cita -> DELETE /Calendar/Delete/{id}.
-   Actualiza KPIs y tabla sin recargar toda la página.
+   Control de citas y cobros - interaccion de la vista admin.
+   - Filtros (Dia/Semana/Mes, fecha, funcionario, estado, busqueda) por AJAX.
+   - Cobro rapido con modal -> POST /Calendar/CobrarCita (reusa CobroService).
+   Actualiza KPIs y tabla sin recargar toda la pagina.
    =========================================================================== */
 (function () {
     "use strict";
@@ -58,7 +57,6 @@
             });
     }
 
-    // ── Filtros ────────────────────────────────────────────────────────────
     if (segWrap) {
         segWrap.addEventListener("click", function (e) {
             var btn = e.target.closest(".cc-seg-btn");
@@ -79,12 +77,11 @@
         });
     }
 
-    // ── Modal de cobro ─────────────────────────────────────────────────────
     var modalEl = document.getElementById("ccCobroModal");
     var modal = (modalEl && window.bootstrap) ? bootstrap.Modal.getOrCreateInstance(modalEl) : null;
 
     function money(v) {
-        return "₡" + Number(v).toLocaleString("es-CR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return "\u20A1" + Number(v).toLocaleString("es-CR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
     document.addEventListener("click", function (e) {
@@ -95,38 +92,36 @@
         document.getElementById("ccCobroServicio").textContent = btn.dataset.servicio || "Servicio";
         var precio = btn.dataset.precio || "";
         document.getElementById("ccCobroMonto").value = precio;
-        document.getElementById("ccCobroEsperado").textContent = (precio && Number(precio) > 0) ? money(precio) : "—";
+        document.getElementById("ccCobroEsperado").textContent = (precio && Number(precio) > 0) ? money(precio) : "-";
         document.getElementById("ccCobroMetodo").value = "EFECTIVO";
         document.getElementById("ccCobroObs").value = "";
 
-        // Comprobante: reset + prefill del correo del cliente si existe.
         var enviarChk = document.getElementById("ccCobroEnviar");
         var emailWrap = document.getElementById("ccCobroEmailWrap");
         var emailInp = document.getElementById("ccCobroEmail");
         var guardarWrap = document.getElementById("ccCobroGuardarWrap");
         var guardarChk = document.getElementById("ccCobroGuardarEmail");
         if (enviarChk) enviarChk.checked = false;
-        if (emailWrap) emailWrap.style.display = "none";
+        if (emailWrap) emailWrap.classList.add("d-none");
         if (emailInp) emailInp.value = btn.dataset.email || "";
-        if (guardarWrap) guardarWrap.style.display = "none";
+        if (guardarWrap) guardarWrap.classList.add("d-none");
         if (guardarChk) guardarChk.checked = false;
-        emailWrap && (emailWrap.dataset.clienteId = btn.dataset.clienteId || "");
+        if (emailWrap) emailWrap.dataset.clienteId = btn.dataset.clienteId || "";
 
         var err = document.getElementById("ccCobroError");
-        err.classList.add("d-none"); err.textContent = "";
+        err.classList.add("d-none");
+        err.textContent = "";
         modal.show();
     });
 
-    // Toggle del bloque de comprobante.
     var enviarChkGlobal = document.getElementById("ccCobroEnviar");
     if (enviarChkGlobal) {
         enviarChkGlobal.addEventListener("change", function () {
             var emailWrap = document.getElementById("ccCobroEmailWrap");
             var guardarWrap = document.getElementById("ccCobroGuardarWrap");
-            if (emailWrap) emailWrap.style.display = this.checked ? "" : "none";
-            // Solo ofrecemos "guardar en cliente" si la cita tiene un cliente registrado.
+            if (emailWrap) emailWrap.classList.toggle("d-none", !this.checked);
             var tieneCliente = emailWrap && emailWrap.dataset.clienteId;
-            if (guardarWrap) guardarWrap.style.display = (this.checked && tieneCliente) ? "flex" : "none";
+            if (guardarWrap) guardarWrap.classList.toggle("d-none", !(this.checked && tieneCliente));
         });
     }
 
@@ -152,7 +147,7 @@
             }
 
             if (enviarComprobante && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-                err.textContent = "Indica un correo válido para enviar el comprobante.";
+                err.textContent = "Indica un correo v\u00E1lido para enviar el comprobante.";
                 err.classList.remove("d-none");
                 return;
             }
@@ -189,52 +184,19 @@
                     loadResults();
                 })
                 .catch(function () {
-                    err.textContent = "Error de conexión. Intenta de nuevo.";
+                    err.textContent = "Error de conexi\u00F3n. Intenta de nuevo.";
                     err.classList.remove("d-none");
                 })
                 .finally(function () { submitBtn.disabled = false; });
         });
     }
 
-    // ── Cancelar cita ──────────────────────────────────────────────────────
-    document.addEventListener("click", function (e) {
-        var btn = e.target.closest(".js-cc-cancelar");
-        if (!btn) return;
-        var citaId = btn.dataset.citaId;
-        var cliente = btn.dataset.cliente || "esta cita";
-        if (!citaId) return;
-        if (!window.confirm("¿Cancelar la cita de " + cliente + "? Esta acción no se puede deshacer.")) return;
-
-        btn.disabled = true;
-        fetch("/Calendar/Delete/" + encodeURIComponent(citaId), {
-            method: "DELETE",
-            headers: {
-                "RequestVerificationToken": token(),
-                "X-Requested-With": "XMLHttpRequest"
-            },
-            credentials: "same-origin"
-        })
-            .then(function (r) {
-                if (!r.ok) throw new Error();
-                toast("Cita cancelada correctamente.", false);
-                loadResults();
-            })
-            .catch(function () {
-                btn.disabled = false;
-                toast("No fue posible cancelar la cita.", true);
-            });
-    });
-
-    // ── Toast simple ───────────────────────────────────────────────────────
     function toast(msg, isError) {
         var t = document.createElement("div");
         t.textContent = msg;
-        t.style.cssText = "position:fixed;bottom:1.25rem;left:50%;transform:translateX(-50%);z-index:1080;" +
-            "padding:.7rem 1.1rem;border-radius:.7rem;font-weight:700;font-size:.88rem;color:#fff;" +
-            "box-shadow:0 10px 30px rgba(2,6,23,.3);max-width:90vw;text-align:center;" +
-            "background:" + (isError ? "#dc2626" : "#059669") + ";";
+        t.className = "cc-toast " + (isError ? "cc-toast-error" : "cc-toast-success");
         document.body.appendChild(t);
-        setTimeout(function () { t.style.transition = "opacity .3s"; t.style.opacity = "0"; }, 2600);
+        setTimeout(function () { t.classList.add("is-hiding"); }, 2600);
         setTimeout(function () { t.remove(); }, 3000);
     }
 })();

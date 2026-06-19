@@ -8,6 +8,7 @@ namespace LuxuryApp.Models.Identity
 
         [Required(ErrorMessage = "El nombre es requerido.")]
         [StringLength(100, ErrorMessage = "El nombre no puede superar 100 caracteres.")]
+        [RegularExpression(@"^[^\p{Cc}\p{Cf}]*$", ErrorMessage = "El nombre no puede contener saltos de línea ni caracteres de control.")]
         [Display(Name = "Nombre visible")]
         public string Name { get; set; } = string.Empty;
 

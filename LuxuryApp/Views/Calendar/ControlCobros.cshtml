@@ -12,24 +12,21 @@
 <div id="cc-antiforgery" class="d-none">@Html.AntiForgeryToken()</div>
 
 <div class="cc-shell">
-
-    @* ── Hero ─────────────────────────────────────────────── *@
     <div class="cc-hero">
-        <div>
+        <div class="cc-hero-copy">
             <span class="cc-badge"><i class="bi bi-cash-stack"></i> Estados y cobros</span>
             <h1 class="cc-title">Control de citas y cobros</h1>
-            <p class="cc-subtitle">Revisa las citas realizadas, pendientes de cobro y montos cobrados por día, semana o mes.</p>
+            <p class="cc-subtitle">Revisa las citas realizadas, pendientes de cobro y montos cobrados por d&iacute;a, semana o mes.</p>
         </div>
         <a class="cc-back" href="/Calendar"><i class="bi bi-arrow-left"></i> Volver al calendario</a>
     </div>
 
-    @* ── Filtros ──────────────────────────────────────────── *@
     <div class="cc-filters">
         <div class="cc-filters-row">
             <div class="cc-field">
                 <span class="cc-field-label">Periodo</span>
                 <div class="cc-seg" id="cc-rango" role="group" aria-label="Periodo">
-                    <button type="button" class="cc-seg-btn @Active("dia")" data-rango="dia"><i class="bi bi-calendar-day"></i> Día</button>
+                    <button type="button" class="cc-seg-btn @Active("dia")" data-rango="dia"><i class="bi bi-calendar-day"></i> D&iacute;a</button>
                     <button type="button" class="cc-seg-btn @Active("semana")" data-rango="semana"><i class="bi bi-calendar-week"></i> Semana</button>
                     <button type="button" class="cc-seg-btn @Active("mes")" data-rango="mes"><i class="bi bi-calendar3"></i> Mes</button>
                 </div>
@@ -72,82 +69,79 @@
             </div>
 
             <div class="cc-field cc-field-search">
-                <label class="cc-field-label" for="cc-buscar">Buscar cliente o teléfono</label>
-                <input type="search" id="cc-buscar" class="cc-input" placeholder="Nombre o teléfono…" value="@f.Buscar" autocomplete="off">
+                <label class="cc-field-label" for="cc-buscar">Buscar cliente o tel&eacute;fono</label>
+                <input type="search" id="cc-buscar" class="cc-input" placeholder="Nombre o tel&eacute;fono..." value="@f.Buscar" autocomplete="off">
             </div>
         </div>
     </div>
 
-    @* ── Resultados (KPIs + tabla/cards) ──────────────────── *@
     <div id="cc-results">
         @await Html.PartialAsync("_ControlCobrosResultados", Model)
     </div>
 </div>
 
-@* ── Modal Cobrar ─────────────────────────────────────────── *@
 <div class="modal fade" id="ccCobroModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content" style="border:none;border-radius:1.1rem;overflow:hidden;">
-            <div style="display:flex;align-items:center;gap:.9rem;padding:1.15rem 1.25rem;border-bottom:1px solid #eef1f6;background:linear-gradient(135deg,rgba(124,58,237,.14),rgba(99,102,241,.06));">
-                <div style="width:2.7rem;height:2.7rem;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:1.25rem;background:rgba(124,58,237,.18);color:#7c3aed;"><i class="bi bi-cash-coin"></i></div>
+        <div class="modal-content cc-modal-content">
+            <div class="cc-modal-header">
+                <div class="cc-modal-icon"><i class="bi bi-cash-coin"></i></div>
                 <div>
-                    <h5 style="font-size:1.05rem;font-weight:800;margin:0;color:#0f172a;">Registrar cobro</h5>
-                    <p style="font-size:.8rem;margin:.1rem 0 0;color:#64748b;">Confirma el cobro de esta cita</p>
+                    <h5 class="cc-modal-title">Registrar cobro</h5>
+                    <p class="cc-modal-subtitle">Confirma el cobro de esta cita</p>
                 </div>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar" style="margin-left:auto;"></button>
+                <button type="button" class="btn-close cc-modal-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
-            <div class="modal-body" style="padding:1.25rem;">
+            <div class="modal-body cc-modal-body">
                 <input type="hidden" id="ccCobroCitaId" />
 
-                <div style="display:flex;align-items:center;gap:.8rem;padding:.85rem .95rem;margin-bottom:1.1rem;border:1px solid #eef1f6;border-radius:14px;background:#f8fafc;">
-                    <div style="flex:1;min-width:0;">
-                        <div id="ccCobroCliente" style="font-weight:800;color:#0f172a;">Cliente</div>
-                        <div id="ccCobroServicio" style="font-size:.82rem;color:#64748b;">Servicio</div>
+                <div class="cc-modal-summary">
+                    <div class="cc-modal-summary-main">
+                        <div id="ccCobroCliente" class="cc-modal-client">Cliente</div>
+                        <div id="ccCobroServicio" class="cc-modal-service">Servicio</div>
                     </div>
-                    <div style="text-align:right;">
-                        <span style="display:block;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#94a3b8;">Monto cita</span>
-                        <span id="ccCobroEsperado" style="font-weight:800;color:#0f172a;">—</span>
+                    <div class="cc-modal-amount">
+                        <span class="cc-modal-amount-label">Monto cita</span>
+                        <span id="ccCobroEsperado" class="cc-modal-amount-value">-</span>
                     </div>
                 </div>
 
-                <label class="cc-field-label">Monto cobrado</label>
-                <div style="display:flex;align-items:center;gap:.5rem;margin:.35rem 0 1rem;padding:.5rem .8rem;border-radius:.7rem;border:1.5px solid #e2e8f0;">
-                    <span style="font-weight:800;font-size:1.15rem;color:#64748b;">₡</span>
-                    <input type="number" id="ccCobroMonto" step="0.01" min="0.01" required placeholder="0.00"
-                           style="flex:1;border:none;outline:none;font-size:1.3rem;font-weight:800;color:#0f172a;width:100%;background:transparent;" />
+                <label class="cc-field-label" for="ccCobroMonto">Monto cobrado</label>
+                <div class="cc-money-input">
+                    <span class="cc-money-prefix">CRC</span>
+                    <input type="number" id="ccCobroMonto" step="0.01" min="0.01" required placeholder="0.00" class="cc-money-field" />
                 </div>
 
-                <label class="cc-field-label">Método de pago</label>
-                <select id="ccCobroMetodo" class="cc-select" style="width:100%;margin:.35rem 0 1rem;">
+                <label class="cc-field-label" for="ccCobroMetodo">M&eacute;todo de pago</label>
+                <select id="ccCobroMetodo" class="cc-select cc-field-full">
                     <option value="EFECTIVO">Efectivo</option>
                     <option value="TARJETA">Tarjeta</option>
                     <option value="SINPE">SINPE</option>
                 </select>
 
-                <label class="cc-field-label">Observación (opcional)</label>
-                <input type="text" id="ccCobroObs" maxlength="500" class="cc-input" style="width:100%;margin-top:.35rem;"
-                       placeholder="Ej: propina incluida, pago parcial…" />
+                <label class="cc-field-label" for="ccCobroObs">Observaci&oacute;n (opcional)</label>
+                <input type="text" id="ccCobroObs" maxlength="500" class="cc-input cc-field-full"
+                       placeholder="Ej: propina incluida, pago parcial..." />
 
-                <div style="margin-top:1rem;padding-top:.9rem;border-top:1px solid #eef1f6;">
-                    <label style="display:flex;align-items:center;gap:.55rem;cursor:pointer;font-weight:700;color:#0f172a;font-size:.9rem;">
-                        <input type="checkbox" id="ccCobroEnviar" style="width:1.05rem;height:1.05rem;" />
+                <div class="cc-comprobante-box">
+                    <label class="cc-check-label">
+                        <input type="checkbox" id="ccCobroEnviar" class="cc-check" />
                         <i class="bi bi-envelope-paper"></i> Enviar comprobante por correo
                     </label>
-                    <div id="ccCobroEmailWrap" style="display:none;margin-top:.6rem;">
-                        <input type="email" id="ccCobroEmail" class="cc-input" style="width:100%;"
+                    <div id="ccCobroEmailWrap" class="cc-email-wrap d-none">
+                        <input type="email" id="ccCobroEmail" class="cc-input cc-field-full"
                                placeholder="correo@ejemplo.com" autocomplete="off" />
-                        <label id="ccCobroGuardarWrap" style="display:none;align-items:center;gap:.5rem;cursor:pointer;color:#475569;font-size:.82rem;margin-top:.5rem;">
-                            <input type="checkbox" id="ccCobroGuardarEmail" style="width:1rem;height:1rem;" />
+                        <label id="ccCobroGuardarWrap" class="cc-save-email-wrap d-none">
+                            <input type="checkbox" id="ccCobroGuardarEmail" class="cc-check" />
                             Guardar este correo en el perfil del cliente
                         </label>
                     </div>
                 </div>
 
-                <div id="ccCobroError" class="d-none" style="margin-top:.9rem;color:#b91c1c;font-size:.85rem;font-weight:600;"></div>
+                <div id="ccCobroError" class="cc-error d-none"></div>
             </div>
-            <div style="display:flex;gap:.6rem;padding:1rem 1.25rem 1.25rem;">
-                <button type="button" class="cc-act" style="flex:0 0 auto;padding:.65rem 1.1rem;" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" id="ccCobroSubmit" class="cc-act cc-act-cobrar" style="flex:1;justify-content:center;padding:.65rem 1.1rem;">
+            <div class="cc-modal-footer">
+                <button type="button" class="cc-act cc-modal-cancel" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" id="ccCobroSubmit" class="cc-act cc-act-cobrar cc-modal-submit">
                     <i class="bi bi-check2-circle"></i> Registrar cobro
                 </button>
             </div>

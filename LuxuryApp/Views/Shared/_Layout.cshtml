@@ -99,6 +99,7 @@
     <link rel="stylesheet" href="~/css/Dashboard.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/private-layout.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/notification-center.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/LuxuryApp.styles.css" asp-append-version="true" />
     @await RenderSectionAsync("Styles", required: false)
 </head>
@@ -124,6 +125,12 @@
         <partial name="_AppearanceModal" />
     }
 
+    @* Centro de Notificaciones: solo el dueño del negocio (Administrador). *@
+    @if (User.IsInRole("Administrador"))
+    {
+        <partial name="_NotificationCenter" />
+    }
+
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
@@ -132,6 +139,10 @@
     <script src="~/js/mensajes.js" asp-append-version="true"></script>
     <script src="~/js/puestos.js"></script>
     <script src="~/js/finanzas.js" asp-append-version="true"></script>
+    @if (User.IsInRole("Administrador"))
+    {
+        <script src="~/js/notification-center.js" asp-append-version="true"></script>
+    }
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script src="https://code.jquery.com/ui/1.14.1/jquery-ui.js"></script>

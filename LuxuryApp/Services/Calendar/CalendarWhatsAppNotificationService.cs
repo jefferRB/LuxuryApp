@@ -5,6 +5,7 @@ using System.Text.Json;
 using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.WhatsApp;
 using LuxuryApp.Services.BusinessTime;
+using LuxuryApp.Services.Notifications;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Services.WhatsApp;
 using Microsoft.EntityFrameworkCore;
@@ -38,6 +39,7 @@ namespace LuxuryApp.Services.Calendar
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ITenantWhatsAppSettingsService _tenantSettingsService;
         private readonly ITenantProvider _tenantProvider;
+        private readonly ITenantDisplayNameService _tenantDisplayNameService;
         private readonly TenantExecutionService _tenantExecutionService;
         private readonly ILogger<CalendarWhatsAppNotificationService> _logger;
 
@@ -48,6 +50,7 @@ namespace LuxuryApp.Services.Calendar
             IBusinessDateTimeProvider businessDateTimeProvider,
             ITenantWhatsAppSettingsService tenantSettingsService,
             ITenantProvider tenantProvider,
+            ITenantDisplayNameService tenantDisplayNameService,
             TenantExecutionService tenantExecutionService,
             ILogger<CalendarWhatsAppNotificationService> logger)
         {
@@ -57,6 +60,7 @@ namespace LuxuryApp.Services.Calendar
             _businessDateTimeProvider = businessDateTimeProvider;
             _tenantSettingsService = tenantSettingsService;
             _tenantProvider = tenantProvider;
+            _tenantDisplayNameService = tenantDisplayNameService;
             _tenantExecutionService = tenantExecutionService;
             _logger = logger;
         }
@@ -510,7 +514,8 @@ namespace LuxuryApp.Services.Calendar
                     async (serviceProvider, _, ct) =>
                     {
                         var db = serviceProvider.GetRequiredService<ApplicationDbContext>();
-                        await ProcessResolvedInboundAsync(db, inboundMessage, candidate, action, ct);
+                        var notificationService = serviceProvider.GetRequiredService<INotificationService>();
+                        await ProcessResolvedInboundAsync(db, notificationService, inboundMessage, candidate, action, ct);
                     },
                     cancellationToken);
             }
@@ -1093,13 +1098,9 @@ namespace LuxuryApp.Services.Calendar
                 }
             }
 
-            var tenantName = await _context.Tenants
-                .AsNoTracking()
-                .Where(tenant => tenant.Id == cita.TenantId)
-                .Select(tenant => tenant.Nombre)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            tenantName = string.IsNullOrWhiteSpace(tenantName) ? "LuxuryCloud" : tenantName;
+            var tenantName = await _tenantDisplayNameService.GetTenantDisplayNameAsync(
+                cita.TenantId,
+                cancellationToken);
 
             var sendResult = message.NotificationType switch
             {
@@ -1567,6 +1568,7 @@ namespace LuxuryApp.Services.Calendar
 
         private async Task ProcessResolvedInboundAsync(
             ApplicationDbContext db,
+            INotificationService notificationService,
             InboundWhatsAppMessage inboundMessage,
             WhatsAppTargetCandidate candidate,
             WhatsAppReplyAction action,
@@ -1638,6 +1640,24 @@ namespace LuxuryApp.Services.Calendar
             });
 
             await db.SaveChangesAsync(cancellationToken);
+
+            // Centro de Notificaciones: avisa al negocio cuando el cliente cancela por WhatsApp,
+            // para que pueda llenar ese espacio o contactarlo. Idempotente y tenant-scoped: el
+            // guard inicial de inboundExists evita reprocesar el mismo mensaje en reintentos.
+            if (action == WhatsAppReplyAction.Cancel)
+            {
+                try
+                {
+                    await notificationService.CreateAppointmentCancelledViaWhatsAppAsync(cita, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "No se pudo generar la notificación de cancelación para CitaId {CitaId}.",
+                        cita.Id);
+                }
+            }
 
             _logger.LogInformation(
                 "Respuesta WhatsApp procesada para CitaId {CitaId}. Accion {Action}.",

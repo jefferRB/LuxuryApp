@@ -578,6 +578,36 @@ html[data-luxury-surface-theme="glass"] .day-agenda-panel {
 .wa-inbox-toast-error   { background: linear-gradient(135deg, #dc2626, #b91c1c); }
 
 /* ── TODAY APPOINTMENTS PANEL ──────────────────────────────── */
+.today-apt-title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-width: 0;
+}
+
+.today-apt-panel .whatsapp-inbox-header > div:first-child {
+    min-width: 0;
+}
+
+.today-apt-title-row .whatsapp-inbox-title {
+    min-width: 0;
+}
+
+.today-apt-nav-btn {
+    width: 2rem;
+    height: 2rem;
+    justify-content: center;
+    flex: 0 0 auto;
+    padding: 0;
+}
+
+.today-apt-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex: 0 0 auto;
+}
+
 .today-apt-subtitle {
     margin: 0.2rem 0 0;
     font-size: 0.78rem;
