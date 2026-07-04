@@ -298,6 +298,12 @@ namespace LuxuryApp.Controllers
 
                 return Redirect(checkout.RedirectUrl);
             }
+            catch (RecurringCheckoutBlockedException ex)
+            {
+                // Bloqueo de negocio (pago en revision manual): el mensaje es seguro para el usuario.
+                TempData["BillingError"] = ex.Message;
+                return RedirectToAction(nameof(Suscripcion));
+            }
             catch (Exception ex)
             {
                 _logger.LogError(
@@ -1182,6 +1188,12 @@ namespace LuxuryApp.Controllers
                     cancellationToken);
 
                 return Redirect(checkout.RedirectUrl);
+            }
+            catch (RecurringCheckoutBlockedException ex)
+            {
+                // Bloqueo de negocio (pago en revision manual): el mensaje es seguro para el usuario.
+                TempData["BillingError"] = ex.Message;
+                return RedirectToAction(nameof(Suscripcion), new { selectedPlanId = planId });
             }
             catch (InvalidOperationException ex)
             {

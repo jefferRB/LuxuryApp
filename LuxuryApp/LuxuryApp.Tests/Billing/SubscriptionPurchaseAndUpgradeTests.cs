@@ -305,6 +305,119 @@ namespace LuxuryApp.Tests.Billing
             Assert.Single(alerts);
         }
 
+        // ── Pago en revisión manual reciente: se bloquea un nuevo checkout (anti doble cobro) ──
+        [Fact]
+        public async Task Checkout_WithRecentManualReviewPayment_IsBlockedAndAttemptIsPreserved()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var tenantId = Guid.NewGuid();
+            var data = CalculatorCatalog.Find(2, BillingCycle.Monthly);
+            var plan = SeedTenantAndPlan(context, tenantId, data);
+            await context.SaveChangesAsync();
+
+            var service = CreatePaymentService(context, out _);
+
+            await service.CreateRecurringCheckoutAsync(tenantId, plan.Id, "Owner", "owner@test.local");
+            var pending = await context.PagosSuscripcion.IgnoreQueryFilters().SingleAsync();
+
+            // El webhook dejó este intento en revisión manual (posible dinero ya cobrado en TiloPay).
+            pending.Estado = EstadoPagoProveedor.ManualReview;
+            pending.FechaActualizacionUtc = DateTime.UtcNow;
+            await context.SaveChangesAsync();
+
+            await Assert.ThrowsAsync<RecurringCheckoutBlockedException>(() =>
+                service.CreateRecurringCheckoutAsync(tenantId, plan.Id, "Owner", "owner@test.local"));
+
+            // El intento en revisión NO se expira: la conciliación manual todavía puede aprobarlo.
+            var preserved = await context.PagosSuscripcion.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(EstadoPagoProveedor.ManualReview, preserved.Estado);
+        }
+
+        // ── Revisión manual vieja (>72h): el checkout vuelve a permitirse y el intento no se expira ──
+        [Fact]
+        public async Task Checkout_WithStaleManualReviewPayment_IsAllowedAndAttemptIsNotExpired()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var tenantId = Guid.NewGuid();
+            var data = CalculatorCatalog.Find(2, BillingCycle.Monthly);
+            var plan = SeedTenantAndPlan(context, tenantId, data);
+            await context.SaveChangesAsync();
+
+            var service = CreatePaymentService(context, out _);
+
+            await service.CreateRecurringCheckoutAsync(tenantId, plan.Id, "Owner", "owner@test.local");
+            var pending = await context.PagosSuscripcion.IgnoreQueryFilters().SingleAsync();
+
+            pending.Estado = EstadoPagoProveedor.ManualReview;
+            pending.FechaCreacionUtc = DateTime.UtcNow.AddDays(-4);
+            pending.FechaActualizacionUtc = DateTime.UtcNow.AddDays(-4);
+            await context.SaveChangesAsync();
+
+            var checkout = await service.CreateRecurringCheckoutAsync(tenantId, plan.Id, "Owner", "owner@test.local");
+            Assert.False(string.IsNullOrWhiteSpace(checkout.RedirectUrl));
+
+            // El viejo ManualReview sigue abierto para conciliación; solo se crean pendientes nuevos.
+            var attempts = await context.PagosSuscripcion.IgnoreQueryFilters().OrderBy(p => p.FechaCreacionUtc).ToListAsync();
+            Assert.Equal(2, attempts.Count);
+            Assert.Equal(EstadoPagoProveedor.ManualReview, attempts[0].Estado);
+            Assert.Equal(EstadoPagoProveedor.Pendiente, attempts[1].Estado);
+        }
+
+        // ── Conciliación manual sin caducidad: un pending viejo (>72h) sigue siendo aprobable ──
+        [Fact]
+        public async Task ManualApproval_OfOldPending_ActivatesSubscription_WebhookApprovalStillExpires()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var tenantId = Guid.NewGuid();
+            var data = CalculatorCatalog.Find(1, BillingCycle.Monthly);
+            var plan = SeedTenantAndPlan(context, tenantId, data);
+            await context.SaveChangesAsync();
+
+            var service = CreatePaymentService(context, out _);
+
+            await service.CreateRecurringCheckoutAsync(tenantId, plan.Id, "Owner", "owner@test.local");
+            var pending = await context.PagosSuscripcion.IgnoreQueryFilters().SingleAsync();
+            pending.FechaCreacionUtc = DateTime.UtcNow.AddDays(-10);
+            await context.SaveChangesAsync();
+
+            // Con origen webhook la vigencia de 72h sigue aplicando.
+            var webhookAttempt = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.ApproveRecurringPaymentAsync(new RecurringPaymentApprovalRequest
+                {
+                    PaymentId = pending.Id,
+                    ProviderTransactionId = "TX-OLD-WEBHOOK",
+                    ApprovedAmount = data.Charge,
+                    Currency = "CRC",
+                    Source = "webhook"
+                }));
+            Assert.Contains("vigente", webhookAttempt.Message, StringComparison.OrdinalIgnoreCase);
+
+            // La conciliación manual del SuperAdmin no caduca: el pago real se puede activar.
+            var result = await service.ApproveRecurringPaymentAsync(new RecurringPaymentApprovalRequest
+            {
+                PaymentId = pending.Id,
+                ProviderTransactionId = "TX-OLD-MANUAL",
+                ProviderSubscriberId = "sub-old",
+                ApprovedAmount = data.Charge,
+                Currency = "CRC",
+                Source = "manual",
+                Observation = "pago real cobrado por TiloPay, conciliado tarde"
+            });
+
+            Assert.Equal(EstadoPagoProveedor.Confirmado, result.PaymentStatus);
+            var sub = await context.Suscripciones.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(EstadoSuscripcion.Activa, sub.Estado);
+        }
+
         // ── Helpers ──
 
         private static PlanChangeRequest BuildChangeRequest(

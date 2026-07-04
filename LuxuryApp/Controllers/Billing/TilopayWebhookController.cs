@@ -38,6 +38,7 @@ namespace LuxuryApp.Controllers
         [HttpPost]
         public async Task<IActionResult> Handle(CancellationToken cancellationToken)
         {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var correlationId = HttpContext.TraceIdentifier;
             var body = await new StreamReader(Request.Body).ReadToEndAsync(cancellationToken);
             var incomingEvent = Request.Query.TryGetValue("event", out var eventValues)
@@ -77,6 +78,18 @@ namespace LuxuryApp.Controllers
 
                 LogDevelopmentWebhookResult(body, correlationId, incomingEvent, result);
 
+                // Línea única de observabilidad por webhook: suficiente para diagnosticar
+                // sin abrir la base de datos (correlación, resultado, duración).
+                _logger.LogInformation(
+                    "Tilopay webhook resumen. CorrelationId {CorrelationId}. EventIdSuffix {EventIdSuffix}. ReferenceSuffix {ReferenceSuffix}. Duplicate {Duplicate}. Processed {Processed}. EstadoPago {EstadoPago}. DurationMs {DurationMs}.",
+                    correlationId,
+                    SensitiveDataMasker.MaskReference(result.EventId),
+                    SensitiveDataMasker.MaskReference(result.Reference),
+                    result.IsDuplicate,
+                    result.IsProcessed,
+                    result.EstadoPago,
+                    stopwatch.ElapsedMilliseconds);
+
                 return Ok(new
                 {
                     accepted = true,
@@ -103,7 +116,11 @@ namespace LuxuryApp.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error procesando webhook Tilopay.");
+                _logger.LogError(
+                    ex,
+                    "Error procesando webhook Tilopay. CorrelationId {CorrelationId}. DurationMs {DurationMs}.",
+                    correlationId,
+                    stopwatch.ElapsedMilliseconds);
                 return StatusCode(StatusCodes.Status500InternalServerError);
             }
         }

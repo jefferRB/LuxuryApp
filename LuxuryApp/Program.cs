@@ -305,6 +305,14 @@ builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformWhatsAppStatusSe
 builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformTenantProfileService, LuxuryApp.Services.Platform.PlatformTenantProfileService>();
 builder.Services.AddScoped<SaaSPaymentService>();
 builder.Services.AddScoped<PaymentProviderResolver>();
+
+// Reconciliación automática y diagnóstico del módulo Billing (red de seguridad diaria).
+// El worker queda inerte con BillingReconciliation:Enabled=false.
+builder.Services.Configure<LuxuryApp.Services.Billing.BillingReconciliationOptions>(
+    builder.Configuration.GetSection("BillingReconciliation"));
+builder.Services.AddScoped<LuxuryApp.Services.Billing.IBillingReconciliationService, LuxuryApp.Services.Billing.BillingReconciliationService>();
+builder.Services.AddScoped<LuxuryApp.Services.Billing.IBillingHealthService, LuxuryApp.Services.Billing.BillingHealthService>();
+builder.Services.AddHostedService<LuxuryApp.Workers.BillingReconciliationWorker>();
 builder.Services.AddHttpClient<PublicCallbackHealthService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(10);
@@ -339,6 +347,11 @@ if (!app.Environment.IsDevelopment())
         await next();
     });
 }
+// Debe ir lo más arriba posible para envolver autenticación, routing, controladores y EF Core.
+// Traduce las cancelaciones del cliente (cambio rápido de módulo, cerrar pestaña, refrescar,
+// doble click) en un 499 silencioso y evita que lleguen al UseExceptionHandler como error 500.
+app.UseMiddleware<ClientDisconnectMiddleware>();
+
 //linux nginx
 app.UseForwardedHeaders();
 

@@ -63,6 +63,25 @@ namespace LuxuryApp.Models.Platform
         /// anterior viva en el proveedor que debe cancelarse manualmente (TiloPay no tiene API).
         /// </summary>
         public const string PlanUpgradeRequiresProviderCancellation = "PlanUpgradeRequiresProviderCancellation";
+
+        /// <summary>
+        /// Alerta automática: un webhook de pago quedó en revisión manual o sin correlación.
+        /// Puede haber dinero cobrado en el proveedor sin activar; revisar en
+        /// Platform/RecurringCheckouts (conciliación interna).
+        /// </summary>
+        public const string PaymentWebhookRequiresManualReview = "PaymentWebhookRequiresManualReview";
+
+        /// <summary>Cierre de un pase de reconciliación de Billing (resumen en AfterJson).</summary>
+        public const string BillingReconciliationCompleted = "BillingReconciliationCompleted";
+
+        /// <summary>Reparación automática segura aplicada por la reconciliación (ej. pago confirmado sin activación).</summary>
+        public const string BillingAutoRepairApplied = "BillingAutoRepairApplied";
+
+        /// <summary>Limpieza segura aplicada por la reconciliación (ej. Pendiente abandonado expirado).</summary>
+        public const string BillingReconciliationCleanup = "BillingReconciliationCleanup";
+
+        /// <summary>Hallazgo que requiere decisión humana; la reconciliación nunca toca datos ambiguos.</summary>
+        public const string BillingReconciliationAlert = "BillingReconciliationAlert";
     }
 
     public static class PlatformAuditEntityTypes
@@ -70,5 +89,6 @@ namespace LuxuryApp.Models.Platform
         public const string User = "User";
         public const string Tenant = "Tenant";
         public const string Subscription = "Subscription";
+        public const string Billing = "Billing";
     }
 }

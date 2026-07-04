@@ -628,7 +628,13 @@ namespace LuxuryApp.Tests.TenantIsolation
                 Path.Combine("Services", "Platform", "PlatformWhatsAppStatusService.cs"),
                 Path.Combine("Services", "Platform", "PlatformAuditService.cs"),
                 // Consola de resumen mensual (SuperAdmin): agregados cross-tenant deliberados.
-                Path.Combine("Services", "Platform", "PlatformMonthlyReportService.cs")
+                Path.Combine("Services", "Platform", "PlatformMonthlyReportService.cs"),
+                // Reconciliación automática de Billing: corre en background sin contexto de
+                // tenant (worker diario) y debe ver pagos/suscripciones de todos los tenants.
+                Path.Combine("Services", "Billing", "BillingReconciliationService.cs"),
+                // Health check de Billing (SuperAdmin): agregados cross-tenant deliberados,
+                // gateado por PlatformSuperAdmin en PlatformBillingHealthController.
+                Path.Combine("Services", "Billing", "BillingHealthService.cs")
             };
 
             var targetRoots = new[]

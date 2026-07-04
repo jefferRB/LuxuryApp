@@ -263,6 +263,37 @@ namespace LuxuryApp.Services.Payments
                     $"Falta CheckoutUrl para {repeatRegistration.Plan.Code}: TilopayRepeat:{repeatRegistration.SectionKey}:CheckoutUrl.");
             }
 
+            // Si el tenant tiene un pago recurrente reciente en revision manual, ese dinero
+            // puede estar YA cobrado en TiloPay sin activar. Abrir otro checkout crearia una
+            // segunda suscripcion viva en el proveedor (sin API de cancelacion => doble cobro
+            // mensual). Se bloquea hasta que la conciliacion interna lo resuelva o venza.
+            var manualReviewCutoffUtc = DateTime.UtcNow.Subtract(RecurringPendingLifetime);
+            var openManualReview = await _db.PagosSuscripcion
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(payment =>
+                    payment.TenantId == tenantId &&
+                    payment.Proveedor == PaymentProviderType.Tilopay &&
+                    payment.TilopayRecurringPlanId != null &&
+                    payment.Estado == EstadoPagoProveedor.ManualReview &&
+                    payment.FechaActualizacionUtc >= manualReviewCutoffUtc)
+                .OrderByDescending(payment => payment.FechaActualizacionUtc)
+                .Select(payment => new { payment.Id, payment.FechaActualizacionUtc })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (openManualReview is not null)
+            {
+                _logger.LogWarning(
+                    "Checkout recurrente bloqueado por pago en revision manual. TenantId {TenantId}. PlanId {PlanId}. PaymentId {PaymentId}. UltimaActualizacionUtc {UltimaActualizacionUtc}.",
+                    tenantId,
+                    planId,
+                    openManualReview.Id,
+                    openManualReview.FechaActualizacionUtc);
+
+                throw new RecurringCheckoutBlockedException(
+                    "Tenés un pago reciente en revisión. Para evitar un cobro doble no iniciamos otro pago ahora. Contactá soporte para completar la activación de tu suscripción.");
+            }
+
             var reusableCheckout = await FindReusablePendingCheckoutAsync(
                 tenantId,
                 planId,
@@ -465,10 +496,29 @@ namespace LuxuryApp.Services.Payments
             }
 
             EnsureRecurringPaymentCanBeApproved(intento);
-            EnsureRecurringPaymentIsCurrent(intento);
+
+            // La vigencia de 72h aplica solo a aprobaciones automaticas por webhook.
+            // La conciliacion manual del SuperAdmin queda auditada y no debe caducar:
+            // un pago real ya cobrado por TiloPay debe poder activarse aunque el
+            // pending tenga mas de 72 horas (de lo contrario queda huerfano permanente).
+            if (string.Equals(request.Source, "webhook", StringComparison.OrdinalIgnoreCase))
+            {
+                EnsureRecurringPaymentIsCurrent(intento);
+            }
             EnsureApprovedAmountMatchesPlan(request.ApprovedAmount, request.Currency, repeatRegistration.Plan, plan);
             await EnsureProviderTransactionIsUniqueAsync(intento.Id, providerTransactionId, cancellationToken);
 
+            // Atomicidad financiera: confirmar el pago, activar la suscripcion/add-on, emitir la
+            // factura y aplicar el cambio de plan es UNA sola operacion. Si un reinicio o timeout
+            // corta a mitad, se revierte todo y el retry del webhook (evento no terminal) o la
+            // conciliacion manual reconstruyen el estado completo sin mitades inconsistentes.
+            // Si ya existe una transaccion ambiente (path one-time), se enlista en ella.
+            var ownedTransaction = _db.Database.CurrentTransaction is null
+                ? await _db.Database.BeginTransactionAsync(cancellationToken)
+                : null;
+
+            try
+            {
             var approvedAtUtc = DateTime.UtcNow;
             var normalizedCurrency = NormalizeRecurringCurrency(request.Currency, repeatRegistration.Plan, plan);
             var providerReference = FirstNonEmpty(
@@ -573,6 +623,11 @@ namespace LuxuryApp.Services.Payments
                     cancellationToken);
             }
 
+            if (ownedTransaction is not null)
+            {
+                await ownedTransaction.CommitAsync(cancellationToken);
+            }
+
             var currentPeriod = repeatRegistration.Plan.IsAddon
                 ? await _db.TenantSubscriptionAddons
                     .IgnoreQueryFilters()
@@ -616,6 +671,23 @@ namespace LuxuryApp.Services.Payments
                 ProviderTransactionId = providerTransactionId,
                 ProviderSubscriberId = intento.ProviderSubscriberId
             };
+            }
+            catch
+            {
+                if (ownedTransaction is not null)
+                {
+                    await ownedTransaction.RollbackAsync(CancellationToken.None);
+                }
+
+                throw;
+            }
+            finally
+            {
+                if (ownedTransaction is not null)
+                {
+                    await ownedTransaction.DisposeAsync();
+                }
+            }
         }
 
         public async Task<PaymentWebhookProcessingResult> ProcessTilopayWebhookAsync(
@@ -1845,6 +1917,7 @@ namespace LuxuryApp.Services.Payments
             evento.EstadoProcesamiento = "SinRelacion";
             evento.Error = Trim(reason, 500);
             evento.FechaProcesamientoUtc = DateTime.UtcNow;
+            AddManualReviewPlatformAlert(evento, $"Sin correlacion: {reason}");
             await _db.SaveChangesAsync(cancellationToken);
 
             _logger.LogWarning(
@@ -2306,8 +2379,11 @@ namespace LuxuryApp.Services.Payments
                     payment.Proveedor == PaymentProviderType.Tilopay &&
                     payment.TilopayRecurringPlanId == recurringPlanId &&
                     payment.ClienteEmail == customerEmail &&
-                    (payment.Estado == EstadoPagoProveedor.Pendiente ||
-                     payment.Estado == EstadoPagoProveedor.ManualReview))
+                    // Solo se expiran pendientes SIN cobro conocido. Los intentos en
+                    // ManualReview pueden tener dinero ya cobrado en TiloPay: si se
+                    // expiran pasan a estado terminal y la conciliacion manual ya no
+                    // puede aprobarlos (el pago quedaria huerfano permanente).
+                    payment.Estado == EstadoPagoProveedor.Pendiente)
                 .ToListAsync(cancellationToken);
 
             if (existingOpenAttempts.Count == 0)
@@ -2679,12 +2755,33 @@ namespace LuxuryApp.Services.Payments
             evento.EstadoProcesamiento = "PendingManualReview";
             evento.Error = Trim(reason, 500);
             evento.FechaProcesamientoUtc = DateTime.UtcNow;
+            AddManualReviewPlatformAlert(evento, reason);
             await _db.SaveChangesAsync(cancellationToken);
 
             _logger.LogWarning(
                 "Webhook Tilopay recurrente requiere revision manual. EventIdSuffix {EventIdSuffix}. ReasonPresent {ReasonPresent}.",
                 SensitiveDataMasker.MaskReference(evento.ProveedorEventId),
                 !string.IsNullOrWhiteSpace(reason));
+        }
+
+        /// <summary>
+        /// Alerta append-only visible en la consola de plataforma: puede haber dinero cobrado
+        /// en el proveedor sin activar. Complementa el LogWarning (que nadie monitorea en vivo).
+        /// </summary>
+        private void AddManualReviewPlatformAlert(EventoPago evento, string reason)
+        {
+            _db.PlatformAuditLogs.Add(new Models.Platform.PlatformAuditLog
+            {
+                Id = Guid.NewGuid(),
+                ActorUserId = "system",
+                ActorEmail = "system",
+                Action = Models.Platform.PlatformAuditActions.PaymentWebhookRequiresManualReview,
+                EntityType = Models.Platform.PlatformAuditEntityTypes.Subscription,
+                EntityId = evento.Id.ToString(),
+                TenantId = evento.TenantId,
+                Reason = Trim($"Evento {evento.Tipo}: {reason} Revisar Platform/RecurringCheckouts.", 500),
+                CreatedAtUtc = DateTime.UtcNow
+            });
         }
 
         private static bool IsRecurringApproved(PaymentProviderWebhookData webhook)
