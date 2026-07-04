@@ -9,6 +9,11 @@ namespace LuxuryApp.Services.Finanzas
             bool includeFilterOptions = true,
             CancellationToken cancellationToken = default);
 
+        /// <summary>Datos de exportación: resumen + TODAS las filas filtradas (sin paginar) con IVA incluido.</summary>
+        Task<CobroExportViewModel> BuildExportAsync(
+            CobroFiltroViewModel filtros,
+            CancellationToken cancellationToken = default);
+
         Task<CobroViewModel> BuildCreateViewModelAsync(
             Cobro? cobro = null,
             CancellationToken cancellationToken = default);

@@ -303,12 +303,14 @@ namespace LuxuryApp.Tests.TenantIsolation
                 PorcentajeGanancia = 35,
                 PorcentajeProducto = 5,
                 FechaIngreso = funcionario.FechaIngreso,
-                RebajarImpuestosAntesDeComision = false
+                // Fuente de verdad: comisión sobre total → el flag histórico debe quedar en false.
+                ComisionCalculadaSobre = LuxuryApp.Models.Fiscal.ComisionCalculadaSobre.TotalCobrado
             });
 
             Assert.IsType<RedirectToActionResult>(result);
 
             var persisted = await context.Funcionarios.SingleAsync();
+            Assert.Equal(LuxuryApp.Models.Fiscal.ComisionCalculadaSobre.TotalCobrado, persisted.ComisionCalculadaSobre);
             Assert.False(persisted.RebajarImpuestosAntesDeComision);
         }
 
@@ -334,12 +336,14 @@ namespace LuxuryApp.Tests.TenantIsolation
                 PorcentajeGanancia = 50,
                 PorcentajeProducto = 50,
                 FechaIngreso = new DateTime(2026, 4, 13),
-                RebajarImpuestosAntesDeComision = false
+                // Fuente de verdad: comisión sobre total → el flag histórico debe quedar en false.
+                ComisionCalculadaSobre = LuxuryApp.Models.Fiscal.ComisionCalculadaSobre.TotalCobrado
             });
 
             Assert.IsType<RedirectToActionResult>(result);
 
             var persisted = await context.Funcionarios.SingleAsync();
+            Assert.Equal(LuxuryApp.Models.Fiscal.ComisionCalculadaSobre.TotalCobrado, persisted.ComisionCalculadaSobre);
             Assert.False(persisted.RebajarImpuestosAntesDeComision);
         }
 
@@ -461,7 +465,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 14), 200m);
 
-            var controller = CreateController(context, tenantId);
+            var controller = CreateController(context, tenantId, tenantDisplayName: "LUXE CENTRO DE BELLEZA");
             var result = await controller.ExportarPagosExcel(
                 new DateTime(2026, 4, 13),
                 new DateTime(2026, 4, 19));
@@ -470,14 +474,22 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 file.ContentType);
-            Assert.StartsWith("LuxePagosFuncionarios_", file.FileDownloadName, StringComparison.Ordinal);
+            // Nombre de archivo centralizado: {TenantSegment}_{Reporte}_{fecha}.xlsx
+            Assert.StartsWith("LUXECENTRODEBELLEZA_LiquidacionSemanal_", file.FileDownloadName, StringComparison.Ordinal);
+            Assert.EndsWith(".xlsx", file.FileDownloadName, StringComparison.Ordinal);
 
             using var workbook = new XLWorkbook(new MemoryStream(file.FileContents));
-            var worksheet = workbook.Worksheet("Pagos Funcionarios");
 
-            Assert.Equal("LUXE CENTRO DE BELLEZA", worksheet.Cell("A1").GetString());
-            Assert.Equal("Ana", worksheet.Cell(6, 1).GetString());
-            Assert.Equal(200m, worksheet.Cell(6, 2).GetValue<decimal>());
+            // Hoja 1: Resumen del periodo (total cobrado a clientes = 200).
+            var wsResumen = workbook.Worksheet("Resumen");
+            Assert.Equal("Total cobrado a clientes", wsResumen.Cell(5, 1).GetString());
+            Assert.Equal(200m, wsResumen.Cell(5, 2).GetValue<decimal>());
+
+            // Hoja 2: Funcionarios (fila de datos en headerRow + 1 = 4).
+            var worksheet = workbook.Worksheet("Funcionarios");
+            Assert.Contains("LUXE CENTRO DE BELLEZA", worksheet.Cell("A1").GetString(), StringComparison.Ordinal);
+            Assert.Equal("Ana", worksheet.Cell(4, 1).GetString());
+            Assert.Equal(200m, worksheet.Cell(4, 5).GetValue<decimal>()); // Total cobrado (col 5)
         }
 
         [Fact]
@@ -608,16 +620,24 @@ namespace LuxuryApp.Tests.TenantIsolation
         private static FuncionariosController CreateController(
             ProyectoIdentity.Datos.ApplicationDbContext context,
             Guid tenantId,
-            Guid? planId = null)
+            Guid? planId = null,
+            string? tenantDisplayName = null)
         {
+            var tenantDisplayNameService = string.IsNullOrEmpty(tenantDisplayName)
+                ? ControllerTestSupport.CreateTenantDisplayNameService()
+                : ControllerTestSupport.CreateTenantDisplayNameService(tenantDisplayName);
+
             var controller = new FuncionariosController(
                 context,
-                ControllerTestSupport.CreateLiquidacionSemanalService(context),
+                ControllerTestSupport.CreateLiquidacionSemanalService(
+                    context, new TestTenantProvider { TenantId = tenantId }),
                 ControllerTestSupport.CreateFuncionarioPortalAccessService(),
                 ControllerTestSupport.CreateFuncionarioPortalPermissionService(),
                 ControllerTestSupport.CreateAccountEmailService(),
                 ControllerTestSupport.BusinessDateTimeProvider,
-                ControllerTestSupport.CreateTenantDisplayNameService(),
+                tenantDisplayNameService,
+                ControllerTestSupport.CreateFuncionarioPhotoStorageService(),
+                new TestTenantProvider { TenantId = tenantId },
                 NullLogger<FuncionariosController>.Instance);
 
             ControllerTestSupport.AttachHttpContext(

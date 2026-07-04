@@ -15,13 +15,16 @@ namespace LuxuryApp.Controllers.Reservas
     {
         private readonly IBookingRequestService _bookingRequestService;
         private readonly IBookingSettingsService _bookingSettingsService;
+        private readonly IBookingCatalogService _bookingCatalogService;
 
         public ReservasController(
             IBookingRequestService bookingRequestService,
-            IBookingSettingsService bookingSettingsService)
+            IBookingSettingsService bookingSettingsService,
+            IBookingCatalogService bookingCatalogService)
         {
             _bookingRequestService = bookingRequestService;
             _bookingSettingsService = bookingSettingsService;
+            _bookingCatalogService = bookingCatalogService;
         }
 
         [HttpGet]
@@ -49,7 +52,7 @@ namespace LuxuryApp.Controllers.Reservas
 
             var result = await _bookingRequestService.ConfirmAsync(id, funcionarioId, CurrentUserId(), cancellationToken);
             return result.Success
-                ? Ok(new { success = true, message = result.Message, citaId = result.CitaId })
+                ? Ok(new { success = true, message = result.Message, citaId = result.CitaId, whatsAppStatus = result.WhatsAppStatus })
                 : BadRequest(new { success = false, message = result.Message });
         }
 
@@ -66,6 +69,28 @@ namespace LuxuryApp.Controllers.Reservas
             return result.Success
                 ? Ok(new { success = true, message = result.Message })
                 : BadRequest(new { success = false, message = result.Message });
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> Servicios(CancellationToken cancellationToken)
+        {
+            var model = await _bookingCatalogService.BuildManagementAsync(cancellationToken);
+            return View(model);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> GuardarServicios(
+            [FromBody] BookingCatalogSaveInput input,
+            CancellationToken cancellationToken)
+        {
+            if (input is null)
+            {
+                return BadRequest(new { success = false, message = "Datos inválidos." });
+            }
+
+            await _bookingCatalogService.SaveAsync(input, CurrentUserId(), cancellationToken);
+            return Ok(new { success = true, message = "Servicios publicados actualizados." });
         }
 
         [HttpGet]

@@ -256,12 +256,14 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var controller = new FuncionariosController(
                 context,
-                ControllerTestSupport.CreateLiquidacionSemanalService(context),
+                ControllerTestSupport.CreateLiquidacionSemanalService(context, tenantProvider),
                 ControllerTestSupport.CreateFuncionarioPortalAccessService(),
                 ControllerTestSupport.CreateFuncionarioPortalPermissionService(),
                 ControllerTestSupport.CreateAccountEmailService(),
                 ControllerTestSupport.BusinessDateTimeProvider,
                 ControllerTestSupport.CreateTenantDisplayNameService(),
+                ControllerTestSupport.CreateFuncionarioPhotoStorageService(),
+                tenantProvider,
                 NullLogger<FuncionariosController>.Instance);
             var result = await controller.GetActivos();
 
@@ -356,6 +358,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 ControllerTestSupport.CreateComprobanteCobroService(),
                 ControllerTestSupport.BusinessDateTimeProvider,
                 ControllerTestSupport.CreateTenantDisplayNameService());
+            ControllerTestSupport.AttachHttpContext(controller);
             var result = await controller.ExportarExcel(new CobroFiltroViewModel { VistaTiempo = "todo" });
 
             var file = Assert.IsType<FileContentResult>(result);
@@ -427,6 +430,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 ControllerTestSupport.CreateEgresoQueryService(context),
                 ControllerTestSupport.BusinessDateTimeProvider,
                 ControllerTestSupport.CreateTenantDisplayNameService());
+            ControllerTestSupport.AttachHttpContext(controller);
             var result = await controller.ExportarExcel(new EgresoFiltroViewModel { VistaTiempo = "dia" });
 
             var file = Assert.IsType<FileContentResult>(result);
@@ -601,7 +605,30 @@ namespace LuxuryApp.Tests.TenantIsolation
                 Path.Combine("Services", "Payments", "SaaSPaymentService.cs"),
                 Path.Combine("Services", "Stripe", "SuscripcionService.cs"),
                 Path.Combine("Services", "SaaS", "PromotionalCodeService.cs"),
-                Path.Combine("Services", "SaaS", "TenantCommercialAccessResolver.cs")
+                Path.Combine("Services", "SaaS", "TenantCommercialAccessResolver.cs"),
+
+                // Resumen de suscripcion: filtra siempre por TenantId explicito recibido del caller.
+                Path.Combine("Services", "SaaS", "SubscriptionSummaryService.cs"),
+                // Cambio de plan: lee/escribe el intento filtrando por TenantId explicito (corre
+                // tambien desde el webhook, sin contexto de tenant del request).
+                Path.Combine("Services", "SaaS", "PlanChangeService.cs"),
+                // Modulo WhatsApp: filtra por user.TenantId del usuario autenticado.
+                Path.Combine("Controllers", "WhatsApp", "WhatsAppController.cs"),
+                // Comprobante publico: acceso por token secreto (capability), ruta sin contexto de tenant.
+                Path.Combine("Services", "Comprobantes", "ComprobanteCobroService.cs"),
+                // Reservas publicas: resolucion por slug publico antes de tener contexto de tenant +
+                // verificacion de unicidad de slug (TenantId != actual).
+                Path.Combine("Services", "Reservas", "BookingSettingsService.cs"),
+                Path.Combine("Services", "Tenant", "TenantDisplayNameService.cs"),
+                // Consola de plataforma (SuperAdmin): agregados/lecturas cross-tenant deliberados,
+                // gateados por la politica PlatformSuperAdmin en los controllers Platform.
+                Path.Combine("Controllers", "Platform", "PlatformUsersController.cs"),
+                Path.Combine("Services", "Platform", "PlatformTenantProfileService.cs"),
+                Path.Combine("Services", "Platform", "PlatformMetricsService.cs"),
+                Path.Combine("Services", "Platform", "PlatformWhatsAppStatusService.cs"),
+                Path.Combine("Services", "Platform", "PlatformAuditService.cs"),
+                // Consola de resumen mensual (SuperAdmin): agregados cross-tenant deliberados.
+                Path.Combine("Services", "Platform", "PlatformMonthlyReportService.cs")
             };
 
             var targetRoots = new[]

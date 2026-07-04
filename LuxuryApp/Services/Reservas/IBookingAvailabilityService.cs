@@ -19,6 +19,11 @@ namespace LuxuryApp.Services.Reservas
     }
 
     /// <summary>
+    /// Sugerencia de próximo espacio disponible: fecha, hora de inicio y funcionario que atendería.
+    /// </summary>
+    public sealed record AvailableSlotSuggestion(DateOnly Fecha, TimeOnly Hora, int FuncionarioId);
+
+    /// <summary>
     /// Cálculo de disponibilidad pública. Todas las operaciones son tenant-scoped: dependen del
     /// tenant ya resuelto en el contexto (global query filter). Validan jornada, anticipación,
     /// días máximos, citas/descansos existentes y funcionarios activos.
@@ -44,6 +49,19 @@ namespace LuxuryApp.Services.Reservas
             int servicioId,
             DateTime inicio,
             int? funcionarioId,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Busca los próximos espacios disponibles desde <paramref name="fromDate"/> hacia adelante,
+        /// respetando jornada, días laborales, anticipación mínima, máximo de días y la relación
+        /// servicio-funcionario. Optimizado: una sola consulta de ocupación para toda la ventana.
+        /// Devuelve como máximo <paramref name="maxSuggestions"/> resultados.
+        /// </summary>
+        Task<IReadOnlyList<AvailableSlotSuggestion>> GetNextAvailableSlotsAsync(
+            int servicioId,
+            DateOnly fromDate,
+            int? funcionarioId,
+            int maxSuggestions = 5,
             CancellationToken cancellationToken = default);
     }
 }

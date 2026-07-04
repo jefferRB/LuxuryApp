@@ -124,6 +124,11 @@
                         this.disabled = true;
                         const { ok, data } = await postAccion('@Url.Action("Confirmar", "Reservas")', `id=${id}`);
                         if (ok && data.success) {
+                            // La cita se creó. Si la confirmación de WhatsApp no salió bien,
+                            // avisamos honestamente (fallida/pendiente/omitida) sin bloquear el flujo.
+                            if (data.whatsAppStatus && data.whatsAppStatus !== 'sent') {
+                                alert(data.message || 'Reserva aprobada.');
+                            }
                             recargar();
                         } else {
                             alert(data.message || 'No fue posible confirmar.');

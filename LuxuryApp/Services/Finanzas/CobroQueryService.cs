@@ -1,4 +1,5 @@
 using LuxuryApp.Models.Finanzas;
+using LuxuryApp.Models.Fiscal;
 using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Services.BusinessTime;
 using Microsoft.AspNetCore.Mvc.Rendering;
@@ -29,12 +30,26 @@ namespace LuxuryApp.Services.Finanzas
 
             var filteredQuery = BuildFilteredCobrosQuery(filtros);
 
+            // 1) Agregados sobre TODO el filtro (no dependen de la página).
             var aggregate = await BuildAggregateAsync(filteredQuery, cancellationToken)
                 ?? new CobroAggregateProjection();
 
+            // 2) Paginación: total filtrado + normalización de tamaño/página.
+            var totalRegistros = await filteredQuery.CountAsync(cancellationToken);
+            var pageSize = NormalizePageSize(filtros.PageSize);
+            var totalPaginas = totalRegistros == 0
+                ? 1
+                : (int)Math.Ceiling(totalRegistros / (double)pageSize);
+            var page = Math.Clamp(filtros.Page < 1 ? 1 : filtros.Page, 1, totalPaginas);
+            filtros.Page = page;
+            filtros.PageSize = pageSize;
+
+            // 3) Filas SOLO de la página actual (Skip/Take en backend, tras filtros y orden).
             var rows = await filteredQuery
                 .OrderByDescending(c => c.FechaCobro)
                 .ThenByDescending(c => c.IdCobro)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
                 .Select(c => new CobroIndexItemViewModel
                 {
                     IdCobro = c.IdCobro,
@@ -43,10 +58,12 @@ namespace LuxuryApp.Services.Finanzas
                     FuncionarioNombre = c.Funcionario != null ? c.Funcionario.Nombre : string.Empty,
                     Detalle = c.ServicioId != null
                         ? (c.Servicio != null ? c.Servicio.Nombre : "Sin detalle")
-                        : (c.Producto != null ? c.Producto.NombreProducto : "Sin detalle"),
+                        : (c.ServicioNombrePersonalizado != null
+                            ? c.ServicioNombrePersonalizado
+                            : (c.Producto != null ? c.Producto.NombreProducto : "Sin detalle")),
                     Monto = c.Monto,
                     MetodoPago = c.MetodoPago,
-                    EsServicio = c.ServicioId != null,
+                    EsServicio = c.ServicioId != null || c.ServicioNombrePersonalizado != null,
                     // Comprobante "vivo" más reciente del cobro (OUTER APPLY: una sola consulta).
                     ComprobanteId = _context.ComprobantesCobro
                         .Where(cc => cc.CobroId == c.IdCobro && cc.EstadoEnvio != Models.Comprobantes.ComprobanteEstadoEnvio.Cancelled)
@@ -81,26 +98,12 @@ namespace LuxuryApp.Services.Finanzas
                 })
                 .ToListAsync(cancellationToken);
 
-            var totalImpuestos = aggregate.TotalGenerado * PagoFuncionarioDevengadoCalculator.TasaImpuesto;
-            var totalSinImpuestos = aggregate.TotalGenerado - totalImpuestos;
-
-            var viewModel = new CobroIndexViewModel
-            {
-                Cobros = rows,
-                Filtros = filtros,
-                TotalCobrado = aggregate.TotalGenerado,
-                CantidadServicios = rows.Count(c => c.EsServicio),
-                TotalServicios = aggregate.TotalServicios,
-                TotalProductos = aggregate.TotalProductos,
-                TotalGenerado = aggregate.TotalGenerado,
-                TotalImpuestos = totalImpuestos,
-                TotalSinImpuestos = totalSinImpuestos,
-                PagoColaboradores = aggregate.PagoColaboradores,
-                GananciaNegocio = totalSinImpuestos - aggregate.PagoColaboradores,
-                GananciaEfectivo = aggregate.GananciaEfectivo,
-                GananciaTarjeta = aggregate.GananciaTarjeta,
-                GananciaSinpe = aggregate.GananciaSinpe
-            };
+            var viewModel = BuildViewModelFromAggregate(aggregate, filtros);
+            viewModel.Cobros = rows;
+            viewModel.Page = page;
+            viewModel.PageSize = pageSize;
+            viewModel.TotalRegistros = totalRegistros;
+            viewModel.TotalPaginas = totalPaginas;
 
             if (includeFilterOptions)
             {
@@ -264,7 +267,7 @@ namespace LuxuryApp.Services.Finanzas
 
             if (filtros.MostrarServicios && !filtros.MostrarProductos)
             {
-                query = query.Where(c => c.ServicioId != null);
+                query = query.Where(c => c.ServicioId != null || c.ServicioNombrePersonalizado != null);
             }
             else if (!filtros.MostrarServicios && filtros.MostrarProductos)
             {
@@ -286,10 +289,14 @@ namespace LuxuryApp.Services.Finanzas
                 {
                     c.Monto,
                     c.ServicioId,
+                    c.ServicioNombrePersonalizado,
                     c.ProductoId,
                     c.MetodoPago,
-                    PagoColaborador = (c.Funcionario!.RebajarImpuestosAntesDeComision
-                            ? c.Monto - (c.Monto * PagoFuncionarioDevengadoCalculator.TasaImpuesto)
+                    EsServicio = c.ServicioId != null || c.ServicioNombrePersonalizado != null,
+                    // Comisión con IVA incluido: la base es Total / 1.13 cuando se calcula sobre base sin IVA
+                    // (fuente de verdad: ComisionCalculadaSobre), no el viejo "Total − Total*13%".
+                    PagoColaborador = (c.Funcionario!.ComisionCalculadaSobre == ComisionCalculadaSobre.BaseSinIva
+                            ? c.Monto / (1m + PagoFuncionarioDevengadoCalculator.TasaImpuesto)
                             : c.Monto)
                         * ((c.ProductoId != null
                             ? c.Funcionario!.PorcentajeProducto
@@ -298,7 +305,9 @@ namespace LuxuryApp.Services.Finanzas
                 .GroupBy(_ => 1)
                 .Select(group => new CobroAggregateProjection
                 {
-                    TotalServicios = group.Sum(x => x.ServicioId != null ? x.Monto : 0m),
+                    Cantidad = group.Count(),
+                    CantidadServicios = group.Sum(x => x.EsServicio ? 1 : 0),
+                    TotalServicios = group.Sum(x => x.EsServicio ? x.Monto : 0m),
                     TotalProductos = group.Sum(x => x.ProductoId != null ? x.Monto : 0m),
                     TotalGenerado = group.Sum(x => x.Monto),
                     PagoColaboradores = group.Sum(x => x.PagoColaborador),
@@ -307,6 +316,102 @@ namespace LuxuryApp.Services.Finanzas
                     GananciaSinpe = group.Sum(x => x.MetodoPago == "SINPE" ? x.Monto : 0m)
                 })
                 .SingleOrDefaultAsync(cancellationToken);
+
+        public async Task<CobroExportViewModel> BuildExportAsync(
+            CobroFiltroViewModel filtros,
+            CancellationToken cancellationToken = default)
+        {
+            filtros ??= new CobroFiltroViewModel();
+
+            var filteredQuery = BuildFilteredCobrosQuery(filtros);
+
+            var aggregate = await BuildAggregateAsync(filteredQuery, cancellationToken)
+                ?? new CobroAggregateProjection();
+
+            var resumen = BuildViewModelFromAggregate(aggregate, filtros);
+            resumen.TotalRegistros = aggregate.Cantidad;
+
+            // TODAS las filas filtradas (sin paginar); proyección ligera (sin subconsultas de comprobante).
+            var raw = await filteredQuery
+                .OrderByDescending(c => c.FechaCobro)
+                .ThenByDescending(c => c.IdCobro)
+                .Select(c => new ExportProjection
+                {
+                    FechaCobro = c.FechaCobro,
+                    NombreCliente = c.NombreCliente,
+                    FuncionarioNombre = c.Funcionario != null ? c.Funcionario.Nombre : string.Empty,
+                    EsServicio = c.ServicioId != null || c.ServicioNombrePersonalizado != null,
+                    Detalle = c.ServicioId != null
+                        ? (c.Servicio != null ? c.Servicio.Nombre : "Sin detalle")
+                        : (c.ServicioNombrePersonalizado != null
+                            ? c.ServicioNombrePersonalizado
+                            : (c.Producto != null ? c.Producto.NombreProducto : "Sin detalle")),
+                    MetodoPago = c.MetodoPago,
+                    Monto = c.Monto,
+                    ComisionSobre = c.Funcionario != null
+                        ? c.Funcionario.ComisionCalculadaSobre
+                        : ComisionCalculadaSobre.TotalCobrado,
+                    Porcentaje = c.ProductoId != null
+                        ? (c.Funcionario != null ? c.Funcionario.PorcentajeProducto : 0m)
+                        : (c.Funcionario != null ? c.Funcionario.PorcentajeGanancia : 0m)
+                })
+                .ToListAsync(cancellationToken);
+
+            var filas = raw
+                .Select(r =>
+                {
+                    var baseSinIva = PagoFuncionarioDevengadoCalculator.CalcularBaseSinIvaIncluido(r.Monto);
+                    var baseComision = PagoFuncionarioDevengadoCalculator.CalcularBaseComision(r.Monto, r.ComisionSobre);
+                    var montoColaborador = Math.Round(baseComision * (r.Porcentaje / 100m), 2, MidpointRounding.ToEven);
+
+                    return new CobroExportRow
+                    {
+                        FechaCobro = r.FechaCobro,
+                        NombreCliente = r.NombreCliente,
+                        FuncionarioNombre = r.FuncionarioNombre,
+                        EsServicio = r.EsServicio,
+                        Detalle = r.Detalle,
+                        MetodoPago = r.MetodoPago,
+                        Monto = r.Monto,
+                        BaseSinIva = baseSinIva,
+                        IvaIncluido = r.Monto - baseSinIva,
+                        MontoColaborador = montoColaborador,
+                        MontoNegocio = baseSinIva - montoColaborador
+                    };
+                })
+                .ToList();
+
+            return new CobroExportViewModel { Resumen = resumen, Filas = filas };
+        }
+
+        private static CobroIndexViewModel BuildViewModelFromAggregate(
+            CobroAggregateProjection aggregate,
+            CobroFiltroViewModel filtros)
+        {
+            // IVA incluido (CR): base = Total / 1.13; IVA = Total − base. Mismo helper que Dashboard/Liquidaciones.
+            var totalSinImpuestos = PagoFuncionarioDevengadoCalculator.CalcularBaseSinIvaIncluido(aggregate.TotalGenerado);
+            var totalImpuestos = aggregate.TotalGenerado - totalSinImpuestos;
+
+            return new CobroIndexViewModel
+            {
+                Filtros = filtros,
+                TotalCobrado = aggregate.TotalGenerado,
+                CantidadServicios = aggregate.CantidadServicios,
+                TotalServicios = aggregate.TotalServicios,
+                TotalProductos = aggregate.TotalProductos,
+                TotalGenerado = aggregate.TotalGenerado,
+                TotalImpuestos = totalImpuestos,
+                TotalSinImpuestos = totalSinImpuestos,
+                PagoColaboradores = aggregate.PagoColaboradores,
+                GananciaNegocio = totalSinImpuestos - aggregate.PagoColaboradores,
+                GananciaEfectivo = aggregate.GananciaEfectivo,
+                GananciaTarjeta = aggregate.GananciaTarjeta,
+                GananciaSinpe = aggregate.GananciaSinpe
+            };
+        }
+
+        private static int NormalizePageSize(int pageSize) =>
+            CobroIndexViewModel.PageSizeOptions.Contains(pageSize) ? pageSize : 20;
 
         private Task<List<SelectListItem>> GetFuncionariosFiltroAsync(CancellationToken cancellationToken) =>
             _context.Funcionarios
@@ -370,8 +475,23 @@ namespace LuxuryApp.Services.Finanzas
                 value.Minute,
                 0);
 
+        private sealed class ExportProjection
+        {
+            public DateTime FechaCobro { get; init; }
+            public string NombreCliente { get; init; } = string.Empty;
+            public string FuncionarioNombre { get; init; } = string.Empty;
+            public bool EsServicio { get; init; }
+            public string Detalle { get; init; } = string.Empty;
+            public string MetodoPago { get; init; } = string.Empty;
+            public decimal Monto { get; init; }
+            public ComisionCalculadaSobre ComisionSobre { get; init; }
+            public decimal Porcentaje { get; init; }
+        }
+
         private sealed class CobroAggregateProjection
         {
+            public int Cantidad { get; init; }
+            public int CantidadServicios { get; init; }
             public decimal TotalServicios { get; init; }
             public decimal TotalProductos { get; init; }
             public decimal TotalGenerado { get; init; }

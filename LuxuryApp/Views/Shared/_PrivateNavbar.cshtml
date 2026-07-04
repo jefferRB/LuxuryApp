@@ -34,9 +34,11 @@
     {
         var isSubscriptionItem =
             item.Controller.Equals("Billing", StringComparison.OrdinalIgnoreCase) &&
-            item.Action.Equals("Planes", StringComparison.OrdinalIgnoreCase);
+            (item.Action.Equals("Suscripcion", StringComparison.OrdinalIgnoreCase) ||
+             item.Action.Equals("Planes", StringComparison.OrdinalIgnoreCase)) &&
+            !item.Highlight;
 
-        return isSubscriptionItem ? "Suscripcion" : item.Text;
+        return isSubscriptionItem ? "Suscripción" : item.Text;
     }
 
     string ResolveOptionsToggleClass()

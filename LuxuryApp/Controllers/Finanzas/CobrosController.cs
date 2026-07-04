@@ -224,9 +224,9 @@ namespace LuxuryApp.Controllers.Finanzas
 
         public async Task<IActionResult> ExportarExcel(CobroFiltroViewModel filtros)
         {
-            var reporte = await _cobroQueryService.BuildIndexViewModelAsync(
-                filtros,
-                includeFilterOptions: false);
+            var export = await _cobroQueryService.BuildExportAsync(filtros, HttpContext.RequestAborted);
+            var reporte = export.Resumen;
+            var filas = export.Filas;
 
             using var workbook = new XLWorkbook();
             var ws = workbook.Worksheets.Add("Reporte Cobros");
@@ -235,23 +235,24 @@ namespace LuxuryApp.Controllers.Finanzas
             var colorDorado = XLColor.FromHtml("#C6A55C");
             var colorGris = XLColor.FromHtml("#F5F5F5");
             const string excelCurrencyFormat = "CRC #,##0.00";
+            const int cols = 11; // Fecha..Negocio
 
             var nombreNegocio = await _tenantDisplayNameService.GetCurrentTenantDisplayNameAsync(HttpContext.RequestAborted);
 
-            ws.Range("A1:G1").Merge();
+            ws.Range(1, 1, 1, cols).Merge();
             ws.Cell("A1").Value = nombreNegocio;
             ws.Cell("A1").Style.Font.FontSize = 20;
             ws.Cell("A1").Style.Font.Bold = true;
             ws.Cell("A1").Style.Font.FontColor = colorDorado;
             ws.Cell("A1").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-            ws.Range("A2:G2").Merge();
+            ws.Range(2, 1, 2, cols).Merge();
             ws.Cell("A2").Value = "Reporte Financiero de Cobros";
             ws.Cell("A2").Style.Font.FontSize = 14;
             ws.Cell("A2").Style.Font.Bold = true;
             ws.Cell("A2").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-            ws.Range("A3:G3").Merge();
+            ws.Range(3, 1, 3, cols).Merge();
             var generatedAt = _businessDateTimeProvider.Now();
 
             ws.Cell("A3").Value = $"Generado el {generatedAt:dd/MM/yyyy HH:mm}";
@@ -266,7 +267,7 @@ namespace LuxuryApp.Controllers.Finanzas
             fila += 2;
 
             ws.Cell(fila, 1).Value = "Cantidad Cobros";
-            ws.Cell(fila, 2).Value = reporte.Cobros.Count;
+            ws.Cell(fila, 2).Value = reporte.TotalRegistros;
             ws.Cell(fila, 2).Style.NumberFormat.Format = "0";
 
             fila++;
@@ -284,12 +285,12 @@ namespace LuxuryApp.Controllers.Finanzas
             ws.Cell(fila, 2).Value = reporte.TotalGenerado;
             fila++;
 
-            ws.Cell(fila, 1).Value = "Impuestos";
-            ws.Cell(fila, 2).Value = reporte.TotalImpuestos;
+            ws.Cell(fila, 1).Value = "Base sin IVA";
+            ws.Cell(fila, 2).Value = reporte.TotalSinImpuestos;
             fila++;
 
-            ws.Cell(fila, 1).Value = "Total sin impuestos";
-            ws.Cell(fila, 2).Value = reporte.TotalSinImpuestos;
+            ws.Cell(fila, 1).Value = "IVA incluido";
+            ws.Cell(fila, 2).Value = reporte.TotalImpuestos;
             fila++;
 
             ws.Cell(fila, 1).Value = "Pago colaboradores";
@@ -318,23 +319,27 @@ namespace LuxuryApp.Controllers.Finanzas
             fila += 3;
             var headerRow = fila;
 
-            ws.Cell(headerRow, 1).Value = "Fecha";
-            ws.Cell(headerRow, 2).Value = "Cliente";
-            ws.Cell(headerRow, 3).Value = "Funcionario";
-            ws.Cell(headerRow, 4).Value = "Tipo";
-            ws.Cell(headerRow, 5).Value = "Detalle";
-            ws.Cell(headerRow, 6).Value = "Monto";
-            ws.Cell(headerRow, 7).Value = "Método Pago";
+            var headers = new[]
+            {
+                "Fecha", "Cliente", "Funcionario", "Tipo", "Detalle", "Método Pago",
+                "Total cobrado", "Base sin IVA", "IVA incluido", "Colaborador", "Negocio"
+            };
+            for (var i = 0; i < headers.Length; i++)
+            {
+                ws.Cell(headerRow, i + 1).Value = headers[i];
+            }
 
-            var header = ws.Range(headerRow, 1, headerRow, 7);
+            var header = ws.Range(headerRow, 1, headerRow, cols);
             header.Style.Fill.BackgroundColor = colorNegro;
             header.Style.Font.FontColor = XLColor.White;
             header.Style.Font.Bold = true;
             header.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
+            var columnasCrc = new[] { 7, 8, 9, 10, 11 };
+
             fila = headerRow + 1;
 
-            foreach (var cobro in reporte.Cobros)
+            foreach (var cobro in filas)
             {
                 ws.Cell(fila, 1).Value = cobro.FechaCobro;
                 ws.Cell(fila, 1).Style.DateFormat.Format = "dd/MM/yyyy HH:mm";
@@ -343,28 +348,36 @@ namespace LuxuryApp.Controllers.Finanzas
                 ws.Cell(fila, 3).Value = cobro.FuncionarioNombre;
                 ws.Cell(fila, 4).Value = cobro.EsServicio ? "Servicio" : "Producto";
                 ws.Cell(fila, 5).Value = cobro.Detalle;
-                ws.Cell(fila, 6).Value = cobro.Monto;
-                ws.Cell(fila, 6).Style.NumberFormat.Format = excelCurrencyFormat;
-                ws.Cell(fila, 7).Value = cobro.MetodoPago;
+                ws.Cell(fila, 6).Value = cobro.MetodoPago;
+                ws.Cell(fila, 7).Value = cobro.Monto;
+                ws.Cell(fila, 8).Value = cobro.BaseSinIva;
+                ws.Cell(fila, 9).Value = cobro.IvaIncluido;
+                ws.Cell(fila, 10).Value = cobro.MontoColaborador;
+                ws.Cell(fila, 11).Value = cobro.MontoNegocio;
+
+                foreach (var mc in columnasCrc)
+                {
+                    ws.Cell(fila, mc).Style.NumberFormat.Format = excelCurrencyFormat;
+                }
                 fila++;
             }
 
-            if (reporte.Cobros.Count > 0)
+            if (filas.Count > 0)
             {
-                var dataRange = ws.Range(headerRow + 1, 1, fila - 1, 7);
+                var dataRange = ws.Range(headerRow + 1, 1, fila - 1, cols);
                 dataRange.AddConditionalFormat()
                     .WhenIsTrue("MOD(ROW(),2)=0")
                     .Fill.SetBackgroundColor(colorGris);
 
-                ws.Range(headerRow, 1, fila - 1, 7).SetAutoFilter();
+                ws.Range(headerRow, 1, fila - 1, cols).SetAutoFilter();
             }
 
             ws.Cell(fila, 5).Value = "TOTAL GENERAL";
             ws.Cell(fila, 5).Style.Font.Bold = true;
-            ws.Cell(fila, 6).Value = reporte.TotalGenerado;
-            ws.Cell(fila, 6).Style.NumberFormat.Format = excelCurrencyFormat;
-            ws.Cell(fila, 6).Style.Font.Bold = true;
-            ws.Cell(fila, 6).Style.Font.FontColor = colorDorado;
+            ws.Cell(fila, 7).Value = reporte.TotalGenerado;
+            ws.Cell(fila, 7).Style.NumberFormat.Format = excelCurrencyFormat;
+            ws.Cell(fila, 7).Style.Font.Bold = true;
+            ws.Cell(fila, 7).Style.Font.FontColor = colorDorado;
 
             ws.Columns().AdjustToContents();
             ws.SheetView.FreezeRows(headerRow);

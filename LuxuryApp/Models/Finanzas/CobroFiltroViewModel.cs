@@ -16,5 +16,9 @@
         public bool MostrarServicios { get; set; } = true;
         public bool MostrarProductos { get; set; } = true;
 
+        // ─────────────── Paginación (tabla) ───────────────
+        public int Page { get; set; } = 1;
+
+        public int PageSize { get; set; } = 20;
     }
 }

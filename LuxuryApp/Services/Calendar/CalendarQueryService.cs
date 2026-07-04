@@ -49,6 +49,7 @@ namespace LuxuryApp.Services.Calendar
                         ? (c.Servicio != null ? c.Servicio.Nombre : null)
                         : c.ServicioNombrePersonalizado,
                     EsServicioPersonalizado = c.Tipo == "CITA" && c.ServicioId == null && c.ServicioNombrePersonalizado != null,
+                    PrecioServicio = c.Servicio != null ? (decimal?)c.Servicio.Precio : null,
                     EstadoConfirmacionWhatsApp = c.EstadoConfirmacionWhatsApp,
                     ConfirmacionWhatsAppEnviadaUtc = c.ConfirmacionWhatsAppEnviadaUtc,
                     RecordatorioWhatsAppTresHorasEnviadoUtc = c.RecordatorioWhatsAppTresHorasEnviadoUtc,
@@ -62,6 +63,23 @@ namespace LuxuryApp.Services.Calendar
             var latestLogs = await LoadLatestOutboundLogMapAsync(
                 appointments.Select(appointment => appointment.Id),
                 cancellationToken);
+
+            // Estado de pago global de las citas del día: una sola consulta agrupada (sin N+1).
+            // Tenant-safe por el global query filter de Cobro.
+            var citaIds = appointments
+                .Where(a => a.Tipo == "CITA")
+                .Select(a => a.Id)
+                .ToList();
+
+            var citasCobradas = citaIds.Count == 0
+                ? new HashSet<int>()
+                : (await _context.Cobros
+                    .AsNoTracking()
+                    .Where(co => co.CitaId != null && citaIds.Contains(co.CitaId.Value))
+                    .Select(co => co.CitaId!.Value)
+                    .Distinct()
+                    .ToListAsync(cancellationToken))
+                    .ToHashSet();
 
             return appointments
                 .Select(appointment => new CalendarAppointmentResponse
@@ -79,6 +97,8 @@ namespace LuxuryApp.Services.Calendar
                     ServicioId = appointment.ServicioId,
                     ServicioNombre = appointment.ServicioNombre,
                     EsServicioPersonalizado = appointment.EsServicioPersonalizado,
+                    PrecioServicio = appointment.PrecioServicio,
+                    YaCobrada = appointment.Tipo == "CITA" && citasCobradas.Contains(appointment.Id),
                     WhatsAppConsentAtCreation = appointment.WhatsAppConsentAtCreation,
                     WhatsAppConsentSource = appointment.WhatsAppConsentSource,
                     WhatsAppConsentCapturedAtUtc = appointment.WhatsAppConsentCapturedAtUtc,
@@ -539,6 +559,8 @@ namespace LuxuryApp.Services.Calendar
             public string? ServicioNombre { get; init; }
 
             public bool EsServicioPersonalizado { get; init; }
+
+            public decimal? PrecioServicio { get; init; }
 
             public DateTime FechaHoraCita { get; init; }
 

@@ -1,8 +1,10 @@
 using System.Data;
 using LuxuryApp.Models.Finanzas;
+using LuxuryApp.Models.Fiscal;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Productos;
 using LuxuryApp.Services.BusinessTime;
+using LuxuryApp.Services.Fiscal;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
@@ -12,15 +14,24 @@ namespace LuxuryApp.Services.Funcionarios
     {
         private readonly ApplicationDbContext _context;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
+        private readonly ITaxCalculationService _taxService;
+        private readonly ILiquidacionFuncionarioService _liquidacionFuncionario;
+        private readonly ITenantFiscalConfigService _fiscalConfig;
         private readonly ILogger<LiquidacionSemanalService> _logger;
 
         public LiquidacionSemanalService(
             ApplicationDbContext context,
             IBusinessDateTimeProvider businessDateTimeProvider,
+            ITaxCalculationService taxService,
+            ILiquidacionFuncionarioService liquidacionFuncionario,
+            ITenantFiscalConfigService fiscalConfig,
             ILogger<LiquidacionSemanalService> logger)
         {
             _context = context;
             _businessDateTimeProvider = businessDateTimeProvider;
+            _taxService = taxService;
+            _liquidacionFuncionario = liquidacionFuncionario;
+            _fiscalConfig = fiscalConfig;
             _logger = logger;
         }
 
@@ -51,31 +62,28 @@ namespace LuxuryApp.Services.Funcionarios
 
             var finSemanaExclusive = finSemana.AddDays(1);
 
-            var serviciosPorDia = await LoadServiceDayAggregatesAsync(
-                inicioSemana,
-                finSemanaExclusive,
-                cancellationToken);
+            // Configuración fiscal del negocio (una vez): tarifa e "incluye IVA" por defecto.
+            var tenantFiscal = await _fiscalConfig.ObtenerAsync(cancellationToken);
 
-            var productosVendidos = await LoadProductSalesAsync(
-                inicioSemana,
-                finSemanaExclusive,
-                cancellationToken);
+            // Cobros por línea (servicios y productos) con su configuración fiscal efectiva.
+            // El desglose Base/IVA se calcula POR cobro y luego se suma (evita diferencias por
+            // redondeo). Los precios en CR incluyen IVA por defecto → base = total / 1.13.
+            var serviciosCobros = await LoadServiceCobrosAsync(inicioSemana, finSemanaExclusive, cancellationToken);
+            var productosCobros = await LoadProductCobrosAsync(inicioSemana, finSemanaExclusive, cancellationToken);
 
-            var pagosLegacySemana = await LoadLegacyPaymentHistoryAsync(
-                inicioSemana,
-                finSemana,
-                cancellationToken);
+            // ── Atribución de pagos por PRODUCCIÓN REAL del periodo ──
+            // Un pago NO pertenece al rango por su encabezado (PeriodoInicio/Fin). Se prorratea sobre
+            // los cobros reales de SU periodo (por devengado) y solo cuenta la fracción cuya fecha de
+            // producción cae en [inicio, fin). Es el mismo modelo de devengado que ya usa la
+            // distribución mensual del Dashboard (PagoFuncionarioDevengadoCalculator), generalizado a
+            // un rango arbitrario. Así una quincena/rango toma únicamente lo pagado por producción
+            // dentro de sus fechas, no el pago completo por el inicio de su encabezado.
+            var atribucion = await AtribuirPagosPorProduccionAsync(inicioSemana, finSemana, cancellationToken);
 
-            var pagosLiquidacionSemana = await LoadLiquidationPaymentHistoryAsync(
-                inicioSemana,
-                finSemana,
-                cancellationToken);
-
-            var funcionarioIdsInvolucrados = serviciosPorDia
+            var funcionarioIdsInvolucrados = serviciosCobros
                 .Select(s => s.FuncionarioId)
-                .Concat(productosVendidos.Select(p => p.FuncionarioId))
-                .Concat(pagosLegacySemana.Select(p => p.FuncionarioId))
-                .Concat(pagosLiquidacionSemana.Select(p => p.FuncionarioId))
+                .Concat(productosCobros.Select(p => p.FuncionarioId))
+                .Concat(atribucion.FuncionarioIds)
                 .Distinct()
                 .ToList();
 
@@ -83,83 +91,66 @@ namespace LuxuryApp.Services.Funcionarios
                 funcionarioIdsInvolucrados,
                 cancellationToken);
 
-            var serviciosPorFuncionario = serviciosPorDia
+            var serviciosPorFuncionario = serviciosCobros
                 .GroupBy(s => s.FuncionarioId)
-                .ToDictionary(
-                    group => group.Key,
-                    group => group.Sum(item => item.Monto));
+                .ToDictionary(group => group.Key, group => group.ToList());
 
-            var detalleServiciosPorFuncionario = serviciosPorDia
-                .GroupBy(s => s.FuncionarioId)
-                .ToDictionary(
-                    group => group.Key,
-                    group => (IReadOnlyDictionary<DateTime, ServicioDiaAggregate>)group.ToDictionary(
-                        item => item.Fecha,
-                        item => item));
-
-            var productosPorFuncionario = productosVendidos
+            var productosPorFuncionario = productosCobros
                 .GroupBy(p => p.FuncionarioId)
                 .ToDictionary(
                     group => group.Key,
                     group => group.OrderByDescending(item => item.Fecha).ToList());
 
-            var totalProductosPorFuncionario = productosPorFuncionario
-                .ToDictionary(
-                    pair => pair.Key,
-                    pair => pair.Value.Sum(item => item.Precio));
-
-            var historialPagosPorFuncionario = pagosLegacySemana
-                .Concat(pagosLiquidacionSemana)
-                .GroupBy(p => p.FuncionarioId)
-                .ToDictionary(
-                    group => group.Key,
-                    group => group
-                        .OrderByDescending(item => item.FechaPago)
-                        .ThenByDescending(item => item.ReferenciaId)
-                        .ToList());
-
-            var totalPagadoPorFuncionario = historialPagosPorFuncionario
-                .ToDictionary(
-                    pair => pair.Key,
-                    pair => pair.Value.Sum(item => item.MontoPagado));
-
             var pagos = new List<PagoFuncionarioVM>(funcionarios.Count);
             foreach (var funcionario in funcionarios)
             {
-                var totalServicios = GetAmount(serviciosPorFuncionario, funcionario.IdFuncionario);
-                var totalProductos = GetAmount(totalProductosPorFuncionario, funcionario.IdFuncionario);
+                serviciosPorFuncionario.TryGetValue(funcionario.IdFuncionario, out var serviciosFunc);
+                productosPorFuncionario.TryGetValue(funcionario.IdFuncionario, out var productosFunc);
+                serviciosFunc ??= new List<ServicioCobroRow>();
+                productosFunc ??= new List<ProductoCobroRow>();
+
+                // Desglose fiscal de la venta (por líneas → suma).
+                var ventaServicios = CalcularVenta(serviciosFunc, tenantFiscal);
+                var ventaProductos = CalcularVenta(productosFunc, tenantFiscal);
+
+                // Liquidación del colaborador: base de comisión, IVA de su factura y total a pagar.
+                var liquidacion = _liquidacionFuncionario.Liquidar(new LiquidacionColaboradorInput
+                {
+                    TotalVentaServicios = ventaServicios.GrossTotal,
+                    BaseVentaServicios = ventaServicios.NetBase,
+                    IvaVentaServicios = ventaServicios.TaxAmount,
+                    TotalVentaProductos = ventaProductos.GrossTotal,
+                    BaseVentaProductos = ventaProductos.NetBase,
+                    IvaVentaProductos = ventaProductos.TaxAmount,
+                    PorcentajeServicios = funcionario.PorcentajeGanancia,
+                    PorcentajeProductos = funcionario.PorcentajeProducto,
+                    ComisionCalculadaSobre = funcionario.ComisionCalculadaSobre,
+                    TipoRelacion = funcionario.TipoRelacionColaborador,
+                    ModalidadIva = funcionario.ModalidadIvaColaborador,
+                    TarifaIvaFacturaColaborador = funcionario.TarifaIvaFacturaColaborador
+                });
+
+                var totalServicios = ventaServicios.GrossTotal;
+                var totalProductos = ventaProductos.GrossTotal;
                 var totalGenerado = totalServicios + totalProductos;
 
-                // Impuestos y neto son KPIs del NEGOCIO: siempre se reportan sobre el total
-                // generado, independientemente de cómo se le pague al funcionario.
-                var impuestos = totalGenerado * PagoFuncionarioDevengadoCalculator.TasaImpuesto;
-                var totalNeto = totalGenerado - impuestos;
+                var pagoFinal = liquidacion.TotalAPagarColaborador;
+                // Pagado APLICADO a la producción del rango (prorrateo por producción real, no por encabezado).
+                var montoPagado = GetAmount(atribucion.AplicadoPorFuncionario, funcionario.IdFuncionario);
+                // Pendiente y excedente sin negativos: un sobrepago se muestra como excedente, no como pendiente < 0.
+                var montoPagadoAplicado = Math.Min(montoPagado, pagoFinal);
+                var montoPendiente = Math.Max(pagoFinal - montoPagado, 0m);
+                var excedente = Math.Max(montoPagado - pagoFinal, 0m);
 
-                // Base de comisión del funcionario: respeta su configuración de rebaja de impuestos.
-                var baseComisionServicios = PagoFuncionarioDevengadoCalculator.CalcularBaseComision(
-                    totalServicios, funcionario.RebajarImpuestosAntesDeComision);
-                var baseComisionProductos = PagoFuncionarioDevengadoCalculator.CalcularBaseComision(
-                    totalProductos, funcionario.RebajarImpuestosAntesDeComision);
-                var pagoServicios = baseComisionServicios * (funcionario.PorcentajeGanancia / 100m);
-                var pagoProductos = baseComisionProductos * (funcionario.PorcentajeProducto / 100m);
-                var pagoFinal = pagoServicios + pagoProductos;
-                var montoPagado = GetAmount(totalPagadoPorFuncionario, funcionario.IdFuncionario);
-                var montoPendiente = pagoFinal - montoPagado;
+                atribucion.HistorialPorFuncionario.TryGetValue(funcionario.IdFuncionario, out var historialPagos);
 
-                detalleServiciosPorFuncionario.TryGetValue(funcionario.IdFuncionario, out var serviciosDiarios);
-                productosPorFuncionario.TryGetValue(funcionario.IdFuncionario, out var productosFuncionarioRows);
-                historialPagosPorFuncionario.TryGetValue(funcionario.IdFuncionario, out var historialPagos);
-
-                var productosFuncionario = (productosFuncionarioRows ?? [])
+                var productosFuncionario = productosFunc
                     .Select(producto => new ProductoVendidoVM
                     {
                         Fecha = producto.Fecha,
                         NombreProducto = producto.NombreProducto,
-                        Precio = producto.Precio,
-                        GananciaFuncionario =
-                            PagoFuncionarioDevengadoCalculator.CalcularBaseComision(
-                                producto.Precio, funcionario.RebajarImpuestosAntesDeComision) *
-                            (funcionario.PorcentajeProducto / 100m)
+                        Precio = producto.Monto,
+                        GananciaFuncionario = CalcularComisionProducto(producto, funcionario, tenantFiscal)
                     })
                     .ToList();
 
@@ -167,30 +158,58 @@ namespace LuxuryApp.Services.Funcionarios
                 {
                     FuncionarioId = funcionario.IdFuncionario,
                     Nombre = funcionario.Nombre,
+                    ColorCalendario = funcionario.ColorCalendario,
                     TotalGenerado = totalGenerado,
-                    Impuestos = impuestos,
-                    TotalNeto = totalNeto,
+                    TotalCobrado = totalGenerado,
+                    BaseVentaSinIva = liquidacion.BaseVentaSinIva,
+                    IvaVentaIncluido = liquidacion.IvaVentaIncluido,
+                    // LEGACY mapeado a los conceptos correctos (IVA incluido).
+                    Impuestos = liquidacion.IvaVentaIncluido,
+                    TotalNeto = liquidacion.BaseVentaSinIva,
                     Porcentaje = funcionario.PorcentajeGanancia,
                     PorcentajeProducto = funcionario.PorcentajeProducto,
+                    BaseComisionServicios = liquidacion.BaseComisionServicios,
+                    BaseComisionProductos = liquidacion.BaseComisionProductos,
+                    MontoColaborador = liquidacion.MontoColaborador,
+                    BaseColaborador = liquidacion.BaseColaborador,
+                    IvaColaborador = liquidacion.IvaColaborador,
+                    IvaNetoNegocio = liquidacion.IvaNetoNegocio,
+                    TotalAPagarColaborador = liquidacion.TotalAPagarColaborador,
                     PagoFinal = pagoFinal,
                     MontoPagado = montoPagado,
                     MontoPendiente = montoPendiente,
+                    MontoPagadoAplicado = montoPagadoAplicado,
+                    Excedente = excedente,
+                    TotalPagado = montoPagado,
+                    Pendiente = montoPendiente,
                     TotalServicios = totalServicios,
                     TotalProductos = totalProductos,
-                    DetalleDias = BuildDetalleDias(inicioSemana, finSemana, serviciosDiarios),
+                    TipoRelacionColaborador = funcionario.TipoRelacionColaborador,
+                    ComisionCalculadaSobre = funcionario.ComisionCalculadaSobre,
+                    ColaboradorFacturaIva = funcionario.ColaboradorFacturaIva,
+                    ModalidadIvaColaborador = funcionario.ModalidadIvaColaborador,
+                    TarifaIvaColaborador = funcionario.TarifaIvaFacturaColaborador,
+                    RequiereFacturaAntesDePagar = funcionario.RequiereFacturaAntesDePagar,
+                    DetalleDias = BuildDetalleDias(inicioSemana, finSemana, serviciosFunc),
                     ProductosVendidos = productosFuncionario,
                     HistorialPagos = historialPagos ?? new List<HistorialPagoFuncionarioViewModel>()
                 });
             }
 
-            var totalGeneradoServicios = serviciosPorFuncionario.Values.Sum();
-            var totalGeneradoProductos = totalProductosPorFuncionario.Values.Sum();
+            var totalGeneradoServicios = pagos.Sum(p => p.TotalServicios);
+            var totalGeneradoProductos = pagos.Sum(p => p.TotalProductos);
             var totalGeneradoGeneral = totalGeneradoServicios + totalGeneradoProductos;
-            var totalImpuestosGeneral = totalGeneradoGeneral * PagoFuncionarioDevengadoCalculator.TasaImpuesto;
-            var totalSinImpuestosGeneral = totalGeneradoGeneral - totalImpuestosGeneral;
+            var totalBaseVentaGeneral = pagos.Sum(p => p.BaseVentaSinIva);
+            var totalIvaVentaGeneral = pagos.Sum(p => p.IvaVentaIncluido);
+            var totalIvaColabGeneral = pagos.Sum(p => p.IvaColaborador);
+            var totalIvaNetoNegocioGeneral = pagos.Sum(p => p.IvaNetoNegocio);
+            var totalAPagarColabGeneral = pagos.Sum(p => p.TotalAPagarColaborador);
+            var totalBaseComisionGeneral = pagos.Sum(p => p.BaseComisionServicios + p.BaseComisionProductos);
             var totalPagadoGeneral = pagos.Sum(p => p.MontoPagado);
+            var totalPagadoAplicadoGeneral = pagos.Sum(p => p.MontoPagadoAplicado);
             var totalPendienteGeneral = pagos.Sum(p => p.MontoPendiente);
-            var gananciaNegocio = totalSinImpuestosGeneral - pagos.Sum(p => p.PagoFinal);
+            var totalExcedenteGeneral = pagos.Sum(p => p.Excedente);
+            var gananciaNegocio = totalBaseVentaGeneral - pagos.Sum(p => p.PagoFinal);
 
             return new PagosSemanaResumen
             {
@@ -200,11 +219,19 @@ namespace LuxuryApp.Services.Funcionarios
                 TotalGeneradoServicios = totalGeneradoServicios,
                 TotalGeneradoProductos = totalGeneradoProductos,
                 TotalGeneradoGeneral = totalGeneradoGeneral,
-                TotalImpuestosGeneral = totalImpuestosGeneral,
-                TotalSinImpuestosGeneral = totalSinImpuestosGeneral,
+                TotalImpuestosGeneral = totalIvaVentaGeneral,
+                TotalSinImpuestosGeneral = totalBaseVentaGeneral,
                 TotalPagadoGeneral = totalPagadoGeneral,
+                TotalPagadoAplicadoGeneral = totalPagadoAplicadoGeneral,
                 TotalPendienteGeneral = totalPendienteGeneral,
-                GananciaNegocio = gananciaNegocio
+                TotalExcedenteGeneral = totalExcedenteGeneral,
+                GananciaNegocio = gananciaNegocio,
+                TotalBaseVentaSinIvaGeneral = totalBaseVentaGeneral,
+                TotalIvaVentaIncluidoGeneral = totalIvaVentaGeneral,
+                TotalIvaColaboradorGeneral = totalIvaColabGeneral,
+                TotalIvaNetoNegocioGeneral = totalIvaNetoNegocioGeneral,
+                TotalAPagarColaboradoresGeneral = totalAPagarColabGeneral,
+                TotalBaseComisionGeneral = totalBaseComisionGeneral
             };
         }
 
@@ -321,8 +348,8 @@ namespace LuxuryApp.Services.Funcionarios
                         FuncionarioId = detalle.Resumen.FuncionarioId,
                         MontoServicios = detalle.Resumen.TotalServicios,
                         MontoProductos = detalle.Resumen.TotalProductos,
-                        Impuestos = detalle.Resumen.Impuestos,
-                        MontoNeto = detalle.Resumen.TotalNeto,
+                        Impuestos = detalle.Resumen.IvaVentaIncluido,
+                        MontoNeto = detalle.Resumen.BaseVentaSinIva,
                         MontoPagado = detalle.MontoPagado,
                         Pendiente = detalle.Resumen.MontoPendiente - detalle.MontoPagado
                     });
@@ -431,7 +458,7 @@ namespace LuxuryApp.Services.Funcionarios
                     Nombre = f.Nombre,
                     PorcentajeGanancia = f.PorcentajeGanancia,
                     PorcentajeProducto = f.PorcentajeProducto,
-                    RebajarImpuestosAntesDeComision = f.RebajarImpuestosAntesDeComision
+                    ComisionCalculadaSobre = f.ComisionCalculadaSobre
                 })
                 .ToDictionaryAsync(f => f.IdFuncionario, cancellationToken);
 
@@ -515,56 +542,85 @@ namespace LuxuryApp.Services.Funcionarios
             return distribuciones;
         }
 
+        /// <summary>Desglose fiscal (Base/IVA) de un conjunto de cobros con su config efectiva.</summary>
+        private TaxBreakdown CalcularVenta(IEnumerable<ICobroFiscalRow> cobros, TenantFiscalConfig tenantFiscal)
+        {
+            var lineas = cobros.Select(c => _fiscalConfig.ResolverLinea(
+                c.Monto, c.AplicaIva, c.TarifaIva, c.PrecioIncluyeIva, tenantFiscal));
+            return _taxService.Sumar(lineas);
+        }
+
+        private decimal CalcularComisionProducto(
+            ProductoCobroRow producto,
+            FuncionarioResumenData funcionario,
+            TenantFiscalConfig tenantFiscal)
+        {
+            var linea = _fiscalConfig.ResolverLinea(
+                producto.Monto, producto.AplicaIva, producto.TarifaIva, producto.PrecioIncluyeIva, tenantFiscal);
+            var breakdown = _taxService.Calcular(
+                linea.TotalOrBase, linea.TaxRatePercent, linea.PriceIncludesTax, linea.Taxable);
+
+            var baseComision = funcionario.ComisionCalculadaSobre == ComisionCalculadaSobre.BaseSinIva
+                ? breakdown.NetBase
+                : breakdown.GrossTotal;
+
+            return FiscalMath.Redondear(baseComision * (funcionario.PorcentajeProducto / 100m));
+        }
+
         private static List<DetalleDiaVM> BuildDetalleDias(
             DateTime inicioSemana,
             DateTime finSemana,
-            IReadOnlyDictionary<DateTime, ServicioDiaAggregate>? detalleServicios)
+            IReadOnlyList<ServicioCobroRow> serviciosFuncionario)
         {
+            var porDia = serviciosFuncionario
+                .GroupBy(s => s.Fecha.Date)
+                .ToDictionary(
+                    group => group.Key,
+                    group => (Cantidad: group.Count(), Monto: group.Sum(x => x.Monto)));
+
             var totalDias = (finSemana - inicioSemana).Days + 1;
             var detalle = new List<DetalleDiaVM>(totalDias);
 
             for (var index = 0; index < totalDias; index++)
             {
                 var fechaDia = inicioSemana.AddDays(index).Date;
-                ServicioDiaAggregate? resumenDia = null;
-                if (detalleServicios != null)
-                {
-                    detalleServicios.TryGetValue(fechaDia, out resumenDia);
-                }
+                porDia.TryGetValue(fechaDia, out var resumenDia);
 
                 detalle.Add(new DetalleDiaVM
                 {
                     Dia = fechaDia.ToString("dddd"),
-                    CantidadServicios = resumenDia?.CantidadServicios ?? 0,
-                    Monto = resumenDia?.Monto ?? 0m
+                    CantidadServicios = resumenDia.Cantidad,
+                    Monto = resumenDia.Monto
                 });
             }
 
             return detalle;
         }
 
-        private async Task<List<ServicioDiaAggregate>> LoadServiceDayAggregatesAsync(
+        private async Task<List<ServicioCobroRow>> LoadServiceCobrosAsync(
             DateTime inicioSemana,
             DateTime finSemanaExclusive,
             CancellationToken cancellationToken)
         {
             return await _context.Cobros
                 .AsNoTracking()
-                .Where(c => c.ServicioId != null &&
+                .Where(c => (c.ServicioId != null || c.ServicioNombrePersonalizado != null) &&
                             c.FechaCobro >= inicioSemana &&
                             c.FechaCobro < finSemanaExclusive)
-                .GroupBy(c => new { c.FuncionarioId, Fecha = c.FechaCobro.Date })
-                .Select(group => new ServicioDiaAggregate
+                .Select(c => new ServicioCobroRow
                 {
-                    FuncionarioId = group.Key.FuncionarioId,
-                    Fecha = group.Key.Fecha,
-                    CantidadServicios = group.Count(),
-                    Monto = group.Sum(item => item.Monto)
+                    FuncionarioId = c.FuncionarioId,
+                    Fecha = c.FechaCobro,
+                    Monto = c.Monto,
+                    // Servicio personalizado (sin catálogo) → sujeto a IVA con config del tenant.
+                    AplicaIva = c.Servicio == null || c.Servicio.AplicaIva,
+                    TarifaIva = c.Servicio != null ? c.Servicio.TarifaIva : null,
+                    PrecioIncluyeIva = c.Servicio != null ? c.Servicio.PrecioIncluyeIva : null
                 })
                 .ToListAsync(cancellationToken);
         }
 
-        private async Task<List<ProductoVentaAggregate>> LoadProductSalesAsync(
+        private async Task<List<ProductoCobroRow>> LoadProductCobrosAsync(
             DateTime inicioSemana,
             DateTime finSemanaExclusive,
             CancellationToken cancellationToken)
@@ -574,72 +630,321 @@ namespace LuxuryApp.Services.Funcionarios
                 .Where(c => c.ProductoId != null &&
                             c.FechaCobro >= inicioSemana &&
                             c.FechaCobro < finSemanaExclusive)
-                .OrderByDescending(c => c.FechaCobro)
-                .Select(c => new ProductoVentaAggregate
+                .Select(c => new ProductoCobroRow
                 {
                     FuncionarioId = c.FuncionarioId,
                     Fecha = c.FechaCobro,
                     NombreProducto = c.Producto != null ? c.Producto.NombreProducto : "Producto",
-                    Precio = c.Monto
+                    Monto = c.Monto,
+                    AplicaIva = c.Producto == null || c.Producto.AplicaIva,
+                    TarifaIva = c.Producto != null ? c.Producto.TarifaIva : null,
+                    PrecioIncluyeIva = c.Producto != null ? c.Producto.PrecioIncluyeIva : null
                 })
                 .ToListAsync(cancellationToken);
         }
 
-        private async Task<List<HistorialPagoFuncionarioViewModel>> LoadLegacyPaymentHistoryAsync(
+        // ─────────────── Atribución de pagos por PRODUCCIÓN REAL ───────────────
+        // Problema: el encabezado del pago (PeriodoInicio/Fin) no dice qué producción pagó. Filtrar por
+        // ese encabezado rompe quincenas/rangos que cruzan semanas. Solución: prorratear cada pago sobre
+        // los cobros reales de SU periodo (por devengado) y contar sólo la fracción cuya FECHA de
+        // producción cae en [inicio, fin). Es el mismo modelo de devengado que la distribución mensual
+        // del Dashboard (PagoFuncionarioDevengadoCalculator), generalizado a un rango arbitrario.
+
+        /// <summary>Salida de diagnóstico: cómo se atribuyó cada pago al rango (incluido/excluido y por qué).</summary>
+        public async Task<IReadOnlyList<PagoAtribucionDiagnostico>> ObtenerDiagnosticoPagosAsync(
             DateTime inicioSemana,
             DateTime finSemana,
+            CancellationToken cancellationToken = default)
+        {
+            var atribucion = await AtribuirPagosPorProduccionAsync(
+                inicioSemana.Date, finSemana.Date, cancellationToken);
+            return atribucion.Diagnostico;
+        }
+
+        private async Task<PaymentAttributionResult> AtribuirPagosPorProduccionAsync(
+            DateTime inicio,
+            DateTime finInclusive,
             CancellationToken cancellationToken)
         {
-            var inicioSemanaExclusive = inicioSemana.AddDays(1);
-            var finSemanaExclusive = finSemana.AddDays(1);
+            inicio = inicio.Date;
+            finInclusive = finInclusive.Date;
+            var finExclusive = finInclusive.AddDays(1);
 
-            return await _context.PagosFuncionarios
+            var candidatos = await LoadCandidatePaymentsAsync(inicio, finInclusive, cancellationToken);
+
+            var funcionarioIds = candidatos.Select(c => c.FuncionarioId).Distinct().ToList();
+            var result = new PaymentAttributionResult { FuncionarioIds = funcionarioIds };
+            if (candidatos.Count == 0)
+            {
+                return result;
+            }
+
+            // Ventana de cobros que cubre el periodo COMPLETO de cada pago (puede exceder el rango).
+            var ventanaInicio = candidatos.Min(c => c.PeriodoInicio).Date;
+            if (inicio < ventanaInicio) ventanaInicio = inicio;
+            var ventanaFinExclusive = candidatos.Max(c => c.PeriodoFin).Date.AddDays(1);
+            if (finExclusive > ventanaFinExclusive) ventanaFinExclusive = finExclusive;
+
+            var cobros = await _context.Cobros
                 .AsNoTracking()
-                .Where(p => p.InicioSemana >= inicioSemana &&
-                            p.InicioSemana < inicioSemanaExclusive &&
-                            p.FinSemana >= finSemana &&
-                            p.FinSemana < finSemanaExclusive)
-                .Select(p => new HistorialPagoFuncionarioViewModel
+                .Where(c => funcionarioIds.Contains(c.FuncionarioId) &&
+                            c.FechaCobro >= ventanaInicio &&
+                            c.FechaCobro < ventanaFinExclusive)
+                .Select(c => new DevengadoCobroRow
                 {
-                    ReferenciaId = p.IdPago,
-                    FuncionarioId = p.FuncionarioId,
-                    MontoPagado = p.MontoPagado,
-                    FechaPago = p.FechaPago,
-                    InicioSemana = p.InicioSemana,
-                    FinSemana = p.FinSemana,
-                    Observacion = p.Observacion,
-                    OrigenRegistro = "LEGACY"
+                    FuncionarioId = c.FuncionarioId,
+                    Fecha = c.FechaCobro,
+                    Monto = c.Monto,
+                    EsProducto = c.ProductoId != null
                 })
                 .ToListAsync(cancellationToken);
+
+            var funcionarios = (await LoadFuncionariosSemanaAsync(funcionarioIds, cancellationToken))
+                .ToDictionary(f => f.IdFuncionario);
+
+            var cobrosPorFuncionario = cobros
+                .GroupBy(c => c.FuncionarioId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            // Asignación por producción (tipo "fill"): cada cobro se paga una sola vez. Los pagos se
+            // procesan en orden CRONOLÓGICO; cada pago llena el devengado pendiente de los cobros de su
+            // periodo (más antiguos primero). Así, si se paga por semanas y luego se hace "Pagar quincena"
+            // por el resto, el pago de quincena NO se re-prorratea sobre las semanas ya pagadas (sin doble
+            // conteo). El monto aplicado al rango = lo que cayó sobre cobros dentro de [inicio, fin).
+            foreach (var grupo in candidatos.GroupBy(c => c.FuncionarioId))
+            {
+                var funcId = grupo.Key;
+                funcionarios.TryGetValue(funcId, out var funcionario);
+                cobrosPorFuncionario.TryGetValue(funcId, out var cobrosFunc);
+                cobrosFunc ??= new List<DevengadoCobroRow>();
+
+                var alloc = funcionario == null
+                    ? new List<CobroAllocacion>()
+                    : cobrosFunc
+                        .Select(c => new CobroAllocacion { Fecha = c.Fecha.Date, Devengado = Devengado(c, funcionario) })
+                        .Where(a => a.Devengado > 0m)
+                        .OrderBy(a => a.Fecha)
+                        .ToList();
+
+                foreach (var pago in grupo.OrderBy(p => p.FechaPago).ThenBy(p => p.ReferenciaId))
+                {
+                    var periodoFinExclusive = pago.PeriodoFin.Date.AddDays(1);
+                    var cobrosPeriodo = alloc
+                        .Where(a => a.Fecha >= pago.PeriodoInicio.Date && a.Fecha < periodoFinExclusive)
+                        .ToList();
+
+                    var devPeriodo = cobrosPeriodo.Sum(a => a.Devengado);
+                    var devRango = cobrosPeriodo
+                        .Where(a => a.Fecha >= inicio && a.Fecha < finExclusive)
+                        .Sum(a => a.Devengado);
+
+                    // 1) Llenar el devengado pendiente de los cobros del periodo (antiguos primero).
+                    var restante = pago.Monto;
+                    var aplicadoRango = 0m;
+                    foreach (var cobro in cobrosPeriodo)
+                    {
+                        if (restante <= 0m) break;
+                        var capacidad = cobro.Devengado - cobro.Pagado;
+                        if (capacidad <= 0m) continue;
+                        var toma = Math.Min(capacidad, restante);
+                        cobro.Pagado += toma;
+                        restante -= toma;
+                        if (cobro.Fecha >= inicio && cobro.Fecha < finExclusive)
+                        {
+                            aplicadoRango += toma;
+                        }
+                    }
+
+                    // 2) Excedente (sobrepago sobre el devengado del periodo) prorrateado al rango.
+                    if (restante > 0m)
+                    {
+                        var fracExc = devPeriodo > 0m
+                            ? devRango / devPeriodo
+                            : DayOverlapFraction(pago.PeriodoInicio, pago.PeriodoFin, inicio, finInclusive);
+                        aplicadoRango += restante * fracExc;
+                    }
+
+                    var aplicado = Math.Round(aplicadoRango, 2, MidpointRounding.AwayFromZero);
+
+                    string motivo;
+                    if (funcionario == null)
+                    {
+                        motivo = "Excluido: no se pudo resolver el colaborador para atribuir.";
+                    }
+                    else if (aplicado > 0m)
+                    {
+                        motivo = $"Aplicado por producción del rango: {aplicado:0.##} de {pago.Monto:0.##}.";
+                    }
+                    else if (devRango > 0m)
+                    {
+                        motivo = "Excluido: la producción del rango ya fue cubierta por pagos anteriores (sin doble conteo).";
+                    }
+                    else if (devPeriodo > 0m)
+                    {
+                        motivo = "Excluido: la producción del periodo del pago no cae en el rango.";
+                    }
+                    else
+                    {
+                        motivo = "Excluido: el periodo del pago no tiene producción ni solape con el rango.";
+                    }
+
+                    if (aplicado > 0m)
+                    {
+                        result.AplicadoPorFuncionario.TryGetValue(funcId, out var acumulado);
+                        result.AplicadoPorFuncionario[funcId] = acumulado + aplicado;
+
+                        if (!result.HistorialPorFuncionario.TryGetValue(funcId, out var historial))
+                        {
+                            historial = new List<HistorialPagoFuncionarioViewModel>();
+                            result.HistorialPorFuncionario[funcId] = historial;
+                        }
+
+                        historial.Add(new HistorialPagoFuncionarioViewModel
+                        {
+                            ReferenciaId = pago.ReferenciaId,
+                            FuncionarioId = funcId,
+                            // En una vista por rango, el historial muestra el monto APLICADO a ese rango.
+                            MontoPagado = aplicado,
+                            FechaPago = pago.FechaPago,
+                            InicioSemana = pago.PeriodoInicio,
+                            FinSemana = pago.PeriodoFin,
+                            Observacion = pago.Observacion,
+                            OrigenRegistro = pago.Origen,
+                            MetodoPago = pago.MetodoPago,
+                            RegistradoPor = pago.RegistradoPor
+                        });
+                    }
+
+                    result.Diagnostico.Add(new PagoAtribucionDiagnostico
+                    {
+                        Origen = pago.Origen,
+                        PagoId = pago.ReferenciaId,
+                        FuncionarioId = funcId,
+                        FuncionarioNombre = funcionario?.Nombre ?? $"#{funcId}",
+                        Monto = pago.Monto,
+                        PeriodoInicio = pago.PeriodoInicio,
+                        PeriodoFin = pago.PeriodoFin,
+                        FechaPago = pago.FechaPago,
+                        Incluido = aplicado > 0m,
+                        Fraccion = pago.Monto > 0m ? Math.Round(aplicado / pago.Monto, 4) : 0m,
+                        MontoAplicado = aplicado,
+                        Motivo = motivo
+                    });
+
+                    _logger.LogDebug(
+                        "[LIQ-DIAG] Rango {Inicio:yyyy-MM-dd}..{Fin:yyyy-MM-dd} Pago {Origen}#{PagoId} Func {FuncId} Monto {Monto} Periodo {PIni:yyyy-MM-dd}..{PFin:yyyy-MM-dd} FechaPago {FPago:yyyy-MM-dd} Aplicado {Aplicado} — {Motivo}",
+                        inicio, finInclusive, pago.Origen, pago.ReferenciaId, funcId, pago.Monto,
+                        pago.PeriodoInicio, pago.PeriodoFin, pago.FechaPago, aplicado, motivo);
+                }
+            }
+
+            return result;
         }
 
-        private async Task<List<HistorialPagoFuncionarioViewModel>> LoadLiquidationPaymentHistoryAsync(
-            DateTime inicioSemana,
-            DateTime finSemana,
+        /// <summary>Cobro con su devengado y lo ya "pagado" durante la asignación (mutable).</summary>
+        private sealed class CobroAllocacion
+        {
+            public DateTime Fecha { get; init; }
+            public decimal Devengado { get; init; }
+            public decimal Pagado { get; set; }
+        }
+
+        private static decimal Devengado(DevengadoCobroRow cobro, FuncionarioResumenData funcionario)
+        {
+            var porcentaje = cobro.EsProducto ? funcionario.PorcentajeProducto : funcionario.PorcentajeGanancia;
+            var baseComision = PagoFuncionarioDevengadoCalculator.CalcularBaseComision(
+                cobro.Monto, funcionario.ComisionCalculadaSobre);
+            return baseComision * (porcentaje / 100m);
+        }
+
+        /// <summary>Fracción de días del periodo del pago que caen en el rango (fallback sin producción).</summary>
+        private static decimal DayOverlapFraction(
+            DateTime periodoInicio, DateTime periodoFin, DateTime inicio, DateTime finInclusive)
+        {
+            var ps = periodoInicio.Date;
+            var pf = periodoFin.Date;
+            var totalDias = (pf - ps).Days + 1;
+            if (totalDias <= 0) return 0m;
+
+            var overlapInicio = ps > inicio.Date ? ps : inicio.Date;
+            var overlapFin = pf < finInclusive.Date ? pf : finInclusive.Date;
+            var overlapDias = (overlapFin - overlapInicio).Days + 1;
+            if (overlapDias <= 0) return 0m;
+
+            return (decimal)overlapDias / totalDias;
+        }
+
+        private async Task<List<PagoCandidato>> LoadCandidatePaymentsAsync(
+            DateTime inicio,
+            DateTime finInclusive,
             CancellationToken cancellationToken)
         {
-            var inicioSemanaExclusive = inicioSemana.AddDays(1);
-            var finSemanaExclusive = finSemana.AddDays(1);
+            // Candidato = pago cuyo periodo INTERSECTA [inicio, finInclusive] (condición necesaria para
+            // aportar; el monto real aplicado se resuelve luego por prorrateo de producción).
+            var legacy = await _context.PagosFuncionarios
+                .AsNoTracking()
+                .Where(p => p.InicioSemana <= finInclusive && p.FinSemana >= inicio)
+                .Select(p => new PagoCandidato(
+                    "LEGACY",
+                    p.IdPago,
+                    p.FuncionarioId,
+                    p.InicioSemana,
+                    p.FinSemana,
+                    p.FechaPago,
+                    p.MontoPagado,
+                    p.Observacion,
+                    null,
+                    null))
+                .ToListAsync(cancellationToken);
 
-            return await _context.LiquidacionesSemanalesDetalle
+            var liquidacion = await _context.LiquidacionesSemanalesDetalle
                 .AsNoTracking()
                 .Where(d => d.LiquidacionSemanal != null &&
-                            d.LiquidacionSemanal.SemanaInicio >= inicioSemana &&
-                            d.LiquidacionSemanal.SemanaInicio < inicioSemanaExclusive &&
-                            d.LiquidacionSemanal.SemanaFin >= finSemana &&
-                            d.LiquidacionSemanal.SemanaFin < finSemanaExclusive)
-                .Select(d => new HistorialPagoFuncionarioViewModel
-                {
-                    ReferenciaId = d.LiquidacionSemanalId,
-                    FuncionarioId = d.FuncionarioId,
-                    MontoPagado = d.MontoPagado,
-                    FechaPago = d.LiquidacionSemanal!.FechaPago,
-                    InicioSemana = d.LiquidacionSemanal.SemanaInicio,
-                    FinSemana = d.LiquidacionSemanal.SemanaFin,
-                    Observacion = d.LiquidacionSemanal.Observacion,
-                    OrigenRegistro = "LIQUIDACION"
-                })
+                            d.LiquidacionSemanal.SemanaInicio <= finInclusive &&
+                            d.LiquidacionSemanal.SemanaFin >= inicio)
+                .Select(d => new PagoCandidato(
+                    "LIQUIDACION",
+                    d.LiquidacionSemanalId,
+                    d.FuncionarioId,
+                    d.LiquidacionSemanal!.SemanaInicio,
+                    d.LiquidacionSemanal.SemanaFin,
+                    d.LiquidacionSemanal.FechaPago,
+                    d.MontoPagado,
+                    d.LiquidacionSemanal.Observacion,
+                    d.LiquidacionSemanal.Egreso != null ? d.LiquidacionSemanal.Egreso.MetodoPago : null,
+                    d.LiquidacionSemanal.CreadoPor))
                 .ToListAsync(cancellationToken);
+
+            legacy.AddRange(liquidacion);
+            return legacy;
+        }
+
+        private sealed record PagoCandidato(
+            string Origen,
+            int ReferenciaId,
+            int FuncionarioId,
+            DateTime PeriodoInicio,
+            DateTime PeriodoFin,
+            DateTime FechaPago,
+            decimal Monto,
+            string? Observacion,
+            string? MetodoPago,
+            string? RegistradoPor);
+
+        private sealed class DevengadoCobroRow
+        {
+            public int FuncionarioId { get; init; }
+            public DateTime Fecha { get; init; }
+            public decimal Monto { get; init; }
+            public bool EsProducto { get; init; }
+        }
+
+        private sealed class PaymentAttributionResult
+        {
+            public Dictionary<int, decimal> AplicadoPorFuncionario { get; } = new();
+            public Dictionary<int, List<HistorialPagoFuncionarioViewModel>> HistorialPorFuncionario { get; } = new();
+            public List<PagoAtribucionDiagnostico> Diagnostico { get; } = new();
+            public IReadOnlyCollection<int> FuncionarioIds { get; init; } = Array.Empty<int>();
         }
 
         private async Task<List<FuncionarioResumenData>> LoadFuncionariosSemanaAsync(
@@ -654,9 +959,15 @@ namespace LuxuryApp.Services.Funcionarios
                 {
                     IdFuncionario = f.IdFuncionario,
                     Nombre = f.Nombre,
+                    ColorCalendario = f.ColorCalendario,
                     PorcentajeGanancia = f.PorcentajeGanancia,
                     PorcentajeProducto = f.PorcentajeProducto,
-                    RebajarImpuestosAntesDeComision = f.RebajarImpuestosAntesDeComision
+                    ComisionCalculadaSobre = f.ComisionCalculadaSobre,
+                    TipoRelacionColaborador = f.TipoRelacionColaborador,
+                    ColaboradorFacturaIva = f.ColaboradorFacturaIva,
+                    ModalidadIvaColaborador = f.ModalidadIvaColaborador,
+                    TarifaIvaFacturaColaborador = f.TarifaIvaFacturaColaborador,
+                    RequiereFacturaAntesDePagar = f.RequiereFacturaAntesDePagar
                 })
                 .ToListAsync(cancellationToken);
         }
@@ -747,25 +1058,45 @@ namespace LuxuryApp.Services.Funcionarios
         {
             public int IdFuncionario { get; init; }
             public string Nombre { get; init; } = string.Empty;
+            public string ColorCalendario { get; init; } = string.Empty;
             public decimal PorcentajeGanancia { get; init; }
             public decimal PorcentajeProducto { get; init; }
-            public bool RebajarImpuestosAntesDeComision { get; init; }
+            public ComisionCalculadaSobre ComisionCalculadaSobre { get; init; }
+            public TipoRelacionColaborador TipoRelacionColaborador { get; init; }
+            public bool ColaboradorFacturaIva { get; init; }
+            public ModalidadIvaColaborador ModalidadIvaColaborador { get; init; }
+            public decimal TarifaIvaFacturaColaborador { get; init; }
+            public bool RequiereFacturaAntesDePagar { get; init; }
         }
 
-        private sealed class ServicioDiaAggregate
+        /// <summary>Datos fiscales mínimos de un cobro para el motor de IVA.</summary>
+        private interface ICobroFiscalRow
+        {
+            decimal Monto { get; }
+            bool AplicaIva { get; }
+            decimal? TarifaIva { get; }
+            bool? PrecioIncluyeIva { get; }
+        }
+
+        private sealed class ServicioCobroRow : ICobroFiscalRow
         {
             public int FuncionarioId { get; init; }
             public DateTime Fecha { get; init; }
-            public int CantidadServicios { get; init; }
             public decimal Monto { get; init; }
+            public bool AplicaIva { get; init; }
+            public decimal? TarifaIva { get; init; }
+            public bool? PrecioIncluyeIva { get; init; }
         }
 
-        private sealed class ProductoVentaAggregate
+        private sealed class ProductoCobroRow : ICobroFiscalRow
         {
             public int FuncionarioId { get; init; }
             public DateTime Fecha { get; init; }
             public string NombreProducto { get; init; } = string.Empty;
-            public decimal Precio { get; init; }
+            public decimal Monto { get; init; }
+            public bool AplicaIva { get; init; }
+            public decimal? TarifaIva { get; init; }
+            public bool? PrecioIncluyeIva { get; init; }
         }
     }
 }

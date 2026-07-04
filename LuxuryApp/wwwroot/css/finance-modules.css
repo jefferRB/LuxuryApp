@@ -240,6 +240,20 @@ html.surface-glass .finance-kpi-icon-orange, html[data-luxury-surface-theme="gla
     transform: translateY(-1px);
 }
 
+/* Acceso secundario al control de citas y cobros, alineado al extremo derecho.
+   En móvil, al hacer wrap, queda en su propia línea sin romper el diseño. */
+.finance-btn-control {
+    margin-left: auto;
+}
+
+@media (max-width: 640px) {
+    .finance-btn-control {
+        margin-left: 0;
+        width: 100%;
+        justify-content: center;
+    }
+}
+
 /* ── FILTERS PANEL ─────────────────────────────────────────── */
 .finance-filters-panel {
     padding: 1.25rem 2rem;
@@ -1426,4 +1440,96 @@ html[data-luxury-surface-theme="glass"] .finance-cat-modal .btn-close {
 @media (min-width: 576px) {
     .finance-cat-cards { display: none !important; }
     .finance-cat-tbl   { display: block; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   PAGINACIÓN — Ingresos (tabla de cobros)
+   ═══════════════════════════════════════════════════════════════════ */
+.finance-pagination {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+    padding: 0.9rem 2rem 1.5rem;
+}
+
+.finance-pagination-info {
+    font-size: 0.82rem;
+    color: var(--private-muted-text, #64748b);
+    font-weight: 500;
+}
+
+.finance-pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+}
+
+.finance-page-btn {
+    min-width: 2.1rem;
+    height: 2.1rem;
+    padding: 0 0.55rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--private-surface-border, rgba(15, 23, 42, 0.12));
+    border-radius: 9px;
+    background: var(--private-card-bg, #fff);
+    color: var(--private-surface-text, #111827);
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.finance-page-btn:hover:not(:disabled):not(.is-active) {
+    background: var(--private-row-bg, rgba(15, 23, 42, 0.04));
+}
+
+.finance-page-btn.is-active {
+    background: var(--private-chart-accent, #2563eb);
+    border-color: var(--private-chart-accent, #2563eb);
+    color: #fff;
+    cursor: default;
+}
+
+.finance-page-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.finance-page-ellipsis {
+    padding: 0 0.2rem;
+    color: var(--private-muted-text, #94a3b8);
+    font-weight: 700;
+}
+
+.finance-pagination-size {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.82rem;
+    color: var(--private-muted-text, #64748b);
+    font-weight: 500;
+}
+
+.finance-pagination-size select {
+    width: auto;
+    min-width: 4.2rem;
+    padding: 0.4rem 0.6rem;
+}
+
+@media (max-width: 720px) {
+    .finance-pagination {
+        padding-inline: 1.25rem;
+        justify-content: center;
+        text-align: center;
+    }
+    .finance-pagination-controls { justify-content: center; }
+}
+
+@media (max-width: 480px) {
+    .finance-pagination { padding-inline: 1rem; }
 }

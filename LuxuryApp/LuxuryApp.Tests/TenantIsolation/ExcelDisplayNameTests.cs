@@ -62,12 +62,14 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var controller = new FuncionariosController(
                 context,
-                ControllerTestSupport.CreateLiquidacionSemanalService(context),
+                ControllerTestSupport.CreateLiquidacionSemanalService(context, tenantProvider),
                 new NoOpPortalAccessService(),
                 new NoOpPortalPermissionService(),
                 new NoOpAccountEmailService(),
                 ControllerTestSupport.BusinessDateTimeProvider,
                 ControllerTestSupport.CreateTenantDisplayNameService(context, tenantProvider),
+                ControllerTestSupport.CreateFuncionarioPhotoStorageService(),
+                tenantProvider,
                 NullLogger<FuncionariosController>.Instance);
 
             ControllerTestSupport.AttachHttpContext(
@@ -79,10 +81,11 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new DateTime(2026, 5, 31));
 
             var file = Assert.IsType<FileContentResult>(result);
-            Assert.Equal("BarberiaJor_PagosFuncionarios_2026-05-26.xlsx", file.FileDownloadName);
-            Assert.DoesNotContain("LuxePagosFuncionarios", file.FileDownloadName, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal("BarberiaJor_LiquidacionSemanal_2026-05-26.xlsx", file.FileDownloadName);
+            Assert.DoesNotContain("LuxeLiquidacionSemanal", file.FileDownloadName, StringComparison.OrdinalIgnoreCase);
             using var workbook = new XLWorkbook(new MemoryStream(file.FileContents));
-            Assert.Equal("Barberia jor", workbook.Worksheet("Pagos Funcionarios").Cell("A1").GetString());
+            // La hoja "Resumen" lleva el nombre del negocio en A1.
+            Assert.Equal("Barberia jor", workbook.Worksheet("Resumen").Cell("A1").GetString());
         }
 
         [Theory]

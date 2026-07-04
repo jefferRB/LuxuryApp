@@ -1,31 +1,9 @@
 @model LuxuryApp.Models.Calendar.ControlCitasCobrosViewModel
 @using System.Globalization
-@using LuxuryApp.Models.WhatsApp
 @{
     var cr = new CultureInfo("es-CR");
     string Money(decimal v) => "₡" + v.ToString("#,##0.00", cr);
     var addon = Model.HasWhatsAppAddon;
-
-    // Badge de "Estado cita". Sin add-on de WhatsApp no se muestran estados de WhatsApp.
-    (string css, string icon, string text) EstadoCita(LuxuryApp.Models.Calendar.CitaCobroItemViewModel it)
-    {
-        if (it.EsCancelada)
-        {
-            return ("cc-bg-red", "bi-x-circle", "Cancelada");
-        }
-        if (!addon)
-        {
-            return ("cc-bg-neutral", "bi-calendar-check", "Agendada");
-        }
-        return it.EstadoConfirmacionWhatsApp switch
-        {
-            WhatsAppConfirmationStates.Confirmada => ("cc-bg-ok", "bi-check2-circle", "Confirmada"),
-            WhatsAppConfirmationStates.Cancelada => ("cc-bg-red", "bi-x-circle", "Cancelada"),
-            WhatsAppConfirmationStates.ErrorEnvio => ("cc-bg-red", "bi-exclamation-triangle", "Error WA"),
-            WhatsAppConfirmationStates.NoEnviada => ("cc-bg-neutral", "bi-slash-circle", "Sin enviar"),
-            _ => ("cc-bg-pend", "bi-clock", "Por confirmar")
-        };
-    }
 
     string CobroUrl(LuxuryApp.Models.Calendar.CitaCobroItemViewModel it) =>
         Url.Action(
@@ -89,6 +67,17 @@ else
     <div class="cc-card cc-desktop">
         <div class="table-responsive">
             <table class="cc-table">
+                <colgroup>
+                    <col style="width:7%">
+                    <col style="width:8%">
+                    <col style="width:16%">
+                    <col style="width:13%">
+                    <col style="width:15%">
+                    <col style="width:11%">
+                    <col style="width:11%">
+                    <col style="width:9%">
+                    <col style="width:10%">
+                </colgroup>
                 <thead>
                     <tr>
                         <th>Fecha</th>
@@ -97,7 +86,6 @@ else
                         <th>Funcionario</th>
                         <th>Servicio</th>
                         <th class="cc-text-end">Monto</th>
-                        <th>Estado cita</th>
                         <th>Estado pago</th>
                         <th>Método</th>
                         <th class="cc-text-end">Acciones</th>
@@ -106,7 +94,6 @@ else
                 <tbody>
                     @foreach (var it in Model.Items)
                     {
-                        var ec = EstadoCita(it);
                         <tr>
                             <td>@it.FechaHora.ToString("dd/MM", cr)</td>
                             <td>@it.FechaHora.ToString("hh:mm tt", cr)</td>
@@ -118,9 +105,8 @@ else
                                 }
                             </td>
                             <td>@it.Funcionario</td>
-                            <td>@it.Servicio</td>
+                            <td class="cc-service-cell" title="@it.Servicio">@it.Servicio</td>
                             <td class="cc-text-end cc-money">@(it.MontoMostrado.HasValue ? Money(it.MontoMostrado.Value) : "—")</td>
-                            <td><span class="cc-badge-st @ec.css"><i class="bi @ec.icon"></i> @ec.text</span></td>
                             <td>
                                 @if (it.YaCobrada)
                                 {
@@ -172,7 +158,6 @@ else
     <div class="cc-cards">
         @foreach (var it in Model.Items)
         {
-            var ec = EstadoCita(it);
             <div class="cc-rec">
                 <div class="cc-rec-top">
                     <span class="cc-rec-when"><i class="bi bi-calendar3"></i> @it.FechaHora.ToString("dd/MM", cr) · @it.FechaHora.ToString("hh:mm tt", cr)</span>
@@ -188,7 +173,6 @@ else
                     }
                 </div>
                 <div class="cc-rec-badges">
-                    <span class="cc-badge-st @ec.css"><i class="bi @ec.icon"></i> @ec.text</span>
                     @if (it.YaCobrada)
                     {
                         <span class="cc-badge-st cc-bg-ok"><i class="bi bi-check2-circle"></i> Cobrada@(string.IsNullOrEmpty(it.MetodoPago) ? "" : " · " + it.MetodoPago)</span>

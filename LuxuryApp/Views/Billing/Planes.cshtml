@@ -8,6 +8,10 @@
     var hasBaseAccess = Model.CurrentSubscription?.CanAccessApp == true || Model.CurrentAccess?.CanAccessApp == true;
 }
 
+@section Styles {
+    <link rel="stylesheet" href="~/css/subscription.css" asp-append-version="true" />
+}
+
 <section class="pricing-hero-section">
     <div class="container">
         <div class="pricing-hero-card" data-aos="fade-up">
@@ -151,231 +155,8 @@
                         }
                     </div>
 
-                    @if (Model.CurrentSubscription.HasWhatsAppAddon)
-                    {
-                        var confHours = Model.CurrentSubscription.ConfirmationHoursBefore;
-                        var remHours = Model.CurrentSubscription.ReminderHoursBefore;
-                        var confHourOptions = new[] { 1, 2, 3, 6, 12, 24, 48 };
-                        var remHourOptions = new[] { 1, 2, 3, 6, 12, 24 };
-                        var confIsBatch = Model.CurrentSubscription.ConfirmationIsBatch;
-                        var remIsBatch = Model.CurrentSubscription.ReminderIsBatch;
-                        var confBatchTime = (Model.CurrentSubscription.ConfirmationBatchTime ?? new TimeOnly(19, 0)).ToString("HH:mm");
-                        var remBatchTime = (Model.CurrentSubscription.ReminderBatchTime ?? new TimeOnly(7, 0)).ToString("HH:mm");
-                        var confTarget = Model.CurrentSubscription.ConfirmationBatchTarget;
-                        var remTarget = Model.CurrentSubscription.ReminderBatchTarget;
-                        var morningStart = (Model.CurrentSubscription.ConfirmationMorningStart ?? new TimeOnly(4, 0)).ToString("HH:mm");
-                        var morningEnd = (Model.CurrentSubscription.ConfirmationMorningEnd ?? new TimeOnly(12, 0)).ToString("HH:mm");
-                        var quietEnabled = Model.CurrentSubscription.QuietHoursEnabled;
-                        var quietStart = (Model.CurrentSubscription.QuietHoursStart ?? new TimeOnly(21, 0)).ToString("HH:mm");
-                        var quietEnd = (Model.CurrentSubscription.QuietHoursEnd ?? new TimeOnly(7, 0)).ToString("HH:mm");
-                        <form id="waAutomationForm" asp-action="UpdateWhatsAppAutomation" method="post" class="billing-whatsapp-settings">
-                            @Html.AntiForgeryToken()
-                            <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-3">
-                                <div>
-                                    <span class="section-kicker">Automatizaciones WhatsApp</span>
-                                    <h3>Controla cuándo se envían confirmaciones y recordatorios.</h3>
-                                    <p class="mb-0">
-                                        Paquete activo: <strong>@Model.CurrentSubscription.WhatsAppAddonName</strong>.
-                                        Automatizacion general: <strong>@(Model.CurrentSubscription.WhatsAppAutomationEnabled ? "Activa" : "Inactiva")</strong>.
-                                    </p>
-                                </div>
-                                <div class="billing-inline-note">
-                                    <strong>Saldo actual</strong><br />
-                                    Mes: @(Model.CurrentSubscription.WhatsAppMessagesRemaining ?? 0) restante(s)<br />
-                                    Hoy: @(Math.Max((Model.CurrentSubscription.WhatsAppDailyLimit ?? 0) - Model.CurrentSubscription.WhatsAppTodayUsage, 0)) disponible(s)
-                                </div>
-                            </div>
-
-                            <div class="row g-3">
-                                @* ── Confirmaciones ── *@
-                                <div class="col-lg-6">
-                                    <div class="billing-toggle-panel billing-toggle-panel--stacked">
-                                        <div class="billing-toggle-head">
-                                            <div>
-                                                <h4>Confirmaciones automaticas</h4>
-                                                <p>Pide al cliente confirmar su cita con anticipación.</p>
-                                            </div>
-                                            <div class="form-check form-switch m-0">
-                                                <input class="form-check-input wa-master-toggle" type="checkbox"
-                                                       id="confirmationsEnabled" name="ConfirmationsEnabled" value="true"
-                                                       data-target="confirmationAdvanced"
-                                                       @(Model.CurrentSubscription.SendAppointmentConfirmations ? "checked" : null) />
-                                                <input type="hidden" name="ConfirmationsEnabled" value="false" />
-                                            </div>
-                                        </div>
-
-                                        <div class="wa-advanced @(Model.CurrentSubscription.SendAppointmentConfirmations ? "" : "wa-advanced--disabled")" id="confirmationAdvanced">
-                                            <label class="wa-field-label" for="ConfirmationMode">¿Cuándo enviar confirmaciones?</label>
-                                            <select class="form-select wa-field wa-mode-select" id="ConfirmationMode" name="ConfirmationMode" data-prefix="conf">
-                                                <option value="relative" selected="@(!confIsBatch)">Antes de la cita (horas configurables)</option>
-                                                <option value="batch" selected="@confIsBatch">Todos los días a una hora fija</option>
-                                            </select>
-
-                                            <div class="wa-mode-panel mt-2 @(confIsBatch ? "d-none" : "")" data-mode="conf-relative">
-                                                <label class="wa-field-label" for="ConfirmationHoursBefore">Anticipación</label>
-                                                <select class="form-select wa-field" id="ConfirmationHoursBefore" name="ConfirmationHoursBefore">
-                                                    @foreach (var h in confHourOptions)
-                                                    {
-                                                        <option value="@h" selected="@(h == confHours)">@h horas antes de la cita@(h == 24 ? " (recomendado)" : "")</option>
-                                                    }
-                                                </select>
-                                                <div class="form-check mt-2">
-                                                    <input class="form-check-input" type="checkbox"
-                                                           id="SendConfirmationImmediatelyIfInsideWindow" name="SendConfirmationImmediatelyIfInsideWindow" value="true"
-                                                           @(Model.CurrentSubscription.SendConfirmationImmediatelyIfInsideWindow ? "checked" : null) />
-                                                    <input type="hidden" name="SendConfirmationImmediatelyIfInsideWindow" value="false" />
-                                                    <label class="form-check-label" for="SendConfirmationImmediatelyIfInsideWindow">
-                                                        Enviar inmediatamente si la cita ya está dentro del rango
-                                                    </label>
-                                                </div>
-                                            </div>
-
-                                            <div class="wa-mode-panel mt-2 @(confIsBatch ? "" : "d-none")" data-mode="conf-batch">
-                                                <label class="wa-field-label" for="ConfirmationBatchTime">Hora de envío</label>
-                                                <input type="time" class="form-control wa-field" id="ConfirmationBatchTime" name="ConfirmationBatchTime" value="@confBatchTime" />
-                                                <label class="wa-field-label mt-2" for="ConfirmationBatchTarget">¿Para cuáles citas?</label>
-                                                <select class="form-select wa-field wa-target-select" id="ConfirmationBatchTarget" name="ConfirmationBatchTarget" data-prefix="conf">
-                                                    <option value="TomorrowAllDay" selected="@(confTarget == "TomorrowAllDay")">Citas de mañana</option>
-                                                    <option value="TomorrowMorning" selected="@(confTarget == "TomorrowMorning")">Solo citas de la mañana siguiente</option>
-                                                    <option value="SameDayRemaining" selected="@(confTarget == "SameDayRemaining")">Citas restantes de hoy</option>
-                                                    <option value="Next24Hours" selected="@(confTarget == "Next24Hours")">Próximas 24 horas</option>
-                                                </select>
-                                                <div class="wa-morning-window mt-2 @(confTarget == "TomorrowMorning" ? "" : "d-none")" data-prefix="conf">
-                                                    <div class="row g-2">
-                                                        <div class="col-6">
-                                                            <label class="wa-field-label" for="ConfirmationMorningStart">Desde</label>
-                                                            <input type="time" class="form-control wa-field" id="ConfirmationMorningStart" name="ConfirmationMorningStart" value="@morningStart" />
-                                                        </div>
-                                                        <div class="col-6">
-                                                            <label class="wa-field-label" for="ConfirmationMorningEnd">Hasta</label>
-                                                            <input type="time" class="form-control wa-field" id="ConfirmationMorningEnd" name="ConfirmationMorningEnd" value="@morningEnd" />
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <p class="wa-help-text mt-2">Útil si quieres confirmar por la noche las citas del día siguiente.</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                @* ── Recordatorios ── *@
-                                <div class="col-lg-6">
-                                    <div class="billing-toggle-panel billing-toggle-panel--stacked">
-                                        <div class="billing-toggle-head">
-                                            <div>
-                                                <h4>Recordatorios automaticos</h4>
-                                                <p>Avisa al cliente cerca de su cita.</p>
-                                            </div>
-                                            <div class="form-check form-switch m-0">
-                                                <input class="form-check-input wa-master-toggle" type="checkbox"
-                                                       id="remindersEnabled" name="RemindersEnabled" value="true"
-                                                       data-target="reminderAdvanced"
-                                                       @(Model.CurrentSubscription.SendAppointmentReminders ? "checked" : null) />
-                                                <input type="hidden" name="RemindersEnabled" value="false" />
-                                            </div>
-                                        </div>
-
-                                        <div class="wa-advanced @(Model.CurrentSubscription.SendAppointmentReminders ? "" : "wa-advanced--disabled")" id="reminderAdvanced">
-                                            <label class="wa-field-label" for="ReminderMode">¿Cuándo enviar recordatorios?</label>
-                                            <select class="form-select wa-field wa-mode-select" id="ReminderMode" name="ReminderMode" data-prefix="rem">
-                                                <option value="relative" selected="@(!remIsBatch)">Antes de la cita (horas configurables)</option>
-                                                <option value="batch" selected="@remIsBatch">A una hora fija el mismo día</option>
-                                            </select>
-
-                                            <div class="wa-mode-panel mt-2 @(remIsBatch ? "d-none" : "")" data-mode="rem-relative">
-                                                <label class="wa-field-label" for="ReminderHoursBefore">Anticipación</label>
-                                                <select class="form-select wa-field" id="ReminderHoursBefore" name="ReminderHoursBefore">
-                                                    @foreach (var h in remHourOptions)
-                                                    {
-                                                        <option value="@h" selected="@(h == remHours)">@h horas antes de la cita@(h == 3 ? " (recomendado)" : "")</option>
-                                                    }
-                                                </select>
-                                                <div class="form-check mt-2">
-                                                    <input class="form-check-input" type="checkbox"
-                                                           id="SendReminderImmediatelyIfInsideWindow" name="SendReminderImmediatelyIfInsideWindow" value="true"
-                                                           @(Model.CurrentSubscription.SendReminderImmediatelyIfInsideWindow ? "checked" : null) />
-                                                    <input type="hidden" name="SendReminderImmediatelyIfInsideWindow" value="false" />
-                                                    <label class="form-check-label" for="SendReminderImmediatelyIfInsideWindow">
-                                                        Enviar inmediatamente si la cita ya está dentro del rango
-                                                    </label>
-                                                </div>
-                                            </div>
-
-                                            <div class="wa-mode-panel mt-2 @(remIsBatch ? "" : "d-none")" data-mode="rem-batch">
-                                                <label class="wa-field-label" for="ReminderBatchTime">Hora de envío</label>
-                                                <input type="time" class="form-control wa-field" id="ReminderBatchTime" name="ReminderBatchTime" value="@remBatchTime" />
-                                                <label class="wa-field-label mt-2" for="ReminderBatchTarget">¿Para cuáles citas?</label>
-                                                <select class="form-select wa-field" id="ReminderBatchTarget" name="ReminderBatchTarget">
-                                                    <option value="SameDayRemaining" selected="@(remTarget == "SameDayRemaining")">Citas restantes de hoy</option>
-                                                    <option value="NextAppointmentsToday" selected="@(remTarget == "NextAppointmentsToday")">Próximas citas de hoy</option>
-                                                    <option value="NextXHours" selected="@(remTarget == "NextXHours")">Próximas horas</option>
-                                                </select>
-                                                <p class="wa-help-text mt-2">Los recordatorios se usan para avisar al cliente cerca de su cita.</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                @* ── Horas de silencio ── *@
-                                <div class="col-12">
-                                    <div class="billing-toggle-panel billing-toggle-panel--stacked">
-                                        <div class="billing-toggle-head">
-                                            <div>
-                                                <h4>Horas de silencio</h4>
-                                                <p>No se enviarán mensajes en este rango; quedan en espera y salen al terminar.</p>
-                                            </div>
-                                            <div class="form-check form-switch m-0">
-                                                <input class="form-check-input wa-master-toggle" type="checkbox"
-                                                       id="quietHoursEnabled" name="QuietHoursEnabled" value="true"
-                                                       data-target="quietAdvanced"
-                                                       @(quietEnabled ? "checked" : null) />
-                                                <input type="hidden" name="QuietHoursEnabled" value="false" />
-                                            </div>
-                                        </div>
-
-                                        <div class="wa-advanced @(quietEnabled ? "" : "wa-advanced--disabled")" id="quietAdvanced">
-                                            <div class="row g-2">
-                                                <div class="col-6 col-sm-4 col-lg-3">
-                                                    <label class="wa-field-label" for="QuietHoursStart">Desde</label>
-                                                    <input type="time" class="form-control wa-field" id="QuietHoursStart" name="QuietHoursStart" value="@quietStart" />
-                                                </div>
-                                                <div class="col-6 col-sm-4 col-lg-3">
-                                                    <label class="wa-field-label" for="QuietHoursEnd">Hasta</label>
-                                                    <input type="time" class="form-control wa-field" id="QuietHoursEnd" name="QuietHoursEnd" value="@quietEnd" />
-                                                </div>
-                                            </div>
-                                            <p class="wa-help-text mt-2">Ejemplo: de 9:00 p. m. a 7:00 a. m. para no escribir de noche.</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="col-12 d-flex flex-column flex-sm-row justify-content-end align-items-stretch align-items-sm-center gap-2">
-                                    <span class="wa-automation-status" id="waAutomationStatus" role="status" aria-live="polite"></span>
-                                    <button type="submit" class="btn public-btn public-btn-secondary" id="waAutomationSave">Guardar automatizaciones</button>
-                                </div>
-                            </div>
-                        </form>
-                    }
                 </div>
             }
-
-            <div class="billing-code-card" data-aos="fade-up">
-                <div>
-                    <span class="section-kicker">Codigo promocional</span>
-                    <h3>Activa acceso temporal sin tarjeta si recibiste un codigo oficial.</h3>
-                </div>
-
-                <form asp-action="AplicarCodigoPromocional" method="post" class="row g-3 align-items-end">
-                    @Html.AntiForgeryToken()
-                    <div class="col-lg-8">
-                        <label for="accessCode" class="form-label">Codigo de acceso</label>
-                        <input id="accessCode" name="accessCode" class="form-control public-form-control" maxlength="100" />
-                    </div>
-                    <div class="col-lg-4">
-                        <button type="submit" class="btn public-btn public-btn-secondary w-100">Aplicar codigo</button>
-                    </div>
-                </form>
-            </div>
         }
         else
         {
@@ -391,106 +172,26 @@
             </div>
         }
 
-        @if (!Model.BasePlanCards.Any())
+        <div class="section-heading text-center" data-aos="fade-up">
+            <span class="section-kicker">Planes</span>
+            <h2>Elegí tu plan según el tamaño de tu equipo.</h2>
+            <p>Ajustá la cantidad de funcionarios y el ciclo de facturación; el precio se actualiza al instante.</p>
+        </div>
+
+        @if (Model.Calculator is not null)
         {
-            <div class="status-card" data-aos="fade-up">
-                <span class="status-kicker">Planes no disponibles</span>
-                <h2>No hay planes base activos configurados en este entorno.</h2>
-                <p>Cuando exista al menos un plan comercial activo, esta vista lo mostrara automaticamente.</p>
+            <div class="row justify-content-center" data-aos="fade-up">
+                <div class="col-lg-10">
+                    <partial name="_SubscriptionCalculator" model="Model.Calculator" />
+                </div>
             </div>
         }
         else
         {
-            <div class="section-heading text-center" data-aos="fade-up">
-                <span class="section-kicker">Planes base</span>
-                <h2>Básico, Pro y Business con cobro mensual.</h2>
-                <p>Para más de 7 funcionarios, contáctanos para un plan personalizado.</p>
-            </div>
-
-            <div class="row g-4 justify-content-center">
-                @foreach (var plan in Model.BasePlanCards)
-                {
-                    var isCurrentPlan = Model.CurrentAccess?.EffectivePlanId == plan.Id;
-                    var isSelected = Model.SelectedPlanId == plan.Id;
-                    var planReturnUrl = Url.Action("Planes", "Billing", new { selectedPlanId = plan.Id }) ?? "/Billing/Planes";
-
-                    <div class="col-xl-4 col-md-6" data-aos="fade-up">
-                        <article class="pricing-card @(plan.IsFeatured ? "pricing-card-featured" : string.Empty) @(isCurrentPlan ? "pricing-card-current" : string.Empty) @(isSelected ? "pricing-card-selected" : string.Empty)" data-selected-plan="@(isSelected ? "true" : "false")">
-                            <div class="pricing-card-top">
-                                @if (!string.IsNullOrWhiteSpace(plan.BadgeText))
-                                {
-                                    <span class="pricing-badge">@plan.BadgeText</span>
-                                }
-                                else if (isCurrentPlan)
-                                {
-                                    <span class="pricing-badge pricing-badge-muted">Plan actual</span>
-                                }
-
-                                <h3>@plan.Name</h3>
-                                <p>@plan.Summary</p>
-                            </div>
-
-                            <div class="pricing-amount">
-                                <strong>@plan.CurrencyCode @plan.MonthlyPrice.ToString("N0")</strong>
-                                <span>@plan.BillingLabel</span>
-                            </div>
-
-                            <div class="pricing-meta">
-                                <span>@plan.StaffLabel</span>
-                            </div>
-
-                            <ul class="pricing-highlight-list">
-                                @foreach (var highlight in plan.Highlights)
-                                {
-                                    <li>@highlight</li>
-                                }
-                            </ul>
-
-                            @if (!plan.CanStartCheckout && !string.IsNullOrWhiteSpace(plan.CheckoutAvailabilityMessage))
-                            {
-                                <p class="pricing-login-link text-danger mb-3">@plan.CheckoutAvailabilityMessage</p>
-                            }
-
-                            @if (Model.IsAuthenticated)
-                            {
-                                if (isCurrentPlan)
-                                {
-                                    <button type="button" class="btn public-btn public-btn-secondary w-100" disabled>Plan actual</button>
-                                }
-                                else if (!plan.CanStartCheckout)
-                                {
-                                    <button type="button" class="btn public-btn public-btn-secondary w-100" disabled>Configuracion pendiente</button>
-                                }
-                                else
-                                {
-                                    <form asp-action="Checkout" method="post">
-                                        @Html.AntiForgeryToken()
-                                        <input type="hidden" name="planId" value="@plan.Id" />
-                                        <button class="btn public-btn @(plan.IsFeatured ? "public-btn-primary" : "public-btn-secondary") w-100">
-                                            @(hasBaseAccess ? "Cambiar a este plan" : "Activar este plan")
-                                        </button>
-                                    </form>
-                                }
-                            }
-                            else
-                            {
-                                if (plan.CanStartCheckout)
-                                {
-                                    <a class="btn public-btn @(plan.IsFeatured ? "public-btn-primary" : "public-btn-secondary") w-100" asp-controller="Accounts" asp-action="Registro" asp-route-selectedPlanId="@plan.Id" asp-route-returnurl="@planReturnUrl">
-                                        Crear cuenta y continuar
-                                    </a>
-                                    <a class="pricing-login-link" asp-controller="Accounts" asp-action="Acceso" asp-route-returnurl="@planReturnUrl">
-                                        Ya tengo cuenta
-                                    </a>
-                                }
-                                else
-                                {
-                                    <button type="button" class="btn public-btn @(plan.IsFeatured ? "public-btn-primary" : "public-btn-secondary") w-100" disabled>Configuracion pendiente</button>
-                                }
-                            }
-                        </article>
-                    </div>
-                }
+            <div class="status-card" data-aos="fade-up">
+                <span class="status-kicker">Planes no disponibles</span>
+                <h2>No hay planes activos configurados en este entorno.</h2>
+                <p>Cuando exista al menos un plan comercial activo, esta vista lo mostrará automáticamente.</p>
             </div>
         }
 
@@ -686,96 +387,3 @@
     </div>
 </section>
 
-@section Styles {
-    <style>
-        .billing-toggle-panel--stacked { display: flex; flex-direction: column; align-items: stretch; gap: 0.85rem; }
-        .billing-toggle-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
-        .wa-advanced { border-top: 1px solid rgba(148, 163, 184, 0.25); padding-top: 0.85rem; transition: opacity 0.15s; }
-        .wa-advanced--disabled { opacity: 0.45; pointer-events: none; }
-        .wa-field-label { display: block; font-size: 0.8rem; font-weight: 700; margin-bottom: 0.35rem; }
-        .wa-field { width: 100%; }
-        .wa-advanced .form-check-label { font-size: 0.85rem; }
-        .wa-help-text { font-size: 0.78rem; color: #64748b; margin: 0; }
-        .wa-automation-status { font-size: 0.85rem; font-weight: 600; align-self: center; }
-        .wa-automation-status.is-success { color: #15803d; }
-        .wa-automation-status.is-error { color: #b91c1c; }
-        .wa-automation-status.is-warning { color: #b45309; }
-        @@media (max-width: 575.98px) {
-            .wa-automation-status { text-align: center; }
-            #waAutomationSave { width: 100%; }
-        }
-    </style>
-}
-
-@section Scripts {
-    <script>
-        (function () {
-            "use strict";
-            var form = document.getElementById("waAutomationForm");
-            if (!form) return;
-
-            // Habilitar/deshabilitar la configuración avanzada según el toggle maestro.
-            document.querySelectorAll(".wa-master-toggle").forEach(function (toggle) {
-                toggle.addEventListener("change", function () {
-                    var target = document.getElementById(toggle.dataset.target);
-                    if (target) target.classList.toggle("wa-advanced--disabled", !toggle.checked);
-                });
-            });
-
-            // Modo relativo vs lote: muestra el panel correspondiente.
-            document.querySelectorAll(".wa-mode-select").forEach(function (sel) {
-                sel.addEventListener("change", function () {
-                    var prefix = sel.dataset.prefix;
-                    var isBatch = sel.value === "batch";
-                    var rel = form.querySelector('[data-mode="' + prefix + '-relative"]');
-                    var bat = form.querySelector('[data-mode="' + prefix + '-batch"]');
-                    if (rel) rel.classList.toggle("d-none", isBatch);
-                    if (bat) bat.classList.toggle("d-none", !isBatch);
-                });
-            });
-
-            // Ventana de mañana solo visible para el target "mañana siguiente".
-            document.querySelectorAll(".wa-target-select").forEach(function (sel) {
-                sel.addEventListener("change", function () {
-                    var win = form.querySelector('.wa-morning-window[data-prefix="' + sel.dataset.prefix + '"]');
-                    if (win) win.classList.toggle("d-none", sel.value !== "TomorrowMorning");
-                });
-            });
-
-            var statusEl = document.getElementById("waAutomationStatus");
-            var saveBtn = document.getElementById("waAutomationSave");
-
-            function setStatus(text, kind) {
-                if (!statusEl) return;
-                statusEl.textContent = text || "";
-                statusEl.classList.remove("is-success", "is-error", "is-warning");
-                if (kind) statusEl.classList.add("is-" + kind);
-            }
-
-            form.addEventListener("submit", async function (e) {
-                e.preventDefault();
-                setStatus("Guardando…", null);
-                if (saveBtn) saveBtn.disabled = true;
-
-                try {
-                    var resp = await fetch(form.getAttribute("action"), {
-                        method: "POST",
-                        headers: { "X-Requested-With": "XMLHttpRequest" },
-                        body: new FormData(form)
-                    });
-                    var data = await resp.json();
-                    if (data && data.success) {
-                        setStatus(data.warning || data.message, data.warning ? "warning" : "success");
-                    } else {
-                        setStatus((data && data.message) || "No fue posible guardar.", "error");
-                    }
-                } catch (err) {
-                    console.error("Error guardando automatizaciones WhatsApp", err);
-                    setStatus("No fue posible guardar. Intenta de nuevo.", "error");
-                } finally {
-                    if (saveBtn) saveBtn.disabled = false;
-                }
-            });
-        })();
-    </script>
-}

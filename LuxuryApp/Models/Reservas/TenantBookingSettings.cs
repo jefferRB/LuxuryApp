@@ -45,6 +45,9 @@ namespace LuxuryApp.Models.Reservas
 
         public bool PublicBookingAllowAnyEmployee { get; set; } = true;
 
+        /// <summary>Interruptor maestro: si se muestran fotos de funcionarios en el link público. Default true.</summary>
+        public bool PublicBookingShowEmployeePhotos { get; set; } = true;
+
         public int PublicBookingMinAdvanceMinutes { get; set; } = DefaultMinAdvanceMinutes;
 
         public int PublicBookingMaxDaysAhead { get; set; } = DefaultMaxDaysAhead;

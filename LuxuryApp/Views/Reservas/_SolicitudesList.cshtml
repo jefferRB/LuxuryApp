@@ -1,5 +1,6 @@
 @model LuxuryApp.Models.Reservas.BookingRequestsPageViewModel
 @using LuxuryApp.Models.Reservas
+@using LuxuryApp.Models.WhatsApp
 
 @if (Model.Solicitudes.Count == 0)
 {
@@ -58,6 +59,19 @@ else
                 @if (s.Estado == BookingRequestStates.Confirmed && s.ConvertedCitaId.HasValue)
                 {
                     <div class="reservas-nota rsv-ok"><i class="bi bi-check2-circle"></i> Cita #@s.ConvertedCitaId creada en el calendario.</div>
+
+                    if (s.ConfirmacionWhatsAppEnviada)
+                    {
+                        <div class="reservas-nota rsv-ok"><i class="bi bi-whatsapp"></i> Confirmación de WhatsApp enviada.</div>
+                    }
+                    else if (s.ConfirmacionWhatsAppEstado == WhatsAppConfirmationStates.ErrorEnvio)
+                    {
+                        <div class="reservas-nota rsv-motivo"><i class="bi bi-whatsapp"></i> No se pudo enviar la confirmación de WhatsApp.</div>
+                    }
+                    else if (s.ConfirmacionWhatsAppEstado == WhatsAppConfirmationStates.NoEnviada)
+                    {
+                        <div class="reservas-nota rsv-dim"><i class="bi bi-whatsapp"></i> Confirmación de WhatsApp no enviada.</div>
+                    }
                 }
 
                 <footer class="reservas-card-foot">

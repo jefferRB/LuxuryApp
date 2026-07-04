@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using LuxuryApp.Controllers;
+using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Payments;
@@ -10,6 +11,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
@@ -1217,7 +1219,9 @@ namespace LuxuryApp.Tests.TenantIsolation
             var model = Assert.IsType<ResultadoCheckoutViewModel>(view.Model);
             Assert.Equal("Exito", view.ViewName);
             Assert.False(model.SuscripcionActiva);
-            Assert.Equal("/Billing/Planes", model.PrimaryActionUrl);
+            // Tras el split de suscripcion, un tenant autenticado vuelve a su pagina privada
+            // /Billing/Suscripcion (no al pricing publico /Billing/Planes).
+            Assert.Equal("/Billing/Suscripcion", model.PrimaryActionUrl);
             Assert.Contains("No pudimos confirmar automaticamente este pago", model.MensajePrincipal, StringComparison.OrdinalIgnoreCase);
         }
 
@@ -1404,6 +1408,177 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(providerOrderNumber, model.Referencia);
         }
 
+        [Fact]
+        public async Task CheckoutCalculadora_WhenUserCannotBeResolved_ShouldChallenge()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            using var userManager = CreateUserManager(context);
+
+            var controller = CreateBillingController(context, userManager);
+            controller.ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = BuildPrincipal(Guid.NewGuid().ToString(), Guid.NewGuid())
+                }
+            };
+
+            var result = await controller.CheckoutCalculadora(1, "Monthly", CancellationToken.None);
+
+            Assert.IsType<ChallengeResult>(result);
+        }
+
+        [Theory]
+        [InlineData(0, "Monthly")]
+        [InlineData(12, "Monthly")]
+        [InlineData(99, "Annual")]
+        public async Task CheckoutCalculadora_OutOfRangeWorkers_ShouldRedirectWithoutCharging(int workers, string cycle)
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            using var userManager = CreateUserManager(context);
+
+            var tenantId = Guid.NewGuid();
+            var user = await SeedAuthenticatedUserAsync(context, userManager, tenantId, "calc-range@test.local");
+
+            var controller = CreateBillingController(context, userManager, CreateCalculatorCatalog());
+            controller.ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext { User = BuildPrincipal(user.Id, tenantId) }
+            };
+            controller.TempData = new TempDataDictionary(controller.HttpContext, Mock_TempDataProvider());
+
+            var result = await controller.CheckoutCalculadora(workers, cycle, CancellationToken.None);
+
+            var redirect = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal(nameof(BillingController.Suscripcion), redirect.ActionName);
+            Assert.True(controller.TempData.ContainsKey("BillingError"));
+        }
+
+        [Fact]
+        public async Task CheckoutCalculadora_UnconfiguredCombination_ShouldRedirectWithError()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            using var userManager = CreateUserManager(context);
+
+            var tenantId = Guid.NewGuid();
+            var user = await SeedAuthenticatedUserAsync(context, userManager, tenantId, "calc-unconfigured@test.local");
+
+            // Catalogo vacio: ninguna combinacion configurada => no comprable.
+            var controller = CreateBillingController(context, userManager);
+            controller.ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext { User = BuildPrincipal(user.Id, tenantId) }
+            };
+            controller.TempData = new TempDataDictionary(controller.HttpContext, Mock_TempDataProvider());
+
+            var result = await controller.CheckoutCalculadora(9, "Monthly", CancellationToken.None);
+
+            var redirect = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal(nameof(BillingController.Suscripcion), redirect.ActionName);
+            Assert.True(controller.TempData.ContainsKey("BillingError"));
+        }
+
+        [Fact]
+        public async Task CheckoutCalculadora_BelowActiveFuncionarios_ShouldBlock()
+        {
+            var tenantProvider = new TestTenantProvider();
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            using var userManager = CreateUserManager(context);
+
+            var tenantId = Guid.NewGuid();
+            tenantProvider.TenantId = tenantId;
+
+            var user = await SeedAuthenticatedUserAsync(context, userManager, tenantId, "calc-floor@test.local");
+            await SeedActiveFuncionariosAsync(context, count: 3);
+
+            var controller = CreateBillingController(context, userManager, CreateCalculatorCatalog());
+            controller.ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext { User = BuildPrincipal(user.Id, tenantId) }
+            };
+            controller.TempData = new TempDataDictionary(controller.HttpContext, Mock_TempDataProvider());
+
+            // Tiene 3 funcionarios activos: no puede elegir un plan de 2.
+            var result = await controller.CheckoutCalculadora(2, "Monthly", CancellationToken.None);
+
+            var redirect = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal(nameof(BillingController.Suscripcion), redirect.ActionName);
+            Assert.True(controller.TempData.ContainsKey("BillingError"));
+        }
+
+        private static async Task<AppUsuario> SeedAuthenticatedUserAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            UserManager<AppUsuario> userManager,
+            Guid tenantId,
+            string email)
+        {
+            if (!await context.Tenants.IgnoreQueryFilters().AnyAsync(t => t.Id == tenantId))
+            {
+                context.Tenants.Add(new Tenant { Id = tenantId, Nombre = "Tenant Calc", Activo = true });
+                await context.SaveChangesAsync();
+            }
+
+            var user = new AppUsuario
+            {
+                Id = Guid.NewGuid().ToString(),
+                UserName = email,
+                NormalizedUserName = email.ToUpperInvariant(),
+                Email = email,
+                NormalizedEmail = email.ToUpperInvariant(),
+                Name = "Owner",
+                TenantId = tenantId,
+                State = true
+            };
+            context.Users.Add(user);
+            await context.SaveChangesAsync();
+            return user;
+        }
+
+        private static async Task SeedActiveFuncionariosAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            int count)
+        {
+            var puesto = new Puesto
+            {
+                NombrePuesto = $"Puesto {Guid.NewGuid():N}",
+                Detalle = "Operativo",
+                Activo = true
+            };
+            context.Puestos.Add(puesto);
+            await context.SaveChangesAsync();
+
+            for (var i = 0; i < count; i++)
+            {
+                context.Funcionarios.Add(new Funcionario
+                {
+                    Nombre = $"Func {i}",
+                    IdPuesto = puesto.IdPuesto,
+                    ColorCalendario = "#333333",
+                    PorcentajeGanancia = 30m,
+                    PorcentajeProducto = 10m,
+                    FechaIngreso = new DateTime(2026, 1, 1),
+                    Activo = true
+                });
+            }
+            await context.SaveChangesAsync();
+        }
+
+        private static ITempDataProvider Mock_TempDataProvider() => new NullTempDataProvider();
+
+        private sealed class NullTempDataProvider : ITempDataProvider
+        {
+            public IDictionary<string, object?> LoadTempData(HttpContext context) => new Dictionary<string, object?>();
+            public void SaveTempData(HttpContext context, IDictionary<string, object?> values) { }
+        }
+
         private static (ProyectoIdentity.Datos.ApplicationDbContext Context, IDisposable Connection) CreateSystemContext()
         {
             var tenantProvider = new TestTenantProvider();
@@ -1435,7 +1610,8 @@ namespace LuxuryApp.Tests.TenantIsolation
 
         private static BillingController CreateBillingController(
             ProyectoIdentity.Datos.ApplicationDbContext context,
-            UserManager<AppUsuario> userManager) =>
+            UserManager<AppUsuario> userManager,
+            LuxuryApp.Services.SaaS.ISubscriptionPricingCatalog? pricingCatalog = null) =>
             new(
                 NullLogger<BillingController>.Instance,
                 context,
@@ -1447,10 +1623,38 @@ namespace LuxuryApp.Tests.TenantIsolation
                 null!,
                 userManager,
                 null!,
+                null!,
+                pricingCatalog ?? new LuxuryApp.Services.SaaS.SubscriptionPricingCatalog(Options.Create(new TilopayRepeatOptions())),
+                new LuxuryApp.Services.SaaS.PlanChangeService(context, NullLogger<LuxuryApp.Services.SaaS.PlanChangeService>.Instance),
                 new LuxuryApp.Tests.Support.TestWebHostEnvironment(),
                 Options.Create(new OpcionesTilopay()),
                 Options.Create(new OpcionesPago()),
                 Options.Create(new TilopayRepeatOptions()));
+
+        private static LuxuryApp.Services.SaaS.ISubscriptionPricingCatalog CreateCalculatorCatalog()
+        {
+            var options = new TilopayRepeatOptions { Enabled = true, UseHostedLinks = true };
+            options.Calculator.AddRange(new[]
+            {
+                CalculatorOption(1, 6119, 8000m),
+                CalculatorOption(2, 6126, 15000m),
+                CalculatorOption(3, 6127, 20000m)
+            });
+            return new LuxuryApp.Services.SaaS.SubscriptionPricingCatalog(Options.Create(options));
+        }
+
+        private static TilopayRepeatPlanOption CalculatorOption(int workers, int planId, decimal charge) => new()
+        {
+            Code = PlanCodes.BuildCalculatorCode(workers, BillingCycle.Monthly)!,
+            TilopayPlanId = planId,
+            MonthlyPrice = charge,
+            BillingCycle = BillingCycle.Monthly,
+            Currency = "CRC",
+            MaxFuncionarios = workers,
+            CheckoutUrl = $"https://tp.cr/l/calc-{workers}",
+            UsesRecurringCheckout = true,
+            IsPublic = true
+        };
 
         private static SuscripcionService CreateSubscriptionService(
             ProyectoIdentity.Datos.ApplicationDbContext context)

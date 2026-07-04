@@ -21,5 +21,16 @@ namespace LuxuryApp.Models.Finanzas
         public bool Activo { get; set; } = true;
 
         public int? DuracionMinutos { get; set; }
+
+        // ─────────────── Configuración fiscal (opcional; hereda del tenant) ───────────────
+
+        /// <summary>Si el servicio está sujeto a IVA. Default true.</summary>
+        public bool AplicaIva { get; set; } = LuxuryApp.Models.Fiscal.FiscalDefaults.AplicaIvaPorDefecto;
+
+        /// <summary>Tarifa de IVA propia, en porcentaje. Null → hereda la tarifa del tenant.</summary>
+        public decimal? TarifaIva { get; set; }
+
+        /// <summary>Si el precio incluye IVA. Null → hereda la configuración del tenant.</summary>
+        public bool? PrecioIncluyeIva { get; set; }
     }
 }

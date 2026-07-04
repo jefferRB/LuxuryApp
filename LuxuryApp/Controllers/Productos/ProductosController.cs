@@ -51,6 +51,9 @@ namespace LuxuryApp.Controllers.Productos
                 nameof(Producto.PrecioProducto),
                 nameof(Producto.CantidadProducto),
                 nameof(Producto.StockMinimo),
+                nameof(Producto.AplicaIva),
+                nameof(Producto.TarifaIva),
+                nameof(Producto.PrecioIncluyeIva),
                 Prefix = "Producto")]
             Producto producto,
             CancellationToken cancellationToken)
@@ -106,6 +109,9 @@ namespace LuxuryApp.Controllers.Productos
                 nameof(Producto.PrecioProducto),
                 nameof(Producto.CantidadProducto),
                 nameof(Producto.StockMinimo),
+                nameof(Producto.AplicaIva),
+                nameof(Producto.TarifaIva),
+                nameof(Producto.PrecioIncluyeIva),
                 Prefix = "Producto")]
             Producto producto,
             CancellationToken cancellationToken)
@@ -170,7 +176,10 @@ namespace LuxuryApp.Controllers.Productos
                 DetalleProducto = producto.DetalleProducto,
                 PrecioProducto = producto.PrecioProducto,
                 CantidadProducto = producto.CantidadProducto,
-                StockMinimo = producto.StockMinimo
+                StockMinimo = producto.StockMinimo,
+                AplicaIva = producto.AplicaIva,
+                TarifaIva = producto.TarifaIva,
+                PrecioIncluyeIva = producto.PrecioIncluyeIva
             };
         }
     }

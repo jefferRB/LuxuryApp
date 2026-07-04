@@ -8,8 +8,14 @@ namespace LuxuryApp.Services.Reservas
         public string Message { get; init; } = string.Empty;
         public int? CitaId { get; init; }
 
-        public static BookingActionResult Ok(string message, int? citaId = null) =>
-            new() { Success = true, Message = message, CitaId = citaId };
+        /// <summary>
+        /// Estado del envío de la confirmación por WhatsApp tras aprobar la reserva:
+        /// "sent" | "pending" | "skipped" | "failed" | null (no aplica). Solo para la UI.
+        /// </summary>
+        public string? WhatsAppStatus { get; init; }
+
+        public static BookingActionResult Ok(string message, int? citaId = null, string? whatsAppStatus = null) =>
+            new() { Success = true, Message = message, CitaId = citaId, WhatsAppStatus = whatsAppStatus };
 
         public static BookingActionResult Fail(string message) =>
             new() { Success = false, Message = message };

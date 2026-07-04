@@ -768,6 +768,160 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Single(messages, m => m.Status == WhatsAppMessageStatuses.Pending);
         }
 
+        // --- SendConfirmationNowAsync: "reserva online aprobada = cita confirmada" ---
+
+        [Fact]
+        public async Task SendConfirmationNow_WhenValid_ShouldSendImmediatelyAndMarkCita()
+        {
+            // Escenario 1: al aprobar la reserva se envía la confirmación y se registra.
+            using var fixture = await Fixture.CreateAsync();
+            // Cita a 2 días: en modo relativo se programaría 24h antes; SendConfirmationNow la fuerza ya.
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 28, 10, 0, 0));
+
+            var result = await fixture.Notifications.SendConfirmationNowAsync(cita.Id, "ReservaOnlineAprobada");
+
+            Assert.Equal(WhatsAppConfirmationOutcome.Sent, result.Outcome);
+            Assert.Equal(1, fixture.MetaClient.SendCount);
+
+            var message = await fixture.Context.WhatsAppMessageLogs
+                .SingleAsync(m => m.NotificationType == WhatsAppNotificationTypes.Confirmation);
+            Assert.Equal(WhatsAppMessageStatuses.Sent, message.Status);
+
+            var updatedCita = await fixture.Context.Citas.AsNoTracking().SingleAsync(c => c.Id == cita.Id);
+            Assert.NotNull(updatedCita.ConfirmacionWhatsAppEnviadaUtc);
+            Assert.True(updatedCita.ConfirmacionEnviada);
+        }
+
+        [Fact]
+        public async Task SendConfirmationNow_InBatchMode_ShouldSendNowAndBatchShouldNotResend()
+        {
+            // Escenario 3: la confirmación inmediata al aprobar impide que el lote de las 7am reenvíe.
+            using var fixture = await Fixture.CreateAsync();
+            await fixture.UpdateAutomationAsync(new TenantWhatsAppSettingsUpdateDto
+            {
+                IsEnabled = true,
+                SendConfirmationOnCreate = true,
+                SendReminderThreeHoursBefore = true,
+                DailyMessageLimit = 30,
+                ConfirmationScheduleMode = WhatsAppConfirmationScheduleModes.DailyBatchPreviousDay,
+                ConfirmationBatchTime = new TimeOnly(9, 0),
+                ConfirmationBatchTarget = WhatsAppConfirmationBatchTargets.TomorrowAllDay
+            });
+
+            // Cita de mañana: en modo lote NO se encolaría al crear; SendConfirmationNow la fuerza.
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 27, 14, 0, 0));
+
+            var result = await fixture.Notifications.SendConfirmationNowAsync(cita.Id, "ReservaOnlineAprobada");
+            Assert.Equal(WhatsAppConfirmationOutcome.Sent, result.Outcome);
+            Assert.Equal(1, fixture.MetaClient.SendCount);
+
+            // El lote diario NO debe reenviar: ya existe una confirmación enviada.
+            await fixture.Notifications.GenerateDailyBatchAsync();
+            await fixture.Notifications.ProcessPendingNotificationsAsync();
+
+            Assert.Equal(1, fixture.MetaClient.SendCount);
+            var confirmations = await fixture.Context.WhatsAppMessageLogs
+                .CountAsync(m => m.CitaId == cita.Id && m.NotificationType == WhatsAppNotificationTypes.Confirmation);
+            Assert.Equal(1, confirmations);
+        }
+
+        [Fact]
+        public async Task SendConfirmationNow_CalledTwice_ShouldNotDuplicate()
+        {
+            // Escenario 2: doble click / reintento no debe enviar ni registrar dos veces.
+            using var fixture = await Fixture.CreateAsync();
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 28, 10, 0, 0));
+
+            var first = await fixture.Notifications.SendConfirmationNowAsync(cita.Id, "ReservaOnlineAprobada");
+            var second = await fixture.Notifications.SendConfirmationNowAsync(cita.Id, "ReservaOnlineAprobada");
+
+            Assert.Equal(WhatsAppConfirmationOutcome.Sent, first.Outcome);
+            Assert.Equal(WhatsAppConfirmationOutcome.AlreadySent, second.Outcome);
+            Assert.Equal(1, fixture.MetaClient.SendCount);
+            var confirmations = await fixture.Context.WhatsAppMessageLogs
+                .CountAsync(m => m.CitaId == cita.Id && m.NotificationType == WhatsAppNotificationTypes.Confirmation);
+            Assert.Equal(1, confirmations);
+        }
+
+        [Fact]
+        public async Task SendConfirmationNow_WhenMetaFails_ShouldReturnFailedAndNotMarkSent()
+        {
+            // Escenario 5: si Meta rechaza, la cita sigue creada pero no se marca como enviada.
+            using var fixture = await Fixture.CreateAsync();
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 28, 10, 0, 0));
+            fixture.MetaClient.NextSendResult = MetaWhatsAppSendResult.Failed(
+                "131026",
+                "Message undeliverable",
+                HttpStatusCode.BadRequest,
+                "{\"error\":{\"message\":\"Message undeliverable\",\"code\":131026}}",
+                shouldRetry: false);
+
+            var result = await fixture.Notifications.SendConfirmationNowAsync(cita.Id, "ReservaOnlineAprobada");
+
+            Assert.Equal(WhatsAppConfirmationOutcome.Failed, result.Outcome);
+            var message = await fixture.Context.WhatsAppMessageLogs
+                .SingleAsync(m => m.NotificationType == WhatsAppNotificationTypes.Confirmation);
+            Assert.Equal(WhatsAppMessageStatuses.Failed, message.Status);
+
+            var updatedCita = await fixture.Context.Citas.AsNoTracking().SingleAsync(c => c.Id == cita.Id);
+            Assert.Null(updatedCita.ConfirmacionWhatsAppEnviadaUtc);
+            Assert.Equal(WhatsAppConfirmationStates.ErrorEnvio, updatedCita.EstadoConfirmacionWhatsApp);
+        }
+
+        [Fact]
+        public async Task SendConfirmationNow_WhenTenantDisabled_ShouldSkipWithoutSending()
+        {
+            // Escenario 6: WhatsApp desactivado → no intenta enviar, devuelve Skipped.
+            using var fixture = await Fixture.CreateAsync();
+            await fixture.UpdateSettingsAsync(isEnabled: false);
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 28, 10, 0, 0));
+
+            var result = await fixture.Notifications.SendConfirmationNowAsync(cita.Id, "ReservaOnlineAprobada");
+
+            Assert.Equal(WhatsAppConfirmationOutcome.Skipped, result.Outcome);
+            Assert.Equal(0, fixture.MetaClient.SendCount);
+            var message = await fixture.Context.WhatsAppMessageLogs
+                .SingleAsync(m => m.NotificationType == WhatsAppNotificationTypes.Confirmation);
+            Assert.Equal(WhatsAppMessageStatuses.SkippedTenantDisabled, message.Status);
+        }
+
+        [Fact]
+        public async Task SendConfirmationNow_WhenPhoneInvalid_ShouldSkipWithoutSending()
+        {
+            // Escenario 7: teléfono inválido → no revienta, se registra el motivo, devuelve Skipped.
+            using var fixture = await Fixture.CreateAsync();
+            var cita = await fixture.SeedCitaAsync(phone: "invalid", fechaHora: new DateTime(2026, 5, 28, 10, 0, 0));
+
+            var result = await fixture.Notifications.SendConfirmationNowAsync(cita.Id, "ReservaOnlineAprobada");
+
+            Assert.Equal(WhatsAppConfirmationOutcome.Skipped, result.Outcome);
+            Assert.Equal(0, fixture.MetaClient.SendCount);
+            var message = await fixture.Context.WhatsAppMessageLogs
+                .SingleAsync(m => m.NotificationType == WhatsAppNotificationTypes.Confirmation);
+            Assert.Equal(WhatsAppMessageStatuses.SkippedInvalidPhone, message.Status);
+        }
+
+        [Fact]
+        public async Task SendConfirmationNow_ThenReminderStillWorks()
+        {
+            // Escenario 4: tras la confirmación inmediata, el recordatorio sigue enviándose normal.
+            using var fixture = await Fixture.CreateAsync();
+            // Cita a 2h del now: dentro de la ventana de recordatorio (3h) y de confirmación (24h).
+            var cita = await fixture.SeedCitaAsync(fechaHora: new DateTime(2026, 5, 26, 12, 30, 0));
+
+            var result = await fixture.Notifications.SendConfirmationNowAsync(cita.Id, "ReservaOnlineAprobada");
+            Assert.Equal(WhatsAppConfirmationOutcome.Sent, result.Outcome);
+
+            // El recordatorio se encola y envía por separado (no lo bloquea la confirmación).
+            await fixture.Notifications.QueueAppointmentReminderAsync(cita.Id);
+            await fixture.Notifications.ProcessPendingNotificationsAsync();
+
+            Assert.Equal(2, fixture.MetaClient.SendCount);
+            var reminder = await fixture.Context.WhatsAppMessageLogs
+                .SingleAsync(m => m.NotificationType == WhatsAppNotificationTypes.Reminder3Hours);
+            Assert.Equal(WhatsAppMessageStatuses.Sent, reminder.Status);
+        }
+
         private sealed class Fixture : IDisposable
         {
             private readonly Microsoft.Data.Sqlite.SqliteConnection _connection;

@@ -77,6 +77,145 @@ namespace LuxuryApp.Services.Calendar
             await ProcessPendingNotificationsAsync(cancellationToken);
         }
 
+        public async Task<WhatsAppConfirmationSendResult> SendConfirmationNowAsync(
+            int citaId,
+            string source,
+            CancellationToken cancellationToken = default)
+        {
+            // 1. Idempotencia dura: si ya hay una confirmación enviada/entregada/leída, no reenviar.
+            var alreadySent = await _context.WhatsAppMessageLogs
+                .AsNoTracking()
+                .AnyAsync(message =>
+                    message.CitaId == citaId &&
+                    message.Direction == WhatsAppMessageDirections.Outbound &&
+                    message.NotificationType == WhatsAppNotificationTypes.Confirmation &&
+                    (message.Status == WhatsAppMessageStatuses.Sent ||
+                     message.Status == WhatsAppMessageStatuses.Delivered ||
+                     message.Status == WhatsAppMessageStatuses.Read),
+                    cancellationToken);
+
+            if (alreadySent)
+            {
+                _logger.LogInformation(
+                    "Confirmacion WhatsApp inmediata omitida: ya estaba enviada. CitaId {CitaId}. Source {Source}.",
+                    citaId, source);
+                return new WhatsAppConfirmationSendResult(
+                    WhatsAppConfirmationOutcome.AlreadySent,
+                    "La confirmación de WhatsApp ya había sido enviada.");
+            }
+
+            // 2. Si la creación de la cita dejó una confirmación pendiente/programada (modo relativo),
+            //    la adelantamos para envío inmediato en vez de crear una nueva (evita duplicados).
+            await _context.WhatsAppMessageLogs
+                .Where(message =>
+                    message.CitaId == citaId &&
+                    message.Direction == WhatsAppMessageDirections.Outbound &&
+                    message.NotificationType == WhatsAppNotificationTypes.Confirmation &&
+                    message.Status == WhatsAppMessageStatuses.Pending)
+                .ExecuteUpdateAsync(updates => updates
+                    .SetProperty(message => message.NextAttemptAtUtc, (DateTime?)null),
+                    cancellationToken);
+
+            // 3. Encolar forzando envío inmediato. La verificación interna de duplicados evita crear
+            //    otra fila si ya existía una pendiente (recién adelantada) o cualquier estado activo.
+            await QueueAppointmentAsync(
+                citaId,
+                WhatsAppNotificationTypes.Confirmation,
+                isBatchGenerated: false,
+                cancellationToken,
+                forceImmediate: true);
+
+            // 4. Procesar la cola para intentar el envío ahora mismo.
+            await ProcessPendingNotificationsAsync(cancellationToken);
+
+            // 5. Leer el estado final del log de confirmación para informar honestamente.
+            var log = await _context.WhatsAppMessageLogs
+                .AsNoTracking()
+                .Where(message =>
+                    message.CitaId == citaId &&
+                    message.Direction == WhatsAppMessageDirections.Outbound &&
+                    message.NotificationType == WhatsAppNotificationTypes.Confirmation)
+                .OrderByDescending(message => message.Id)
+                .Select(message => new { message.Status, message.ErrorCode })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "Confirmacion WhatsApp inmediata procesada. CitaId {CitaId}. Source {Source}. Estado {Status}.",
+                citaId, source, log?.Status ?? "SinLog");
+
+            return MapConfirmationResult(log?.Status, log?.ErrorCode);
+        }
+
+        private static WhatsAppConfirmationSendResult MapConfirmationResult(string? status, string? errorCode)
+        {
+            if (status is null)
+            {
+                return new WhatsAppConfirmationSendResult(
+                    WhatsAppConfirmationOutcome.Skipped,
+                    "No se envió la confirmación de WhatsApp (no aplicable para esta cita).");
+            }
+
+            return status switch
+            {
+                WhatsAppMessageStatuses.Sent or
+                WhatsAppMessageStatuses.Delivered or
+                WhatsAppMessageStatuses.Read =>
+                    new WhatsAppConfirmationSendResult(
+                        WhatsAppConfirmationOutcome.Sent,
+                        "Confirmación de WhatsApp enviada."),
+
+                WhatsAppMessageStatuses.Pending or
+                WhatsAppMessageStatuses.Processing =>
+                    new WhatsAppConfirmationSendResult(
+                        WhatsAppConfirmationOutcome.Pending,
+                        "La confirmación de WhatsApp quedó en cola y se enviará en breve."),
+
+                WhatsAppMessageStatuses.Failed =>
+                    new WhatsAppConfirmationSendResult(
+                        WhatsAppConfirmationOutcome.Failed,
+                        "No se pudo enviar la confirmación de WhatsApp. Podés reintentarla.",
+                        errorCode),
+
+                WhatsAppMessageStatuses.SkippedInvalidPhone =>
+                    new WhatsAppConfirmationSendResult(
+                        WhatsAppConfirmationOutcome.Skipped,
+                        "No se envió la confirmación: el teléfono del cliente no es válido para WhatsApp.",
+                        errorCode),
+
+                WhatsAppMessageStatuses.SkippedConsentMissing =>
+                    new WhatsAppConfirmationSendResult(
+                        WhatsAppConfirmationOutcome.Skipped,
+                        "No se envió la confirmación: el cliente no autorizó mensajes de WhatsApp.",
+                        errorCode),
+
+                WhatsAppMessageStatuses.SkippedTenantDisabled or
+                WhatsAppMessageStatuses.SkippedUserDisabled =>
+                    new WhatsAppConfirmationSendResult(
+                        WhatsAppConfirmationOutcome.Skipped,
+                        "No se envió la confirmación: WhatsApp está desactivado.",
+                        errorCode),
+
+                WhatsAppMessageStatuses.SkippedSubscriptionRequired =>
+                    new WhatsAppConfirmationSendResult(
+                        WhatsAppConfirmationOutcome.Skipped,
+                        "No se envió la confirmación: se requiere el complemento de WhatsApp activo.",
+                        errorCode),
+
+                WhatsAppMessageStatuses.SkippedDailyLimitExceeded or
+                WhatsAppMessageStatuses.SkippedMonthlyLimitExceeded =>
+                    new WhatsAppConfirmationSendResult(
+                        WhatsAppConfirmationOutcome.Skipped,
+                        "No se envió la confirmación: se alcanzó el límite de mensajes de WhatsApp.",
+                        errorCode),
+
+                _ =>
+                    new WhatsAppConfirmationSendResult(
+                        WhatsAppConfirmationOutcome.Skipped,
+                        "No se envió la confirmación de WhatsApp por la configuración actual.",
+                        errorCode)
+            };
+        }
+
         public Task QueueAppointmentConfirmationAsync(int citaId, CancellationToken cancellationToken = default) =>
             QueueAppointmentAsync(citaId, WhatsAppNotificationTypes.Confirmation, isBatchGenerated: false, cancellationToken);
 
@@ -596,7 +735,8 @@ namespace LuxuryApp.Services.Calendar
             int citaId,
             string notificationType,
             bool isBatchGenerated,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool forceImmediate = false)
         {
             var options = _options.CurrentValue;
             var cita = await _context.Citas
@@ -660,7 +800,8 @@ namespace LuxuryApp.Services.Calendar
 
             // En modo lote, las confirmaciones NO se encolan al crear la cita; las genera
             // GenerateDailyBatchAsync a la hora configurada. Solo el job de lote (isBatchGenerated) encola.
-            if (notificationType == WhatsAppNotificationTypes.Confirmation && confirmationIsBatchMode && !isBatchGenerated)
+            // Excepción: forceImmediate (p. ej. reserva online aprobada) fuerza el envío ahora mismo.
+            if (notificationType == WhatsAppNotificationTypes.Confirmation && confirmationIsBatchMode && !isBatchGenerated && !forceImmediate)
             {
                 return;
             }
@@ -668,7 +809,10 @@ namespace LuxuryApp.Services.Calendar
             // Si la cita ya entró en la ventana del recordatorio (modo relativo) y los recordatorios
             // están activos, NO se envía confirmación: basta el recordatorio. Se omite en silencio
             // (sin registrar log) para que el listado NO muestre "error/omitida" de confirmación.
+            // Excepción: forceImmediate exige la confirmación (reserva aprobada = cita confirmada);
+            // el recordatorio sigue su curso normal por separado.
             if (notificationType == WhatsAppNotificationTypes.Confirmation &&
+                !forceImmediate &&
                 scheduleSettings.SendReminderThreeHoursBefore &&
                 string.Equals(scheduleSettings.ReminderScheduleMode, WhatsAppReminderScheduleModes.RelativeBeforeAppointment, StringComparison.Ordinal) &&
                 IsReminderInsideWindow(cita, ResolveReminderLeadMinutes(scheduleSettings)))
@@ -691,7 +835,26 @@ namespace LuxuryApp.Services.Calendar
             DateTime? scheduledSendAtUtc = null;
             if (notificationType == WhatsAppNotificationTypes.Confirmation)
             {
-                if (isBatchGenerated || confirmationIsBatchMode)
+                if (forceImmediate)
+                {
+                    // Reserva online aprobada: enviar ya. Solo se omite si la cita ya venció.
+                    if (IsAppointmentPast(cita.FechaHoraCita))
+                    {
+                        await RegisterSkippedOutboundAsync(
+                            cita,
+                            notificationType,
+                            WhatsAppMessageStatuses.SkippedNotEligible,
+                            WhatsAppErrorCodes.AppointmentExpired,
+                            "La cita ya venció; no se envía la confirmacion.",
+                            todayUsage: null,
+                            dailyMessageLimit: null,
+                            cancellationToken);
+                        return;
+                    }
+
+                    scheduledSendAtUtc = null;
+                }
+                else if (isBatchGenerated || confirmationIsBatchMode)
                 {
                     // El lote ya se ejecuta a la hora configurada: enviar en el próximo ciclo,
                     // salvo que la cita ya haya vencido.

@@ -5,6 +5,7 @@ using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Calendar;
 using LuxuryApp.Services.Comprobantes;
 using LuxuryApp.Services.Finanzas;
+using LuxuryApp.Services.Fiscal;
 using LuxuryApp.Services.WhatsApp;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -22,6 +23,7 @@ namespace LuxuryApp.Controllers.Calendar
         private readonly IComprobanteCobroService _comprobanteService;
         private readonly ITenantWhatsAppFeatureService _tenantWhatsAppFeatureService;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
+        private readonly ICobroFiscalPreviewService _cobroFiscalPreviewService;
 
         public CalendarController(
             ICalendarCommandService calendarCommandService,
@@ -30,7 +32,8 @@ namespace LuxuryApp.Controllers.Calendar
             ICobroService cobroService,
             IComprobanteCobroService comprobanteService,
             ITenantWhatsAppFeatureService tenantWhatsAppFeatureService,
-            IBusinessDateTimeProvider businessDateTimeProvider)
+            IBusinessDateTimeProvider businessDateTimeProvider,
+            ICobroFiscalPreviewService cobroFiscalPreviewService)
         {
             _calendarCommandService = calendarCommandService;
             _calendarQueryService = calendarQueryService;
@@ -39,6 +42,7 @@ namespace LuxuryApp.Controllers.Calendar
             _comprobanteService = comprobanteService;
             _tenantWhatsAppFeatureService = tenantWhatsAppFeatureService;
             _businessDateTimeProvider = businessDateTimeProvider;
+            _cobroFiscalPreviewService = cobroFiscalPreviewService;
         }
 
         public async Task<IActionResult> Index(CancellationToken cancellationToken)
@@ -101,6 +105,31 @@ namespace LuxuryApp.Controllers.Calendar
             return PartialView("_ControlCobrosResultados", model);
         }
 
+        // Desglose fiscal (informativo) para el modal de cobro. El cálculo lo hace el motor
+        // fiscal central en el backend → NO hay fórmula de IVA duplicada en el frontend.
+        [HttpGet("Calendar/PreviewCobroFiscal")]
+        public async Task<IActionResult> PreviewCobroFiscal(
+            int citaId,
+            decimal monto,
+            CancellationToken cancellationToken)
+        {
+            var preview = await _cobroFiscalPreviewService.PreviewCitaAsync(citaId, monto, cancellationToken);
+            if (preview is null)
+            {
+                return BadRequest(new { error = "La cita no existe o no pertenece a tu negocio." });
+            }
+
+            return Ok(new
+            {
+                total = preview.Total,
+                baseSinIva = preview.BaseSinIva,
+                iva = preview.IvaIncluido,
+                tarifaIva = preview.TarifaIva,
+                aplicaIva = preview.AplicaIva,
+                tipoLinea = preview.TipoLinea
+            });
+        }
+
         [HttpPost("Calendar/CobrarCita")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> CobrarCita(
@@ -131,16 +160,13 @@ namespace LuxuryApp.Controllers.Calendar
                 return BadRequest(new { error = "La cita no existe o no pertenece a tu negocio." });
             }
 
-            if (!cita.ServicioId.HasValue)
-            {
-                return BadRequest(new { error = "Esta cita usa un servicio personalizado y debe cobrarse desde el módulo de cobros." });
-            }
-
             if (cita.YaCobrada)
             {
                 return BadRequest(new { error = "Esta cita ya tiene un cobro registrado." });
             }
 
+            // Una cita con servicio personalizado no tiene ServicioId; el cobro conserva el nombre
+            // del servicio como snapshot. El monto final lo captura el modal (puede no haber precio base).
             var request = new CobroCreateRequest
             {
                 FechaCobro = _businessDateTimeProvider.Now(),
@@ -148,6 +174,7 @@ namespace LuxuryApp.Controllers.Calendar
                 FuncionarioId = cita.FuncionarioId,
                 ClienteId = cita.ClienteId,
                 ServicioId = cita.ServicioId,
+                ServicioNombrePersonalizado = cita.ServicioId.HasValue ? null : cita.ServicioNombrePersonalizado,
                 CitaId = cita.CitaId,
                 Monto = monto,
                 MetodoPago = metodoPago ?? string.Empty,

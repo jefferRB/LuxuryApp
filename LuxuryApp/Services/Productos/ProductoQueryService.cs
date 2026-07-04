@@ -73,7 +73,10 @@ namespace LuxuryApp.Services.Productos
                         CantidadProducto = p.CantidadProducto,
                         StockMinimo = p.StockMinimo,
                         Activo = p.Activo,
-                        FechaRegistro = p.FechaRegistro
+                        FechaRegistro = p.FechaRegistro,
+                        AplicaIva = p.AplicaIva,
+                        TarifaIva = p.TarifaIva,
+                        PrecioIncluyeIva = p.PrecioIncluyeIva
                     }
                 })
                 .SingleOrDefaultAsync(cancellationToken);

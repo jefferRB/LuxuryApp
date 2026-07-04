@@ -92,14 +92,18 @@ namespace LuxuryApp.Services.Funcionarios
         public Task<MisGananciasViewModel> ObtenerGananciasAsync(
             int funcionarioId,
             CancellationToken cancellationToken = default)
-            => ObtenerGananciasAsync(funcionarioId, null, null, cancellationToken);
+            => ObtenerGananciasAsync(funcionarioId, null, null, 6, cancellationToken);
 
         public async Task<MisGananciasViewModel> ObtenerGananciasAsync(
             int funcionarioId,
             DateTime? semanaAnchor,
             DateTime? mesAnchor,
+            int mesesEvolucion,
             CancellationToken cancellationToken = default)
         {
+            // El gráfico de evolución solo admite 6 ó 12 meses.
+            mesesEvolucion = mesesEvolucion == 12 ? 12 : 6;
+
             var hoy = _businessDateTimeProvider.Today();
 
             // Semana y mes navegables (independientes). Default = actual.
@@ -122,6 +126,12 @@ namespace LuxuryApp.Services.Funcionarios
 
             var inicioMesActual = new DateTime(hoy.Year, hoy.Month, 1);
 
+            // ── Series para gráficos (Fase 2) ──
+            // Se reutiliza la MISMA fórmula canónica por periodo: cero divergencia con los KPIs.
+            // El nº de llamadas está acotado por semanas/meses (no por filas) → no es N+1.
+            var semanasDelMes = await ConstruirSemanasDelMesAsync(funcionarioId, inicioMes, finMes, cancellationToken);
+            var evolucionMensual = await ConstruirEvolucionMensualAsync(funcionarioId, inicioMesActual, mesesEvolucion, cancellationToken);
+
             return new MisGananciasViewModel
             {
                 Nombre = nombre,
@@ -138,9 +148,72 @@ namespace LuxuryApp.Services.Funcionarios
                 PendienteMes = meMes?.MontoPendiente ?? 0m,
                 EsSemanaActual = hoy >= resumenSemana.InicioSemana && hoy <= resumenSemana.FinSemana,
                 EsMesActual = inicioMes == inicioMesActual,
-                DetalleDiasSemana = meSemana?.DetalleDias ?? new List<DetalleDiaVM>()
+                DetalleDiasSemana = meSemana?.DetalleDias ?? new List<DetalleDiaVM>(),
+                SemanasDelMes = semanasDelMes,
+                EvolucionMensual = evolucionMensual,
+                MesesEvolucion = mesesEvolucion
             };
         }
+
+        /// <summary>
+        /// Comisión/pagado/pendiente por cada semana (lunes→domingo, recortada al mes) del mes indicado.
+        /// Reutiliza la fórmula canónica de liquidaciones por cada segmento.
+        /// </summary>
+        private async Task<IReadOnlyList<GananciaPeriodoPunto>> ConstruirSemanasDelMesAsync(
+            int funcionarioId, DateTime inicioMes, DateTime finMes, CancellationToken cancellationToken)
+        {
+            var puntos = new List<GananciaPeriodoPunto>();
+            var cursor = inicioMes;
+            var idx = 1;
+            while (cursor <= finMes)
+            {
+                // Domingo de la semana del cursor (semana lunes-primero); recortado al fin de mes.
+                var dow = (int)cursor.DayOfWeek;            // domingo = 0
+                var aDomingo = dow == 0 ? 0 : 7 - dow;
+                var finSegmento = cursor.AddDays(aDomingo);
+                if (finSegmento > finMes) finSegmento = finMes;
+
+                var resumen = await _liquidacionSemanalService
+                    .ObtenerResumenSemanaAsync(cursor, finSegmento, cancellationToken);
+                var me = resumen.Funcionarios.FirstOrDefault(f => f.FuncionarioId == funcionarioId);
+                puntos.Add(MapPunto(me, $"Sem {idx}", cursor, finSegmento));
+
+                cursor = finSegmento.AddDays(1);
+                idx++;
+            }
+            return puntos;
+        }
+
+        /// <summary>
+        /// Comisión/pagado/pendiente de los últimos <paramref name="meses"/> meses terminando en el mes actual.
+        /// </summary>
+        private async Task<IReadOnlyList<GananciaPeriodoPunto>> ConstruirEvolucionMensualAsync(
+            int funcionarioId, DateTime inicioMesActual, int meses, CancellationToken cancellationToken)
+        {
+            var puntos = new List<GananciaPeriodoPunto>();
+            for (var i = meses - 1; i >= 0; i--)
+            {
+                var inicio = inicioMesActual.AddMonths(-i);
+                var fin = inicio.AddMonths(1).AddDays(-1);
+                var resumen = await _liquidacionSemanalService
+                    .ObtenerResumenSemanaAsync(inicio, fin, cancellationToken);
+                var me = resumen.Funcionarios.FirstOrDefault(f => f.FuncionarioId == funcionarioId);
+                puntos.Add(MapPunto(me, inicio.ToString("MMM yy", new System.Globalization.CultureInfo("es-CR")), inicio, fin));
+            }
+            return puntos;
+        }
+
+        private static GananciaPeriodoPunto MapPunto(
+            PagoFuncionarioVM? me, string etiqueta, DateTime desde, DateTime hasta) => new()
+        {
+            Etiqueta = etiqueta,
+            Desde = desde,
+            Hasta = hasta,
+            Produccion = (me?.TotalServicios ?? 0m) + (me?.TotalProductos ?? 0m),
+            Comision = me?.PagoFinal ?? 0m,
+            Pagado = me?.MontoPagado ?? 0m,
+            Pendiente = me?.MontoPendiente ?? 0m
+        };
 
         public async Task<MisPagosViewModel> ObtenerPagosAsync(
             int funcionarioId,
@@ -709,7 +782,8 @@ namespace LuxuryApp.Services.Funcionarios
                 {
                     Id = s.Id,
                     Nombre = s.Nombre,
-                    DuracionMinutos = s.DuracionMinutos ?? 30
+                    DuracionMinutos = s.DuracionMinutos ?? 30,
+                    Precio = s.Precio
                 })
                 .ToListAsync(cancellationToken);
         }

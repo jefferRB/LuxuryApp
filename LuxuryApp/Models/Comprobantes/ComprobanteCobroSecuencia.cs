@@ -1,4 +1,5 @@
 using LuxuryApp.Models.Common;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace LuxuryApp.Models.Comprobantes
 {
@@ -10,6 +11,7 @@ namespace LuxuryApp.Models.Comprobantes
     /// </summary>
     public class ComprobanteCobroSecuencia : ITenantEntity
     {
+        [BindNever]
         public Guid TenantId { get; set; }
 
         /// <summary>Último número emitido. El siguiente comprobante usa UltimoNumero + 1.</summary>

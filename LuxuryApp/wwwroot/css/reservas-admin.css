@@ -438,3 +438,53 @@
     .reservas-acciones { display: grid; grid-template-columns: 1fr 1fr; }
     .reservas-acciones .btn-rsv { justify-content: center; padding: 11px; }
 }
+
+/* ── Servicios publicados (catálogo) ── */
+.rsv-catalog { display: flex; flex-direction: column; gap: 14px; }
+.rsv-catalog-card {
+    background: var(--private-card-bg, #fff);
+    border: 1px solid var(--private-card-border, #e6e6e6);
+    border-radius: 16px;
+    padding: 16px 18px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04);
+}
+.rsv-catalog-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+.rsv-catalog-title { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.rsv-catalog-name { font-weight: 700; font-size: 1.02rem; }
+.rsv-switch-inline { margin: 0; }
+.rsv-switch-inline .rsv-switch-text small { display: none; }
+.rsv-field-center { display: flex; align-items: flex-end; }
+
+/* Chips de funcionarios */
+.rsv-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.rsv-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: .4rem .75rem;
+    border-radius: 999px;
+    border: 1px solid var(--private-input-border, #d8d8d8);
+    background: var(--private-input-bg, #fff);
+    cursor: pointer;
+    font-size: .88rem;
+    user-select: none;
+    transition: background .15s, border-color .15s;
+}
+.rsv-chip input { accent-color: var(--private-chart-accent, #2563eb); }
+.rsv-chip:has(input:checked) {
+    border-color: var(--private-chart-accent, #2563eb);
+    background: color-mix(in srgb, var(--private-chart-accent, #2563eb) 10%, transparent);
+    font-weight: 600;
+}
+
+@media (max-width: 560px) {
+    .rsv-catalog-top { align-items: flex-start; }
+    .rsv-field-center { align-items: flex-start; }
+}

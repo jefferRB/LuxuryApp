@@ -10,13 +10,16 @@ namespace LuxuryApp.Services.Reservas
     {
         private readonly ApplicationDbContext _context;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
+        private readonly IBookingCatalogService _catalogService;
 
         public BookingAvailabilityService(
             ApplicationDbContext context,
-            IBusinessDateTimeProvider businessDateTimeProvider)
+            IBusinessDateTimeProvider businessDateTimeProvider,
+            IBookingCatalogService catalogService)
         {
             _context = context;
             _businessDateTimeProvider = businessDateTimeProvider;
+            _catalogService = catalogService;
         }
 
         public async Task<IReadOnlyList<string>> GetAvailableSlotsAsync(
@@ -49,7 +52,7 @@ namespace LuxuryApp.Services.Reservas
                 return Array.Empty<string>();
             }
 
-            var candidatos = await ResolveCandidatosAsync(funcionarioId, cancellationToken);
+            var candidatos = await ResolveCandidatosAsync(servicioId, funcionarioId, cancellationToken);
             if (candidatos.Count == 0)
             {
                 return Array.Empty<string>();
@@ -131,7 +134,7 @@ namespace LuxuryApp.Services.Reservas
                 }
             }
 
-            var candidatos = await ResolveCandidatosAsync(funcionarioId, cancellationToken);
+            var candidatos = await ResolveCandidatosAsync(servicioId, funcionarioId, cancellationToken);
             if (candidatos.Count == 0)
             {
                 return SlotResolution.NoDisponible("No hay funcionarios disponibles para esta reserva.");
@@ -153,6 +156,111 @@ namespace LuxuryApp.Services.Reservas
             }
 
             return SlotResolution.NoDisponible("Ese horario ya no está disponible.");
+        }
+
+        public async Task<IReadOnlyList<AvailableSlotSuggestion>> GetNextAvailableSlotsAsync(
+            int servicioId,
+            DateOnly fromDate,
+            int? funcionarioId,
+            int maxSuggestions = 5,
+            CancellationToken cancellationToken = default)
+        {
+            maxSuggestions = maxSuggestions <= 0 ? 5 : Math.Min(maxSuggestions, 10);
+
+            var settings = await _context.TenantBookingSettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (settings is null || !settings.PublicBookingEnabled)
+            {
+                return Array.Empty<AvailableSlotSuggestion>();
+            }
+
+            var today = DateOnly.FromDateTime(_businessDateTimeProvider.Today());
+            var maxDate = today.AddDays(Math.Max(0, settings.PublicBookingMaxDaysAhead));
+            var start = fromDate < today ? today : fromDate;
+            if (start > maxDate)
+            {
+                return Array.Empty<AvailableSlotSuggestion>();
+            }
+
+            var duracion = await ResolveServicioDuracionAsync(servicioId, cancellationToken);
+            if (duracion is null)
+            {
+                return Array.Empty<AvailableSlotSuggestion>();
+            }
+
+            var candidatos = await ResolveCandidatosAsync(servicioId, funcionarioId, cancellationToken);
+            if (candidatos.Count == 0)
+            {
+                return Array.Empty<AvailableSlotSuggestion>();
+            }
+
+            // Una sola consulta de ocupación para toda la ventana (evita N+1).
+            var busy = await LoadBusyIntervalsRangeAsync(candidatos, start, maxDate, cancellationToken);
+
+            var now = _businessDateTimeProvider.Now();
+            var minAdvance = Math.Max(0, settings.PublicBookingMinAdvanceMinutes);
+            var intervalo = Math.Max(5, settings.SlotIntervalMinutes);
+            var earliest = now.AddMinutes(minAdvance);
+
+            var results = new List<AvailableSlotSuggestion>();
+
+            for (var fecha = start; fecha <= maxDate && results.Count < maxSuggestions; fecha = fecha.AddDays(1))
+            {
+                if (!settings.IsWorkingDay(fecha.DayOfWeek))
+                {
+                    continue;
+                }
+
+                var cursor = settings.OpenTime;
+                while (results.Count < maxSuggestions)
+                {
+                    var inicio = fecha.ToDateTime(cursor);
+                    var fin = inicio.AddMinutes(duracion.Value);
+
+                    if (TimeOnly.FromDateTime(fin) > settings.CloseTime || fin.Date != inicio.Date)
+                    {
+                        break;
+                    }
+
+                    if (inicio >= earliest)
+                    {
+                        var funcId = FindFreeCandidate(busy, candidatos, inicio, fin);
+                        if (funcId.HasValue)
+                        {
+                            results.Add(new AvailableSlotSuggestion(fecha, cursor, funcId.Value));
+                        }
+                    }
+
+                    var siguiente = cursor.AddMinutes(intervalo);
+                    if (siguiente <= cursor)
+                    {
+                        break;
+                    }
+
+                    cursor = siguiente;
+                }
+            }
+
+            return results;
+        }
+
+        private static int? FindFreeCandidate(
+            Dictionary<int, List<(DateTime Inicio, DateTime Fin)>> busyByFuncionario,
+            IReadOnlyList<int> candidatos,
+            DateTime inicio,
+            DateTime fin)
+        {
+            foreach (var candidato in candidatos)
+            {
+                if (!Solapa(busyByFuncionario, candidato, inicio, fin))
+                {
+                    return candidato;
+                }
+            }
+
+            return null;
         }
 
         private async Task<int?> ResolveServicioDuracionAsync(int servicioId, CancellationToken cancellationToken)
@@ -177,34 +285,45 @@ namespace LuxuryApp.Services.Reservas
         }
 
         private async Task<IReadOnlyList<int>> ResolveCandidatosAsync(
+            int servicioId,
             int? funcionarioId,
             CancellationToken cancellationToken)
         {
-            if (funcionarioId.HasValue && funcionarioId.Value > 0)
+            // Funcionarios que PUEDEN atender el servicio (activos + relación servicio-funcionario,
+            // con fallback a todos los activos si no hay configuración explícita).
+            var compatibles = await _catalogService.GetCompatibleFuncionarioIdsAsync(servicioId, cancellationToken);
+            if (compatibles.Count == 0)
             {
-                var existe = await _context.Funcionarios
-                    .AsNoTracking()
-                    .AnyAsync(f => f.IdFuncionario == funcionarioId.Value && f.Activo, cancellationToken);
-
-                return existe ? new[] { funcionarioId.Value } : Array.Empty<int>();
+                return Array.Empty<int>();
             }
 
-            return await _context.Funcionarios
-                .AsNoTracking()
-                .Where(f => f.Activo)
-                .Select(f => f.IdFuncionario)
-                .ToListAsync(cancellationToken);
+            if (funcionarioId.HasValue && funcionarioId.Value > 0)
+            {
+                // Solo válido si el funcionario elegido puede atender ESTE servicio.
+                return compatibles.Contains(funcionarioId.Value)
+                    ? new[] { funcionarioId.Value }
+                    : Array.Empty<int>();
+            }
+
+            return compatibles;
         }
 
-        private async Task<Dictionary<int, List<(DateTime Inicio, DateTime Fin)>>> LoadBusyIntervalsAsync(
+        private Task<Dictionary<int, List<(DateTime Inicio, DateTime Fin)>>> LoadBusyIntervalsAsync(
             IReadOnlyList<int> funcionarioIds,
             DateOnly fecha,
+            CancellationToken cancellationToken) =>
+            LoadBusyIntervalsRangeAsync(funcionarioIds, fecha, fecha, cancellationToken);
+
+        private async Task<Dictionary<int, List<(DateTime Inicio, DateTime Fin)>>> LoadBusyIntervalsRangeAsync(
+            IReadOnlyList<int> funcionarioIds,
+            DateOnly fechaInicio,
+            DateOnly fechaFin,
             CancellationToken cancellationToken)
         {
             // Rango amplio: incluye citas que empezaron el día anterior (duraciones largas)
-            // y cualquier cita del día solicitado.
-            var rangoInicio = fecha.ToDateTime(TimeOnly.MinValue).AddDays(-1);
-            var rangoFin = fecha.ToDateTime(TimeOnly.MinValue).AddDays(1);
+            // y cualquier cita dentro de la ventana solicitada. Una sola consulta para todo el rango.
+            var rangoInicio = fechaInicio.ToDateTime(TimeOnly.MinValue).AddDays(-1);
+            var rangoFin = fechaFin.ToDateTime(TimeOnly.MinValue).AddDays(1);
 
             var citas = await _context.Citas
                 .AsNoTracking()

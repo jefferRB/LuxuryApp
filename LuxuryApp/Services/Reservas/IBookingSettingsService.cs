@@ -15,6 +15,7 @@ namespace LuxuryApp.Services.Reservas
         public string? MensajeConfirmacion { get; init; }
         public bool PermiteElegirFuncionario { get; init; }
         public bool PermiteCualquierFuncionario { get; init; }
+        public bool MostrarFotosFuncionarios { get; init; } = true;
         public int MinAdvanceMinutes { get; init; }
         public int MaxDaysAhead { get; init; }
     }

@@ -28,6 +28,17 @@ namespace LuxuryApp.Models.SaaS
         [MaxLength(450)]
         public string? CommercialUpdatedByUserId { get; set; }
 
+        // ─────────────── Configuración fiscal del negocio ───────────────
+
+        /// <summary>
+        /// Si los precios de servicios/productos ya incluyen IVA. Default true (CR). Un
+        /// servicio/producto puede sobreescribirlo con su propio <c>PrecioIncluyeIva</c>.
+        /// </summary>
+        public bool PreciosIncluyenIva { get; set; } = LuxuryApp.Models.Fiscal.FiscalDefaults.PreciosIncluyenIvaPorDefecto;
+
+        /// <summary>Tarifa de IVA por defecto del negocio, en porcentaje. Default 13.</summary>
+        public decimal TarifaIvaPorDefecto { get; set; } = LuxuryApp.Models.Fiscal.FiscalDefaults.TarifaIvaPorDefecto;
+
         public Plan? ForcedPlan { get; set; }
 
         // Navegación

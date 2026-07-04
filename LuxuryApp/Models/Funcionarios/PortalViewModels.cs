@@ -127,6 +127,31 @@ namespace LuxuryApp.Models.Funcionarios
 
         /// <summary>Producción diaria de la semana (para mini desglose).</summary>
         public IReadOnlyList<DetalleDiaVM> DetalleDiasSemana { get; init; } = Array.Empty<DetalleDiaVM>();
+
+        // ── Series para gráficos (Fase 2) ──
+        // Todas vienen ya agregadas del backend, reutilizando la fórmula canónica de liquidaciones.
+        /// <summary>Comisión/pagado/pendiente por cada semana del mes seleccionado.</summary>
+        public IReadOnlyList<GananciaPeriodoPunto> SemanasDelMes { get; init; } = Array.Empty<GananciaPeriodoPunto>();
+        /// <summary>Comisión/pagado/pendiente de los últimos N meses (evolución).</summary>
+        public IReadOnlyList<GananciaPeriodoPunto> EvolucionMensual { get; init; } = Array.Empty<GananciaPeriodoPunto>();
+        /// <summary>Rango del gráfico mensual (6 ó 12).</summary>
+        public int MesesEvolucion { get; init; } = 6;
+    }
+
+    /// <summary>
+    /// Punto de una serie de ganancias para gráficos (semana del mes o mes).
+    /// Solo presentación: agregado en backend desde la fórmula canónica de liquidaciones.
+    /// Comision = Pagado + Pendiente (comisión estimada total del periodo).
+    /// </summary>
+    public sealed class GananciaPeriodoPunto
+    {
+        public string Etiqueta { get; init; } = string.Empty;
+        public DateTime Desde { get; init; }
+        public DateTime Hasta { get; init; }
+        public decimal Produccion { get; init; }
+        public decimal Comision { get; init; }
+        public decimal Pagado { get; init; }
+        public decimal Pendiente { get; init; }
     }
 
     public sealed class PortalPagoItem

@@ -37,6 +37,15 @@ namespace LuxuryApp.Models.Reservas
         public string? RejectedReason { get; set; }
         public int? ConvertedCitaId { get; set; }
         public bool AceptaWhatsApp { get; set; }
+
+        /// <summary>UTC del envío de la confirmación por WhatsApp de la cita creada (null si no se envió).</summary>
+        public DateTime? ConfirmacionWhatsAppEnviadaUtc { get; set; }
+
+        /// <summary>Estado de confirmación WhatsApp de la cita creada (ErrorEnvio/NoEnviada/Pendiente/Confirmada).</summary>
+        public string? ConfirmacionWhatsAppEstado { get; set; }
+
+        /// <summary>True si la confirmación por WhatsApp de la cita creada ya fue enviada.</summary>
+        public bool ConfirmacionWhatsAppEnviada => ConfirmacionWhatsAppEnviadaUtc.HasValue;
     }
 
     /// <summary>Configuración "Reservas online" (vista privada del negocio).</summary>
@@ -50,6 +59,9 @@ namespace LuxuryApp.Models.Reservas
         public bool PublicBookingAllowEmployeeSelection { get; set; }
 
         public bool PublicBookingAllowAnyEmployee { get; set; } = true;
+
+        /// <summary>Interruptor maestro: mostrar fotos de funcionarios en el link público.</summary>
+        public bool PublicBookingShowEmployeePhotos { get; set; } = true;
 
         [Range(0, 43200)]
         public int PublicBookingMinAdvanceMinutes { get; set; } = TenantBookingSettings.DefaultMinAdvanceMinutes;

@@ -87,6 +87,21 @@
                     <small>Muestra más horarios libres combinando la agenda de todo el equipo.</small>
                 </span>
             </label>
+            <label class="rsv-switch">
+                <input type="checkbox" asp-for="PublicBookingShowEmployeePhotos" />
+                <span class="rsv-switch-text">
+                    <span>Mostrar fotos de los profesionales</span>
+                    <small>Si está apagado, se usa el avatar con inicial. Cada profesional también puede ocultar su foto.</small>
+                </span>
+            </label>
+        </section>
+
+        <section class="reservas-form-card">
+            <h3 class="rsv-card-title"><i class="bi bi-scissors"></i> Servicios publicados</h3>
+            <p class="rsv-card-sub">Elegí qué servicios se muestran en tu enlace, su nombre público, precio y qué profesionales atienden cada uno.</p>
+            <a asp-controller="Reservas" asp-action="Servicios" class="btn-rsv btn-rsv-soft">
+                <i class="bi bi-sliders"></i> Configurar servicios publicados
+            </a>
         </section>
 
         <section class="reservas-form-card">

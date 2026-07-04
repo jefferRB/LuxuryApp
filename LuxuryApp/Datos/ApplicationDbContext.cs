@@ -4,12 +4,14 @@ using LuxuryApp.Models.Common;
 using LuxuryApp.Models.Comprobantes;
 using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.Finanzas;
+using LuxuryApp.Models.Fiscal;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.Legal;
 using LuxuryApp.Models.Notifications;
 using LuxuryApp.Models.Platform;
 using LuxuryApp.Models.Productos;
+using LuxuryApp.Models.Reports;
 using LuxuryApp.Models.Reservas;
 using LuxuryApp.Models.Saas;
 using LuxuryApp.Models.SaaS;
@@ -97,9 +99,27 @@ namespace ProyectoIdentity.Datos
                 entity.Property(p => p.Moneda).HasMaxLength(100);
                 entity.Property(p => p.EsPlanValidacion).HasDefaultValue(false);
                 entity.Property(p => p.PrecioMensual).HasColumnType("decimal(18,2)");
+                entity.Property(p => p.MonthlyEquivalentAmount).HasColumnType("decimal(18,2)");
                 entity.HasIndex(p => p.Codigo)
                     .IsUnique()
                     .HasFilter("[Codigo] IS NOT NULL");
+            });
+
+            modelBuilder.Entity<PlanChangeIntent>(entity =>
+            {
+                entity.Property(i => i.ToPlanCode).HasMaxLength(50);
+                entity.Property(i => i.FromPlanCode).HasMaxLength(50);
+                entity.Property(i => i.FromProviderSubscriptionId).HasMaxLength(100);
+                entity.Property(i => i.NewProviderSubscriptionId).HasMaxLength(100);
+                entity.Property(i => i.Notes).HasMaxLength(300);
+
+                // Anti doble-cambio: a lo sumo un intento Pending (Estado = 0) por tenant.
+                entity.HasIndex(i => i.TenantId)
+                    .IsUnique()
+                    .HasFilter("[Estado] = 0")
+                    .HasDatabaseName("IX_PlanChangeIntents_TenantId_OpenPending");
+
+                entity.HasIndex(i => new { i.TenantId, i.Estado });
             });
 
             modelBuilder.Entity<Funcionario>(entity =>
@@ -114,6 +134,28 @@ namespace ProyectoIdentity.Datos
 
                 // Default true: los funcionarios existentes conservan el cálculo con rebaja de impuestos.
                 entity.Property(f => f.RebajarImpuestosAntesDeComision).HasDefaultValue(true);
+
+                // Foto opcional: por defecto se permite mostrarla en reservas (sin foto no afecta a nadie).
+                entity.Property(f => f.MostrarFotoEnReservas).HasDefaultValue(true);
+                entity.Property(f => f.FotoUrl).HasMaxLength(400);
+                entity.Property(f => f.FotoStoragePath).HasMaxLength(400);
+
+                // Configuración fiscal del colaborador.
+                // OJO: ComisionCalculadaSobre NO lleva default de BD. Su default CLR (TotalCobrado=0)
+                // difiere del valor de negocio deseado (BaseSinIva), así que un default de columna
+                // provocaría que EF ignore un "TotalCobrado" elegido explícitamente (sentinel). El
+                // valor inicial de filas existentes se resuelve en la migración con un backfill a
+                // partir de RebajarImpuestosAntesDeComision; las inserciones nuevas envían el valor
+                // real del objeto (inicializado a BaseSinIva en el modelo).
+                entity.Property(f => f.TipoRelacionColaborador).HasDefaultValue(TipoRelacionColaborador.Empleado);
+                entity.Property(f => f.ColaboradorFacturaIva).HasDefaultValue(false);
+                // Default de columna NoFactura(0) == default CLR → sin problema de sentinel. Las filas
+                // existentes con ColaboradorFacturaIva=1 se backfillean a IvaIncluido en la migración.
+                entity.Property(f => f.ModalidadIvaColaborador).HasDefaultValue(ModalidadIvaColaborador.NoFactura);
+                entity.Property(f => f.TarifaIvaFacturaColaborador)
+                    .HasColumnType("decimal(18,2)")
+                    .HasDefaultValue(FiscalDefaults.TarifaIvaPorDefecto);
+                entity.Property(f => f.RequiereFacturaAntesDePagar).HasDefaultValue(false);
 
                 entity.HasIndex(f => new { f.TenantId, f.Nombre })
                     .HasDatabaseName("IX_Funcionarios_TenantId_Nombre");
@@ -343,6 +385,9 @@ namespace ProyectoIdentity.Datos
 
                 entity.Property(s => s.Precio).HasColumnType("decimal(18,2)");
 
+                entity.Property(s => s.AplicaIva).HasDefaultValue(FiscalDefaults.AplicaIvaPorDefecto);
+                entity.Property(s => s.TarifaIva).HasColumnType("decimal(18,2)");
+
                 entity.HasIndex(s => new { s.TenantId, s.Nombre })
                     .IsUnique()
                     .HasDatabaseName("IX_Servicios_TenantId_Nombre");
@@ -562,6 +607,9 @@ namespace ProyectoIdentity.Datos
                 entity.Property(p => p.PrecioProducto)
                     .HasColumnType("decimal(18,2)");
 
+                entity.Property(p => p.AplicaIva).HasDefaultValue(FiscalDefaults.AplicaIvaPorDefecto);
+                entity.Property(p => p.TarifaIva).HasColumnType("decimal(18,2)");
+
                 entity.HasIndex(p => new { p.TenantId, p.NombreProducto })
                     .IsUnique()
                     .HasDatabaseName("IX_Productos_TenantId_NombreProducto");
@@ -661,6 +709,10 @@ namespace ProyectoIdentity.Datos
                 entity.Property(s => s.PublicBookingConfirmationMessage).HasMaxLength(500);
                 entity.Property(s => s.UpdatedByUserId).HasMaxLength(450);
 
+                // Por defecto se muestran fotos (los tenants existentes conservan el comportamiento
+                // esperado; sin foto no afecta a nadie).
+                entity.Property(s => s.PublicBookingShowEmployeePhotos).HasDefaultValue(true);
+
                 entity.HasIndex(s => s.TenantId)
                     .IsUnique()
                     .HasDatabaseName("UX_TenantBookingSettings_TenantId");
@@ -689,10 +741,17 @@ namespace ProyectoIdentity.Datos
                 entity.Property(r => r.RejectedByUserId).HasMaxLength(450);
                 entity.Property(r => r.RejectedReason).HasMaxLength(300);
                 entity.Property(r => r.IpHash).HasMaxLength(64);
+                entity.Property(r => r.PublicSubmissionToken).HasMaxLength(64);
                 entity.Property(r => r.UserAgent).HasMaxLength(400);
 
                 entity.HasIndex(r => new { r.TenantId, r.Estado, r.FechaHoraInicioSolicitada })
                     .HasDatabaseName("IX_BookingRequests_TenantId_Estado_Fecha");
+
+                // Idempotencia de envíos públicos: un token no puede repetirse por tenant.
+                entity.HasIndex(r => new { r.TenantId, r.PublicSubmissionToken })
+                    .IsUnique()
+                    .HasFilter("[PublicSubmissionToken] IS NOT NULL")
+                    .HasDatabaseName("UX_BookingRequests_TenantId_SubmissionToken");
 
                 entity.HasIndex(r => new { r.TenantId, r.TelefonoCliente, r.Estado })
                     .HasDatabaseName("IX_BookingRequests_TenantId_Telefono_Estado");
@@ -722,6 +781,44 @@ namespace ProyectoIdentity.Datos
                     .OnDelete(DeleteBehavior.SetNull);
             });
 
+            modelBuilder.Entity<TenantBookingServiceSetting>(entity =>
+            {
+                entity.Property(s => s.PublicName).HasMaxLength(120);
+                entity.Property(s => s.PublicDescription).HasMaxLength(300);
+                entity.Property(s => s.Category).HasMaxLength(80);
+
+                // Un registro por servicio y tenant.
+                entity.HasIndex(s => new { s.TenantId, s.ServicioId })
+                    .IsUnique()
+                    .HasDatabaseName("UX_TenantBookingServiceSettings_TenantId_ServicioId");
+
+                entity.HasOne(s => s.Servicio)
+                    .WithMany()
+                    .HasForeignKey(s => s.ServicioId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<TenantBookingFuncionarioService>(entity =>
+            {
+                // Una relación única por funcionario+servicio dentro del tenant.
+                entity.HasIndex(fs => new { fs.TenantId, fs.FuncionarioId, fs.ServicioId })
+                    .IsUnique()
+                    .HasDatabaseName("UX_TenantBookingFuncionarioServices_Tenant_Func_Servicio");
+
+                entity.HasIndex(fs => new { fs.TenantId, fs.ServicioId })
+                    .HasDatabaseName("IX_TenantBookingFuncionarioServices_Tenant_Servicio");
+
+                entity.HasOne(fs => fs.Funcionario)
+                    .WithMany()
+                    .HasForeignKey(fs => fs.FuncionarioId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(fs => fs.Servicio)
+                    .WithMany()
+                    .HasForeignKey(fs => fs.ServicioId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
             modelBuilder.Entity<TenantNotification>(entity =>
             {
                 entity.Property(n => n.Type).HasMaxLength(60).IsRequired();
@@ -741,6 +838,61 @@ namespace ProyectoIdentity.Datos
                     .IsUnique()
                     .HasFilter("[EntityType] IS NOT NULL AND [EntityId] IS NOT NULL")
                     .HasDatabaseName("UX_TenantNotifications_TenantId_Type_Entity");
+            });
+
+            modelBuilder.Entity<TenantMonthlyReportSettings>(entity =>
+            {
+                entity.Property(s => s.AdditionalRecipients).HasMaxLength(1000);
+                entity.Property(s => s.SendToOwnerEmail).HasDefaultValue(true);
+                entity.Property(s => s.SendToAllAdmins).HasDefaultValue(true);
+                entity.Property(s => s.RequireConfirmedEmail).HasDefaultValue(false);
+                entity.Property(s => s.IncludeManualRecipients).HasDefaultValue(true);
+                entity.Property(s => s.IncludeFinancialData).HasDefaultValue(true);
+                entity.Property(s => s.IncludeOperationalData).HasDefaultValue(true);
+                entity.Property(s => s.IncludeRecommendations).HasDefaultValue(true);
+                entity.Property(s => s.IncludeMonthOverMonth).HasDefaultValue(true);
+                entity.Property(s => s.SendDayOfMonth).HasDefaultValue(1);
+                entity.Property(s => s.SendHour).HasDefaultValue(8);
+                entity.Property(s => s.LastAutomaticError).HasMaxLength(500);
+
+                // Una configuración por tenant.
+                entity.HasIndex(s => s.TenantId)
+                    .IsUnique()
+                    .HasDatabaseName("UX_TenantMonthlyReportSettings_TenantId");
+
+                // Fase 2: el scheduler buscará tenants con IsEnabled = true.
+                entity.HasIndex(s => new { s.TenantId, s.IsEnabled })
+                    .HasDatabaseName("IX_TenantMonthlyReportSettings_TenantId_IsEnabled");
+            });
+
+            modelBuilder.Entity<TenantMonthlyReportEmailLog>(entity =>
+            {
+                entity.Property(l => l.RecipientEmail).HasMaxLength(256).IsRequired();
+                entity.Property(l => l.Subject).HasMaxLength(200).IsRequired();
+                entity.Property(l => l.Status).HasMaxLength(20).IsRequired();
+                entity.Property(l => l.TriggeredByUserId).HasMaxLength(450);
+                entity.Property(l => l.ProviderMessageId).HasMaxLength(100);
+                entity.Property(l => l.ErrorMessage).HasMaxLength(500);
+                entity.Property(l => l.ContentHash).HasMaxLength(64);
+
+                entity.HasIndex(l => new { l.TenantId, l.ReportYear, l.ReportMonth })
+                    .HasDatabaseName("IX_TenantMonthlyReportEmailLogs_Tenant_Anio_Mes");
+
+                entity.HasIndex(l => new { l.TenantId, l.ReportYear, l.ReportMonth, l.RecipientEmail, l.IsTest })
+                    .HasDatabaseName("IX_TenantMonthlyReportEmailLogs_Tenant_Periodo_Correo_Test");
+
+                // Idempotencia dura: a lo sumo UN envío real exitoso por tenant/mes/correo.
+                // Las pruebas (IsTest = 1) y los intentos fallidos pueden repetirse.
+                entity.HasIndex(l => new { l.TenantId, l.ReportYear, l.ReportMonth, l.RecipientEmail })
+                    .IsUnique()
+                    .HasFilter("[IsTest] = 0 AND [Status] = 'Sent'")
+                    .HasDatabaseName("UX_TenantMonthlyReportEmailLogs_RealSent");
+
+                entity.HasIndex(l => new { l.TenantId, l.Status })
+                    .HasDatabaseName("IX_TenantMonthlyReportEmailLogs_Tenant_Status");
+
+                entity.HasIndex(l => l.CreatedAt)
+                    .HasDatabaseName("IX_TenantMonthlyReportEmailLogs_CreatedAt");
             });
 
             modelBuilder.Entity<PlatformAuditLog>(entity =>
@@ -775,6 +927,13 @@ namespace ProyectoIdentity.Datos
                 entity.Property(t => t.Nombre).IsRequired();
                 entity.Property(t => t.CommercialNotes).HasMaxLength(250);
                 entity.Property(t => t.CommercialUpdatedByUserId).HasMaxLength(450);
+
+                // Configuración fiscal del negocio (defaults CR: IVA incluido, 13%).
+                entity.Property(t => t.PreciosIncluyenIva)
+                    .HasDefaultValue(FiscalDefaults.PreciosIncluyenIvaPorDefecto);
+                entity.Property(t => t.TarifaIvaPorDefecto)
+                    .HasColumnType("decimal(18,2)")
+                    .HasDefaultValue(FiscalDefaults.TarifaIvaPorDefecto);
 
                 entity.HasOne(t => t.ForcedPlan)
                     .WithMany()
@@ -1355,10 +1514,17 @@ namespace ProyectoIdentity.Datos
         //Reservas online (Fase 1)
         public DbSet<TenantBookingSettings> TenantBookingSettings { get; set; }
         public DbSet<BookingRequest> BookingRequests { get; set; }
+        //Reservas online: catálogo publicable y relación servicio-funcionario
+        public DbSet<TenantBookingServiceSetting> TenantBookingServiceSettings { get; set; }
+        public DbSet<TenantBookingFuncionarioService> TenantBookingFuncionarioServices { get; set; }
         //Centro de Notificaciones
         public DbSet<TenantNotification> TenantNotifications { get; set; }
+        //Resumen Ejecutivo Mensual (LuxuryCloud Insights)
+        public DbSet<TenantMonthlyReportSettings> TenantMonthlyReportSettings { get; set; }
+        public DbSet<TenantMonthlyReportEmailLog> TenantMonthlyReportEmailLogs { get; set; }
 
         public DbSet<PlatformAuditLog> PlatformAuditLogs { get; set; }
+        public DbSet<PlanChangeIntent> PlanChangeIntents { get; set; }
 
 
 

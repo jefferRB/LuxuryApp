@@ -1,0 +1,180 @@
+@model LuxuryApp.Models.Reservas.BookingCatalogViewModel
+@{
+    ViewData["Title"] = "Servicios publicados";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/reservas-admin.css" asp-append-version="true" />
+}
+
+<div class="reservas-shell">
+    <div class="reservas-head">
+        <div class="reservas-head-text">
+            <span class="reservas-eyebrow"><i class="bi bi-scissors"></i> Reservas online</span>
+            <h1 class="reservas-title">Servicios publicados</h1>
+            <p class="reservas-sub">Elegí qué servicios ven tus clientes, con qué nombre y precio, y qué profesionales atienden cada uno.</p>
+        </div>
+        <a asp-controller="Reservas" asp-action="Configuracion" class="btn-rsv btn-rsv-soft">
+            <i class="bi bi-arrow-left"></i> Volver a configuración
+        </a>
+    </div>
+
+    @if (Model.UsandoCompatibilidad)
+    {
+        <div class="reservas-info">
+            <i class="bi bi-info-circle reservas-info-icon"></i>
+            <p>Todavía no configuraste tus servicios: por ahora se muestran <strong>todos</strong> en tu enlace. En cuanto guardes esta lista, solo se publicarán los que marques como visibles.</p>
+        </div>
+    }
+
+    @if (Model.Servicios.Count == 0)
+    {
+        <div class="reservas-empty">
+            <div class="reservas-empty-icon"><i class="bi bi-scissors"></i></div>
+            <p class="reservas-empty-title">No tenés servicios activos.</p>
+            <p class="reservas-empty-sub">Creá servicios en el módulo de Servicios para poder publicarlos.</p>
+        </div>
+    }
+    else
+    {
+        <div id="catalogSaveAlert" class="reservas-alert reservas-alert-ok" hidden></div>
+
+        <div class="rsv-catalog" id="catalogList">
+            @foreach (var s in Model.Servicios)
+            {
+                <article class="rsv-catalog-card" data-servicio-id="@s.ServicioId">
+                    <header class="rsv-catalog-top">
+                        <div class="rsv-catalog-title">
+                            <span class="rsv-catalog-name">@s.NombreServicio</span>
+                            <span class="rsv-dim">· @s.DuracionMinutos min · ₡@s.Precio.ToString("N0")</span>
+                        </div>
+                        <label class="rsv-switch rsv-switch-inline">
+                            <input type="checkbox" class="js-visible" @(s.IsVisibleOnline ? "checked" : "") />
+                            <span class="rsv-switch-text"><span>Visible online</span></span>
+                        </label>
+                    </header>
+
+                    <div class="rsv-grid2">
+                        <div class="rsv-field">
+                            <label>Nombre público (opcional)</label>
+                            <input type="text" class="rsv-input js-public-name" maxlength="120"
+                                   value="@s.PublicName" placeholder="@s.NombreServicio" />
+                        </div>
+                        <div class="rsv-field">
+                            <label>Categoría (opcional)</label>
+                            <input type="text" class="rsv-input js-category" maxlength="80"
+                                   value="@s.Category" placeholder="Ej: Cabello, Barba, Uñas" />
+                        </div>
+                        <div class="rsv-field">
+                            <label>Orden</label>
+                            <input type="number" class="rsv-input js-order" min="0" max="9999" value="@s.DisplayOrder" />
+                        </div>
+                        <div class="rsv-field rsv-field-center">
+                            <label class="rsv-switch rsv-switch-inline">
+                                <input type="checkbox" class="js-show-price" @(s.ShowPrice ? "checked" : "") />
+                                <span class="rsv-switch-text"><span>Mostrar precio</span></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="rsv-field">
+                        <label>Descripción pública (opcional)</label>
+                        <textarea class="rsv-input js-public-desc" rows="2" maxlength="300"
+                                  placeholder="Breve descripción para el cliente.">@s.PublicDescription</textarea>
+                    </div>
+
+                    <div class="rsv-field">
+                        <label>Profesionales que atienden este servicio</label>
+                        @if (Model.Funcionarios.Count == 0)
+                        {
+                            <span class="rsv-field-hint">No hay profesionales activos.</span>
+                        }
+                        else
+                        {
+                            <div class="rsv-chips">
+                                @foreach (var f in Model.Funcionarios)
+                                {
+                                    var check = s.FuncionarioIds.Contains(f.Id);
+                                    <label class="rsv-chip">
+                                        <input type="checkbox" class="js-func" value="@f.Id" @(check ? "checked" : "") />
+                                        <span>@f.Nombre</span>
+                                    </label>
+                                }
+                            </div>
+                            <span class="rsv-field-hint">Si no marcás ninguno, lo atienden <strong>todos</strong> los profesionales activos.</span>
+                        }
+                    </div>
+                </article>
+            }
+        </div>
+
+        <div class="reservas-form-actions">
+            <button type="button" class="btn-rsv btn-rsv-primary" id="btnGuardarCatalogo">
+                <i class="bi bi-save"></i> Guardar cambios
+            </button>
+        </div>
+    }
+
+    @Html.AntiForgeryToken()
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const btn = document.getElementById('btnGuardarCatalogo');
+            if (!btn) return;
+
+            const realToken = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+            const alertEl = document.getElementById('catalogSaveAlert');
+
+            function collect() {
+                const servicios = [];
+                document.querySelectorAll('#catalogList .rsv-catalog-card').forEach(card => {
+                    const funcIds = [];
+                    card.querySelectorAll('.js-func:checked').forEach(f => funcIds.push(parseInt(f.value, 10)));
+                    servicios.push({
+                        servicioId: parseInt(card.dataset.servicioId, 10),
+                        isVisibleOnline: card.querySelector('.js-visible').checked,
+                        publicName: card.querySelector('.js-public-name').value.trim() || null,
+                        publicDescription: card.querySelector('.js-public-desc').value.trim() || null,
+                        category: card.querySelector('.js-category').value.trim() || null,
+                        displayOrder: parseInt(card.querySelector('.js-order').value, 10) || 0,
+                        showPrice: card.querySelector('.js-show-price').checked,
+                        funcionarioIds: funcIds
+                    });
+                });
+                return { servicios };
+            }
+
+            btn.addEventListener('click', async function () {
+                btn.disabled = true;
+                const original = btn.innerHTML;
+                btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Guardando…';
+                try {
+                    const resp = await fetch('@Url.Action("GuardarServicios", "Reservas")', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'RequestVerificationToken': realToken
+                        },
+                        body: JSON.stringify(collect())
+                    });
+                    let data = {};
+                    try { data = await resp.json(); } catch { }
+                    if (resp.ok && data.success) {
+                        alertEl.textContent = data.message || 'Guardado.';
+                        alertEl.hidden = false;
+                        setTimeout(() => { alertEl.hidden = true; }, 2500);
+                    } else {
+                        alert(data.message || 'No se pudo guardar.');
+                    }
+                } catch {
+                    alert('No se pudo guardar. Revisá tu conexión.');
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = original;
+                }
+            });
+        })();
+    </script>
+}

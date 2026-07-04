@@ -312,7 +312,7 @@ namespace LuxuryApp.Services.PublicSite
                 return !plan.LimiteMensajesMensual.HasValue && !plan.EsPlanValidacion;
             }
 
-            return code is PlanCodes.Basic or PlanCodes.Pro or PlanCodes.Business;
+            return code is PlanCodes.Basic or PlanCodes.Pro or PlanCodes.Business or PlanCodes.TestProdBasic100;
         }
 
         private bool IsPublicAddonPlan(Plan plan)

@@ -69,10 +69,11 @@ namespace LuxuryApp.Models.Calendar
         public string EstadoConfirmacionWhatsApp { get; set; } = WhatsAppConfirmationStates.Pendiente;
 
         /// <summary>
-        /// Solo se puede cobrar rápido una cita con servicio de catálogo, activa y no cobrada.
-        /// Los servicios personalizados deben cobrarse desde el módulo de cobros del negocio.
+        /// Una cita es cobrable si no está cobrada ni cancelada. El monto base puede venir del
+        /// catálogo, ser 0 o no estar definido (servicio personalizado): el monto final se captura
+        /// en el modal. La colección ya está acotada a Tipo == "CITA" (sin descansos).
         /// </summary>
-        public bool EsCobrable => ServicioId.HasValue && !YaCobrada && !EsCancelada;
+        public bool EsCobrable => !YaCobrada && !EsCancelada;
 
         /// <summary>"Cobrada", "Cancelada" o "Pendiente".</summary>
         public string EstadoPago => YaCobrada
@@ -99,6 +100,10 @@ namespace LuxuryApp.Models.Calendar
         public int CitaId { get; set; }
         public int FuncionarioId { get; set; }
         public int? ServicioId { get; set; }
+
+        /// <summary>Nombre del servicio personalizado cuando la cita no usa catálogo (ServicioId == null).</summary>
+        public string? ServicioNombrePersonalizado { get; set; }
+
         public int? ClienteId { get; set; }
         public string NombreCliente { get; set; } = "Cliente";
         public decimal? PrecioServicio { get; set; }

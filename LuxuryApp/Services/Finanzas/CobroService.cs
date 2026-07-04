@@ -63,14 +63,22 @@ namespace LuxuryApp.Services.Finanzas
                             cancellationToken);
                     }
 
-                    if (normalizedRequest.ServicioId.HasValue)
+                    if (!normalizedRequest.ProductoId.HasValue)
                     {
-                        var servicio = await LoadServicioAsync(
-                            normalizedRequest.ServicioId.Value,
-                            currentServicioId: null,
-                            cancellationToken);
+                        // Cobro de servicio: de catálogo (ServicioId) o personalizado (cita sin
+                        // catálogo, solo nombre). ValidateRequest ya garantizó que uno de los dos
+                        // está presente.
+                        int? servicioId = null;
+                        if (normalizedRequest.ServicioId.HasValue)
+                        {
+                            var servicio = await LoadServicioAsync(
+                                normalizedRequest.ServicioId.Value,
+                                currentServicioId: null,
+                                cancellationToken);
+                            servicioId = servicio.Id;
+                        }
 
-                        var cobroServicio = BuildCobro(normalizedRequest, normalizedRequest.Monto, servicio.Id, productoId: null);
+                        var cobroServicio = BuildCobro(normalizedRequest, normalizedRequest.Monto, servicioId, productoId: null);
 
                         _context.Cobros.Add(cobroServicio);
                         await _context.SaveChangesAsync(cancellationToken);
@@ -466,6 +474,11 @@ namespace LuxuryApp.Services.Finanzas
                 ClienteId = request.ClienteId,
                 FuncionarioId = request.FuncionarioId,
                 ServicioId = servicioId,
+                // Solo se conserva el nombre personalizado cuando el cobro NO es de catálogo
+                // ni de producto (servicio personalizado de una cita).
+                ServicioNombrePersonalizado = (servicioId == null && productoId == null)
+                    ? request.ServicioNombrePersonalizado
+                    : null,
                 ProductoId = productoId,
                 CitaId = request.CitaId,
                 Monto = monto,
@@ -499,6 +512,9 @@ namespace LuxuryApp.Services.Finanzas
                     : null,
                 FuncionarioId = request.FuncionarioId,
                 ServicioId = request.ServicioId,
+                ServicioNombrePersonalizado = string.IsNullOrWhiteSpace(request.ServicioNombrePersonalizado)
+                    ? null
+                    : request.ServicioNombrePersonalizado.Trim(),
                 ProductoId = request.ProductoId,
                 CitaId = request.CitaId,
                 Monto = Math.Round(request.Monto, 2, MidpointRounding.AwayFromZero),
@@ -544,9 +560,22 @@ namespace LuxuryApp.Services.Finanzas
             var hasServicio = request.ServicioId.HasValue;
             var hasProducto = request.ProductoId.HasValue;
 
-            if (hasServicio == hasProducto)
+            // Servicio personalizado: cita fuera de catálogo. No hay ServicioId ni ProductoId,
+            // pero sí un nombre de servicio y una cita de origen. A efectos de finanzas cuenta
+            // como servicio (ver CobroQueryService / LiquidacionSemanalService).
+            var esServicioPersonalizado = !hasServicio
+                && !hasProducto
+                && request.CitaId.HasValue
+                && !string.IsNullOrWhiteSpace(request.ServicioNombrePersonalizado);
+
+            if (hasServicio && hasProducto)
             {
                 throw new CobroValidationException("Debe seleccionar un servicio o un producto, pero no ambos.");
+            }
+
+            if (!hasServicio && !hasProducto && !esServicioPersonalizado)
+            {
+                throw new CobroValidationException("Debe seleccionar un servicio o un producto.");
             }
 
             if (request.FuncionarioId <= 0)

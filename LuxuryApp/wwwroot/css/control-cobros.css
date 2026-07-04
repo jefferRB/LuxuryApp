@@ -262,8 +262,16 @@ html[data-luxury-surface-theme="glass"] .cc-shell {
 
 .cc-table {
     width: 100%;
+    table-layout: fixed;
     border-collapse: collapse;
     font-size: 0.86rem;
+}
+
+.cc-service-cell {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 0;
 }
 
 .cc-table thead th {
@@ -595,6 +603,84 @@ html[data-luxury-surface-theme="glass"] .cc-shell {
 
 .cc-field-full {
     margin: 0.35rem 0 1rem;
+}
+
+/* Ayuda para citas con servicio personalizado sin precio base. */
+.cc-modal-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.45rem;
+    margin: -0.55rem 0 1rem;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid rgba(217, 119, 6, 0.30);
+    border-radius: 10px;
+    background: rgba(217, 119, 6, 0.10);
+    color: var(--private-chart-warning, #facc15);
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.cc-modal-hint i {
+    margin-top: 0.08rem;
+}
+
+/* ── Desglose fiscal en vivo (mini tarjeta) ──────────────────────────────── */
+.cc-fiscal-card {
+    margin: -0.35rem 0 1rem;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid var(--private-surface-border, rgba(255, 255, 255, 0.12));
+    border-radius: 12px;
+    background: var(--private-row-bg, rgba(15, 23, 42, 0.04));
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.cc-fiscal-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--private-muted-text, #64748b);
+    margin-bottom: 0.15rem;
+}
+
+.cc-fiscal-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.cc-fiscal-label {
+    font-size: 0.78rem;
+    color: var(--private-muted-text, #64748b);
+}
+
+.cc-fiscal-value {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--private-surface-text, #111827);
+    font-variant-numeric: tabular-nums;
+}
+
+/* El total (Monto cobrado) va de último, con separador arriba y más destacado. */
+.cc-fiscal-row--total {
+    margin-top: 0.25rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--private-surface-border, rgba(255, 255, 255, 0.16));
+}
+
+.cc-fiscal-row--total .cc-fiscal-label {
+    font-weight: 700;
+    color: var(--private-surface-text, #111827);
+}
+
+.cc-fiscal-row--total .cc-fiscal-value {
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: var(--private-surface-text, #111827);
 }
 
 .cc-comprobante-box {

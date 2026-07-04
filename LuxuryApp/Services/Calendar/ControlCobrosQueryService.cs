@@ -208,6 +208,7 @@ namespace LuxuryApp.Services.Calendar
                     c.Tipo,
                     c.FuncionarioId,
                     c.ServicioId,
+                    c.ServicioNombrePersonalizado,
                     c.ClienteId,
                     Nombre = c.Cliente != null ? c.Cliente.Nombre : (c.NombreCliente ?? "Cliente"),
                     PrecioServicio = c.Servicio != null ? (decimal?)c.Servicio.Precio : null
@@ -228,6 +229,13 @@ namespace LuxuryApp.Services.Calendar
                 CitaId = cita.Id,
                 FuncionarioId = cita.FuncionarioId,
                 ServicioId = cita.ServicioId,
+                // Para una cita sin catálogo se usa su nombre personalizado; si por algún motivo
+                // viniera vacío, un texto neutro evita que el cobro quede sin descripción.
+                ServicioNombrePersonalizado = cita.ServicioId.HasValue
+                    ? null
+                    : (string.IsNullOrWhiteSpace(cita.ServicioNombrePersonalizado)
+                        ? "Servicio personalizado"
+                        : cita.ServicioNombrePersonalizado),
                 ClienteId = cita.ClienteId,
                 NombreCliente = string.IsNullOrWhiteSpace(cita.Nombre) ? "Cliente" : cita.Nombre,
                 PrecioServicio = cita.PrecioServicio,

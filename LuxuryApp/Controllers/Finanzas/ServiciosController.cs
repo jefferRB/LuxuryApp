@@ -27,14 +27,14 @@ namespace LuxuryApp.Controllers.Finanzas
         [HttpPost]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> Create(
-            [Bind(nameof(Servicio.Id) + "," + nameof(Servicio.Nombre) + "," + nameof(Servicio.Precio) + "," + nameof(Servicio.DuracionMinutos))]
+            [Bind(nameof(Servicio.Id) + "," + nameof(Servicio.Nombre) + "," + nameof(Servicio.Precio) + "," + nameof(Servicio.DuracionMinutos) + "," + nameof(Servicio.AplicaIva) + "," + nameof(Servicio.TarifaIva) + "," + nameof(Servicio.PrecioIncluyeIva))]
             Servicio servicio) =>
             Save(servicio);
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Save(
-            [Bind(nameof(Servicio.Id) + "," + nameof(Servicio.Nombre) + "," + nameof(Servicio.Precio) + "," + nameof(Servicio.DuracionMinutos))]
+            [Bind(nameof(Servicio.Id) + "," + nameof(Servicio.Nombre) + "," + nameof(Servicio.Precio) + "," + nameof(Servicio.DuracionMinutos) + "," + nameof(Servicio.AplicaIva) + "," + nameof(Servicio.TarifaIva) + "," + nameof(Servicio.PrecioIncluyeIva))]
             Servicio servicio)
         {
             NormalizeServicio(servicio);
@@ -65,6 +65,9 @@ namespace LuxuryApp.Controllers.Finanzas
                     servicioDb.Nombre = servicio.Nombre;
                     servicioDb.Precio = servicio.Precio;
                     servicioDb.DuracionMinutos = servicio.DuracionMinutos;
+                    servicioDb.AplicaIva = servicio.AplicaIva;
+                    servicioDb.TarifaIva = servicio.TarifaIva;
+                    servicioDb.PrecioIncluyeIva = servicio.PrecioIncluyeIva;
                 }
 
                 await _context.SaveChangesAsync();
@@ -95,7 +98,7 @@ namespace LuxuryApp.Controllers.Finanzas
         [ValidateAntiForgeryToken]
         public Task<IActionResult> Edit(
             int id,
-            [Bind(nameof(Servicio.Id) + "," + nameof(Servicio.Nombre) + "," + nameof(Servicio.Precio) + "," + nameof(Servicio.DuracionMinutos))]
+            [Bind(nameof(Servicio.Id) + "," + nameof(Servicio.Nombre) + "," + nameof(Servicio.Precio) + "," + nameof(Servicio.DuracionMinutos) + "," + nameof(Servicio.AplicaIva) + "," + nameof(Servicio.TarifaIva) + "," + nameof(Servicio.PrecioIncluyeIva))]
             Servicio servicio)
         {
             if (id != servicio.Id)

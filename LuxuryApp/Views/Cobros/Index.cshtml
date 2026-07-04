@@ -113,6 +113,11 @@
                 class="finance-btn-excel">
             <i class="bi bi-file-earmark-excel"></i> Excel
         </button>
+
+        @* Acceso al control de citas y cobros (acceso secundario, alineado a la derecha). *@
+        <a href="/Calendar/ControlCobros" class="finance-btn-secondary finance-btn-control">
+            <i class="bi bi-cash-stack"></i> Control de citas y cobros
+        </a>
     </div>
 
     @* Filtros *@
@@ -182,6 +187,10 @@
             </div>
 
         </div>
+
+        @* Estado de paginación (lo mueven los botones de la barra inferior; se conserva con los filtros) *@
+        <input type="hidden" asp-for="Filtros.Page" id="filtroPage" />
+        <input type="hidden" asp-for="Filtros.PageSize" id="filtroPageSize" />
     </form>
 
     @* Alertas TempData *@
@@ -425,6 +434,56 @@
         }
     </div>
 
+    @* Paginación (la tabla muestra una página; los indicadores de arriba son de todo el filtro) *@
+    @if (Model.TotalRegistros > 0)
+    {
+        <div class="finance-pagination">
+            <div class="finance-pagination-info">
+                Mostrando @Model.Desde–@Model.Hasta de @Model.TotalRegistros.ToString("N0") ingresos
+            </div>
+
+            <div class="finance-pagination-controls">
+                <button type="button" class="finance-page-btn" onclick="gotoPage(1)"
+                        title="Primera página" @(Model.Page <= 1 ? "disabled" : "")>«</button>
+                <button type="button" class="finance-page-btn" onclick="gotoPage(@(Model.Page - 1))"
+                        title="Anterior" @(Model.Page <= 1 ? "disabled" : "")>‹</button>
+
+                @{
+                    var startPage = Math.Max(1, Model.Page - 2);
+                    var endPage = Math.Min(Model.TotalPaginas, Model.Page + 2);
+                }
+                @if (startPage > 1)
+                {
+                    <span class="finance-page-ellipsis">…</span>
+                }
+                @for (var p = startPage; p <= endPage; p++)
+                {
+                    <button type="button" class="finance-page-btn @(p == Model.Page ? "is-active" : "")"
+                            onclick="gotoPage(@p)">@p</button>
+                }
+                @if (endPage < Model.TotalPaginas)
+                {
+                    <span class="finance-page-ellipsis">…</span>
+                }
+
+                <button type="button" class="finance-page-btn" onclick="gotoPage(@(Model.Page + 1))"
+                        title="Siguiente" @(Model.Page >= Model.TotalPaginas ? "disabled" : "")>›</button>
+                <button type="button" class="finance-page-btn" onclick="gotoPage(@Model.TotalPaginas)"
+                        title="Última página" @(Model.Page >= Model.TotalPaginas ? "disabled" : "")>»</button>
+            </div>
+
+            <div class="finance-pagination-size">
+                <label>Mostrar:</label>
+                <select id="pageSizeSelect" class="finance-filter-select" onchange="setPageSize(this.value)">
+                    @foreach (var size in CobroIndexViewModel.PageSizeOptions)
+                    {
+                        <option value="@size" selected="@(size == Model.PageSize)">@size</option>
+                    }
+                </select>
+            </div>
+        </div>
+    }
+
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════
@@ -599,14 +658,33 @@
             container.classList.toggle("d-none", select.value !== "fechas");
         }
 
+        /* ── paginación (conserva filtros; cambiar filtro vuelve a página 1) ── */
+        function resetPage() {
+            var p = document.getElementById("filtroPage");
+            if (p) p.value = 1;
+        }
+        function gotoPage(n) {
+            var p = document.getElementById("filtroPage");
+            if (p) p.value = n;
+            document.getElementById("formFiltros").submit();
+        }
+        function setPageSize(v) {
+            var ps = document.getElementById("filtroPageSize");
+            if (ps) ps.value = v;
+            resetPage();
+            document.getElementById("formFiltros").submit();
+        }
+
         document.addEventListener("DOMContentLoaded", function () {
             var form = document.getElementById("formFiltros");
-            var filtros = form.querySelectorAll("select, input");
+            // Solo los campos de FILTRO (no los hidden de paginación) reenvían al cambiar.
+            var filtros = form.querySelectorAll("select:not(#pageSizeSelect), input:not([type=hidden])");
 
             toggleRangoFechas();
 
             filtros.forEach(function (filtro) {
                 filtro.addEventListener("change", function () {
+                    resetPage(); // cambiar un filtro siempre vuelve a la página 1
                     if (this.id === "vistaTiempoSelect") {
                         toggleRangoFechas();
                         if (this.value !== "fechas") form.submit();
@@ -621,7 +699,10 @@
             input.addEventListener("change", function () {
                 var inicio = document.querySelector("[name='Filtros.FechaInicio']").value;
                 var fin    = document.querySelector("[name='Filtros.FechaFin']").value;
-                if (inicio && fin) document.getElementById("formFiltros").submit();
+                if (inicio && fin) {
+                    resetPage();
+                    document.getElementById("formFiltros").submit();
+                }
             });
         });
 

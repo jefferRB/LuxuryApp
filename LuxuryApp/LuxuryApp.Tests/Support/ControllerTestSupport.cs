@@ -56,10 +56,15 @@ namespace LuxuryApp.Tests.Support
             return new ClaimsPrincipal(new ClaimsIdentity(claims, authenticationType: "TestAuth"));
         }
 
-        public static ILiquidacionSemanalService CreateLiquidacionSemanalService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
+        public static ILiquidacionSemanalService CreateLiquidacionSemanalService(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            ITenantProvider tenantProvider) =>
             new LiquidacionSemanalService(
                 context,
                 BusinessDateTimeProvider,
+                new LuxuryApp.Services.Fiscal.TaxCalculationService(),
+                new LuxuryApp.Services.Fiscal.LiquidacionFuncionarioService(),
+                new LuxuryApp.Services.Fiscal.TenantFiscalConfigService(context, tenantProvider),
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<LiquidacionSemanalService>.Instance);
 
         public static ICobroService CreateCobroService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
@@ -70,6 +75,14 @@ namespace LuxuryApp.Tests.Support
 
         public static ICobroQueryService CreateCobroQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
             new CobroQueryService(context, BusinessDateTimeProvider);
+
+        public static LuxuryApp.Services.Fiscal.ICobroFiscalPreviewService CreateCobroFiscalPreviewService(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            ITenantProvider tenantProvider) =>
+            new LuxuryApp.Services.Fiscal.CobroFiscalPreviewService(
+                context,
+                new LuxuryApp.Services.Fiscal.TenantFiscalConfigService(context, tenantProvider),
+                new LuxuryApp.Services.Fiscal.TaxCalculationService());
 
         public static IDashboardFinancieroQueryService CreateDashboardFinancieroQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
             new DashboardFinancieroQueryService(context, BusinessDateTimeProvider);
@@ -116,6 +129,15 @@ namespace LuxuryApp.Tests.Support
         public static ITenantDisplayNameService CreateTenantDisplayNameService() =>
             new NoOpTenantDisplayNameService();
 
+        // Almacenamiento de fotos que no toca disco (los tests no ejercitan fotos).
+        public static IFuncionarioPhotoStorageService CreateFuncionarioPhotoStorageService() =>
+            new NoOpFuncionarioPhotoStorageService();
+
+        // Overload con nombre fijo para tests que verifican que el nombre del negocio
+        // aparece en encabezados/nombres de archivo de los reportes.
+        public static ITenantDisplayNameService CreateTenantDisplayNameService(string displayName) =>
+            new FixedTenantDisplayNameService(displayName);
+
         public static IControlCobrosQueryService CreateControlCobrosQueryService(
             ProyectoIdentity.Datos.ApplicationDbContext context) =>
             new ControlCobrosQueryService(context, BusinessDateTimeProvider);
@@ -131,6 +153,32 @@ namespace LuxuryApp.Tests.Support
 
         public static LuxuryApp.Services.Account.IAccountEmailService CreateAccountEmailService() =>
             new NoOpAccountEmailService();
+
+        public static LuxuryApp.Services.Reports.IMonthlyReportRecipientResolver CreateMonthlyReportRecipientResolver(
+            ProyectoIdentity.Datos.ApplicationDbContext context) =>
+            new LuxuryApp.Services.Reports.MonthlyReportRecipientResolver(context);
+
+        public static LuxuryApp.Services.Reports.IMonthlyBusinessReportService CreateMonthlyBusinessReportService(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            ITenantProvider tenantProvider,
+            LuxuryApp.Services.Reports.IMonthlyReportEmailSender emailSender,
+            string businessName = "Negocio de Prueba",
+            string? baseUrl = "https://app.luxurycloud.test") =>
+            new LuxuryApp.Services.Reports.MonthlyBusinessReportService(
+                context,
+                tenantProvider,
+                CreateDashboardFinancieroQueryService(context),
+                CreateInformacionNegocioQueryService(context),
+                CreateTenantDisplayNameService(businessName),
+                CreateMonthlyReportRecipientResolver(context),
+                new LuxuryApp.Services.Reports.MonthlyReportEmailRenderer(),
+                emailSender,
+                BusinessDateTimeProvider,
+                Microsoft.Extensions.Options.Options.Create(new LuxuryApp.Services.Common.PublicSiteOptions
+                {
+                    PublicBaseUrl = baseUrl ?? string.Empty
+                }),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<LuxuryApp.Services.Reports.MonthlyBusinessReportService>.Instance);
     }
 
     internal sealed class TestTempDataProvider : ITempDataProvider
@@ -156,6 +204,26 @@ namespace LuxuryApp.Tests.Support
 
         public Task<string?> GetPublicTenantDisplayNameBySlugAsync(string slug, CancellationToken cancellationToken = default) =>
             Task.FromResult<string?>(null);
+
+        public string NormalizeDisplayName(string? value) => value ?? string.Empty;
+
+        public bool ContainsInvalidDisplayNameCharacters(string? value) => false;
+    }
+
+    internal sealed class FixedTenantDisplayNameService : ITenantDisplayNameService
+    {
+        private readonly string _displayName;
+
+        public FixedTenantDisplayNameService(string displayName) => _displayName = displayName;
+
+        public Task<string> GetCurrentTenantDisplayNameAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(_displayName);
+
+        public Task<string> GetTenantDisplayNameAsync(Guid tenantId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_displayName);
+
+        public Task<string?> GetPublicTenantDisplayNameBySlugAsync(string slug, CancellationToken cancellationToken = default) =>
+            Task.FromResult<string?>(_displayName);
 
         public string NormalizeDisplayName(string? value) => value ?? string.Empty;
 
@@ -224,11 +292,27 @@ namespace LuxuryApp.Tests.Support
             Task.CompletedTask;
     }
 
+    internal sealed class NoOpFuncionarioPhotoStorageService : IFuncionarioPhotoStorageService
+    {
+        public Task<FuncionarioPhotoSaveResult> SaveAsync(
+            Guid tenantId,
+            Microsoft.AspNetCore.Http.IFormFile file,
+            string? previousStoragePath,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(FuncionarioPhotoSaveResult.Ok("/uploads/test.jpg", "uploads/test.jpg"));
+
+        public void Delete(string? storagePath) { }
+    }
+
     internal sealed class NoOpCalendarWhatsAppNotificationService : ICalendarWhatsAppNotificationService
     {
         public Task SendAppointmentConfirmationAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task SendAppointmentReminderAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<LuxuryApp.Services.Calendar.WhatsAppConfirmationSendResult> SendConfirmationNowAsync(int citaId, string source, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new LuxuryApp.Services.Calendar.WhatsAppConfirmationSendResult(
+                LuxuryApp.Services.Calendar.WhatsAppConfirmationOutcome.Sent, "Confirmación de WhatsApp enviada."));
 
         public Task QueueAppointmentConfirmationAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
 

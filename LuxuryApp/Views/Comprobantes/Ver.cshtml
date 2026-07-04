@@ -96,7 +96,8 @@
                         <tr>
                             <th>Descripción</th>
                             <th class="r">Cant.</th>
-                            <th class="r">P. Unitario</th>
+                            <th class="r">Base sin IVA</th>
+                            <th class="r">IVA</th>
                             <th class="r">Total</th>
                         </tr>
                     </thead>
@@ -106,24 +107,31 @@
                             <tr>
                                 <td>@linea.Descripcion</td>
                                 <td class="r">@linea.Cantidad.ToString("#,##0.##", ComprobanteTextos.CulturaCR)</td>
-                                <td class="r">@ComprobanteTextos.Colones(linea.PrecioUnitario, Model.Moneda)</td>
+                                <td class="r">@ComprobanteTextos.Colones(linea.Subtotal, Model.Moneda)</td>
+                                <td class="r">@ComprobanteTextos.Colones(linea.Impuesto, Model.Moneda)</td>
                                 <td class="r">@ComprobanteTextos.Colones(linea.Total, Model.Moneda)</td>
                             </tr>
                         }
                     </tbody>
                 </table>
 
+                @* Snapshot fiscal (Fase 1): Subtotal = base sin IVA, Impuesto = IVA incluido.
+                   Fallback histórico (Impuesto == 0): solo se muestra el Total. *@
                 <div class="tot">
-                    <div class="fila"><span>Subtotal</span><span>@ComprobanteTextos.Colones(Model.Subtotal, Model.Moneda)</span></div>
-                    @if (Model.Descuento > 0)
+                    @if (Model.Impuesto > 0)
+                    {
+                        <div class="fila"><span>Base sin IVA</span><span>@ComprobanteTextos.Colones(Model.Subtotal, Model.Moneda)</span></div>
+                        @if (Model.Descuento > 0)
+                        {
+                            <div class="fila"><span>Descuento</span><span>-@ComprobanteTextos.Colones(Model.Descuento, Model.Moneda)</span></div>
+                        }
+                        <div class="fila"><span>IVA incluido</span><span>@ComprobanteTextos.Colones(Model.Impuesto, Model.Moneda)</span></div>
+                    }
+                    else if (Model.Descuento > 0)
                     {
                         <div class="fila"><span>Descuento</span><span>-@ComprobanteTextos.Colones(Model.Descuento, Model.Moneda)</span></div>
                     }
-                    @if (Model.Impuesto > 0)
-                    {
-                        <div class="fila"><span>Impuesto</span><span>@ComprobanteTextos.Colones(Model.Impuesto, Model.Moneda)</span></div>
-                    }
-                    <div class="fila grande"><span>Total</span><span>@ComprobanteTextos.Colones(Model.Total, Model.Moneda)</span></div>
+                    <div class="fila grande"><span>Total cobrado</span><span>@ComprobanteTextos.Colones(Model.Total, Model.Moneda)</span></div>
                 </div>
 
                 @if (!string.IsNullOrWhiteSpace(Model.Observacion))

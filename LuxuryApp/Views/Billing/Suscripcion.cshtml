@@ -1,0 +1,146 @@
+@model LuxuryApp.Models.SaaS.BillingPlanesViewModel
+@{
+    ViewData["Title"] = "Suscripción";
+    var sub = Model.CurrentSubscription;
+    var hasBaseAccess = sub?.CanAccessApp == true || Model.CurrentAccess?.CanAccessApp == true;
+    var toneClass = sub?.StatusTone switch
+    {
+        "success" => "sub-state--ok",
+        "warning" => "sub-state--warn",
+        "danger" => "sub-state--danger",
+        "info" => "sub-state--info",
+        _ => "sub-state--muted"
+    };
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/subscription.css" asp-append-version="true" />
+}
+
+<div class="sub-shell">
+    <header class="sub-head">
+        <div class="sub-head-text">
+            <span class="sub-eyebrow"><i class="bi bi-credit-card-2-front"></i> Cuenta</span>
+            <h1 class="sub-title">Suscripción</h1>
+            <p class="sub-sub">Revisá tu plan, tus add-ons y el estado comercial de tu cuenta.</p>
+        </div>
+        <a asp-controller="WhatsApp" asp-action="Index" class="sub-btn sub-btn--soft">
+            <i class="bi bi-whatsapp"></i> Configurar WhatsApp
+        </a>
+    </header>
+
+    @if (TempData["BillingError"] is string billingError)
+    {
+        <div class="sub-alert sub-alert--error"><i class="bi bi-exclamation-triangle"></i> @billingError</div>
+    }
+    @if (TempData["BillingSuccess"] is string billingSuccess)
+    {
+        <div class="sub-alert sub-alert--ok"><i class="bi bi-check2-circle"></i> @billingSuccess</div>
+    }
+
+    @* ── Estado actual ── *@
+    <section class="sub-card sub-state-card">
+        <div class="sub-state-main">
+            <span class="sub-card-kicker">Estado actual</span>
+            @if (sub is not null)
+            {
+                <h2 class="sub-state-plan">@(sub.PlanName ?? "Sin plan base")</h2>
+                <span class="sub-state-badge @toneClass">@sub.StatusLabel</span>
+                <div class="sub-state-meta">
+                    @if (sub.CurrentPeriodEndUtc.HasValue)
+                    {
+                        <span><i class="bi bi-calendar-event"></i> Vigente hasta <strong>@sub.CurrentPeriodEndUtc.Value.ToString("dd/MM/yyyy")</strong></span>
+                    }
+                    @if (sub.NextBillingDateUtc.HasValue)
+                    {
+                        <span><i class="bi bi-arrow-repeat"></i> Próximo cobro <strong>@sub.NextBillingDateUtc.Value.ToString("dd/MM/yyyy")</strong></span>
+                    }
+                    @if (sub.IsInGracePeriod && sub.GracePeriodEndsUtc.HasValue)
+                    {
+                        <span class="sub-state--warn"><i class="bi bi-hourglass-split"></i> Gracia hasta <strong>@sub.GracePeriodEndsUtc.Value.ToString("dd/MM/yyyy")</strong></span>
+                    }
+                </div>
+            }
+            else
+            {
+                <h2 class="sub-state-plan">Sin suscripción activa</h2>
+                <p class="sub-state-empty">Tu cuenta existe y conserva sus datos. Solo falta activar o regularizar una suscripción mensual para usar la plataforma.</p>
+            }
+        </div>
+        <div class="sub-state-action">
+            <a href="#planes" class="sub-btn sub-btn--primary">
+                @(hasBaseAccess ? "Cambiar plan" : "Ver planes")
+            </a>
+        </div>
+    </section>
+
+    @* ── Resumen de tu cuenta ── *@
+    <h3 class="sub-section-title">Resumen de tu cuenta</h3>
+    <section class="sub-summary-grid">
+        <div class="sub-card sub-summary-card">
+            <span class="sub-summary-icon"><i class="bi bi-credit-card-2-front"></i></span>
+            <span class="sub-summary-label">Plan y estado</span>
+            <strong class="sub-summary-value">@(sub?.PlanName ?? "Sin plan base")</strong>
+            <span class="sub-summary-foot">@(sub?.StatusLabel ?? "Sin suscripción")</span>
+        </div>
+        <div class="sub-card sub-summary-card">
+            <span class="sub-summary-icon"><i class="bi bi-people"></i></span>
+            <span class="sub-summary-label">Funcionarios</span>
+            <strong class="sub-summary-value">@(sub?.ActiveFuncionarios ?? 0)<span class="sub-summary-of"> / @(sub?.MaxFuncionarios?.ToString() ?? "∞")</span></strong>
+            <span class="sub-summary-foot">Usados / límite del plan</span>
+        </div>
+        <div class="sub-card sub-summary-card">
+            <span class="sub-summary-icon"><i class="bi bi-whatsapp"></i></span>
+            <span class="sub-summary-label">WhatsApp add-on</span>
+            @if (sub?.HasWhatsAppAddon == true)
+            {
+                <strong class="sub-summary-value">@sub.WhatsAppAddonName</strong>
+                <span class="sub-summary-foot">@sub.WhatsAppAddonStatusLabel · <a asp-controller="WhatsApp" asp-action="Index">Configurar</a></span>
+            }
+            else
+            {
+                <strong class="sub-summary-value">Sin paquete</strong>
+                <span class="sub-summary-foot"><a href="#paquetes">Ver paquetes</a></span>
+            }
+        </div>
+        <div class="sub-card sub-summary-card">
+            <span class="sub-summary-icon"><i class="bi bi-calendar-check"></i></span>
+            <span class="sub-summary-label">Próxima renovación</span>
+            <strong class="sub-summary-value">@(sub?.NextBillingDateUtc?.ToString("dd/MM/yyyy") ?? "—")</strong>
+            <span class="sub-summary-foot">Plan base</span>
+        </div>
+    </section>
+
+    @* ── Calculadora de plan ── *@
+    <h3 class="sub-section-title" id="planes">Elegí tu plan</h3>
+    <p class="sub-section-sub">Ajustá la cantidad de funcionarios y el ciclo de facturación; el precio se actualiza al instante.</p>
+    @if (Model.Calculator is not null)
+    {
+        <partial name="_SubscriptionCalculator" model="Model.Calculator" />
+    }
+
+    @* ── Paquetes WhatsApp ── *@
+    <h3 class="sub-section-title" id="paquetes">Paquetes WhatsApp</h3>
+    <p class="sub-section-sub">El add-on de WhatsApp se cobra por separado del plan base y se consume por periodo mensual.</p>
+    <partial name="_WhatsAppPackageCards" model="@(new LuxuryApp.Models.SaaS.WhatsAppPackageCardsViewModel
+        {
+            Cards = Model.WhatsAppAddonCards,
+            CurrentAddonCode = sub?.WhatsAppAddonCode,
+            HasBaseAccess = hasBaseAccess,
+            HasActiveAddon = sub?.HasWhatsAppAddon == true
+        })" />
+
+    @* ── Código promocional ── *@
+    <section class="sub-card sub-promo-card">
+        <div>
+            <span class="sub-card-kicker">Código promocional</span>
+            <h3 class="sub-promo-title">¿Recibiste un código oficial?</h3>
+            <p class="sub-promo-sub">Activá acceso temporal sin tarjeta ingresando tu código.</p>
+        </div>
+        <form asp-controller="Billing" asp-action="AplicarCodigoPromocional" method="post" class="sub-promo-form">
+            @Html.AntiForgeryToken()
+            <input id="accessCode" name="accessCode" class="sub-input" maxlength="100" placeholder="Código de acceso" />
+            <button type="submit" class="sub-btn sub-btn--soft">Aplicar código</button>
+        </form>
+    </section>
+</div>

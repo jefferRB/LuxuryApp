@@ -27,6 +27,7 @@ namespace LuxuryApp.Services.Payments
         private readonly OpcionesTilopay _tilopayOptions;
         private readonly TilopayRepeatOptions _tilopayRepeatOptions;
         private readonly IHostEnvironment? _environment;
+        private readonly IPlanChangeService? _planChangeService;
 
         public SaaSPaymentService(
             ApplicationDbContext db,
@@ -37,7 +38,8 @@ namespace LuxuryApp.Services.Payments
             IOptions<OpcionesTilopay> tilopayOptions,
             IOptions<TilopayRepeatOptions> tilopayRepeatOptions,
             ILogger<SaaSPaymentService> logger,
-            IHostEnvironment? environment = null)
+            IHostEnvironment? environment = null,
+            IPlanChangeService? planChangeService = null)
         {
             _db = db;
             _providerResolver = providerResolver;
@@ -48,6 +50,7 @@ namespace LuxuryApp.Services.Payments
             _tilopayOptions = tilopayOptions.Value;
             _tilopayRepeatOptions = tilopayRepeatOptions.Value;
             _environment = environment;
+            _planChangeService = planChangeService;
         }
 
         public async Task<PaymentCheckoutResult> CreateCheckoutAsync(
@@ -514,6 +517,17 @@ namespace LuxuryApp.Services.Payments
                     providerReference,
                     motivo: BuildRecurringApprovalReason(request.Source, request.Observation),
                     cancellationToken: cancellationToken);
+
+                // Si esta activacion corresponde a un cambio de plan en curso, marcarlo aplicado
+                // y, si la suscripcion proveedor anterior difiere, alertar para cancelarla manual.
+                if (_planChangeService is not null)
+                {
+                    await _planChangeService.ApplyAppliedAsync(
+                        intento.TenantId,
+                        repeatRegistration.Plan.TilopayPlanId,
+                        request.ProviderSubscriberId,
+                        cancellationToken);
+                }
             }
 
             await EnsureInvoiceAsync(

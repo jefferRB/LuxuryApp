@@ -28,6 +28,12 @@ namespace LuxuryApp.Models.Calendar
 
         public bool EsServicioPersonalizado { get; init; }
 
+        /// <summary>Precio base del servicio de catálogo (null para servicio personalizado o descanso).</summary>
+        public decimal? PrecioServicio { get; init; }
+
+        /// <summary>True si la cita ya tiene un cobro ligado (estado de pago global).</summary>
+        public bool YaCobrada { get; init; }
+
         public bool WhatsAppConsentAtCreation { get; init; }
 
         public string? WhatsAppConsentSource { get; init; }

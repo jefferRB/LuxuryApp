@@ -121,9 +121,13 @@
                     <span class="calendar-kpi-hint">@Model.KpisHoy.PendientesHoy pendiente@(Model.KpisHoy.PendientesHoy == 1 ? "" : "s")</span>
                 </div>
             </div>
-           
-     
-    
+            <div class="calendar-kpi-card">
+                <div class="calendar-kpi-icon calendar-kpi-icon-amber"><i class="bi bi-hourglass-split"></i></div>
+                <div class="calendar-kpi-body">
+                    <span class="calendar-kpi-label">Pendiente de cobrar</span>
+                    <span class="calendar-kpi-value">@Money(Model.KpisHoy.PendienteCobrarHoy)</span>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -275,6 +279,7 @@
                 <div class="mpc-icon"><i class="bi bi-calendar2-check"></i></div>
                 <div>
                     <h2 class="mpc-title">Control de citas y cobros</h2>
+                    <p class="mpc-range" style="margin-top:.15rem;"><i class="bi bi-info-circle"></i> Revisa tus citas y registra cobros pendientes.</p>
                 </div>
             </div>
             <div class="mpc-tabs">

@@ -75,18 +75,18 @@
                     <div style="height:1rem;"></div>
 
                     <label class="pcmn-label">Servicio</label>
-                    <select name="servicioId" class="pcmn-select" required>
+                    <select name="servicioId" id="cmServicio" class="pcmn-select" required>
                         <option value="">Selecciona un servicio</option>
                         @foreach (var sv in Model.Servicios)
                         {
-                            <option value="@sv.Id">@sv.Nombre</option>
+                            <option value="@sv.Id" data-precio="@sv.Precio.ToString(System.Globalization.CultureInfo.InvariantCulture)">@sv.Nombre</option>
                         }
                     </select>
 
                     <label class="pcmn-label">Monto cobrado</label>
                     <div class="pcmn-money">
                         <span class="pcmn-money-cur">₡</span>
-                        <input type="number" name="monto" step="0.01" min="0.01" required class="pcmn-money-input" placeholder="0,00" />
+                        <input type="number" name="monto" id="cmMonto" step="0.01" min="0.01" required class="pcmn-money-input" placeholder="0,00" />
                     </div>
 
                     <label class="pcmn-label">Método de pago</label>
@@ -134,6 +134,21 @@
         if (!form) return;
         // Evitar doble submit
         var submit = document.getElementById("cmSubmit");
+
+        // Autollenar el monto con el precio del servicio (solo UX; el backend revalida monto>0,
+        // que el servicio sea del tenant y el FuncionarioId del claim). data-precio viene invariant (punto).
+        var servicioSel = document.getElementById("cmServicio");
+        var montoInp = document.getElementById("cmMonto");
+        if (servicioSel && montoInp) {
+            servicioSel.addEventListener("change", function () {
+                var opt = this.options[this.selectedIndex];
+                var raw = opt ? opt.getAttribute("data-precio") : null;
+                if (raw === null || raw === "") return;
+                var precio = Number(raw);
+                if (!isFinite(precio) || precio < 0) return;
+                montoInp.value = precio.toFixed(2);
+            });
+        }
         // Toggle del bloque de comprobante.
         var enviarComp = document.getElementById("cmEnviarComp");
         if (enviarComp) {

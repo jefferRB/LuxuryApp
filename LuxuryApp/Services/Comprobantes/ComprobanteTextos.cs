@@ -13,8 +13,8 @@ namespace LuxuryApp.Services.Comprobantes
         /// por Hacienda. Debe aparecer en UI, correo y PDF.
         /// </summary>
         public const string LeyendaLegal =
-            "Comprobante interno generado por LuxuryCloud. No corresponde a un comprobante " +
-            "electrónico validado por el Ministerio de Hacienda.";
+            "Comprobante interno no fiscal. No sustituye una factura electrónica autorizada por " +
+            "el Ministerio de Hacienda.";
 
         public const string PieGenerado =
             "Este comprobante fue generado automáticamente por LuxuryCloud.";

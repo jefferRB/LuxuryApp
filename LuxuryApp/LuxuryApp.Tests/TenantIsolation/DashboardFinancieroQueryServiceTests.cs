@@ -51,8 +51,9 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(150m, model.TotalServicios);
             Assert.Equal(200m, model.TotalProductos);
             Assert.Equal(350m, model.TotalGenerado);
-            Assert.Equal(45.50m, model.TotalImpuestos);
-            Assert.Equal(304.50m, model.TotalSinImpuestos);
+            // IVA incluido: base = 350 / 1.13 = 309.73; IVA = 40.27.
+            Assert.Equal(40.27m, model.TotalImpuestos);
+            Assert.Equal(309.73m, model.TotalSinImpuestos);
             Assert.Equal(40m, model.TotalEgresos);
             Assert.Equal(40m, model.TotalEgresosAnaliticos);
             Assert.Equal(100m, model.IngresosEfectivo);
@@ -62,9 +63,9 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(2, model.CantidadCitasMes);
             Assert.Equal(40m, model.ValorInventarioProductos);
             Assert.Equal(2, model.TotalProductosInventario);
-            Assert.Equal(264.50m, model.ResultadoAnalitico);
+            Assert.Equal(269.73m, model.ResultadoAnalitico);
             Assert.Equal(12, model.ResultadoAnaliticoPorMes.Count);
-            Assert.Equal(264.50m, model.ResultadoAnaliticoPorMes[3]);
+            Assert.Equal(269.73m, model.ResultadoAnaliticoPorMes[3]);
         }
 
         [Fact]
@@ -152,17 +153,18 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             Assert.Equal(200m, model.TotalServicios);
             Assert.Equal(200m, model.TotalGenerado);
-            Assert.Equal(26m, model.TotalImpuestos);
-            Assert.Equal(174m, model.TotalSinImpuestos);
+            // IVA incluido: base = 200 / 1.13 = 176.99; IVA = 23.01.
+            Assert.Equal(23.01m, model.TotalImpuestos);
+            Assert.Equal(176.99m, model.TotalSinImpuestos);
             Assert.Equal(80m, model.TotalPagadoFuncionarios);
             Assert.Equal(73.50m, model.TotalPagadoFuncionariosAnalitico);
             Assert.Equal(100m, model.TotalEgresos);
             Assert.Equal(93.50m, model.TotalEgresosAnaliticos);
-            Assert.Equal(80.50m, model.ResultadoAnalitico);
-            Assert.Equal(74m, model.GananciaPorMes[3]);
-            Assert.Equal(80.50m, model.ResultadoAnaliticoPorMes[3]);
-            Assert.Equal(144m, model.GananciaPorMes[4]);
-            Assert.Equal(50.50m, model.ResultadoAnaliticoPorMes[4]);
+            Assert.Equal(83.49m, model.ResultadoAnalitico);
+            Assert.Equal(76.99m, model.GananciaPorMes[3]);
+            Assert.Equal(83.49m, model.ResultadoAnaliticoPorMes[3]);
+            Assert.Equal(146.99m, model.GananciaPorMes[4]);
+            Assert.Equal(53.49m, model.ResultadoAnaliticoPorMes[4]);
             Assert.Equal(12, model.GananciaPorMes.Count);
             Assert.Equal(12, model.ResultadoAnaliticoPorMes.Count);
         }

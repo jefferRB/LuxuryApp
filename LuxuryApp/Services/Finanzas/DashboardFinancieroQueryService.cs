@@ -66,8 +66,9 @@ namespace LuxuryApp.Services.Finanzas
                 selection.Month,
                 EgresoMonthAggregateProjection.Empty);
 
-            var totalImpuestos = cobroMetrics.TotalGenerado * PagoFuncionarioDevengadoCalculator.TasaImpuesto;
-            var totalSinImpuestos = cobroMetrics.TotalGenerado - totalImpuestos;
+            // IVA incluido (CR): la base es Total / 1.13 y el IVA es la diferencia.
+            var totalSinImpuestos = PagoFuncionarioDevengadoCalculator.CalcularBaseSinIvaIncluido(cobroMetrics.TotalGenerado);
+            var totalImpuestos = cobroMetrics.TotalGenerado - totalSinImpuestos;
 
             var totalPagadoFuncionariosCaja =
                 pagosFuncionariosCajaPorLiquidacionPorMes.GetValueOrDefault(selection.Month)
@@ -85,7 +86,7 @@ namespace LuxuryApp.Services.Finanzas
             for (var currentMonth = 1; currentMonth <= 12; currentMonth++)
             {
                 var ingresosMes = ingresosPorMes.GetValueOrDefault(currentMonth);
-                var totalSinImpuestosMes = ingresosMes - (ingresosMes * PagoFuncionarioDevengadoCalculator.TasaImpuesto);
+                var totalSinImpuestosMes = PagoFuncionarioDevengadoCalculator.CalcularBaseSinIvaIncluido(ingresosMes);
 
                 var egresosMes = egresosPorMes.GetValueOrDefault(
                     currentMonth,
@@ -326,7 +327,7 @@ namespace LuxuryApp.Services.Finanzas
                     IdFuncionario = f.IdFuncionario,
                     PorcentajeGanancia = f.PorcentajeGanancia,
                     PorcentajeProducto = f.PorcentajeProducto,
-                    RebajarImpuestosAntesDeComision = f.RebajarImpuestosAntesDeComision
+                    ComisionCalculadaSobre = f.ComisionCalculadaSobre
                 })
                 .ToDictionaryAsync(f => f.IdFuncionario, cancellationToken);
 
@@ -472,7 +473,7 @@ namespace LuxuryApp.Services.Finanzas
             public int IdFuncionario { get; init; }
             public decimal PorcentajeGanancia { get; init; }
             public decimal PorcentajeProducto { get; init; }
-            public bool RebajarImpuestosAntesDeComision { get; init; }
+            public LuxuryApp.Models.Fiscal.ComisionCalculadaSobre ComisionCalculadaSobre { get; init; }
 
             public Funcionario ToFuncionario() =>
                 new()
@@ -480,7 +481,7 @@ namespace LuxuryApp.Services.Finanzas
                     IdFuncionario = IdFuncionario,
                     PorcentajeGanancia = PorcentajeGanancia,
                     PorcentajeProducto = PorcentajeProducto,
-                    RebajarImpuestosAntesDeComision = RebajarImpuestosAntesDeComision
+                    ComisionCalculadaSobre = ComisionCalculadaSobre
                 };
         }
 

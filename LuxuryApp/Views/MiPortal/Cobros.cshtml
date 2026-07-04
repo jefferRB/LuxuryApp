@@ -14,90 +14,88 @@
 }
 
 @section Styles {
-    <link rel="stylesheet" href="~/css/calendar-module.css" asp-append-version="true" />
     <style>
         .mpc-tabs { display:inline-flex; background:rgba(148,163,184,.16); border-radius:12px; padding:.25rem; gap:.15rem; }
         .mpc-tab { padding:.4rem .9rem; border:none; background:transparent; cursor:pointer; border-radius:9px; font-size:.82rem; font-weight:700; color:var(--private-muted-text,#64748b); text-decoration:none; transition:.15s; }
         .mpc-tab:hover { color:var(--private-surface-text,#0f172a); }
         .mpc-tab--on { background:var(--private-surface-bg,#fff); color:var(--private-chart-accent,#4f46e5); box-shadow:0 2px 6px rgba(15,23,42,.12); }
-        .cb-methods { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:.85rem; margin-bottom:1.2rem; }
-        .cb-method { display:flex; align-items:center; gap:.7rem; padding:1rem; border-radius:14px;
-            background:var(--private-surface-bg,#fff); border:1px solid var(--private-surface-border,#eef1f6); }
-        .cb-method-ic { width:2.6rem; height:2.6rem; border-radius:11px; display:flex; align-items:center; justify-content:center; font-size:1.15rem; flex-shrink:0; }
-        .cb-ic-efectivo { background:rgba(22,163,74,.16); color:#34d399; }
-        .cb-ic-sinpe { background:rgba(8,145,178,.16); color:#22d3ee; }
-        .cb-ic-tarjeta { background:rgba(124,58,237,.16); color:#a78bfa; }
-        .cb-method-label { font-size:.74rem; font-weight:700; color:var(--private-muted-text,#94a3b8); text-transform:uppercase; letter-spacing:.3px; }
-        .cb-method-val { font-size:1.25rem; font-weight:800; color:var(--private-surface-text,#0f172a); }
         .cb-filters { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; margin-bottom:1rem; }
         .cb-filters select { background:var(--private-input-bg,#fff); color:var(--private-input-text,#0f172a);
             border:1px solid var(--private-input-border,rgba(15,23,42,.14)); border-radius:.6rem; padding:.4rem .6rem; font-size:.84rem; }
-        .cb-table { width:100%; border-collapse:separate; border-spacing:0; }
-        .cb-table thead th { font-size:.72rem; font-weight:700; color:var(--private-muted-text,#94a3b8); text-transform:uppercase; letter-spacing:.3px;
-            padding:.6rem .7rem; border-bottom:1px solid var(--private-surface-border,#eef1f6); text-align:left; }
-        .cb-table tbody td { padding:.7rem .7rem; border-bottom:1px solid var(--private-table-border,rgba(15,23,42,.06)); font-size:.86rem; vertical-align:middle; color:var(--private-surface-text,#0f172a); }
-        .cb-table tbody tr:last-child td { border-bottom:none; }
-        .cb-table tbody tr:hover { background:var(--private-row-hover-bg,rgba(15,23,42,.035)); }
-        .cb-chip { display:inline-flex; align-items:center; gap:.3rem; font-size:.72rem; font-weight:700; border-radius:999px; padding:.18rem .55rem;
-            background:rgba(148,163,184,.18); color:var(--private-surface-text,#334155); }
-        .cb-badge-ok { display:inline-flex; align-items:center; gap:.3rem; font-size:.72rem; font-weight:700; border-radius:999px; padding:.2rem .55rem; color:#15803d; background:rgba(22,163,74,.16); }
-        .cb-monto { color:var(--private-chart-success,#16a34a); font-weight:700; }
-        /* Tablas -> cards en móvil */
-        @@media (max-width:680px){
-            .cb-table thead { display:none; }
-            .cb-table, .cb-table tbody, .cb-table tr, .cb-table td { display:block; width:100%; }
-            .cb-table tr { border:1px solid var(--private-surface-border,#eef1f6); border-radius:12px; margin-bottom:.6rem; padding:.4rem .2rem; }
-            .cb-table td { border:none !important; padding:.25rem .8rem; display:flex; justify-content:space-between; gap:1rem; }
-            .cb-table td::before { content:attr(data-label); font-weight:700; color:var(--private-muted-text,#94a3b8); font-size:.72rem; text-transform:uppercase; }
-        }
+        /* Fila de cobro: meta a la izquierda, monto + chips a la derecha */
+        .cb-rec-actions { display:flex; align-items:center; gap:.35rem; margin-top:.35rem; flex-wrap:wrap; justify-content:flex-end; }
+        .cb-chip { display:inline-flex; align-items:center; gap:.3rem; font-size:.7rem; font-weight:700; border-radius:999px; padding:.18rem .55rem;
+            background:rgba(148,163,184,.18); color:var(--private-surface-text,#334155); text-decoration:none; cursor:pointer; border:none; }
+        html.surface-glass .cb-chip, html.surface-dark .cb-chip { color:#cbd5e1; }
     </style>
 }
 
-<div class="lp-card" style="margin-bottom:1rem;">
-    <h1 style="font-size:1.3rem;font-weight:800;margin:0;">Mis cobros</h1>
-    <p class="lp-muted" style="margin:.25rem 0 0;">Cobros que has registrado por tus servicios. No incluye la caja general del negocio.</p>
+<div class="lp-hero">
+    <h1>Mis cobros</h1>
+    <p class="lp-hero-sub">Cobros que has registrado por tus servicios. No incluye la caja general del negocio.</p>
 </div>
 
-<div class="lp-kpis" style="margin-bottom:1.2rem;">
-    <div class="lp-kpi">
-        <div class="lp-kpi-label"><i class="bi bi-sun"></i> Cobrado hoy</div>
-        <div class="lp-kpi-value lp-kpi-value--green">@Money(Model.TotalHoy)</div>
+<div class="lp-metrics">
+    <div class="lp-metric">
+        <div class="lp-metric-ic lp-ic-green"><i class="bi bi-sun"></i></div>
+        <div class="lp-metric-body">
+            <span class="lp-metric-label">Cobrado hoy</span>
+            <span class="lp-metric-value lp-metric-value--green">@Money(Model.TotalHoy)</span>
+        </div>
     </div>
-    <div class="lp-kpi">
-        <div class="lp-kpi-label"><i class="bi bi-calendar-week"></i> Cobrado esta semana</div>
-        <div class="lp-kpi-value lp-kpi-value--green">@Money(Model.TotalSemana)</div>
+    <div class="lp-metric">
+        <div class="lp-metric-ic lp-ic-blue"><i class="bi bi-calendar-week"></i></div>
+        <div class="lp-metric-body">
+            <span class="lp-metric-label">Cobrado esta semana</span>
+            <span class="lp-metric-value lp-metric-value--green">@Money(Model.TotalSemana)</span>
+        </div>
     </div>
-    <div class="lp-kpi">
-        <div class="lp-kpi-label"><i class="bi bi-calendar-month"></i> Cobrado este mes</div>
-        <div class="lp-kpi-value lp-kpi-value--green">@Money(Model.TotalMes)</div>
+    <div class="lp-metric">
+        <div class="lp-metric-ic lp-ic-violet"><i class="bi bi-calendar-month"></i></div>
+        <div class="lp-metric-body">
+            <span class="lp-metric-label">Cobrado este mes</span>
+            <span class="lp-metric-value lp-metric-value--green">@Money(Model.TotalMes)</span>
+        </div>
     </div>
-    <div class="lp-kpi">
-        <div class="lp-kpi-label"><i class="bi bi-receipt"></i> Cobros registrados</div>
-        <div class="lp-kpi-value">@Model.CobrosRegistrados</div>
+    <div class="lp-metric">
+        <div class="lp-metric-ic lp-ic-cyan"><i class="bi bi-receipt"></i></div>
+        <div class="lp-metric-body">
+            <span class="lp-metric-label">Cobros registrados</span>
+            <span class="lp-metric-value">@Model.CobrosRegistrados</span>
+        </div>
     </div>
 </div>
 
 <h2 class="lp-section-title"><i class="bi bi-wallet2"></i> Por método de pago</h2>
-<div class="cb-methods">
-    <div class="cb-method">
-        <div class="cb-method-ic cb-ic-efectivo"><i class="bi bi-cash"></i></div>
-        <div><div class="cb-method-label">Efectivo</div><div class="cb-method-val">@Money(Model.MetodoEfectivo)</div></div>
+<div class="lp-metrics">
+    <div class="lp-metric">
+        <div class="lp-metric-ic lp-ic-green"><i class="bi bi-cash"></i></div>
+        <div class="lp-metric-body">
+            <span class="lp-metric-label">Efectivo</span>
+            <span class="lp-metric-value">@Money(Model.MetodoEfectivo)</span>
+        </div>
     </div>
-    <div class="cb-method">
-        <div class="cb-method-ic cb-ic-sinpe"><i class="bi bi-phone"></i></div>
-        <div><div class="cb-method-label">SINPE</div><div class="cb-method-val">@Money(Model.MetodoSinpe)</div></div>
+    <div class="lp-metric">
+        <div class="lp-metric-ic lp-ic-cyan"><i class="bi bi-phone"></i></div>
+        <div class="lp-metric-body">
+            <span class="lp-metric-label">SINPE</span>
+            <span class="lp-metric-value">@Money(Model.MetodoSinpe)</span>
+        </div>
     </div>
-    <div class="cb-method">
-        <div class="cb-method-ic cb-ic-tarjeta"><i class="bi bi-credit-card"></i></div>
-        <div><div class="cb-method-label">Tarjeta</div><div class="cb-method-val">@Money(Model.MetodoTarjeta)</div></div>
+    <div class="lp-metric">
+        <div class="lp-metric-ic lp-ic-violet"><i class="bi bi-credit-card"></i></div>
+        <div class="lp-metric-body">
+            <span class="lp-metric-label">Tarjeta</span>
+            <span class="lp-metric-value">@Money(Model.MetodoTarjeta)</span>
+        </div>
     </div>
 </div>
 
 @if (Model.PuedeRegistrarManual)
 {
     <div style="display:flex;justify-content:flex-end;margin-bottom:1rem;">
-        <button type="button" class="lp-btn lp-btn--gold" data-bs-toggle="modal" data-bs-target="#cobroManualModal"
-                style="background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;">
+        <button type="button" class="lp-btn js-nuevo-cobro" data-bs-toggle="modal" data-bs-target="#cobroManualModal"
+                style="background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;box-shadow:0 6px 18px rgba(22,163,74,.3);">
             <i class="bi bi-plus-lg"></i> Nuevo cobro
         </button>
     </div>
@@ -131,66 +129,62 @@
 
     @if (Model.Cobros.Count == 0)
     {
-        <div class="mpc-empty" style="color:var(--private-muted-text,#94a3b8);display:flex;flex-direction:column;align-items:center;gap:.5rem;padding:2rem 1rem;">
-            <i class="bi bi-cash-stack" style="font-size:2rem;"></i>
-            <span>No hay cobros en este rango/filtro.</span>
+        <div class="lp-empty">
+            <div class="lp-empty-ic"><i class="bi bi-cash-stack"></i></div>
+            <div class="lp-empty-title">No hay cobros en este periodo</div>
+            <p class="lp-empty-text">Prueba con otro rango o filtro, o registra un nuevo cobro.</p>
         </div>
     }
     else
     {
-        <div class="table-responsive">
-            <table class="cb-table">
-                <thead>
-                    <tr>
-                        <th>Fecha</th><th>Cliente</th><th>Servicio / Producto</th>
-                        <th class="text-end">Monto</th><th>Método</th><th>Origen</th><th>Estado</th><th>Comprobante</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var c in Model.Cobros)
-                    {
-                        <tr>
-                            <td data-label="Fecha">@c.FechaCobro.ToString("dd/MM/yyyy hh:mm tt", cr)</td>
-                            <td data-label="Cliente">@c.Cliente</td>
-                            <td data-label="Servicio">@c.Servicio</td>
-                            <td data-label="Monto" class="text-end cb-monto">@Money(c.Monto)</td>
-                            <td data-label="Método"><span class="cb-chip">@c.MetodoPago</span></td>
-                            <td data-label="Origen">
-                                <span class="cb-chip">
-                                    <i class="bi @(c.DesdeCita ? "bi-calendar-check" : "bi-pencil")"></i> @c.Origen
-                                </span>
-                            </td>
-                            <td data-label="Estado"><span class="cb-badge-ok"><i class="bi bi-check2-circle"></i> @c.Estado</span></td>
-                            <td data-label="Comprobante">
-                                @if (!c.TieneComprobante)
+        <div class="lp-list">
+            @foreach (var c in Model.Cobros)
+            {
+                <div class="lp-row">
+                    <div class="lp-row-ic @(c.DesdeCita ? "lp-ic-blue" : "lp-ic-violet")">
+                        <i class="bi @(c.DesdeCita ? "bi-calendar-check" : "bi-pencil")"></i>
+                    </div>
+                    <div class="lp-row-main">
+                        <div class="lp-row-title">@c.Cliente</div>
+                        <div class="lp-row-meta">
+                            <span><i class="bi bi-scissors"></i> @c.Servicio</span>
+                            <span><i class="bi bi-wallet2"></i> @c.MetodoPago</span>
+                            <span><i class="bi bi-clock"></i> @c.FechaCobro.ToString("dd/MM/yyyy hh:mm tt", cr)</span>
+                        </div>
+                        <div class="cb-rec-actions" style="justify-content:flex-start;">
+                            <span class="lp-badge lp-badge--muted"><i class="bi @(c.DesdeCita ? "bi-calendar-check" : "bi-pencil")"></i> @c.Origen</span>
+                            <span class="lp-badge lp-badge--ok"><i class="bi bi-check2-circle"></i> @c.Estado</span>
+                            @if (!c.TieneComprobante)
+                            {
+                                <span class="lp-badge lp-badge--muted">Sin comprobante</span>
+                            }
+                            else
+                            {
+                                @if (c.ComprobanteEnviado)
                                 {
-                                    <span class="cb-chip">Sin comprobante</span>
+                                    <span class="lp-badge lp-badge--ok"><i class="bi bi-envelope-check"></i> Enviado</span>
                                 }
                                 else
                                 {
-                                    @if (c.ComprobanteEnviado)
-                                    {
-                                        <span class="cb-badge-ok"><i class="bi bi-envelope-check"></i> Enviado</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="cb-chip" style="color:#b45309;background:rgba(217,119,6,.16);"><i class="bi bi-envelope-exclamation"></i> Falló</span>
-                                    }
-                                    <a href="/comprobantes/@c.ComprobanteToken" target="_blank" rel="noopener" class="cb-chip" style="text-decoration:none;" title="Ver comprobante"><i class="bi bi-eye"></i></a>
-                                    @if (puedeComprobante)
-                                    {
-                                        <form method="post" action="/MiPortal/Comprobantes/Reenviar" style="display:inline;">
-                                            @Html.AntiForgeryToken()
-                                            <input type="hidden" name="comprobanteId" value="@c.ComprobanteId" />
-                                            <button type="submit" class="cb-chip" style="border:none;cursor:pointer;" title="Reenviar comprobante"><i class="bi bi-arrow-repeat"></i></button>
-                                        </form>
-                                    }
+                                    <span class="lp-badge lp-badge--pend"><i class="bi bi-envelope-exclamation"></i> Falló</span>
                                 }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+                                <a href="/comprobantes/@c.ComprobanteToken" target="_blank" rel="noopener" class="cb-chip" title="Ver comprobante"><i class="bi bi-eye"></i></a>
+                                @if (puedeComprobante)
+                                {
+                                    <form method="post" action="/MiPortal/Comprobantes/Reenviar" style="display:inline;">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="comprobanteId" value="@c.ComprobanteId" />
+                                        <button type="submit" class="cb-chip" title="Reenviar comprobante"><i class="bi bi-arrow-repeat"></i></button>
+                                    </form>
+                                }
+                            }
+                        </div>
+                    </div>
+                    <div class="lp-row-right">
+                        <span class="lp-row-amount lp-row-amount--green">@Money(c.Monto)</span>
+                    </div>
+                </div>
+            }
         </div>
 
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem;gap:.5rem;flex-wrap:wrap;">

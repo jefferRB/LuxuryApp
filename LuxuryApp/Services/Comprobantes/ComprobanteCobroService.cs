@@ -3,7 +3,9 @@ using System.Globalization;
 using System.Security.Cryptography;
 using LuxuryApp.Models.Comprobantes;
 using LuxuryApp.Models.Finanzas;
+using LuxuryApp.Models.Fiscal;
 using LuxuryApp.Services.BusinessTime;
+using LuxuryApp.Services.Fiscal;
 using LuxuryApp.Services.Tenant;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -22,6 +24,8 @@ namespace LuxuryApp.Services.Comprobantes
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly IConfiguration _configuration;
         private readonly ITenantDisplayNameService _displayNameService;
+        private readonly ITaxCalculationService _taxService;
+        private readonly ITenantFiscalConfigService _fiscalConfig;
         private readonly ILogger<ComprobanteCobroService> _logger;
 
         public ComprobanteCobroService(
@@ -33,6 +37,8 @@ namespace LuxuryApp.Services.Comprobantes
             IHttpContextAccessor httpContextAccessor,
             IConfiguration configuration,
             ITenantDisplayNameService displayNameService,
+            ITaxCalculationService taxService,
+            ITenantFiscalConfigService fiscalConfig,
             ILogger<ComprobanteCobroService> logger)
         {
             _context = context;
@@ -43,6 +49,8 @@ namespace LuxuryApp.Services.Comprobantes
             _httpContextAccessor = httpContextAccessor;
             _configuration = configuration;
             _displayNameService = displayNameService;
+            _taxService = taxService;
+            _fiscalConfig = fiscalConfig;
             _logger = logger;
         }
 
@@ -140,6 +148,10 @@ namespace LuxuryApp.Services.Comprobantes
 
                 var numero = await GenerarNumeroInternoAsync(tenantId, nombreNegocio, _clock.Now(), cancellationToken);
 
+                // Desglose fiscal del cobro (IVA incluido por defecto en CR). Snapshot inmutable.
+                var tenantFiscal = await _fiscalConfig.ObtenerAsync(cancellationToken);
+                var desglose = CalcularDesgloseFiscal(cobro, tenantFiscal);
+
                 comprobante = new ComprobanteCobro
                 {
                     CobroId = cobro.IdCobro,
@@ -159,17 +171,17 @@ namespace LuxuryApp.Services.Comprobantes
                     Moneda = "CRC",
                     MetodoPago = cobro.MetodoPago,
                     Observacion = cobro.Observaciones,
-                    Subtotal = cobro.Monto,
+                    Subtotal = desglose.NetBase,
                     Descuento = 0m,
-                    Impuesto = 0m,
-                    Total = cobro.Monto,
+                    Impuesto = desglose.TaxAmount,
+                    Total = desglose.GrossTotal,
                     IntentosEnvio = 0,
                     CreatedAt = _clock.Now(),
                     CreatedByUserId = createdByUserId,
                     EsFiscal = false
                 };
 
-                comprobante.Lineas.Add(ConstruirLinea(cobro));
+                comprobante.Lineas.Add(ConstruirLinea(cobro, desglose));
 
                 _context.ComprobantesCobro.Add(comprobante);
                 await _context.SaveChangesAsync(cancellationToken);
@@ -330,7 +342,41 @@ namespace LuxuryApp.Services.Comprobantes
         private static bool EsViolacionUnica(DbUpdateException ex) =>
             ex.InnerException is SqlException sqlEx && (sqlEx.Number == 2601 || sqlEx.Number == 2627);
 
-        private static ComprobanteCobroLinea ConstruirLinea(Cobro cobro)
+        /// <summary>
+        /// Resuelve la configuración fiscal efectiva del cobro (servicio/producto con overrides
+        /// o herencia del tenant) y calcula su desglose Base/IVA.
+        /// </summary>
+        private TaxBreakdown CalcularDesgloseFiscal(Cobro cobro, TenantFiscalConfig tenant)
+        {
+            bool aplicaIva;
+            decimal? tarifa;
+            bool? incluye;
+
+            if (cobro.Servicio is not null)
+            {
+                aplicaIva = cobro.Servicio.AplicaIva;
+                tarifa = cobro.Servicio.TarifaIva;
+                incluye = cobro.Servicio.PrecioIncluyeIva;
+            }
+            else if (cobro.Producto is not null)
+            {
+                aplicaIva = cobro.Producto.AplicaIva;
+                tarifa = cobro.Producto.TarifaIva;
+                incluye = cobro.Producto.PrecioIncluyeIva;
+            }
+            else
+            {
+                // Servicio personalizado / pago sin catálogo: config del tenant.
+                aplicaIva = true;
+                tarifa = null;
+                incluye = null;
+            }
+
+            var linea = _fiscalConfig.ResolverLinea(cobro.Monto, aplicaIva, tarifa, incluye, tenant);
+            return _taxService.Calcular(linea.TotalOrBase, linea.TaxRatePercent, linea.PriceIncludesTax, linea.Taxable);
+        }
+
+        private static ComprobanteCobroLinea ConstruirLinea(Cobro cobro, TaxBreakdown desglose)
         {
             string descripcion;
             string tipo;
@@ -348,6 +394,12 @@ namespace LuxuryApp.Services.Comprobantes
                 descripcion = cobro.Producto?.NombreProducto ?? "Producto";
                 tipo = ComprobanteTipoLinea.Producto;
                 productoId = cobro.ProductoId;
+            }
+            else if (!string.IsNullOrWhiteSpace(cobro.ServicioNombrePersonalizado))
+            {
+                // Servicio personalizado (cita fuera de catálogo): se trata como servicio.
+                descripcion = cobro.ServicioNombrePersonalizado;
+                tipo = ComprobanteTipoLinea.Servicio;
             }
             else
             {
@@ -367,9 +419,9 @@ namespace LuxuryApp.Services.Comprobantes
                 TipoLinea = tipo,
                 Cantidad = cantidad,
                 PrecioUnitario = cobro.Monto,
-                Subtotal = cobro.Monto,
-                Impuesto = 0m,
-                Total = cobro.Monto,
+                Subtotal = desglose.NetBase,
+                Impuesto = desglose.TaxAmount,
+                Total = desglose.GrossTotal,
                 ServicioId = servicioId,
                 ProductoId = productoId
             };

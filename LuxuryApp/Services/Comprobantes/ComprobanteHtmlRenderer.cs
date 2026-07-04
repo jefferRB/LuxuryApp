@@ -42,6 +42,15 @@ namespace LuxuryApp.Services.Comprobantes
                 ? string.Empty
                 : $"""<tr><td style="padding:4px 0;color:#888;font-size:13px;">Observación</td><td style="padding:4px 0;text-align:right;color:#333;font-size:13px;">{Enc.Encode(c.Observacion!)}</td></tr>""";
 
+            // Desglose fiscal básico (snapshot Fase 1). Solo si hay IVA registrado, para no
+            // mostrar un desglose engañoso en comprobantes históricos sin snapshot.
+            var desgloseHtml = c.Impuesto > 0
+                ? $"""
+                    <tr><td style="padding:4px 0;color:#888;font-size:13px;">Base sin IVA</td><td style="padding:4px 0;text-align:right;color:#333;font-size:13px;">{Enc.Encode(ComprobanteTextos.Colones(c.Subtotal, c.Moneda))}</td></tr>
+                    <tr><td style="padding:4px 0;color:#888;font-size:13px;">IVA incluido</td><td style="padding:4px 0;text-align:right;color:#333;font-size:13px;">{Enc.Encode(ComprobanteTextos.Colones(c.Impuesto, c.Moneda))}</td></tr>
+                  """
+                : string.Empty;
+
             return $"""
                 <!DOCTYPE html>
                 <html lang="es">
@@ -73,8 +82,9 @@ namespace LuxuryApp.Services.Comprobantes
                                 <tr><td style="padding:4px 0;color:#888;font-size:13px;">Detalle</td><td style="padding:4px 0;text-align:right;color:#333;font-size:13px;">{descripcion}</td></tr>
                                 <tr><td style="padding:4px 0;color:#888;font-size:13px;">Método de pago</td><td style="padding:4px 0;text-align:right;color:#333;font-size:13px;">{metodo}</td></tr>
                                 {observacionHtml}
+                                {desgloseHtml}
                                 <tr><td colspan="2" style="border-top:1px solid #eee;padding-top:8px;"></td></tr>
-                                <tr><td style="padding:6px 0;color:#111;font-size:16px;font-weight:700;">Total</td><td style="padding:6px 0;text-align:right;color:#111;font-size:18px;font-weight:700;">{total}</td></tr>
+                                <tr><td style="padding:6px 0;color:#111;font-size:16px;font-weight:700;">Total cobrado</td><td style="padding:6px 0;text-align:right;color:#111;font-size:18px;font-weight:700;">{total}</td></tr>
                               </table>
 
                               {botonHtml}
@@ -108,7 +118,12 @@ namespace LuxuryApp.Services.Comprobantes
             sb.AppendLine($"Fecha: {ComprobanteTextos.FechaCorta(c.FechaEmision)}");
             sb.AppendLine($"Detalle: {DescripcionPrincipal(c)}");
             sb.AppendLine($"Método de pago: {(string.IsNullOrWhiteSpace(c.MetodoPago) ? "—" : c.MetodoPago)}");
-            sb.AppendLine($"Total: {ComprobanteTextos.Colones(c.Total, c.Moneda)}");
+            if (c.Impuesto > 0)
+            {
+                sb.AppendLine($"Base sin IVA: {ComprobanteTextos.Colones(c.Subtotal, c.Moneda)}");
+                sb.AppendLine($"IVA incluido: {ComprobanteTextos.Colones(c.Impuesto, c.Moneda)}");
+            }
+            sb.AppendLine($"Total cobrado: {ComprobanteTextos.Colones(c.Total, c.Moneda)}");
             if (!string.IsNullOrWhiteSpace(urlPublica))
             {
                 sb.AppendLine();

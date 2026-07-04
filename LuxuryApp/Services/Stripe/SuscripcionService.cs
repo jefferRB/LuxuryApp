@@ -397,10 +397,15 @@ namespace LuxuryApp.Services.SaaS
             var nowUtc = GetUtcNow();
             var previousPlanId = suscripcion?.PlanId;
             var previousState = suscripcion?.Estado;
+            // Solo se extiende el periodo vigente cuando es el MISMO plan; un cambio de plan
+            // (p.ej. upgrade de funcionarios o mensual<->anual) reinicia el periodo segun el
+            // ciclo del plan nuevo para no arrastrar vigencia de un ciclo distinto.
+            var isSamePlan = suscripcion is not null && suscripcion.PlanId == plan.Id;
             var (periodStartUtc, periodEndUtc) = ResolveNextBillingPeriod(
                 nowUtc,
                 suscripcion?.FechaFin,
-                shouldExtendExistingPeriod: true);
+                shouldExtendExistingPeriod: isSamePlan,
+                billingCycle: plan.BillingCycle);
 
             if (suscripcion is null)
             {
@@ -427,7 +432,9 @@ namespace LuxuryApp.Services.SaaS
             suscripcion.FechaProximoCobroUtc = periodEndUtc;
             suscripcion.FechaFinGraciaUtc = null;
             suscripcion.FechaCancelacionUtc = null;
-            suscripcion.PrecioMensual = plan.PrecioMensual;
+            // Guardar SIEMPRE el equivalente mensual en Suscripcion.PrecioMensual (no el total
+            // anual) para que reportes/portal no se ensucien con un cobro anual de golpe.
+            suscripcion.PrecioMensual = ResolveMonthlyEquivalent(plan);
             suscripcion.MonedaFacturacion = string.IsNullOrWhiteSpace(plan.Moneda) ? "CRC" : plan.Moneda;
             suscripcion.MaxFuncionarios = plan.MaxFuncionarios;
             suscripcion.FechaUltimoPagoUtc = nowUtc;
@@ -997,10 +1004,32 @@ namespace LuxuryApp.Services.SaaS
 
         private DateTime GetUtcNow() => _businessDateTimeProvider.NowOffset().UtcDateTime;
 
+        /// <summary>
+        /// Equivalente mensual de un plan para guardar en Suscripcion.PrecioMensual.
+        /// Mensual => PrecioMensual; Anual => MonthlyEquivalentAmount configurado o total/12.
+        /// </summary>
+        private static decimal ResolveMonthlyEquivalent(Plan plan)
+        {
+            if (plan.BillingCycle != BillingCycle.Annual)
+            {
+                return plan.PrecioMensual;
+            }
+
+            if (plan.MonthlyEquivalentAmount is > 0)
+            {
+                return plan.MonthlyEquivalentAmount.Value;
+            }
+
+            return plan.PrecioMensual > 0
+                ? decimal.Round(plan.PrecioMensual / 12m, 2)
+                : plan.PrecioMensual;
+        }
+
         private static (DateTime PeriodStartUtc, DateTime PeriodEndUtc) ResolveNextBillingPeriod(
             DateTime nowUtc,
             DateTime? currentPeriodEndUtc,
-            bool shouldExtendExistingPeriod)
+            bool shouldExtendExistingPeriod,
+            BillingCycle billingCycle = BillingCycle.Monthly)
         {
             var periodStartUtc = shouldExtendExistingPeriod &&
                                  currentPeriodEndUtc.HasValue &&
@@ -1008,7 +1037,11 @@ namespace LuxuryApp.Services.SaaS
                 ? currentPeriodEndUtc.Value
                 : nowUtc;
 
-            return (periodStartUtc, periodStartUtc.AddMonths(1));
+            var periodEndUtc = billingCycle == BillingCycle.Annual
+                ? periodStartUtc.AddYears(1)
+                : periodStartUtc.AddMonths(1);
+
+            return (periodStartUtc, periodEndUtc);
         }
 
         private DateTime ResolveGracePeriodEndsUtc(DateTime? currentPeriodEndUtc, DateTime nowUtc)

@@ -135,6 +135,9 @@ static ServiceProvider BuildServices(IConfiguration configuration, StaticTenantP
     services.AddScoped<IEgresoService, EgresoService>();
     services.AddScoped<IEgresoQueryService, EgresoQueryService>();
     services.AddScoped<IInformacionNegocioQueryService, InformacionNegocioQueryService>();
+    services.AddSingleton<LuxuryApp.Services.Fiscal.ITaxCalculationService, LuxuryApp.Services.Fiscal.TaxCalculationService>();
+    services.AddSingleton<LuxuryApp.Services.Fiscal.ILiquidacionFuncionarioService, LuxuryApp.Services.Fiscal.LiquidacionFuncionarioService>();
+    services.AddScoped<LuxuryApp.Services.Fiscal.ITenantFiscalConfigService, LuxuryApp.Services.Fiscal.TenantFiscalConfigService>();
     services.AddScoped<ILiquidacionSemanalService, LiquidacionSemanalService>();
     services.AddScoped<IProductoService, ProductoService>();
     services.AddScoped<IProductoQueryService, ProductoQueryService>();
@@ -845,6 +848,10 @@ static BillingController CreateController(IServiceProvider services, ValidationC
         services.GetRequiredService<PublicCallbackHealthService>(),
         services.GetRequiredService<UserManager<AppUsuario>>(),
         services.GetRequiredService<LuxuryApp.Services.WhatsApp.ITenantWhatsAppSettingsService>(),
+        services.GetService<LuxuryApp.Services.SaaS.ISubscriptionSummaryService>()!,
+        new LuxuryApp.Services.SaaS.SubscriptionPricingCatalog(
+            services.GetRequiredService<IOptions<TilopayRepeatOptions>>()),
+        services.GetService<IWebHostEnvironment>()!,
         Options.Create(tilopayOptions),
         Options.Create(new OpcionesPago
         {
@@ -1181,6 +1188,10 @@ internal sealed class NoOpCalendarWhatsAppNotificationService : ICalendarWhatsAp
     public Task ProcessStatusUpdateAsync(JsonElement payload, CancellationToken cancellationToken = default) => Task.CompletedTask;
     public Task ScheduleDueRemindersAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     public Task ProcessPendingNotificationsAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task QueueImmediateReminderOnCreateAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task GenerateDailyBatchAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task RescheduleConfirmationIfPendingAsync(int citaId, DateTime newFechaHoraCita, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task CancelPendingNotificationsAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
 }
 
 internal sealed class FakeProvider : IPaymentProvider

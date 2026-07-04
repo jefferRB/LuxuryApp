@@ -57,6 +57,19 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
+        public void PlatformMonthlyReportsController_ShouldRequirePlatformSuperAdminPolicy()
+        {
+            var authorizeAttribute = typeof(PlatformMonthlyReportsController)
+                .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
+                .OfType<AuthorizeAttribute>()
+                .FirstOrDefault();
+
+            Assert.NotNull(authorizeAttribute);
+            Assert.Null(authorizeAttribute!.Roles);
+            Assert.Equal(PlatformAuthorizationPolicies.PlatformSuperAdmin, authorizeAttribute.Policy);
+        }
+
+        [Fact]
         public void RecurringReconciliationController_ShouldRequirePlatformSuperAdminPolicy()
         {
             var authorizeAttribute = typeof(RecurringReconciliationController)

@@ -273,7 +273,9 @@ namespace LuxuryApp.Tests.TenantIsolation
                 {
                     IsEnabled = tenantWhatsAppEnabled
                 },
-                ControllerTestSupport.BusinessDateTimeProvider);
+                ControllerTestSupport.BusinessDateTimeProvider,
+                ControllerTestSupport.CreateCobroFiscalPreviewService(
+                    context, new TestTenantProvider { TenantId = tenantId }));
 
             ControllerTestSupport.AttachHttpContext(
                 controller,

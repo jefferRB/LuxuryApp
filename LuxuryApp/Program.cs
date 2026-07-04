@@ -191,6 +191,9 @@ builder.Services.Configure<BusinessDateTimeOptions>(builder.Configuration.GetSec
 builder.Services.Configure<MetaWhatsAppOptions>(builder.Configuration.GetSection(MetaWhatsAppOptions.SectionName));
 builder.Services.Configure<LuxuryApp.Services.Account.AccountEmailOptions>(
     builder.Configuration.GetSection(LuxuryApp.Services.Account.AccountEmailOptions.SectionName));
+// URL pública oficial (clave raíz "PublicBaseUrl" / env var PublicBaseUrl). Centraliza los
+// enlaces absolutos de correos/procesos de fondo; nunca usa el host del request ni ngrok.
+builder.Services.Configure<LuxuryApp.Services.Common.PublicSiteOptions>(builder.Configuration);
 builder.Services.Configure<RequestLocalizationOptions>(options =>
 {
     var supportedCultures = new[] { defaultCulture };
@@ -240,9 +243,22 @@ builder.Services.AddSingleton<IComprobanteHtmlRenderer, ComprobanteHtmlRenderer>
 builder.Services.AddScoped<IComprobanteEmailService, ComprobanteEmailService>();
 builder.Services.AddScoped<IComprobanteCobroService, ComprobanteCobroService>();
 builder.Services.AddScoped<IDashboardFinancieroQueryService, DashboardFinancieroQueryService>();
+// Resumen Ejecutivo Mensual (LuxuryCloud Insights)
+builder.Services.Configure<LuxuryApp.Services.Reports.MonthlyReportSchedulerOptions>(
+    builder.Configuration.GetSection(LuxuryApp.Services.Reports.MonthlyReportSchedulerOptions.SectionName));
+builder.Services.AddSingleton<LuxuryApp.Services.Reports.IMonthlyReportEmailRenderer, LuxuryApp.Services.Reports.MonthlyReportEmailRenderer>();
+builder.Services.AddScoped<LuxuryApp.Services.Reports.IMonthlyReportEmailSender, LuxuryApp.Services.Reports.MonthlyReportEmailSender>();
+builder.Services.AddScoped<LuxuryApp.Services.Reports.IMonthlyReportRecipientResolver, LuxuryApp.Services.Reports.MonthlyReportRecipientResolver>();
+builder.Services.AddScoped<LuxuryApp.Services.Reports.IMonthlyBusinessReportService, LuxuryApp.Services.Reports.MonthlyBusinessReportService>();
+builder.Services.AddScoped<LuxuryApp.Services.Reports.IMonthlyReportScheduler, LuxuryApp.Services.Reports.MonthlyReportScheduler>();
+builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformMonthlyReportService, LuxuryApp.Services.Platform.PlatformMonthlyReportService>();
 builder.Services.AddScoped<IEgresoService, EgresoService>();
 builder.Services.AddScoped<IEgresoQueryService, EgresoQueryService>();
 builder.Services.AddScoped<IInformacionNegocioQueryService, InformacionNegocioQueryService>();
+builder.Services.AddSingleton<LuxuryApp.Services.Fiscal.ITaxCalculationService, LuxuryApp.Services.Fiscal.TaxCalculationService>();
+builder.Services.AddSingleton<LuxuryApp.Services.Fiscal.ILiquidacionFuncionarioService, LuxuryApp.Services.Fiscal.LiquidacionFuncionarioService>();
+builder.Services.AddScoped<LuxuryApp.Services.Fiscal.ITenantFiscalConfigService, LuxuryApp.Services.Fiscal.TenantFiscalConfigService>();
+builder.Services.AddScoped<LuxuryApp.Services.Fiscal.ICobroFiscalPreviewService, LuxuryApp.Services.Fiscal.CobroFiscalPreviewService>();
 builder.Services.AddScoped<ILiquidacionSemanalService, LiquidacionSemanalService>();
 builder.Services.AddScoped<IFuncionarioPortalAccessService, FuncionarioPortalAccessService>();
 builder.Services.AddScoped<IFuncionarioPortalQueryService, FuncionarioPortalQueryService>();
@@ -254,14 +270,18 @@ builder.Services.AddScoped<IPrivateNavigationService, PrivateNavigationService>(
 builder.Services.AddScoped<IPublicSiteContentService, PublicSiteContentService>();
 builder.Services.AddScoped<ITenantDisplayNameService, TenantDisplayNameService>();
 // Reservas online por tenant (Fase 1)
+builder.Services.AddScoped<IBookingCatalogService, BookingCatalogService>();
 builder.Services.AddScoped<IBookingAvailabilityService, BookingAvailabilityService>();
 builder.Services.AddScoped<IBookingSettingsService, BookingSettingsService>();
 builder.Services.AddScoped<IPublicBookingService, PublicBookingService>();
 builder.Services.AddScoped<IBookingRequestService, BookingRequestService>();
+builder.Services.AddScoped<IFuncionarioPhotoStorageService, FuncionarioPhotoStorageService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHostedService<ReminderWorker>();
 builder.Services.AddScoped<VisitasAutomaticasService>();
 builder.Services.AddHostedService<VisitasBackgroundService>();
+// Envío automático del Resumen Ejecutivo Mensual. Inerte hasta MonthlyReports:SchedulerEnabled=true.
+builder.Services.AddHostedService<LuxuryApp.Workers.MonthlyReportSchedulerService>();
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<ITenantExecutionContextAccessor, TenantExecutionContextAccessor>();
@@ -271,6 +291,9 @@ builder.Services.AddScoped<TenantProvisioningService>();
 builder.Services.AddScoped<IUserClaimsPrincipalFactory<AppUsuario>, CustomClaimsPrincipalFactory>();
 
 builder.Services.AddScoped<SuscripcionService>();
+builder.Services.AddScoped<LuxuryApp.Services.SaaS.ISubscriptionSummaryService, LuxuryApp.Services.SaaS.SubscriptionSummaryService>();
+builder.Services.AddSingleton<LuxuryApp.Services.SaaS.ISubscriptionPricingCatalog, LuxuryApp.Services.SaaS.SubscriptionPricingCatalog>();
+builder.Services.AddScoped<LuxuryApp.Services.SaaS.IPlanChangeService, LuxuryApp.Services.SaaS.PlanChangeService>();
 builder.Services.AddSingleton<ITenantCommercialAccessCache, TenantCommercialAccessCache>();
 builder.Services.AddScoped<ITenantCommercialAccessResolver, TenantCommercialAccessResolver>();
 builder.Services.AddScoped<IPromotionalCodeService, PromotionalCodeService>();

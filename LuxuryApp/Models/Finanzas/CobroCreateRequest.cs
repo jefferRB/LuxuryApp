@@ -7,6 +7,14 @@ namespace LuxuryApp.Models.Finanzas
         public int? ClienteId { get; init; }
         public int FuncionarioId { get; init; }
         public int? ServicioId { get; init; }
+
+        /// <summary>
+        /// Nombre del servicio personalizado (cita fuera de catálogo). Solo válido cuando no hay
+        /// <see cref="ServicioId"/> ni <see cref="ProductoId"/> y el cobro proviene de una cita
+        /// (<see cref="CitaId"/>). Permite cobrar citas con servicio personalizado sin precio base.
+        /// </summary>
+        public string? ServicioNombrePersonalizado { get; init; }
+
         public int? ProductoId { get; init; }
         public decimal Monto { get; init; }
         public string MetodoPago { get; init; } = string.Empty;

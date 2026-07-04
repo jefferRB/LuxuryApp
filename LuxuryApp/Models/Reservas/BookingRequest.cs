@@ -80,6 +80,14 @@ namespace LuxuryApp.Models.Reservas
         public int? ConvertedCitaId { get; set; }
         public Cita? ConvertedCita { get; set; }
 
+        /// <summary>
+        /// Token único generado por cada carga del formulario público. Idempotencia: dos envíos con
+        /// el mismo token (doble click, reintento del navegador, JS duplicado) NO crean dos solicitudes.
+        /// Índice único filtrado por TenantId + token (cuando no es null).
+        /// </summary>
+        [MaxLength(64)]
+        public string? PublicSubmissionToken { get; set; }
+
         /// <summary>Hash de IP (no se guarda la IP en claro) para anti-spam/auditoría ligera.</summary>
         [MaxLength(64)]
         public string? IpHash { get; set; }

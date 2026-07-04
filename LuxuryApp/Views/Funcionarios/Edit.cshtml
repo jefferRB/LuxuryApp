@@ -26,6 +26,18 @@
     .func-access-modes{display:flex;flex-wrap:wrap;gap:1rem;margin:.25rem 0 .75rem;}
     .func-access-modes label{font-size:.85rem;display:flex;align-items:center;gap:.4rem;cursor:pointer;}
     .func-access-note{font-size:.78rem;color:var(--private-muted-text,#64748b);margin-top:.6rem;line-height:1.5;}
+    .func-photo-row{display:flex;flex-wrap:wrap;align-items:flex-start;gap:1.1rem;}
+    .func-photo-preview{flex:0 0 auto;}
+    .func-photo-preview img{width:96px;height:96px;border-radius:50%;object-fit:cover;border:2px solid var(--private-card-border,#e6e6e6);}
+    .func-photo-avatar{width:96px;height:96px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+        color:#fff;font-size:2.2rem;font-weight:800;text-transform:uppercase;}
+    .func-photo-form{flex:1 1 240px;display:flex;flex-direction:column;gap:.7rem;min-width:0;}
+    .func-photo-file{display:flex;flex-direction:column;gap:.3rem;cursor:pointer;}
+    .func-photo-file input[type=file]{font-size:.82rem;}
+    .func-photo-filename{font-size:.75rem;color:var(--private-muted-text,#64748b);}
+    .func-photo-check{display:flex;align-items:center;gap:.5rem;font-size:.85rem;cursor:pointer;}
+    .func-photo-actions{display:flex;gap:.5rem;}
+    .func-photo-delete{flex:0 0 auto;align-self:flex-start;}
 </style>
 
 <div class="kpi-card func-main-card">
@@ -195,25 +207,59 @@
                     <span asp-validation-for="ColorCalendario" class="func-field-error"></span>
                 </div>
 
-                <!-- Rebajar impuestos antes de calcular ganancia -->
+                <!-- Configuración fiscal del colaborador -->
                 <div class="func-field func-form-full">
-                    <label class="func-label">Cálculo de ganancia del funcionario</label>
+                    <label class="func-label">Configuración fiscal del colaborador</label>
                     <div class="func-tax-toggle">
-                        <div class="form-check form-switch func-tax-switch">
-                            <input asp-for="RebajarImpuestosAntesDeComision"
-                                   class="form-check-input"
-                                   type="checkbox"
-                                   role="switch"
-                                   id="func-rebajar-impuestos" />
-                            <label class="form-check-label" for="func-rebajar-impuestos">
-                                Rebajar impuestos antes de calcular ganancia
-                            </label>
+                        <div class="func-fiscal-row">
+                            <div class="func-fiscal-item">
+                                <label asp-for="TipoRelacionColaborador" class="func-sublabel">Tipo de relación</label>
+                                <select asp-for="TipoRelacionColaborador" class="func-input" id="func-tipo-relacion">
+                                    <option value="Empleado">Empleado</option>
+                                    <option value="Independiente">Independiente</option>
+                                    <option value="AlquilerSilla">Alquiler de silla</option>
+                                </select>
+                            </div>
+                            <div class="func-fiscal-item">
+                                <label asp-for="ComisionCalculadaSobre" class="func-sublabel">Comisión calculada sobre</label>
+                                <select asp-for="ComisionCalculadaSobre" class="func-input">
+                                    <option value="BaseSinIva">Base sin IVA</option>
+                                    <option value="TotalCobrado">Total cobrado</option>
+                                </select>
+                            </div>
                         </div>
                         <p class="func-tax-hint">
-                            Si está activado, el porcentaje del funcionario se calcula sobre el monto
-                            <strong>sin impuestos</strong>. Si está desactivado, se calcula sobre el
-                            <strong>total producido</strong>.
+                            <strong>Base sin IVA</strong>: el porcentaje se calcula sobre el precio sin IVA
+                            (Total ÷ 1.13). <strong>Total cobrado</strong>: se calcula sobre el total con IVA incluido.
                         </p>
+
+                        <div class="func-fiscal-independiente" id="func-fiscal-independiente">
+                            <div class="func-fiscal-item">
+                                <label asp-for="ModalidadIvaColaborador" class="func-sublabel">Modalidad de IVA del colaborador</label>
+                                <select asp-for="ModalidadIvaColaborador" class="func-input">
+                                    <option value="NoFactura">No factura IVA</option>
+                                    <option value="IvaIncluido">Factura IVA — incluido en su parte</option>
+                                    <option value="IvaAdicional">Factura IVA — adicional sobre la comisión</option>
+                                </select>
+                                <p class="func-tax-hint" style="margin-top:0.35rem;">
+                                    <strong>Incluido en su parte</strong>: su % ya incluye el IVA; se descompone sin subir el total (caso más común).
+                                    <strong>Adicional</strong>: el IVA se suma por encima de la comisión.
+                                </p>
+                            </div>
+                            <div class="func-fiscal-item">
+                                <label asp-for="TarifaIvaFacturaColaborador" class="func-sublabel">Tarifa IVA de su factura (%)</label>
+                                <input asp-for="TarifaIvaFacturaColaborador" class="func-input" type="number"
+                                       step="0.01" min="0" max="100" />
+                            </div>
+                        </div>
+
+                        <div class="form-check form-switch func-tax-switch">
+                            <input asp-for="RequiereFacturaAntesDePagar" class="form-check-input" type="checkbox"
+                                   role="switch" id="func-requiere-factura" />
+                            <label class="form-check-label" for="func-requiere-factura">
+                                Requiere factura antes de pagarle
+                            </label>
+                        </div>
                     </div>
                 </div>
 
@@ -267,6 +313,62 @@
         </form>
     </div>
 
+</div>
+
+<!-- ── FOTO DEL PROFESIONAL ── -->
+<div class="kpi-card func-main-card func-access-card">
+    <div class="func-form-body">
+        <div class="func-access-head">
+            <i class="bi bi-camera-fill"></i>
+            <h3 class="func-access-title">Foto del profesional</h3>
+        </div>
+        <p class="func-access-sub">Opcional. Esta foto puede mostrarse a los clientes en el enlace público de reservas.</p>
+
+        <div class="func-photo-row">
+            <div class="func-photo-preview">
+                @if (!string.IsNullOrWhiteSpace(Model.FotoUrl))
+                {
+                    <img src="@Model.FotoUrl" alt="Foto de @Model.Nombre" />
+                }
+                else
+                {
+                    <span class="func-photo-avatar" style="background-color:@Model.ColorCalendario;">
+                        @(Model.Nombre.Length > 0 ? char.ToUpper(Model.Nombre[0]).ToString() : "?")
+                    </span>
+                }
+            </div>
+
+            <form asp-action="ActualizarFoto" method="post" enctype="multipart/form-data" class="func-photo-form">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" value="@Model.IdFuncionario" />
+
+                <label class="func-photo-file">
+                    <span class="btn btn-outline-secondary btn-sm"><i class="bi bi-upload"></i> Elegir imagen</span>
+                    <input type="file" name="foto" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" />
+                    <span class="func-photo-filename">JPG, PNG o WEBP · máx. 5 MB</span>
+                </label>
+
+                <label class="func-photo-check">
+                    <input type="checkbox" name="mostrarFotoEnReservas" value="true" @(Model.MostrarFotoEnReservas ? "checked" : "") />
+                    <span>Mostrar mi foto en el enlace público de reservas</span>
+                </label>
+
+                <div class="func-photo-actions">
+                    <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-save"></i> Guardar foto</button>
+                </div>
+            </form>
+
+            @if (!string.IsNullOrWhiteSpace(Model.FotoUrl))
+            {
+                <form asp-action="EliminarFoto" method="post" class="func-photo-delete"
+                      onsubmit="return confirm('¿Eliminar la foto de este profesional?');">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="id" value="@Model.IdFuncionario" />
+                    <button type="submit" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i> Eliminar foto</button>
+                </form>
+            }
+        </div>
+    </div>
 </div>
 
 <!-- ── ACCESO AL SISTEMA ── -->
@@ -697,6 +799,16 @@
 
         if (colorInput) colorInput.addEventListener("input", syncColor);
         syncColor();
+
+        // La configuración de factura IVA sólo tiene sentido para colaboradores independientes.
+        var tipoRelacion = document.getElementById("func-tipo-relacion");
+        var bloqueIndep  = document.getElementById("func-fiscal-independiente");
+        function syncTipoRelacion() {
+            if (!tipoRelacion || !bloqueIndep) return;
+            bloqueIndep.style.display = tipoRelacion.value === "Independiente" ? "" : "none";
+        }
+        if (tipoRelacion) tipoRelacion.addEventListener("change", syncTipoRelacion);
+        syncTipoRelacion();
     })();
     </script>
 }

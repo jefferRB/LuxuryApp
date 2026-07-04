@@ -11,5 +11,8 @@ namespace LuxuryApp.Models.SaaS
         public BillingSubscriptionSummaryViewModel? CurrentSubscription { get; init; }
         public bool IsAuthenticated { get; init; }
         public Guid? SelectedPlanId { get; init; }
+
+        /// <summary>Calculadora dinamica de suscripcion (reemplaza las tarjetas BASIC/PRO/BUSINESS).</summary>
+        public SubscriptionCalculatorViewModel? Calculator { get; init; }
     }
 }

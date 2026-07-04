@@ -24,6 +24,8 @@ namespace LuxuryApp.Controllers.Funcionarios
         private readonly LuxuryApp.Services.Account.IAccountEmailService _accountEmailService;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ITenantDisplayNameService _tenantDisplayNameService;
+        private readonly IFuncionarioPhotoStorageService _photoStorageService;
+        private readonly ITenantProvider _tenantProvider;
         private readonly ILogger<FuncionariosController> _logger;
 
         public FuncionariosController(
@@ -34,6 +36,8 @@ namespace LuxuryApp.Controllers.Funcionarios
             LuxuryApp.Services.Account.IAccountEmailService accountEmailService,
             IBusinessDateTimeProvider businessDateTimeProvider,
             ITenantDisplayNameService tenantDisplayNameService,
+            IFuncionarioPhotoStorageService photoStorageService,
+            ITenantProvider tenantProvider,
             ILogger<FuncionariosController> logger)
         {
             _context = context;
@@ -43,6 +47,8 @@ namespace LuxuryApp.Controllers.Funcionarios
             _accountEmailService = accountEmailService;
             _businessDateTimeProvider = businessDateTimeProvider;
             _tenantDisplayNameService = tenantDisplayNameService;
+            _photoStorageService = photoStorageService;
+            _tenantProvider = tenantProvider;
             _logger = logger;
         }
 
@@ -142,11 +148,16 @@ namespace LuxuryApp.Controllers.Funcionarios
                 nameof(Funcionario.ColorCalendario) + "," +
                 nameof(Funcionario.PorcentajeGanancia) + "," +
                 nameof(Funcionario.PorcentajeProducto) + "," +
-                nameof(Funcionario.RebajarImpuestosAntesDeComision) + "," +
+                nameof(Funcionario.TipoRelacionColaborador) + "," +
+                nameof(Funcionario.ComisionCalculadaSobre) + "," +
+                nameof(Funcionario.ModalidadIvaColaborador) + "," +
+                nameof(Funcionario.TarifaIvaFacturaColaborador) + "," +
+                nameof(Funcionario.RequiereFacturaAntesDePagar) + "," +
                 nameof(Funcionario.FechaIngreso))]
             Funcionario funcionario)
         {
             NormalizeFuncionario(funcionario);
+            SincronizarConfigFiscal(funcionario);
 
             if (!ModelState.IsValid)
             {
@@ -240,6 +251,85 @@ namespace LuxuryApp.Controllers.Funcionarios
 
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [RequestSizeLimit(6 * 1024 * 1024)] // ~6MB; el servicio valida el máximo real (5MB)
+        public async Task<IActionResult> ActualizarFoto(int id, IFormFile? foto, bool mostrarFotoEnReservas)
+        {
+            var funcionario = await _context.Funcionarios
+                .FirstOrDefaultAsync(f => f.IdFuncionario == id);
+
+            if (funcionario == null)
+            {
+                return NotFound();
+            }
+
+            // Si viene un archivo, se valida y guarda de forma segura (magic bytes, GUID, por tenant).
+            if (foto is not null && foto.Length > 0)
+            {
+                var tenantId = _tenantProvider.HasTenant() ? _tenantProvider.GetTenantId() : Guid.Empty;
+                var result = await _photoStorageService.SaveAsync(
+                    tenantId, foto, funcionario.FotoStoragePath, HttpContext.RequestAborted);
+
+                if (!result.Success)
+                {
+                    TempData["Error"] = result.Error ?? "No se pudo guardar la foto.";
+                    return RedirectToAction(nameof(Edit), new { id });
+                }
+
+                funcionario.FotoUrl = result.Url;
+                funcionario.FotoStoragePath = result.StoragePath;
+                funcionario.FotoActualizadaUtc = DateTime.UtcNow;
+            }
+
+            funcionario.MostrarFotoEnReservas = mostrarFotoEnReservas;
+
+            try
+            {
+                await _context.SaveChangesAsync();
+                TempData["Mensaje"] = "Foto del profesional actualizada.";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error al actualizar la foto del funcionario {FuncionarioId}.", id);
+                TempData["Error"] = "No fue posible actualizar la foto.";
+            }
+
+            return RedirectToAction(nameof(Edit), new { id });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> EliminarFoto(int id)
+        {
+            var funcionario = await _context.Funcionarios
+                .FirstOrDefaultAsync(f => f.IdFuncionario == id);
+
+            if (funcionario == null)
+            {
+                return NotFound();
+            }
+
+            var storagePath = funcionario.FotoStoragePath;
+            funcionario.FotoUrl = null;
+            funcionario.FotoStoragePath = null;
+            funcionario.FotoActualizadaUtc = DateTime.UtcNow;
+
+            try
+            {
+                await _context.SaveChangesAsync();
+                _photoStorageService.Delete(storagePath); // borra el archivo tras confirmar en BD
+                TempData["Mensaje"] = "Foto eliminada. Se usará el avatar con inicial.";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error al eliminar la foto del funcionario {FuncionarioId}.", id);
+                TempData["Error"] = "No fue posible eliminar la foto.";
+            }
+
+            return RedirectToAction(nameof(Edit), new { id });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(
             [Bind(
                 nameof(Funcionario.IdFuncionario) + "," +
@@ -249,11 +339,16 @@ namespace LuxuryApp.Controllers.Funcionarios
                 nameof(Funcionario.ColorCalendario) + "," +
                 nameof(Funcionario.PorcentajeGanancia) + "," +
                 nameof(Funcionario.PorcentajeProducto) + "," +
-                nameof(Funcionario.RebajarImpuestosAntesDeComision) + "," +
+                nameof(Funcionario.TipoRelacionColaborador) + "," +
+                nameof(Funcionario.ComisionCalculadaSobre) + "," +
+                nameof(Funcionario.ModalidadIvaColaborador) + "," +
+                nameof(Funcionario.TarifaIvaFacturaColaborador) + "," +
+                nameof(Funcionario.RequiereFacturaAntesDePagar) + "," +
                 nameof(Funcionario.FechaIngreso))]
             Funcionario funcionario)
         {
             NormalizeFuncionario(funcionario);
+            SincronizarConfigFiscal(funcionario);
 
             if (!ModelState.IsValid)
             {
@@ -292,6 +387,13 @@ namespace LuxuryApp.Controllers.Funcionarios
             funcionarioDb.ColorCalendario = funcionario.ColorCalendario;
             funcionarioDb.PorcentajeGanancia = funcionario.PorcentajeGanancia;
             funcionarioDb.PorcentajeProducto = funcionario.PorcentajeProducto;
+            funcionarioDb.TipoRelacionColaborador = funcionario.TipoRelacionColaborador;
+            funcionarioDb.ComisionCalculadaSobre = funcionario.ComisionCalculadaSobre;
+            funcionarioDb.ModalidadIvaColaborador = funcionario.ModalidadIvaColaborador;
+            funcionarioDb.ColaboradorFacturaIva = funcionario.ColaboradorFacturaIva;
+            funcionarioDb.TarifaIvaFacturaColaborador = funcionario.TarifaIvaFacturaColaborador;
+            funcionarioDb.RequiereFacturaAntesDePagar = funcionario.RequiereFacturaAntesDePagar;
+            // Compatibilidad: el flag histórico se deriva de ComisionCalculadaSobre.
             funcionarioDb.RebajarImpuestosAntesDeComision = funcionario.RebajarImpuestosAntesDeComision;
             funcionarioDb.FechaIngreso = funcionario.FechaIngreso;
 
@@ -512,20 +614,51 @@ namespace LuxuryApp.Controllers.Funcionarios
             return Json(funcionarios);
         }
 
-        public async Task<IActionResult> PagosSemana(DateTime? fecha)
+        public async Task<IActionResult> PagosSemana(
+            DateTime? fecha,
+            string? periodo = null,
+            DateTime? desde = null,
+            DateTime? hasta = null)
         {
             var fechaReferencia = fecha?.Date ?? _businessDateTimeProvider.Today();
             var fechaPagoSugerida = _businessDateTimeProvider.Now();
 
+            // Resolución del periodo (semanal / quincenal / rango personalizado). El servicio opera sobre el rango.
+            var periodoTipo = PayrollPeriodCalculator.ParseTipo(periodo);
+            PayrollPeriod periodoInfo;
+
+            if (periodoTipo == PayrollPeriodType.Personalizado)
+            {
+                var (periodoPers, aviso) = PayrollPeriodCalculator.ResolvePersonalizado(
+                    desde, hasta, _businessDateTimeProvider.Today());
+                periodoInfo = periodoPers;
+                if (!string.IsNullOrEmpty(aviso))
+                {
+                    TempData["Error"] = aviso;
+                }
+            }
+            else
+            {
+                periodoInfo = PayrollPeriodCalculator.Resolve(periodoTipo, fechaReferencia);
+            }
+
             var resumen = await _liquidacionSemanalService.ObtenerResumenSemanaAsync(
-                fechaReferencia,
+                periodoInfo.Inicio,
+                periodoInfo.Fin,
                 HttpContext.RequestAborted);
 
             return View(new PagosSemanaPageViewModel
             {
                 InicioSemana = resumen.InicioSemana,
                 FinSemana = resumen.FinSemana,
+                PeriodoTipo = periodoInfo.Tipo,
+                PeriodoTipoLabel = periodoInfo.TipoLabel,
+                PeriodoEtiqueta = periodoInfo.Etiqueta,
+                PeriodoCtaTexto = periodoInfo.CtaTexto,
+                PeriodoReferenciaAnterior = periodoInfo.ReferenciaAnterior,
+                PeriodoReferenciaSiguiente = periodoInfo.ReferenciaSiguiente,
                 FechaPagoSugerida = fechaPagoSugerida,
+                Hoy = _businessDateTimeProvider.Today(),
                 MetodosPago = ObtenerMetodosPago(),
                 Funcionarios = resumen.Funcionarios,
                 TotalGeneradoServicios = resumen.TotalGeneradoServicios,
@@ -534,8 +667,65 @@ namespace LuxuryApp.Controllers.Funcionarios
                 TotalImpuestosGeneral = resumen.TotalImpuestosGeneral,
                 TotalSinImpuestosGeneral = resumen.TotalSinImpuestosGeneral,
                 TotalPagadoGeneral = resumen.TotalPagadoGeneral,
+                TotalPagadoAplicadoGeneral = resumen.TotalPagadoAplicadoGeneral,
                 TotalPendienteGeneral = resumen.TotalPendienteGeneral,
-                GananciaNegocio = resumen.GananciaNegocio
+                TotalExcedenteGeneral = resumen.TotalExcedenteGeneral,
+                GananciaNegocio = resumen.GananciaNegocio,
+                TotalBaseVentaSinIvaGeneral = resumen.TotalBaseVentaSinIvaGeneral,
+                TotalIvaVentaIncluidoGeneral = resumen.TotalIvaVentaIncluidoGeneral,
+                TotalIvaColaboradorGeneral = resumen.TotalIvaColaboradorGeneral,
+                TotalIvaNetoNegocioGeneral = resumen.TotalIvaNetoNegocioGeneral,
+                TotalAPagarColaboradoresGeneral = resumen.TotalAPagarColaboradoresGeneral,
+                TotalBaseComisionGeneral = resumen.TotalBaseComisionGeneral
+            });
+        }
+
+        // Diagnóstico TEMPORAL de atribución de pagos por periodo. Devuelve JSON con cada pago
+        // (incluido/excluido, fracción y monto aplicado) para auditar la lógica de Pagado/Pendiente.
+        [HttpGet]
+        public async Task<IActionResult> PagosDiagnostico(
+            DateTime? fecha,
+            string? periodo = null,
+            DateTime? desde = null,
+            DateTime? hasta = null)
+        {
+            var fechaReferencia = fecha?.Date ?? _businessDateTimeProvider.Today();
+            var periodoTipo = PayrollPeriodCalculator.ParseTipo(periodo);
+
+            PayrollPeriod periodoInfo = periodoTipo == PayrollPeriodType.Personalizado
+                ? PayrollPeriodCalculator.ResolvePersonalizado(desde, hasta, _businessDateTimeProvider.Today()).Periodo
+                : PayrollPeriodCalculator.Resolve(periodoTipo, fechaReferencia);
+
+            var resumen = await _liquidacionSemanalService.ObtenerResumenSemanaAsync(
+                periodoInfo.Inicio, periodoInfo.Fin, HttpContext.RequestAborted);
+
+            var diagnostico = await _liquidacionSemanalService.ObtenerDiagnosticoPagosAsync(
+                periodoInfo.Inicio, periodoInfo.Fin, HttpContext.RequestAborted);
+
+            return Json(new
+            {
+                periodo = periodoInfo.TipoLabel,
+                rango = periodoInfo.Etiqueta,
+                inicio = periodoInfo.Inicio.ToString("yyyy-MM-dd"),
+                fin = periodoInfo.Fin.ToString("yyyy-MM-dd"),
+                totales = new
+                {
+                    planilla = resumen.TotalAPagarColaboradoresGeneral,
+                    pagadoAplicado = resumen.TotalPagadoGeneral,
+                    pendiente = resumen.TotalPendienteGeneral,
+                    excedente = resumen.TotalExcedenteGeneral
+                },
+                pagosIncluidos = diagnostico.Where(d => d.Incluido),
+                pagosExcluidos = diagnostico.Where(d => !d.Incluido),
+                colaboradores = resumen.Funcionarios.Select(f => new
+                {
+                    f.FuncionarioId,
+                    f.Nombre,
+                    planilla = f.TotalAPagarColaborador,
+                    pagadoAplicado = f.MontoPagado,
+                    pendiente = f.MontoPendiente,
+                    excedente = f.Excedente
+                })
             });
         }
 
@@ -548,12 +738,17 @@ namespace LuxuryApp.Controllers.Funcionarios
             DateTime finSemana,
             string? observacion,
             string? metodoPago,
-            DateTime? fechaPago)
+            DateTime? fechaPago,
+            string? periodo = null,
+            DateTime? desde = null,
+            DateTime? hasta = null)
         {
+            var rutaVolver = RutaPagosSemana(inicioSemana, periodo, desde, hasta);
+
             if (monto <= 0)
             {
                 TempData["Error"] = "El monto a pagar debe ser mayor que cero.";
-                return RedirectToAction(nameof(PagosSemana), new { fecha = inicioSemana.ToString("yyyy-MM-dd") });
+                return RedirectToAction(nameof(PagosSemana), rutaVolver);
             }
 
             var resumenValidacion = await _liquidacionSemanalService.ObtenerResumenSemanaAsync(
@@ -569,9 +764,9 @@ namespace LuxuryApp.Controllers.Funcionarios
             if (monto > montoPendiente)
             {
                 TempData["Error"] = montoPendiente <= 0
-                    ? "Este funcionario no tiene monto pendiente en la semana seleccionada."
-                    : "El monto a pagar no puede ser mayor al pendiente del funcionario.";
-                return RedirectToAction(nameof(PagosSemana), new { fecha = inicioSemana.ToString("yyyy-MM-dd") });
+                    ? "Este colaborador no tiene monto pendiente en el periodo seleccionado."
+                    : "El monto a pagar no puede ser mayor al pendiente del colaborador.";
+                return RedirectToAction(nameof(PagosSemana), rutaVolver);
             }
 
             try
@@ -606,10 +801,10 @@ namespace LuxuryApp.Controllers.Funcionarios
             catch (DbUpdateException ex)
             {
                 _logger.LogError(ex, "Error al registrar pago semanal para funcionario {FuncionarioId}.", funcionarioId);
-                TempData["Error"] = "No fue posible registrar el pago semanal por un error de persistencia.";
+                TempData["Error"] = "No fue posible registrar el pago por un error de persistencia.";
             }
 
-            return RedirectToAction(nameof(PagosSemana), new { fecha = inicioSemana });
+            return RedirectToAction(nameof(PagosSemana), rutaVolver);
         }
 
         [HttpPost]
@@ -619,8 +814,13 @@ namespace LuxuryApp.Controllers.Funcionarios
             DateTime finSemana,
             string? metodoPago,
             DateTime? fechaPago,
-            string? observacion)
+            string? observacion,
+            string? periodo = null,
+            DateTime? desde = null,
+            DateTime? hasta = null)
         {
+            var rutaVolver = RutaPagosSemana(inicioSemana, periodo, desde, hasta);
+
             var resumen = await _liquidacionSemanalService.ObtenerResumenSemanaAsync(
                 inicioSemana,
                 finSemana,
@@ -637,8 +837,8 @@ namespace LuxuryApp.Controllers.Funcionarios
 
             if (detalles.Count == 0)
             {
-                TempData["Mensaje"] = "La semana seleccionada no tiene pendientes por liquidar.";
-                return RedirectToAction(nameof(PagosSemana), new { fecha = inicioSemana });
+                TempData["Mensaje"] = "El periodo seleccionado no tiene pendientes por liquidar.";
+                return RedirectToAction(nameof(PagosSemana), rutaVolver);
             }
 
             try
@@ -658,24 +858,45 @@ namespace LuxuryApp.Controllers.Funcionarios
                     },
                     HttpContext.RequestAborted);
 
-                TempData["Mensaje"] = "Todos los pagos pendientes de la semana fueron liquidados.";
+                TempData["Mensaje"] = "Todos los pagos pendientes del periodo fueron liquidados.";
             }
             catch (InvalidOperationException ex)
             {
-                _logger.LogWarning(ex, "Validacion de negocio al liquidar la semana {InicioSemana:yyyy-MM-dd} - {FinSemana:yyyy-MM-dd}.", inicioSemana, finSemana);
+                _logger.LogWarning(ex, "Validacion de negocio al liquidar el periodo {InicioSemana:yyyy-MM-dd} - {FinSemana:yyyy-MM-dd}.", inicioSemana, finSemana);
                 TempData["Error"] = ex.Message;
             }
             catch (DbUpdateException ex)
             {
-                _logger.LogError(ex, "Error al liquidar pagos semanales para el rango {InicioSemana:yyyy-MM-dd} - {FinSemana:yyyy-MM-dd}.", inicioSemana, finSemana);
-                TempData["Error"] = "No fue posible registrar la liquidacion semanal.";
+                _logger.LogError(ex, "Error al liquidar pagos del periodo {InicioSemana:yyyy-MM-dd} - {FinSemana:yyyy-MM-dd}.", inicioSemana, finSemana);
+                TempData["Error"] = "No fue posible registrar la liquidacion del periodo.";
             }
 
-            return RedirectToAction(nameof(PagosSemana), new { fecha = inicioSemana });
+            return RedirectToAction(nameof(PagosSemana), rutaVolver);
         }
 
-        public async Task<IActionResult> ExportarPagosExcel(DateTime inicioSemana, DateTime finSemana)
+        // Construye los route values para volver al mismo periodo (incluye el rango cuando es personalizado).
+        private static object RutaPagosSemana(DateTime inicioSemana, string? periodo, DateTime? desde, DateTime? hasta)
         {
+            var esPersonalizado = PayrollPeriodCalculator.ParseTipo(periodo) == PayrollPeriodType.Personalizado;
+            return new
+            {
+                fecha = inicioSemana.ToString("yyyy-MM-dd"),
+                periodo,
+                desde = esPersonalizado ? (desde ?? inicioSemana).ToString("yyyy-MM-dd") : null,
+                hasta = esPersonalizado ? hasta?.ToString("yyyy-MM-dd") : null
+            };
+        }
+
+        public async Task<IActionResult> ExportarPagosExcel(DateTime inicioSemana, DateTime finSemana, string? periodo = null)
+        {
+            var periodoTipo = PayrollPeriodCalculator.ParseTipo(periodo);
+            var tituloPeriodo = periodoTipo switch
+            {
+                PayrollPeriodType.Quincenal => "Liquidación quincenal",
+                PayrollPeriodType.Personalizado => "Liquidación por rango",
+                _ => "Liquidación semanal"
+            };
+
             var resumen = await _liquidacionSemanalService.ObtenerResumenSemanaAsync(
                 inicioSemana,
                 finSemana,
@@ -685,171 +906,179 @@ namespace LuxuryApp.Controllers.Funcionarios
             const string excelCurrencyFormat = "CRC #,##0.00";
 
             using var workbook = new XLWorkbook();
-            var ws = workbook.Worksheets.Add("Pagos Funcionarios");
-
             var colorNegro = XLColor.FromHtml("#1C1C1C");
             var colorDorado = XLColor.FromHtml("#C6A55C");
             var colorGris = XLColor.FromHtml("#F5F5F5");
 
             var nombreNegocio = await _tenantDisplayNameService.GetCurrentTenantDisplayNameAsync(HttpContext.RequestAborted);
 
-            ws.Range("A1:I1").Merge();
-            ws.Cell("A1").Value = nombreNegocio;
-            ws.Cell("A1").Style.Font.FontSize = 20;
-            ws.Cell("A1").Style.Font.Bold = true;
-            ws.Cell("A1").Style.Font.FontColor = colorDorado;
-            ws.Cell("A1").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            // ─────────── Hoja 1: Resumen semanal ───────────
+            var wsResumen = workbook.Worksheets.Add("Resumen");
+            wsResumen.Range("A1:B1").Merge();
+            wsResumen.Cell("A1").Value = nombreNegocio;
+            wsResumen.Cell("A1").Style.Font.FontSize = 18;
+            wsResumen.Cell("A1").Style.Font.Bold = true;
+            wsResumen.Cell("A1").Style.Font.FontColor = colorDorado;
 
-            ws.Range("A2:I2").Merge();
-            ws.Cell("A2").Value = "Reporte de Pagos a Funcionarios";
-            ws.Cell("A2").Style.Font.FontSize = 14;
-            ws.Cell("A2").Style.Font.Bold = true;
-            ws.Cell("A2").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            wsResumen.Cell("A2").Value = tituloPeriodo;
+            wsResumen.Cell("A2").Style.Font.FontSize = 13;
+            wsResumen.Cell("A2").Style.Font.Bold = true;
 
-            ws.Range("A3:I3").Merge();
-            ws.Cell("A3").Value = $"Semana: {inicioSemana:dd/MM/yyyy} - {finSemana:dd/MM/yyyy}";
-            ws.Cell("A3").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            wsResumen.Cell("A3").Value = $"Periodo: {inicioSemana:dd/MM/yyyy} - {finSemana:dd/MM/yyyy}";
 
-            const int headerRow = 5;
+            var resumenRows = new (string Label, decimal Value, bool Destacar)[]
+            {
+                ("Total cobrado a clientes", resumen.TotalGeneradoGeneral, false),
+                ("Base ventas sin IVA", resumen.TotalBaseVentaSinIvaGeneral, false),
+                ("IVA de venta incluido", resumen.TotalIvaVentaIncluidoGeneral, false),
+                ("Base de comisión", resumen.TotalBaseComisionGeneral, false),
+                ("IVA colaborador", resumen.TotalIvaColaboradorGeneral, false),
+                ("IVA neto negocio", resumen.TotalIvaNetoNegocioGeneral, false),
+                ("Total planilla equipo", resumen.TotalAPagarColaboradoresGeneral, true),
+                ("Total pagado", resumen.TotalPagadoGeneral, false),
+                ("Aplicado a planilla", resumen.TotalPagadoAplicadoGeneral, false),
+                ("Pendiente", resumen.TotalPendienteGeneral, false),
+                ("Excedente", resumen.TotalExcedenteGeneral, false),
+                ("Ganancia negocio estimada", resumen.GananciaNegocio, true),
+            };
 
-            ws.Cell(headerRow, 1).Value = "Funcionario";
-            ws.Cell(headerRow, 2).Value = "Total Generado";
-            ws.Cell(headerRow, 3).Value = "Impuestos";
-            ws.Cell(headerRow, 4).Value = "Total Neto";
-            ws.Cell(headerRow, 5).Value = "% Servicio";
-            ws.Cell(headerRow, 6).Value = "% Producto";
-            ws.Cell(headerRow, 7).Value = "Monto Generado";
-            ws.Cell(headerRow, 8).Value = "Monto Pagado";
-            ws.Cell(headerRow, 9).Value = "Pendiente";
+            var rr = 5;
+            foreach (var (label, value, destacar) in resumenRows)
+            {
+                wsResumen.Cell(rr, 1).Value = label;
+                wsResumen.Cell(rr, 1).Style.Font.Bold = true;
+                wsResumen.Cell(rr, 2).Value = value;
+                wsResumen.Cell(rr, 2).Style.NumberFormat.Format = excelCurrencyFormat;
+                if (destacar)
+                {
+                    wsResumen.Cell(rr, 2).Style.Font.Bold = true;
+                    wsResumen.Cell(rr, 2).Style.Font.FontColor = colorDorado;
+                }
+                rr++;
+            }
+            wsResumen.Columns().AdjustToContents();
 
-            var header = ws.Range(headerRow, 1, headerRow, 9);
+            // ─────────── Hoja 2: Funcionarios ───────────
+            var ws = workbook.Worksheets.Add("Funcionarios");
+
+            var headers = new[]
+            {
+                "Colaborador", "Relación", "Comisión sobre", "Modalidad IVA colaborador",
+                "Total cobrado", "Base sin IVA venta", "IVA de venta",
+                "% Servicio", "% Producto",
+                "Monto colaborador", "Base colaborador", "IVA colaborador", "Total a pagar",
+                "Pagado", "Pendiente", "IVA neto negocio"
+            };
+            const int cols = 16;
+            var columnasCrc = new[] { 5, 6, 7, 10, 11, 12, 13, 14, 15, 16 };
+
+            ws.Range(1, 1, 1, cols).Merge();
+            ws.Cell(1, 1).Value = $"{nombreNegocio} — {tituloPeriodo} {inicioSemana:dd/MM/yyyy} al {finSemana:dd/MM/yyyy}";
+            ws.Cell(1, 1).Style.Font.FontSize = 14;
+            ws.Cell(1, 1).Style.Font.Bold = true;
+            ws.Cell(1, 1).Style.Font.FontColor = colorDorado;
+            ws.Cell(1, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+            const int headerRow = 3;
+            for (var i = 0; i < headers.Length; i++)
+            {
+                ws.Cell(headerRow, i + 1).Value = headers[i];
+            }
+
+            var header = ws.Range(headerRow, 1, headerRow, cols);
             header.Style.Fill.BackgroundColor = colorNegro;
             header.Style.Font.FontColor = XLColor.White;
             header.Style.Font.Bold = true;
             header.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
             var fila = headerRow + 1;
-            foreach (var funcionario in resumen.Funcionarios)
+            foreach (var f in resumen.Funcionarios)
             {
-                ws.Cell(fila, 1).Value = funcionario.Nombre;
-                ws.Cell(fila, 2).Value = funcionario.TotalGenerado;
-                ws.Cell(fila, 3).Value = funcionario.Impuestos;
-                ws.Cell(fila, 4).Value = funcionario.TotalNeto;
-                ws.Cell(fila, 5).Value = funcionario.Porcentaje;
-                ws.Cell(fila, 6).Value = funcionario.PorcentajeProducto;
-                ws.Cell(fila, 7).Value = funcionario.PagoFinal;
-                ws.Cell(fila, 8).Value = funcionario.MontoPagado;
-                ws.Cell(fila, 9).Value = funcionario.MontoPendiente;
+                ws.Cell(fila, 1).Value = f.Nombre;
+                ws.Cell(fila, 2).Value = FuncionarioLiquidacionDisplay.Relacion(f.TipoRelacionColaborador);
+                ws.Cell(fila, 3).Value = FuncionarioLiquidacionDisplay.ComisionSobre(f.ComisionCalculadaSobre);
+                ws.Cell(fila, 4).Value = FuncionarioLiquidacionDisplay.Modalidad(f.ModalidadIvaColaborador);
+                ws.Cell(fila, 5).Value = f.TotalCobrado;
+                ws.Cell(fila, 6).Value = f.BaseVentaSinIva;
+                ws.Cell(fila, 7).Value = f.IvaVentaIncluido;
+                ws.Cell(fila, 8).Value = f.Porcentaje;
+                ws.Cell(fila, 9).Value = f.PorcentajeProducto;
+                ws.Cell(fila, 10).Value = f.MontoColaborador;
+                ws.Cell(fila, 11).Value = f.BaseColaborador;
+                ws.Cell(fila, 12).Value = f.IvaColaborador;
+                ws.Cell(fila, 13).Value = f.TotalAPagarColaborador;
+                ws.Cell(fila, 14).Value = f.MontoPagado;
+                ws.Cell(fila, 15).Value = f.MontoPendiente;
+                ws.Cell(fila, 16).Value = f.IvaNetoNegocio;
 
-                ws.Range(fila, 2, fila, 4).Style.NumberFormat.Format = "₡ #,##0.00";
-                ws.Range(fila, 7, fila, 9).Style.NumberFormat.Format = "₡ #,##0.00";
-
-                ws.Range(fila, 2, fila, 4).Style.NumberFormat.Format = excelCurrencyFormat;
-                ws.Range(fila, 7, fila, 9).Style.NumberFormat.Format = excelCurrencyFormat;
+                foreach (var mc in columnasCrc)
+                {
+                    ws.Cell(fila, mc).Style.NumberFormat.Format = excelCurrencyFormat;
+                }
                 fila++;
             }
 
             if (fila > headerRow + 1)
             {
-                var dataRange = ws.Range(headerRow + 1, 1, fila - 1, 9);
+                var dataRange = ws.Range(headerRow + 1, 1, fila - 1, cols);
                 dataRange.AddConditionalFormat()
                     .WhenIsTrue("MOD(ROW(),2)=0")
                     .Fill.SetBackgroundColor(colorGris);
-            }
 
-            ws.Cell(fila, 7).Value = "TOTAL PAGADO";
-            ws.Cell(fila, 7).Style.Font.Bold = true;
-
-            ws.Cell(fila, 8).FormulaA1 = $"SUM(H{headerRow + 1}:H{fila - 1})";
-            ws.Cell(fila, 8).Style.NumberFormat.Format = "₡ #,##0.00";
-            ws.Cell(fila, 8).Style.NumberFormat.Format = excelCurrencyFormat;
-            ws.Cell(fila, 8).Style.Font.Bold = true;
-            ws.Cell(fila, 8).Style.Font.FontColor = colorDorado;
-
-            fila += 3;
-
-            ws.Cell(fila, 1).Value = "Resumen del Salon";
-            ws.Cell(fila, 1).Style.Font.Bold = true;
-
-            fila++;
-            ws.Cell(fila, 1).Value = "Total generado servicios";
-            ws.Cell(fila, 2).Value = resumen.TotalGeneradoServicios;
-
-            fila++;
-            ws.Cell(fila, 1).Value = "Total generado productos";
-            ws.Cell(fila, 2).Value = resumen.TotalGeneradoProductos;
-
-            fila++;
-            ws.Cell(fila, 1).Value = "Total generado general";
-            ws.Cell(fila, 2).Value = resumen.TotalGeneradoGeneral;
-
-            fila++;
-            ws.Cell(fila, 1).Value = "Total impuestos";
-            ws.Cell(fila, 2).Value = resumen.TotalImpuestosGeneral;
-
-            fila++;
-            ws.Cell(fila, 1).Value = "Total sin impuestos";
-            ws.Cell(fila, 2).Value = resumen.TotalSinImpuestosGeneral;
-
-            fila++;
-            ws.Cell(fila, 1).Value = "Total pagado funcionarios";
-            ws.Cell(fila, 2).Value = resumen.TotalPagadoGeneral;
-
-            fila++;
-            ws.Cell(fila, 1).Value = "Total pendiente funcionarios";
-            ws.Cell(fila, 2).Value = resumen.TotalPendienteGeneral;
-
-            fila++;
-            ws.Cell(fila, 1).Value = "Ganancia del negocio";
-            ws.Cell(fila, 2).Value = resumen.GananciaNegocio;
-
-            ws.Range(fila - 7, 2, fila, 2).Style.NumberFormat.Format = "₡ #,##0.00";
-            ws.Range(fila - 7, 2, fila, 2).Style.NumberFormat.Format = excelCurrencyFormat;
-            ws.Cell(fila, 2).Style.Font.Bold = true;
-            ws.Cell(fila, 2).Style.Font.FontColor = colorDorado;
-
-            fila += 3;
-
-            ws.Cell(fila, 1).Value = "Productos Vendidos";
-            ws.Cell(fila, 1).Style.Font.Bold = true;
-            ws.Cell(fila, 1).Style.Font.FontSize = 14;
-
-            fila++;
-
-            ws.Cell(fila, 1).Value = "Funcionario";
-            ws.Cell(fila, 2).Value = "Fecha";
-            ws.Cell(fila, 3).Value = "Producto";
-            ws.Cell(fila, 4).Value = "Precio";
-            ws.Cell(fila, 5).Value = "Ganancia Funcionario";
-
-            var headerProductos = ws.Range(fila, 1, fila, 5);
-            headerProductos.Style.Fill.BackgroundColor = colorNegro;
-            headerProductos.Style.Font.FontColor = XLColor.White;
-            headerProductos.Style.Font.Bold = true;
-
-            fila++;
-
-            foreach (var funcionario in resumen.Funcionarios)
-            {
-                foreach (var producto in funcionario.ProductosVendidos)
+                // Totales destacados de las columnas monetarias clave.
+                ws.Cell(fila, 3).Value = "TOTALES";
+                ws.Cell(fila, 3).Style.Font.Bold = true;
+                foreach (var mc in new[] { 5, 6, 7, 13, 14, 15, 16 })
                 {
-                    ws.Cell(fila, 1).Value = funcionario.Nombre;
-                    ws.Cell(fila, 2).Value = producto.Fecha;
-                    ws.Cell(fila, 3).Value = producto.NombreProducto;
-                    ws.Cell(fila, 4).Value = producto.Precio;
-                    ws.Cell(fila, 5).Value = producto.GananciaFuncionario;
+                    var col = ws.Cell(headerRow + 1, mc).Address.ColumnLetter;
+                    ws.Cell(fila, mc).FormulaA1 = $"SUM({col}{headerRow + 1}:{col}{fila - 1})";
+                    ws.Cell(fila, mc).Style.NumberFormat.Format = excelCurrencyFormat;
+                    ws.Cell(fila, mc).Style.Font.Bold = true;
+                    ws.Cell(fila, mc).Style.Font.FontColor = colorDorado;
+                }
+            }
+            ws.Columns().AdjustToContents();
 
-                    ws.Cell(fila, 2).Style.DateFormat.Format = "dd/MM/yyyy HH:mm";
-                    ws.Cell(fila, 4).Style.NumberFormat.Format = "₡ #,##0.00";
-                    ws.Cell(fila, 5).Style.NumberFormat.Format = "₡ #,##0.00";
+            // ─────────── Hoja 3: Detalle de productos vendidos ───────────
+            var wsDet = workbook.Worksheets.Add("Detalle productos");
+            wsDet.Cell(1, 1).Value = "Productos vendidos en la semana";
+            wsDet.Cell(1, 1).Style.Font.Bold = true;
+            wsDet.Cell(1, 1).Style.Font.FontSize = 13;
 
-                    ws.Cell(fila, 4).Style.NumberFormat.Format = excelCurrencyFormat;
-                    ws.Cell(fila, 5).Style.NumberFormat.Format = excelCurrencyFormat;
-                    fila++;
+            const int detHeaderRow = 3;
+            var detHeaders = new[] { "Funcionario", "Fecha", "Producto", "Precio", "Comisión funcionario" };
+            for (var i = 0; i < detHeaders.Length; i++)
+            {
+                wsDet.Cell(detHeaderRow, i + 1).Value = detHeaders[i];
+            }
+            var detHeader = wsDet.Range(detHeaderRow, 1, detHeaderRow, detHeaders.Length);
+            detHeader.Style.Fill.BackgroundColor = colorNegro;
+            detHeader.Style.Font.FontColor = XLColor.White;
+            detHeader.Style.Font.Bold = true;
+
+            var detFila = detHeaderRow + 1;
+            foreach (var f in resumen.Funcionarios)
+            {
+                foreach (var producto in f.ProductosVendidos)
+                {
+                    wsDet.Cell(detFila, 1).Value = f.Nombre;
+                    wsDet.Cell(detFila, 2).Value = producto.Fecha;
+                    wsDet.Cell(detFila, 3).Value = producto.NombreProducto;
+                    wsDet.Cell(detFila, 4).Value = producto.Precio;
+                    wsDet.Cell(detFila, 5).Value = producto.GananciaFuncionario;
+
+                    wsDet.Cell(detFila, 2).Style.DateFormat.Format = "dd/MM/yyyy HH:mm";
+                    wsDet.Cell(detFila, 4).Style.NumberFormat.Format = excelCurrencyFormat;
+                    wsDet.Cell(detFila, 5).Style.NumberFormat.Format = excelCurrencyFormat;
+                    detFila++;
                 }
             }
 
-            ws.Columns().AdjustToContents();
+            if (detFila == detHeaderRow + 1)
+            {
+                wsDet.Cell(detFila, 1).Value = "No hubo productos vendidos en la semana.";
+            }
+            wsDet.Columns().AdjustToContents();
 
             using var stream = new MemoryStream();
             workbook.SaveAs(stream);
@@ -857,7 +1086,15 @@ namespace LuxuryApp.Controllers.Funcionarios
             return File(
                 stream.ToArray(),
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                ExcelReportFileNameBuilder.Build(nombreNegocio, "Pagos Funcionarios", generatedAt));
+                ExcelReportFileNameBuilder.Build(
+                    nombreNegocio,
+                    periodoTipo switch
+                    {
+                        PayrollPeriodType.Quincenal => "Liquidacion Quincenal",
+                        PayrollPeriodType.Personalizado => "Liquidacion Rango",
+                        _ => "Liquidacion Semanal"
+                    },
+                    generatedAt));
         }
 
         private async Task<IActionResult> SetActivoAsync(int id, bool activo)
@@ -1011,6 +1248,29 @@ namespace LuxuryApp.Controllers.Funcionarios
         {
             funcionario.Nombre = NormalizeRequiredText(funcionario.Nombre);
             funcionario.Telefono = NormalizeOptionalText(funcionario.Telefono);
+        }
+
+        /// <summary>
+        /// Mantiene coherente la configuración fiscal del colaborador:
+        ///  - El flag histórico <c>RebajarImpuestosAntesDeComision</c> se deriva de
+        ///    <c>ComisionCalculadaSobre</c> (BaseSinIva ↔ true).
+        ///  - El IVA de factura del colaborador sólo aplica a Independientes; en cualquier otro
+        ///    caso se apaga para evitar datos inconsistentes.
+        /// </summary>
+        private static void SincronizarConfigFiscal(Funcionario funcionario)
+        {
+            funcionario.RebajarImpuestosAntesDeComision =
+                funcionario.ComisionCalculadaSobre == LuxuryApp.Models.Fiscal.ComisionCalculadaSobre.BaseSinIva;
+
+            // La modalidad de IVA solo aplica a Independientes; en cualquier otro caso se apaga.
+            if (funcionario.TipoRelacionColaborador != LuxuryApp.Models.Fiscal.TipoRelacionColaborador.Independiente)
+            {
+                funcionario.ModalidadIvaColaborador = LuxuryApp.Models.Fiscal.ModalidadIvaColaborador.NoFactura;
+            }
+
+            // Flag histórico derivado de la modalidad (fuente de verdad).
+            funcionario.ColaboradorFacturaIva =
+                funcionario.ModalidadIvaColaborador != LuxuryApp.Models.Fiscal.ModalidadIvaColaborador.NoFactura;
         }
 
         private static string NormalizeRequiredText(string? value) =>

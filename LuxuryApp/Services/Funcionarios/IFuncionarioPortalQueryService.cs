@@ -27,6 +27,7 @@ namespace LuxuryApp.Services.Funcionarios
             int funcionarioId,
             DateTime? semanaAnchor,
             DateTime? mesAnchor,
+            int mesesEvolucion,
             CancellationToken cancellationToken = default);
 
         Task<MisPagosViewModel> ObtenerPagosAsync(

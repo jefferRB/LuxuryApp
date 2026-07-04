@@ -32,6 +32,13 @@ namespace LuxuryApp.Models.Finanzas
         [Display(Name = "Servicio")]
         public int? ServicioId { get; set; }
 
+        // Servicio personalizado: cuando el cobro proviene de una cita con servicio fuera
+        // del catálogo (ServicioId == null y ProductoId == null). Guarda el nombre como
+        // snapshot para que el detalle sobreviva aunque la cita se elimine. A efectos de
+        // finanzas un cobro con este valor cuenta como SERVICIO.
+        [Display(Name = "Servicio personalizado")]
+        public string? ServicioNombrePersonalizado { get; set; }
+
         [Required]
         [Display(Name = "Monto")]
         [DecimalRange(0.01, 999999, ErrorMessage = "Debe indicar un monto mayor a cero y dentro del rango permitido.")]

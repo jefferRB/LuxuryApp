@@ -48,6 +48,9 @@ namespace LuxuryApp.Services.Productos
                         PrecioProducto = normalizedRequest.PrecioProducto,
                         CantidadProducto = normalizedRequest.CantidadProducto,
                         StockMinimo = normalizedRequest.StockMinimo,
+                        AplicaIva = normalizedRequest.AplicaIva,
+                        TarifaIva = normalizedRequest.TarifaIva,
+                        PrecioIncluyeIva = normalizedRequest.PrecioIncluyeIva,
                         Activo = true,
                         FechaRegistro = timestamp
                     };
@@ -119,6 +122,9 @@ namespace LuxuryApp.Services.Productos
                     producto.PrecioProducto = normalizedRequest.PrecioProducto;
                     producto.CantidadProducto = normalizedRequest.CantidadProducto;
                     producto.StockMinimo = normalizedRequest.StockMinimo;
+                    producto.AplicaIva = normalizedRequest.AplicaIva;
+                    producto.TarifaIva = normalizedRequest.TarifaIva;
+                    producto.PrecioIncluyeIva = normalizedRequest.PrecioIncluyeIva;
 
                     if (stockAnterior != normalizedRequest.CantidadProducto)
                     {
@@ -211,7 +217,12 @@ namespace LuxuryApp.Services.Productos
                 DetalleProducto = NormalizeDetalle(request.DetalleProducto),
                 PrecioProducto = Math.Round(request.PrecioProducto, 2, MidpointRounding.AwayFromZero),
                 CantidadProducto = request.CantidadProducto,
-                StockMinimo = request.StockMinimo
+                StockMinimo = request.StockMinimo,
+                AplicaIva = request.AplicaIva,
+                TarifaIva = request.TarifaIva.HasValue
+                    ? Math.Round(request.TarifaIva.Value, 2, MidpointRounding.AwayFromZero)
+                    : null,
+                PrecioIncluyeIva = request.PrecioIncluyeIva
             };
 
         private static void ValidateRequest(ProductoWriteRequest request)

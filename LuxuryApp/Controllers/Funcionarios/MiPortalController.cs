@@ -170,7 +170,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         [HttpGet("Ganancias")]
-        public async Task<IActionResult> Ganancias(string? semana, string? mes, CancellationToken cancellationToken)
+        public async Task<IActionResult> Ganancias(string? semana, string? mes, int meses = 6, CancellationToken cancellationToken = default)
         {
             var ctx = await ResolverContextoAsync(cancellationToken);
             if (ctx.Bloqueo is not null)
@@ -186,8 +186,11 @@ namespace LuxuryApp.Controllers.Funcionarios
             DateTime? semanaAnchor = TryParseFecha(semana, out var s) ? s : (DateTime?)null;
             DateTime? mesAnchor = TryParseFecha(mes, out var m) ? m : (DateTime?)null;
 
+            // El gráfico de evolución solo admite 6 ó 12 meses (el servicio re-valida).
+            var mesesEvolucion = meses == 12 ? 12 : 6;
+
             var model = await _portalQueryService.ObtenerGananciasAsync(
-                ctx.FuncionarioId, semanaAnchor, mesAnchor, cancellationToken);
+                ctx.FuncionarioId, semanaAnchor, mesAnchor, mesesEvolucion, cancellationToken);
             return View(model);
         }
 

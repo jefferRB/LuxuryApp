@@ -74,11 +74,44 @@ namespace LuxuryApp.Services.Layout
                 {
                     Text = hasCommercialAccess ? "Suscripcion" : "Activar plan",
                     Controller = "Billing",
-                    Action = "Planes",
+                    // Con acceso comercial vamos a la vista privada de Suscripcion; sin acceso,
+                    // al pricing publico (Planes) para activar/regularizar el plan.
+                    Action = hasCommercialAccess ? "Suscripcion" : "Planes",
                     Icon = "bi-credit-card-2-front",
                     Highlight = !hasCommercialAccess
                 }
             };
+
+            // Ajustes fiscales del negocio (IVA): solo administradores con acceso comercial.
+            if (canAccessCommercialModules)
+            {
+                secondaryItems.Add(new NavigationMenuItemViewModel
+                {
+                    Text = "Impuestos",
+                    Controller = "ConfiguracionFiscal",
+                    Action = "Index",
+                    Icon = "bi-percent",
+                    Highlight = false
+                });
+            }
+
+            // Resumen Ejecutivo Mensual: función administrada EXCLUSIVAMENTE por el super admin
+            // desde Plataforma (/Platform/MonthlyReports). Los tenants no ven ni configuran esto;
+            // el dueño solo recibe el correo. Por eso no se agrega al menú del tenant.
+
+            // Modulo WhatsApp: solo cuando el tenant tiene acceso comercial operativo.
+            // La propia vista maneja el estado vacio si aun no hay paquete activo.
+            if (canAccessCommercialModules)
+            {
+                secondaryItems.Add(new NavigationMenuItemViewModel
+                {
+                    Text = "WhatsApp",
+                    Controller = "WhatsApp",
+                    Action = "Index",
+                    Icon = "bi-whatsapp",
+                    Highlight = false
+                });
+            }
 
             if (isPlatformSuperAdmin)
             {

@@ -57,11 +57,18 @@ namespace LuxuryApp.Models.Platform
         public const string TenantCommercialAccessUpdated = "TenantCommercialAccessUpdated";
         public const string WhatsAppSettingsUpdated = "WhatsAppSettingsUpdated";
         public const string MetaDiagnosticExecuted = "MetaDiagnosticExecuted";
+
+        /// <summary>
+        /// Alerta automática: un upgrade de plan se aplicó y quedó una suscripción recurrente
+        /// anterior viva en el proveedor que debe cancelarse manualmente (TiloPay no tiene API).
+        /// </summary>
+        public const string PlanUpgradeRequiresProviderCancellation = "PlanUpgradeRequiresProviderCancellation";
     }
 
     public static class PlatformAuditEntityTypes
     {
         public const string User = "User";
         public const string Tenant = "Tenant";
+        public const string Subscription = "Subscription";
     }
 }

@@ -1,3 +1,4 @@
+using System.Linq;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Productos;
@@ -87,13 +88,89 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(100m, result.TotalServicios);
             Assert.Equal(200m, result.TotalProductos);
             Assert.Equal(300m, result.TotalGenerado);
-            Assert.Equal(39m, result.TotalImpuestos);
-            Assert.Equal(261m, result.TotalSinImpuestos);
-            Assert.Equal(60.9m, result.PagoColaboradores);
-            Assert.Equal(200.1m, result.GananciaNegocio);
+            // IVA incluido (base = Total / 1.13): base 265.49, IVA 34.51 (antes usaba Total*13% = 39/261, incorrecto).
+            Assert.Equal(265.49m, result.TotalSinImpuestos);
+            Assert.Equal(34.51m, result.TotalImpuestos);
+            // Comisión sobre base sin IVA: 100/1.13*50% + 200/1.13*10% ≈ 61.95.
+            Assert.Equal(61.95m, Math.Round(result.PagoColaboradores, 2));
+            Assert.Equal(203.54m, Math.Round(result.GananciaNegocio, 2));
             Assert.Equal(100m, result.GananciaEfectivo);
             Assert.Equal(200m, result.GananciaTarjeta);
             Assert.Equal(0m, result.GananciaSinpe);
+        }
+
+        [Fact]
+        public async Task BuildIndexViewModelAsync_ShouldPaginateRows_ButKeepKpisOverAllFiltered()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Paginado", porcentajeGanancia: 50m, porcentajeProducto: 50m);
+            for (var i = 0; i < 25; i++)
+            {
+                await SeedCobroServicioAsync(
+                    context, funcionario, $"Servicio {i}",
+                    new DateTime(2026, 4, 10, 8, 0, 0).AddHours(i), 100m, "EFECTIVO", $"Cliente {i}");
+            }
+
+            var queryService = ControllerTestSupport.CreateCobroQueryService(context);
+
+            // Página 1: 20 filas, pero los KPIs suman los 25 (2500).
+            var page1 = await queryService.BuildIndexViewModelAsync(
+                new CobroFiltroViewModel { VistaTiempo = "todo", Page = 1, PageSize = 20 }, includeFilterOptions: false);
+
+            Assert.Equal(20, page1.Cobros.Count);
+            Assert.Equal(25, page1.TotalRegistros);
+            Assert.Equal(2, page1.TotalPaginas);
+            Assert.Equal(1, page1.Page);
+            Assert.Equal(2500m, page1.TotalGenerado);
+
+            // Página 2: 5 filas restantes; KPIs idénticos (no dependen de la página).
+            var page2 = await queryService.BuildIndexViewModelAsync(
+                new CobroFiltroViewModel { VistaTiempo = "todo", Page = 2, PageSize = 20 }, includeFilterOptions: false);
+
+            Assert.Equal(5, page2.Cobros.Count);
+            Assert.Equal(2500m, page2.TotalGenerado);
+
+            // Cambiar page size a 50 trae todo en una página; KPIs no cambian.
+            var todos = await queryService.BuildIndexViewModelAsync(
+                new CobroFiltroViewModel { VistaTiempo = "todo", Page = 1, PageSize = 50 }, includeFilterOptions: false);
+
+            Assert.Equal(25, todos.Cobros.Count);
+            Assert.Equal(1, todos.TotalPaginas);
+            Assert.Equal(2500m, todos.TotalGenerado);
+        }
+
+        [Fact]
+        public async Task BuildExportAsync_ShouldReturnAllFilteredRows_WithFiscalBreakdown()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Export", porcentajeGanancia: 50m, porcentajeProducto: 50m);
+            for (var i = 0; i < 25; i++)
+            {
+                await SeedCobroServicioAsync(
+                    context, funcionario, $"Servicio {i}",
+                    new DateTime(2026, 4, 10, 8, 0, 0).AddHours(i), 12000m, "EFECTIVO", $"Cliente {i}");
+            }
+
+            var queryService = ControllerTestSupport.CreateCobroQueryService(context);
+            var export = await queryService.BuildExportAsync(new CobroFiltroViewModel { VistaTiempo = "todo", Page = 1, PageSize = 20 });
+
+            // Excel exporta TODAS las filas filtradas, no solo la página.
+            Assert.Equal(25, export.Filas.Count);
+            Assert.Equal(25, export.Resumen.TotalRegistros);
+
+            // Escenario del ejemplo: 12 000 → base 10 619.47, IVA 1 380.53.
+            var fila = export.Filas.First();
+            Assert.Equal(12000m, fila.Monto);
+            Assert.Equal(10619.47m, fila.BaseSinIva);
+            Assert.Equal(1380.53m, fila.IvaIncluido);
         }
 
         [Fact]

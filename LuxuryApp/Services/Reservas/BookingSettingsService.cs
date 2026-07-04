@@ -65,6 +65,7 @@ namespace LuxuryApp.Services.Reservas
                 PublicBookingSlug = settings.PublicBookingSlug,
                 PublicBookingAllowEmployeeSelection = settings.PublicBookingAllowEmployeeSelection,
                 PublicBookingAllowAnyEmployee = settings.PublicBookingAllowAnyEmployee,
+                PublicBookingShowEmployeePhotos = settings.PublicBookingShowEmployeePhotos,
                 PublicBookingMinAdvanceMinutes = settings.PublicBookingMinAdvanceMinutes,
                 PublicBookingMaxDaysAhead = settings.PublicBookingMaxDaysAhead,
                 PublicBookingWelcomeMessage = settings.PublicBookingWelcomeMessage,
@@ -124,6 +125,7 @@ namespace LuxuryApp.Services.Reservas
             settings.PublicBookingMode = PublicBookingModes.ManualApproval;
             settings.PublicBookingAllowEmployeeSelection = input.PublicBookingAllowEmployeeSelection;
             settings.PublicBookingAllowAnyEmployee = input.PublicBookingAllowAnyEmployee;
+            settings.PublicBookingShowEmployeePhotos = input.PublicBookingShowEmployeePhotos;
             settings.PublicBookingMinAdvanceMinutes = Math.Clamp(input.PublicBookingMinAdvanceMinutes, 0, 43200);
             settings.PublicBookingMaxDaysAhead = Math.Clamp(input.PublicBookingMaxDaysAhead, 1, 365);
             settings.PublicBookingWelcomeMessage = Trim(input.PublicBookingWelcomeMessage, 500);
@@ -161,6 +163,7 @@ namespace LuxuryApp.Services.Reservas
                     s.PublicBookingConfirmationMessage,
                     s.PublicBookingAllowEmployeeSelection,
                     s.PublicBookingAllowAnyEmployee,
+                    s.PublicBookingShowEmployeePhotos,
                     s.PublicBookingMinAdvanceMinutes,
                     s.PublicBookingMaxDaysAhead,
                     TenantActivo = _context.Tenants
@@ -186,6 +189,7 @@ namespace LuxuryApp.Services.Reservas
                 MensajeConfirmacion = match.PublicBookingConfirmationMessage,
                 PermiteElegirFuncionario = match.PublicBookingAllowEmployeeSelection,
                 PermiteCualquierFuncionario = match.PublicBookingAllowAnyEmployee,
+                MostrarFotosFuncionarios = match.PublicBookingShowEmployeePhotos,
                 MinAdvanceMinutes = match.PublicBookingMinAdvanceMinutes,
                 MaxDaysAhead = match.PublicBookingMaxDaysAhead
             };

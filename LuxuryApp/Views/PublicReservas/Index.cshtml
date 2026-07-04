@@ -1,9 +1,10 @@
 @model LuxuryApp.Models.Reservas.PublicBookingPageViewModel
+@using System.Globalization
 @{
     Layout = null;
     ViewData["Title"] = $"Reservar en {Model.NombreNegocio}";
     var pasoFuncionario = Model.PermiteElegirFuncionario;
-    int paso = 1;
+    var crCulture = CultureInfo.GetCultureInfo("es-CR");
 }
 <!DOCTYPE html>
 <html lang="es">
@@ -31,59 +32,102 @@
         </header>
 
         <main class="pb-card" id="pbCard">
-            <!-- Servicio -->
+            <!-- Paso 1: Servicio (selector compacto buscable) -->
             <section class="pb-step">
-                <label class="pb-label" for="pbServicio"><span class="pb-num">@(paso)</span> Elegí el servicio</label>
-                <select id="pbServicio" class="pb-input">
-                    <option value="">Seleccioná un servicio</option>
-                    @foreach (var s in Model.Servicios)
-                    {
-                        <option value="@s.Id" data-dur="@s.DuracionMinutos" data-nombre="@s.Nombre">@s.Nombre · @s.DuracionMinutos min</option>
-                    }
-                </select>
+                <span class="pb-label"><span class="pb-num">1</span> Elegí el servicio</span>
+                @if (Model.Servicios.Count == 0)
+                {
+                    <p class="pb-msg">Por ahora no hay servicios disponibles para reservar en línea.</p>
+                }
+                else
+                {
+                    <button type="button" class="pb-select-trigger" id="pbServicioTrigger" aria-haspopup="dialog" aria-expanded="false">
+                        <span class="pb-select-trigger-text" id="pbServicioTriggerText">Seleccioná un servicio</span>
+                        <span class="pb-select-caret" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                        </span>
+                    </button>
+                }
             </section>
-            @{ paso++; }
 
             @if (pasoFuncionario)
             {
-                <section class="pb-step">
-                    <label class="pb-label" for="pbFuncionario"><span class="pb-num">@(paso)</span> Elegí el profesional</label>
-                    <select id="pbFuncionario" class="pb-input">
+                <!-- Paso 2: Profesional -->
+                <section class="pb-step" id="pbProfStep" hidden>
+                    <span class="pb-label"><span class="pb-num">2</span> Elegí el profesional</span>
+                    <div class="pb-prof-grid" id="pbProfGrid">
                         @if (Model.PermiteCualquierFuncionario)
                         {
-                            <option value="">Cualquier profesional disponible</option>
-                        }
-                        else
-                        {
-                            <option value="">Seleccioná un profesional</option>
+                            <button type="button" class="pb-prof-card" role="radio" aria-checked="false" data-id="" data-any="1">
+                                <span class="pb-prof-avatar pb-prof-any" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                </span>
+                                <span class="pb-prof-info">
+                                    <span class="pb-prof-name">Cualquier profesional</span>
+                                    <span class="pb-prof-role">Más horarios disponibles</span>
+                                </span>
+                            </button>
                         }
                         @foreach (var f in Model.Funcionarios)
                         {
-                            <option value="@f.Id">@f.Nombre</option>
+                            <button type="button" class="pb-prof-card" role="radio" aria-checked="false"
+                                    data-id="@f.Id" data-nombre="@f.Nombre" hidden>
+                                @if (!string.IsNullOrWhiteSpace(f.FotoUrl))
+                                {
+                                    <img class="pb-prof-avatar" src="@f.FotoUrl" alt="Foto de @f.Nombre" />
+                                }
+                                else
+                                {
+                                    <span class="pb-prof-avatar" style="background-color:@f.ColorAvatar;" aria-hidden="true">
+                                        @(f.Nombre.Length > 0 ? char.ToUpper(f.Nombre[0]).ToString() : "?")
+                                    </span>
+                                }
+                                <span class="pb-prof-info">
+                                    <span class="pb-prof-name">@f.Nombre</span>
+                                    @if (!string.IsNullOrWhiteSpace(f.Puesto))
+                                    {
+                                        <span class="pb-prof-role">@f.Puesto</span>
+                                    }
+                                    <span class="pb-prof-hint">Disponible para este servicio</span>
+                                </span>
+                            </button>
                         }
-                    </select>
+                    </div>
+                    <p class="pb-msg" id="pbProfEmpty" hidden>Este servicio aún no tiene profesionales disponibles para reservas online.</p>
                 </section>
-                paso++;
+            }
+            else
+            {
+                <p class="pb-assign-note" id="pbAssignNote" hidden>Te asignaremos un profesional disponible para este servicio.</p>
             }
 
-            <!-- Fecha -->
-            <section class="pb-step">
-                <label class="pb-label" for="pbFecha"><span class="pb-num">@(paso)</span> Elegí la fecha</label>
+            <!-- Paso 3: Fecha -->
+            <section class="pb-step" id="pbFechaStep" hidden>
+                <label class="pb-label" for="pbFecha"><span class="pb-num">@(pasoFuncionario ? 3 : 2)</span> Elegí la fecha</label>
                 <input type="date" id="pbFecha" class="pb-input" min="@Model.MinDateIso" max="@Model.MaxDateIso" />
             </section>
-            @{ paso++; }
 
-            <!-- Horarios -->
-            <section class="pb-step">
-                <span class="pb-label"><span class="pb-num">@(paso)</span> Elegí la hora</span>
+            <!-- Paso 4: Hora -->
+            <section class="pb-step" id="pbHoraStep" hidden>
+                <span class="pb-label"><span class="pb-num">@(pasoFuncionario ? 4 : 3)</span> Elegí la hora</span>
                 <div id="pbHorarios" class="pb-horarios"></div>
-                <p id="pbHorariosMsg" class="pb-msg">Elegí un servicio para ver horarios disponibles.</p>
-            </section>
-            @{ paso++; }
+                <p id="pbHorariosMsg" class="pb-msg"></p>
 
-            <!-- Formulario -->
+                <!-- Sugerencia: ver con cualquier profesional -->
+                <button type="button" id="pbVerCualquiera" class="pb-btn pb-btn-ghost pb-suggest-btn" hidden>
+                    Ver con cualquier profesional disponible
+                </button>
+
+                <!-- Próximos espacios disponibles -->
+                <div id="pbNext" class="pb-next" hidden>
+                    <p class="pb-next-title">Próximos espacios disponibles</p>
+                    <div id="pbNextList" class="pb-next-list"></div>
+                </div>
+            </section>
+
+            <!-- Paso 5: Datos -->
             <section class="pb-step pb-datos" id="pbFormWrap" hidden>
-                <span class="pb-label"><span class="pb-num">@(paso)</span> Tus datos</span>
+                <span class="pb-label"><span class="pb-num">@(pasoFuncionario ? 5 : 4)</span> Tus datos</span>
                 <input type="text" id="pbNombre" class="pb-input" placeholder="Nombre completo" maxlength="100" autocomplete="name" />
                 <input type="tel" id="pbTelefono" class="pb-input" placeholder="Teléfono" maxlength="30" autocomplete="tel" />
                 @if (Model.MostrarWhatsApp)
@@ -93,7 +137,6 @@
                         <span>Quiero recibir la confirmación por WhatsApp.</span>
                     </label>
                 }
-                <!-- Honeypot anti-bot: oculto para humanos -->
                 <input type="text" id="pbWebsite" class="pb-honeypot" tabindex="-1" autocomplete="off" aria-hidden="true" />
 
                 <button type="button" id="pbEnviar" class="pb-btn">Enviar solicitud</button>
@@ -101,13 +144,62 @@
             </section>
         </main>
 
-        <!-- Éxito (oculto hasta enviar una solicitud real) -->
+        <input type="hidden" id="pbSubmissionToken" value="@Model.SubmissionToken" />
+
+        @* Selector visual de servicios (buscable). Overlay: bottom-sheet en móvil, popover en desktop. *@
+        @if (Model.Servicios.Count > 0)
+        {
+            <div class="pb-sheet-backdrop" id="pbServicioBackdrop" hidden></div>
+            <div class="pb-sheet" id="pbServicioPanel" role="dialog" aria-modal="true" aria-label="Elegí el servicio" hidden>
+                <div class="pb-sheet-head">
+                    <span class="pb-sheet-title">Elegí el servicio</span>
+                    <button type="button" class="pb-sheet-close" id="pbServicioClose" aria-label="Cerrar">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                    </button>
+                </div>
+                <div class="pb-sheet-search">
+                    <input type="text" id="pbServicioSearch" class="pb-input" placeholder="Buscar servicio…" autocomplete="off" />
+                </div>
+                <div class="pb-sheet-list" id="pbServicioList">
+                    @foreach (var s in Model.Servicios)
+                    {
+                        <button type="button" class="pb-service-item" role="option" aria-selected="false"
+                                data-id="@s.Id" data-dur="@s.DuracionMinutos" data-nombre="@s.Nombre"
+                                data-funcs="@string.Join(",", s.FuncionarioIds)"
+                                data-precio="@(s.Precio.HasValue ? "₡" + s.Precio.Value.ToString("N0", crCulture) : "")"
+                                data-search="@($"{s.Nombre} {s.Categoria} {s.Descripcion}")">
+                            <span class="pb-service-item-main">
+                                <span class="pb-service-name">@s.Nombre</span>
+                                @if (!string.IsNullOrWhiteSpace(s.Categoria))
+                                {
+                                    <span class="pb-service-cat">@s.Categoria</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(s.Descripcion))
+                                {
+                                    <span class="pb-service-desc">@s.Descripcion</span>
+                                }
+                            </span>
+                            <span class="pb-service-item-side">
+                                <span class="pb-badge">@s.DuracionMinutos min</span>
+                                @if (s.Precio.HasValue)
+                                {
+                                    <span class="pb-price">₡@s.Precio.Value.ToString("N0", crCulture)</span>
+                                }
+                            </span>
+                        </button>
+                    }
+                    <p class="pb-msg pb-sheet-empty" id="pbServicioEmpty" hidden>No encontramos servicios con esa búsqueda.</p>
+                </div>
+            </div>
+        }
+
+        <!-- Éxito -->
         <section class="pb-card pb-success" id="pbSuccess" hidden>
             <div class="pb-success-icon">
                 <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
             </div>
             <h2>Solicitud enviada</h2>
-            <p id="pbSuccessMsg">El negocio revisará tu solicitud y te confirmará pronto.</p>
+            <p id="pbSuccessMsg">El negocio revisará tu solicitud y te confirmará por WhatsApp si corresponde.</p>
 
             <div class="pb-resumen">
                 <div class="pb-resumen-row"><span>Servicio</span><strong id="pbResServicio">—</strong></div>
@@ -128,93 +220,329 @@
 
     <script>
         (function () {
+            // Guard de inicialización única: si el script se incluyera dos veces, no se
+            // registran listeners duplicados (defensa extra contra envíos duplicados).
+            if (window.__pbBookingInit) { return; }
+            window.__pbBookingInit = true;
+
             const slug = @Json.Serialize(Model.Slug);
             const permiteFuncionario = @Json.Serialize(Model.PermiteElegirFuncionario);
+            const permiteCualquiera = @Json.Serialize(Model.PermiteCualquierFuncionario);
+            const submissionToken = @Json.Serialize(Model.SubmissionToken);
             const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
             const dispUrl = `/reservar/${slug}/disponibilidad`;
             const submitUrl = `/reservar/${slug}/solicitar`;
 
             const $card = document.getElementById('pbCard');
             const $success = document.getElementById('pbSuccess');
-            const $servicio = document.getElementById('pbServicio');
-            const $funcionario = permiteFuncionario ? document.getElementById('pbFuncionario') : null;
+            const $profStep = document.getElementById('pbProfStep');
+            const $profGrid = document.getElementById('pbProfGrid');
+            const $profEmpty = document.getElementById('pbProfEmpty');
+            const $assignNote = document.getElementById('pbAssignNote');
+            const $fechaStep = document.getElementById('pbFechaStep');
             const $fecha = document.getElementById('pbFecha');
+            const $horaStep = document.getElementById('pbHoraStep');
             const $horarios = document.getElementById('pbHorarios');
             const $horariosMsg = document.getElementById('pbHorariosMsg');
+            const $verCualquiera = document.getElementById('pbVerCualquiera');
+            const $next = document.getElementById('pbNext');
+            const $nextList = document.getElementById('pbNextList');
             const $formWrap = document.getElementById('pbFormWrap');
             const $error = document.getElementById('pbError');
             const $enviar = document.getElementById('pbEnviar');
             const $whatsApp = document.getElementById('pbWhatsApp');
-            let horaSeleccionada = null;
+
+            const state = {
+                servicioId: null, dur: null, servicioNombre: null, funcs: [],
+                funcionarioId: null, funcionarioNombre: null, anyProf: false,
+                fecha: null, hora: null, horaLabel: null
+            };
             let enviando = false;
             let reqId = 0;
+            let pendingHora = null;
 
-            function showError(msg) {
-                $error.textContent = msg || '';
-                $error.hidden = !msg;
-            }
-            function setMsg(text) {
-                $horariosMsg.textContent = text || '';
-                $horariosMsg.hidden = !text;
-            }
-            function resetHoras() {
-                horaSeleccionada = null;
+            function setMsg(text) { $horariosMsg.textContent = text || ''; $horariosMsg.hidden = !text; }
+            function showError(msg) { $error.textContent = msg || ''; $error.hidden = !msg; }
+
+            function clearHoras() {
+                state.hora = null; state.horaLabel = null;
                 $horarios.innerHTML = '';
                 $formWrap.hidden = true;
+                $verCualquiera.hidden = true;
+                $next.hidden = true; $nextList.innerHTML = '';
                 showError('');
             }
 
-            function refrescar() {
-                resetHoras();
-                if (!$servicio.value) { setMsg('Elegí un servicio para ver horarios disponibles.'); return; }
-                if (!$fecha.value) { setMsg('Elegí una fecha para ver horarios disponibles.'); return; }
+            // ── Paso 1: selector visual buscable de servicios ──
+            const $svcTrigger = document.getElementById('pbServicioTrigger');
+            const $svcTriggerText = document.getElementById('pbServicioTriggerText');
+            const $svcPanel = document.getElementById('pbServicioPanel');
+            const $svcBackdrop = document.getElementById('pbServicioBackdrop');
+            const $svcClose = document.getElementById('pbServicioClose');
+            const $svcSearch = document.getElementById('pbServicioSearch');
+            const $svcList = document.getElementById('pbServicioList');
+            const $svcEmpty = document.getElementById('pbServicioEmpty');
+            const svcItems = $svcList ? Array.from($svcList.querySelectorAll('.pb-service-item')) : [];
+
+            function normalizar(txt) {
+                return (txt || '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+            }
+
+            function abrirSelector() {
+                if (!$svcPanel) return;
+                $svcBackdrop.hidden = false;
+                $svcPanel.hidden = false;
+                $svcTrigger.setAttribute('aria-expanded', 'true');
+                $svcSearch.value = '';
+                filtrarServicios('');
+                setTimeout(() => $svcSearch.focus(), 30);
+            }
+            function cerrarSelector() {
+                if (!$svcPanel) return;
+                $svcPanel.hidden = true;
+                $svcBackdrop.hidden = true;
+                $svcTrigger.setAttribute('aria-expanded', 'false');
+            }
+            function filtrarServicios(q) {
+                const needle = normalizar(q);
+                let visibles = 0;
+                svcItems.forEach(item => {
+                    const hay = normalizar(item.dataset.search).includes(needle);
+                    item.hidden = !hay;
+                    if (hay) visibles++;
+                });
+                if ($svcEmpty) $svcEmpty.hidden = visibles > 0;
+            }
+
+            if ($svcTrigger) { $svcTrigger.addEventListener('click', abrirSelector); }
+            if ($svcClose) { $svcClose.addEventListener('click', cerrarSelector); }
+            if ($svcBackdrop) { $svcBackdrop.addEventListener('click', cerrarSelector); }
+            if ($svcSearch) { $svcSearch.addEventListener('input', e => filtrarServicios(e.target.value)); }
+            document.addEventListener('keydown', e => { if (e.key === 'Escape' && $svcPanel && !$svcPanel.hidden) cerrarSelector(); });
+
+            svcItems.forEach(item => {
+                item.addEventListener('click', () => { aplicarServicio(item); cerrarSelector(); });
+            });
+
+            function aplicarServicio(item) {
+                svcItems.forEach(i => i.setAttribute('aria-selected', 'false'));
+                item.setAttribute('aria-selected', 'true');
+
+                state.servicioId = item.dataset.id;
+                state.dur = parseInt(item.dataset.dur, 10);
+                state.servicioNombre = item.dataset.nombre;
+                state.funcs = (item.dataset.funcs || '').split(',').filter(x => x).map(x => parseInt(x, 10));
+
+                // Refleja la selección en el campo compacto.
+                const precio = item.dataset.precio ? ` · ${item.dataset.precio}` : '';
+                $svcTriggerText.textContent = `${state.servicioNombre} · ${state.dur} min${precio}`;
+                $svcTrigger.classList.add('pb-select-filled');
+
+                // Reset de lo posterior al cambiar de servicio.
+                state.funcionarioId = null; state.funcionarioNombre = null; state.anyProf = false;
+                clearHoras();
+
+                if (permiteFuncionario) {
+                    renderProfesionales();
+                } else if ($assignNote) {
+                    $assignNote.hidden = false;
+                }
+
+                $fechaStep.hidden = false;
+                maybeLoad();
+            }
+
+            // ── Paso 2: profesionales (filtrados por compatibilidad) ──
+            function renderProfesionales() {
+                if (!$profStep) return;
+                let visibles = 0;
+                $profGrid.querySelectorAll('.pb-prof-card').forEach(card => {
+                    card.classList.remove('selected'); card.setAttribute('aria-checked', 'false');
+                    if (card.dataset.any === '1') {
+                        card.hidden = false; // "cualquiera" siempre visible si el tenant lo permite
+                        return;
+                    }
+                    const id = parseInt(card.dataset.id, 10);
+                    const compatible = state.funcs.includes(id);
+                    card.hidden = !compatible;
+                    if (compatible) visibles++;
+                });
+
+                const hayOpciones = visibles > 0 || permiteCualquiera;
+                $profEmpty.hidden = hayOpciones;
+                $profStep.hidden = false;
+            }
+
+            if ($profGrid) {
+                $profGrid.querySelectorAll('.pb-prof-card').forEach(card => {
+                    card.addEventListener('click', () => selectProfesional(card));
+                });
+            }
+
+            function selectProfesional(card) {
+                $profGrid.querySelectorAll('.pb-prof-card').forEach(c => {
+                    c.classList.remove('selected'); c.setAttribute('aria-checked', 'false');
+                });
+                card.classList.add('selected'); card.setAttribute('aria-checked', 'true');
+
+                if (card.dataset.any === '1') {
+                    state.funcionarioId = null; state.anyProf = true; state.funcionarioNombre = null;
+                } else {
+                    state.funcionarioId = card.dataset.id; state.anyProf = false;
+                    state.funcionarioNombre = card.dataset.nombre || null;
+                }
+                clearHoras();
+                maybeLoad();
+            }
+
+            // ── Paso 3: fecha ──
+            $fecha.addEventListener('change', function () {
+                state.fecha = this.value || null;
+                clearHoras();
+                maybeLoad();
+            });
+
+            // Determina si ya se puede consultar disponibilidad.
+            function maybeLoad() {
+                if (!state.servicioId) return;
+                if (!state.fecha) { $horaStep.hidden = true; return; }
+                // Si el tenant NO permite "cualquiera" y se exige elegir profesional:
+                if (permiteFuncionario && !permiteCualquiera && !state.funcionarioId) {
+                    $horaStep.hidden = false;
+                    setMsg('Elegí un profesional para ver los horarios.');
+                    return;
+                }
+                $horaStep.hidden = false;
                 cargarHorarios();
             }
 
+            // ── Paso 4: horarios ──
             async function cargarHorarios() {
                 setMsg('Buscando horarios…');
+                $horarios.innerHTML = '';
+                $verCualquiera.hidden = true;
+                $next.hidden = true; $nextList.innerHTML = '';
                 const myReq = ++reqId;
-                const params = new URLSearchParams({ servicioId: $servicio.value, fecha: $fecha.value });
-                if (permiteFuncionario && $funcionario && $funcionario.value) {
-                    params.append('funcionarioId', $funcionario.value);
-                }
+
+                const params = new URLSearchParams({ servicioId: state.servicioId, fecha: state.fecha });
+                if (state.funcionarioId) { params.append('funcionarioId', state.funcionarioId); }
+
+                let data;
                 try {
                     const resp = await fetch(`${dispUrl}?${params.toString()}`);
-                    if (myReq !== reqId) { return; } // respuesta obsoleta
-                    if (!resp.ok) { throw new Error(); }
-                    const data = await resp.json();
-                    $horarios.innerHTML = '';
-                    if (!data.horas || data.horas.length === 0) {
-                        setMsg(data.mensaje || 'No hay espacios disponibles para ese día. Probá con otra fecha.');
-                        return;
-                    }
+                    if (myReq !== reqId) return;
+                    if (!resp.ok) throw new Error();
+                    data = await resp.json();
+                } catch {
+                    if (myReq !== reqId) return;
+                    setMsg('No pudimos cargar los horarios. Intentá de nuevo.');
+                    return;
+                }
+                if (myReq !== reqId) return;
+
+                if (data.horas && data.horas.length > 0) {
                     setMsg('');
                     data.horas.forEach(h => {
                         const btn = document.createElement('button');
                         btn.type = 'button';
                         btn.className = 'pb-hora';
-                        btn.textContent = h;
+                        btn.textContent = formatHora(h);
+                        btn.setAttribute('aria-pressed', 'false');
                         btn.addEventListener('click', () => seleccionarHora(btn, h));
                         $horarios.appendChild(btn);
                     });
-                } catch {
-                    if (myReq !== reqId) { return; }
-                    $horarios.innerHTML = '';
-                    setMsg('No pudimos cargar los horarios. Intentá de nuevo.');
+                    // Auto-selección al venir de una sugerencia.
+                    if (pendingHora) {
+                        const target = Array.from($horarios.querySelectorAll('.pb-hora'))
+                            .find(b => b.textContent === formatHora(pendingHora));
+                        if (target) target.click();
+                        pendingHora = null;
+                    }
+                    return;
+                }
+
+                // Sin horas: mensaje inteligente + sugerencias.
+                setMsg(data.mensaje || 'No hay espacios disponibles para ese día.');
+
+                if (data.hasAvailabilityWithOtherEmployees && permiteCualquiera) {
+                    $verCualquiera.hidden = false;
+                }
+
+                if (data.nextAvailableSlots && data.nextAvailableSlots.length > 0) {
+                    data.nextAvailableSlots.forEach(slot => {
+                        const item = document.createElement('button');
+                        item.type = 'button';
+                        item.className = 'pb-next-item';
+                        const quien = slot.funcionarioNombre ? ` · ${slot.funcionarioNombre}` : '';
+                        item.innerHTML = `<span class="pb-next-fecha">${slot.fechaLabel}</span>` +
+                            `<span class="pb-next-hora">${slot.horaLabel}${quien}</span>`;
+                        item.addEventListener('click', () => elegirSugerencia(slot));
+                        $nextList.appendChild(item);
+                    });
+                    $next.hidden = false;
+                } else {
+                    const p = document.createElement('p');
+                    p.className = 'pb-msg';
+                    p.textContent = 'No encontramos próximos espacios dentro del rango permitido de reservas.';
+                    $nextList.appendChild(p);
+                    $next.hidden = false;
                 }
             }
 
+            $verCualquiera.addEventListener('click', function () {
+                // Cambiar a "cualquier profesional" y reconsultar.
+                if ($profGrid) {
+                    const anyCard = $profGrid.querySelector('.pb-prof-card[data-any="1"]');
+                    if (anyCard) { selectProfesional(anyCard); return; }
+                }
+                state.funcionarioId = null; state.anyProf = true; state.funcionarioNombre = null;
+                clearHoras();
+                maybeLoad();
+            });
+
+            function elegirSugerencia(slot) {
+                // Ajusta fecha y, si aplica, profesional; luego recarga y auto-selecciona la hora.
+                state.fecha = slot.fecha;
+                $fecha.value = slot.fecha;
+
+                if (permiteFuncionario && slot.funcionarioId) {
+                    const card = $profGrid && $profGrid.querySelector(`.pb-prof-card[data-id="${slot.funcionarioId}"]`);
+                    if (card && !card.hidden) {
+                        $profGrid.querySelectorAll('.pb-prof-card').forEach(c => {
+                            c.classList.remove('selected'); c.setAttribute('aria-checked', 'false');
+                        });
+                        card.classList.add('selected'); card.setAttribute('aria-checked', 'true');
+                        state.funcionarioId = String(slot.funcionarioId);
+                        state.anyProf = false;
+                        state.funcionarioNombre = card.dataset.nombre || slot.funcionarioNombre || null;
+                    }
+                }
+
+                pendingHora = slot.hora;
+                clearHoras();
+                cargarHorarios();
+                $horaStep.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+
             function seleccionarHora(btn, h) {
-                horaSeleccionada = h;
-                $horarios.querySelectorAll('.pb-hora').forEach(b => b.classList.remove('selected'));
-                btn.classList.add('selected');
+                state.hora = h;
+                state.horaLabel = btn.textContent;
+                $horarios.querySelectorAll('.pb-hora').forEach(b => {
+                    b.classList.remove('selected'); b.setAttribute('aria-pressed', 'false');
+                });
+                btn.classList.add('selected'); btn.setAttribute('aria-pressed', 'true');
                 $formWrap.hidden = false;
                 $formWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }
 
-            $servicio.addEventListener('change', refrescar);
-            if ($funcionario) { $funcionario.addEventListener('change', refrescar); }
-            $fecha.addEventListener('change', refrescar);
+            function formatHora(h) {
+                // "HH:mm" → "9:00 a. m." (es-CR).
+                try {
+                    const [hh, mm] = h.split(':').map(x => parseInt(x, 10));
+                    const d = new Date(2000, 0, 1, hh, mm);
+                    return d.toLocaleTimeString('es-CR', { hour: 'numeric', minute: '2-digit', hour12: true });
+                } catch { return h; }
+            }
 
             function formatearFecha(iso) {
                 try {
@@ -223,69 +551,49 @@
                 } catch { return iso; }
             }
 
+            // ── Envío ──
             function mostrarExito(mensaje) {
-                document.getElementById('pbResServicio').textContent =
-                    $servicio.options[$servicio.selectedIndex]?.dataset.nombre || $servicio.options[$servicio.selectedIndex]?.text || '—';
-                if (permiteFuncionario && $funcionario) {
-                    const txt = $funcionario.value
-                        ? $funcionario.options[$funcionario.selectedIndex].text
-                        : 'Cualquier profesional disponible';
-                    document.getElementById('pbResFunc').textContent = txt;
+                document.getElementById('pbResServicio').textContent = state.servicioNombre || '—';
+                if (permiteFuncionario) {
+                    document.getElementById('pbResFunc').textContent =
+                        state.funcionarioId ? (state.funcionarioNombre || 'Profesional') : 'Cualquier profesional disponible';
                     document.getElementById('pbResFuncWrap').hidden = false;
                 }
-                document.getElementById('pbResFecha').textContent = formatearFecha($fecha.value);
-                document.getElementById('pbResHora').textContent = horaSeleccionada;
-                if (mensaje) { document.getElementById('pbSuccessMsg').textContent = mensaje; }
-
+                document.getElementById('pbResFecha').textContent = formatearFecha(state.fecha);
+                document.getElementById('pbResHora').textContent = state.horaLabel || formatHora(state.hora);
+                if (mensaje) document.getElementById('pbSuccessMsg').textContent = mensaje;
                 $card.hidden = true;
                 $success.hidden = false;
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             }
 
             document.getElementById('pbOtra').addEventListener('click', function () {
-                // Reinicio seguro del formulario.
-                $success.hidden = true;
-                $card.hidden = false;
-                $servicio.selectedIndex = 0;
-                if ($funcionario) { $funcionario.selectedIndex = 0; }
-                $fecha.value = '';
-                document.getElementById('pbNombre').value = '';
-                document.getElementById('pbTelefono').value = '';
-                if ($whatsApp) { $whatsApp.checked = true; }
-                refrescar();
-                window.scrollTo({ top: 0, behavior: 'smooth' });
+                window.location.reload();
             });
 
             $enviar.addEventListener('click', async function () {
-                if (enviando) { return; }
+                if (enviando) return;
                 showError('');
                 const nombre = document.getElementById('pbNombre').value.trim();
                 const telefono = document.getElementById('pbTelefono').value.trim();
 
-                if (!$servicio.value || !$fecha.value || !horaSeleccionada) {
-                    showError('Completá el servicio, la fecha y la hora.');
-                    return;
-                }
+                if (!state.servicioId || !state.fecha || !state.hora) { showError('Completá el servicio, la fecha y la hora.'); return; }
                 if (!nombre) { showError('Indicá tu nombre completo.'); return; }
                 if (!telefono) { showError('Indicá tu número de teléfono.'); return; }
 
                 const body = new URLSearchParams({
-                    ServicioId: $servicio.value,
-                    Fecha: $fecha.value,
-                    Hora: horaSeleccionada,
+                    ServicioId: state.servicioId,
+                    Fecha: state.fecha,
+                    Hora: state.hora,
                     Nombre: nombre,
                     Telefono: telefono,
                     AceptaWhatsApp: $whatsApp ? $whatsApp.checked : false,
+                    SubmissionToken: submissionToken || '',
                     Website: document.getElementById('pbWebsite').value
                 });
-                if (permiteFuncionario && $funcionario && $funcionario.value) {
-                    body.append('FuncionarioId', $funcionario.value);
-                }
+                if (permiteFuncionario && state.funcionarioId) { body.append('FuncionarioId', state.funcionarioId); }
 
-                enviando = true;
-                $enviar.disabled = true;
-                $enviar.textContent = 'Enviando…';
-
+                enviando = true; $enviar.disabled = true; $enviar.textContent = 'Enviando…';
                 try {
                     const resp = await fetch(submitUrl, {
                         method: 'POST',
@@ -294,7 +602,6 @@
                     });
                     let data = null;
                     try { data = await resp.json(); } catch { }
-
                     if (resp.ok && data && data.success) {
                         mostrarExito(data.message);
                     } else {
@@ -303,9 +610,7 @@
                 } catch {
                     showError('No pudimos enviar tu solicitud. Intentá de nuevo.');
                 } finally {
-                    enviando = false;
-                    $enviar.disabled = false;
-                    $enviar.textContent = 'Enviar solicitud';
+                    enviando = false; $enviar.disabled = false; $enviar.textContent = 'Enviar solicitud';
                 }
             });
         })();

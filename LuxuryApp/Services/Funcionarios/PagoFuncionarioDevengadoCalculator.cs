@@ -1,21 +1,40 @@
 using LuxuryApp.Models.Finanzas;
+using LuxuryApp.Models.Fiscal;
 using LuxuryApp.Models.Funcionarios;
 
 namespace LuxuryApp.Services.Funcionarios
 {
     public static class PagoFuncionarioDevengadoCalculator
     {
-        public const decimal TasaImpuesto = 0.13m;
+        /// <summary>Tarifa de IVA por defecto como factor (0.13). Compatibilidad; ver <see cref="FiscalDefaults"/>.</summary>
+        public const decimal TasaImpuesto = FiscalDefaults.TarifaIvaPorDefecto / 100m;
+
+        /// <summary>
+        /// Base de venta sin IVA a partir de un total que YA incluye IVA (contexto CR).
+        /// </summary>
+        private static decimal BaseSinIva(decimal totalConIva) =>
+            FiscalMath.Redondear(totalConIva / (1m + (FiscalDefaults.TarifaIvaPorDefecto / 100m)));
+
+        /// <summary>Base sin IVA (a la tarifa por defecto) de un total con IVA incluido.</summary>
+        public static decimal CalcularBaseSinIvaIncluido(decimal totalConIva) => BaseSinIva(totalConIva);
+
+        /// <summary>IVA contenido (a la tarifa por defecto) en un total con IVA incluido.</summary>
+        public static decimal CalcularIvaIncluido(decimal totalConIva) => totalConIva - BaseSinIva(totalConIva);
 
         /// <summary>
         /// Calcula la base sobre la que se aplica el porcentaje de comisión del funcionario.
-        /// Si <paramref name="rebajarImpuestos"/> es true (comportamiento histórico) se usa la
-        /// base sin impuestos (Monto - IVA); si es false se usa el monto total producido.
+        /// Si <paramref name="rebajarImpuestos"/> es true, se usa la base SIN IVA (precio con IVA
+        /// incluido → Total / 1.13); si es false, se usa el total cobrado.
         /// </summary>
         public static decimal CalcularBaseComision(decimal monto, bool rebajarImpuestos) =>
-            rebajarImpuestos
-                ? monto - (monto * TasaImpuesto)
-                : monto;
+            rebajarImpuestos ? BaseSinIva(monto) : monto;
+
+        /// <summary>
+        /// Base de comisión según la configuración explícita del colaborador
+        /// (<see cref="ComisionCalculadaSobre"/>), fuente de verdad frente al flag histórico.
+        /// </summary>
+        public static decimal CalcularBaseComision(decimal monto, ComisionCalculadaSobre comisionSobre) =>
+            comisionSobre == ComisionCalculadaSobre.BaseSinIva ? BaseSinIva(monto) : monto;
 
         public static decimal CalcularMontoDevengado(Cobro cobro, Funcionario funcionario)
         {
@@ -23,7 +42,7 @@ namespace LuxuryApp.Services.Funcionarios
                 ? funcionario.PorcentajeProducto
                 : funcionario.PorcentajeGanancia;
 
-            var baseComision = CalcularBaseComision(cobro.Monto, funcionario.RebajarImpuestosAntesDeComision);
+            var baseComision = CalcularBaseComision(cobro.Monto, funcionario.ComisionCalculadaSobre);
             return baseComision * (porcentaje / 100m);
         }
 

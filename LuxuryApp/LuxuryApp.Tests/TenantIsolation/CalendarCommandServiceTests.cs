@@ -738,6 +738,9 @@ namespace LuxuryApp.Tests.TenantIsolation
             public Task SendAppointmentReminderAsync(int citaId, CancellationToken cancellationToken = default) =>
                 throw new InvalidOperationException("Meta WhatsApp no disponible");
 
+            public Task<LuxuryApp.Services.Calendar.WhatsAppConfirmationSendResult> SendConfirmationNowAsync(int citaId, string source, CancellationToken cancellationToken = default) =>
+                throw new InvalidOperationException("Meta WhatsApp no disponible");
+
             public Task QueueAppointmentConfirmationAsync(int citaId, CancellationToken cancellationToken = default) =>
                 throw new InvalidOperationException("Meta WhatsApp no disponible");
 

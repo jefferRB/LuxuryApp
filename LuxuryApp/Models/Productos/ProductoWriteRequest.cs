@@ -11,5 +11,12 @@ namespace LuxuryApp.Models.Productos
         public int CantidadProducto { get; set; }
 
         public int StockMinimo { get; set; }
+
+        // ─────────────── Configuración fiscal (opcional; hereda del tenant) ───────────────
+        public bool AplicaIva { get; set; } = LuxuryApp.Models.Fiscal.FiscalDefaults.AplicaIvaPorDefecto;
+
+        public decimal? TarifaIva { get; set; }
+
+        public bool? PrecioIncluyeIva { get; set; }
     }
 }

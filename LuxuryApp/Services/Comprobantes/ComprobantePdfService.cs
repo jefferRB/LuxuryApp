@@ -101,48 +101,62 @@ namespace LuxuryApp.Services.Comprobantes
                     });
                 });
 
-                // Tabla de líneas
+                // Tabla de líneas (con desglose fiscal por línea)
                 col.Item().PaddingTop(16).Table(table =>
                 {
                     table.ColumnsDefinition(cols =>
                     {
-                        cols.RelativeColumn(5);
-                        cols.RelativeColumn(1.4f);
-                        cols.RelativeColumn(2);
-                        cols.RelativeColumn(2);
+                        cols.RelativeColumn(4.2f);   // Descripción
+                        cols.RelativeColumn(1.6f);   // Tipo
+                        cols.RelativeColumn(1.1f);   // Cant.
+                        cols.RelativeColumn(2);      // Base sin IVA
+                        cols.RelativeColumn(1.7f);   // IVA
+                        cols.RelativeColumn(2);      // Total
                     });
 
                     table.Header(header =>
                     {
                         header.Cell().Element(CeldaEncabezado).Text("Descripción");
+                        header.Cell().Element(CeldaEncabezado).Text("Tipo");
                         header.Cell().Element(CeldaEncabezado).AlignRight().Text("Cant.");
-                        header.Cell().Element(CeldaEncabezado).AlignRight().Text("P. Unitario");
+                        header.Cell().Element(CeldaEncabezado).AlignRight().Text("Base sin IVA");
+                        header.Cell().Element(CeldaEncabezado).AlignRight().Text("IVA");
                         header.Cell().Element(CeldaEncabezado).AlignRight().Text("Total");
                     });
 
                     foreach (var linea in c.Lineas)
                     {
                         table.Cell().Element(Celda).Text(linea.Descripcion);
+                        table.Cell().Element(Celda).Text(TipoLineaLegible(linea.TipoLinea));
                         table.Cell().Element(Celda).AlignRight().Text(linea.Cantidad.ToString("#,##0.##", ComprobanteTextos.CulturaCR));
-                        table.Cell().Element(Celda).AlignRight().Text(ComprobanteTextos.Colones(linea.PrecioUnitario, c.Moneda));
+                        table.Cell().Element(Celda).AlignRight().Text(ComprobanteTextos.Colones(linea.Subtotal, c.Moneda));
+                        table.Cell().Element(Celda).AlignRight().Text(ComprobanteTextos.Colones(linea.Impuesto, c.Moneda));
                         table.Cell().Element(Celda).AlignRight().Text(ComprobanteTextos.Colones(linea.Total, c.Moneda));
                     }
                 });
 
-                // Totales
+                // Totales. Snapshot fiscal de Fase 1: Subtotal = base sin IVA, Impuesto = IVA
+                // incluido. Fallback para comprobantes históricos sin snapshot (Impuesto == 0):
+                // se muestra solo el TOTAL para no informar un desglose engañoso.
                 col.Item().PaddingTop(10).Row(row =>
                 {
                     row.RelativeItem();
                     row.ConstantItem(240).Column(tot =>
                     {
-                        FilaTotal(tot, "Subtotal", ComprobanteTextos.Colones(c.Subtotal, c.Moneda), false);
-                        if (c.Descuento > 0)
-                            FilaTotal(tot, "Descuento", "-" + ComprobanteTextos.Colones(c.Descuento, c.Moneda), false);
                         if (c.Impuesto > 0)
-                            FilaTotal(tot, "Impuesto", ComprobanteTextos.Colones(c.Impuesto, c.Moneda), false);
+                        {
+                            FilaTotal(tot, "Base sin IVA", ComprobanteTextos.Colones(c.Subtotal, c.Moneda), false);
+                            if (c.Descuento > 0)
+                                FilaTotal(tot, "Descuento", "-" + ComprobanteTextos.Colones(c.Descuento, c.Moneda), false);
+                            FilaTotal(tot, "IVA incluido", ComprobanteTextos.Colones(c.Impuesto, c.Moneda), false);
+                        }
+                        else if (c.Descuento > 0)
+                        {
+                            FilaTotal(tot, "Descuento", "-" + ComprobanteTextos.Colones(c.Descuento, c.Moneda), false);
+                        }
 
                         tot.Item().PaddingTop(4).LineHorizontal(1).LineColor(ColorGrisClaro);
-                        FilaTotal(tot, "TOTAL", ComprobanteTextos.Colones(c.Total, c.Moneda), true);
+                        FilaTotal(tot, "TOTAL COBRADO", ComprobanteTextos.Colones(c.Total, c.Moneda), true);
                     });
                 });
 
@@ -175,6 +189,13 @@ namespace LuxuryApp.Services.Comprobantes
                 row.ConstantItem(120).AlignRight().Text(valor).FontSize(fuerte ? 12 : 9).Bold();
             });
         }
+
+        private static string TipoLineaLegible(string tipo) => tipo switch
+        {
+            ComprobanteTipoLinea.Servicio => "Servicio",
+            ComprobanteTipoLinea.Producto => "Producto",
+            _ => "Otro"
+        };
 
         private static IContainer CeldaEncabezado(IContainer container) =>
             container.Background(ColorTinta).PaddingVertical(6).PaddingHorizontal(6)

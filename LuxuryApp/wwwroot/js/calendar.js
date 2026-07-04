@@ -866,28 +866,108 @@ function buildAppointmentBlock(cita, top, altura) {
         : (cita.colorCalendario || "#004445");
 
     const title = document.createElement("div");
+    title.className = "cita-bloque-title";
     title.style.fontWeight = "600";
 
     const detail = document.createElement("div");
+    detail.className = "cita-bloque-detail";
     detail.style.fontSize = "11px";
 
     if (cita.tipo === "DESCANSO") {
         title.textContent = "☕ DESCANSO";
         detail.textContent = `${cita.duracionMinutos || 30} min`;
+        bloque.appendChild(title);
+        bloque.appendChild(detail);
     } else {
         title.textContent = safeText(cita.nombreCliente, "Sin cliente");
         detail.style.opacity = "0.9";
         detail.textContent = safeText(cita.servicioNombre, "Sin servicio");
+
+        // Rango horario arriba del cliente: inicio - fin (fin = inicio + duración del backend).
+        const rango = formatCitaTimeRange(cita);
+        if (rango) {
+            const time = document.createElement("div");
+            time.className = "cita-bloque-time";
+            time.textContent = rango;
+            bloque.appendChild(time);
+        }
+
+        bloque.appendChild(title);
+        bloque.appendChild(detail);
+
+        // Nivel compacto según la altura del evento (para no saturar citas cortas).
+        if (altura < 42) bloque.classList.add("cobro-xs");
+        else if (altura < 66) bloque.classList.add("cobro-sm");
     }
 
-    bloque.appendChild(title);
-    bloque.appendChild(detail);
+    // ── Cobro rápido por cita: botón "Cobrar" (pendiente) / badge "Cobrado" ──────
+    // Solo en citas reales cobrables. No en descansos, canceladas ni bloques técnicos.
+    appendCobroFooter(bloque, cita, altura);
 
     const resizeHandle = document.createElement("div");
     resizeHandle.className = "cita-resize-handle";
     bloque.appendChild(resizeHandle);
 
     return bloque;
+}
+
+// Añade la zona inferior de cobro al evento del calendario.
+// - Cobrada  -> badge "Cobrado" (verde suave, esquina inferior derecha).
+// - Pendiente -> botón pill "Cobrar" (inferior izquierda) que abre el modal compartido.
+// Para eventos de poca altura degrada a una versión compacta (solo icono).
+function appendCobroFooter(bloque, cita, altura) {
+    if (!cita || cita.tipo !== "CITA") return;
+
+    const cancelada = String(cita.estadoConfirmacionWhatsApp || "").toLowerCase() === "cancelada";
+    if (!cita.yaCobrada && cancelada) return; // cancelada sin cobro: sin acción de cobro
+
+    const foot = document.createElement("div");
+    foot.className = "cita-cobro-foot";
+
+    if (cita.yaCobrada) {
+        const badge = document.createElement("span");
+        badge.className = "cita-cobrado-badge";
+        badge.innerHTML = '<i class="bi bi-check2-circle"></i><span class="cita-cobro-label">Cobrado</span>';
+        foot.appendChild(badge);
+    } else {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "cita-cobrar-btn";
+        btn.title = "Cobrar esta cita";
+        btn.innerHTML = '<i class="bi bi-cash-coin"></i><span class="cita-cobro-label">Cobrar</span>';
+
+        // El click NO debe abrir la edición de la cita ni interferir con el resize.
+        btn.addEventListener("mousedown", (e) => e.stopPropagation());
+        btn.addEventListener("mouseup", (e) => e.stopPropagation());
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (!window.cobroCitaModal) return;
+            window.cobroCitaModal.open({
+                citaId: cita.id,
+                cliente: cita.nombreCliente,
+                servicio: cita.servicioNombre,
+                precio: cita.precioServicio,
+                email: null,
+                clienteId: cita.clienteId
+            }, function () { refreshCalendarView(); });
+        });
+        foot.appendChild(btn);
+    }
+
+    // El nivel compacto (cobro-sm/cobro-xs) lo asigna buildAppointmentBlock según la altura.
+    bloque.classList.add("has-cobro-foot");
+    bloque.appendChild(foot);
+}
+
+// Rango horario "inicio - fin" de una cita, en formato es-CR (ej: "11:45 a. m. - 1:15 p. m.").
+// El fin se calcula con la duración que ya envía el backend (la misma que pinta la altura).
+function formatCitaTimeRange(cita) {
+    const inicio = parseLocalDateTime(cita.fechaHoraCita);
+    if (!inicio) return "";
+    const dur = Number(cita.duracionMinutos) || 30;
+    const fin = new Date(inicio.getTime() + dur * 60000);
+    const opts = { hour: "numeric", minute: "2-digit" };
+    return `${inicio.toLocaleTimeString("es-CR", opts)} - ${fin.toLocaleTimeString("es-CR", opts)}`;
 }
 
 function buildUpcomingAppointmentItem(cita) {
@@ -2052,7 +2132,7 @@ async function buildDayGrid(container, date, funcionarioFilter = null) {
                 duracionActual = snappedSlots * intervalo;
 
                 bloque.style.height = `${snappedHeight}px`;
-                const detailEl = bloque.querySelector("div:nth-child(2)");
+                const detailEl = bloque.querySelector(".cita-bloque-detail");
                 if (detailEl) detailEl.textContent = `${duracionActual} min`;
             });
 
@@ -2081,7 +2161,7 @@ async function buildDayGrid(container, date, funcionarioFilter = null) {
                     await refreshCalendarView();
                 } catch (err) {
                     bloque.style.height = `${originalAltura}px`;
-                    const detailEl = bloque.querySelector("div:nth-child(2)");
+                    const detailEl = bloque.querySelector(".cita-bloque-detail");
                     if (detailEl) {
                         if (cita.tipo === "DESCANSO") {
                             detailEl.textContent = `${originalDuracion} min`;

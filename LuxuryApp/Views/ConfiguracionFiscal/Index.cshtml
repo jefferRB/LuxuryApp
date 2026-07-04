@@ -1,0 +1,69 @@
+@model LuxuryApp.Models.Fiscal.ConfiguracionFiscalViewModel
+@{
+    ViewData["Title"] = "Configuración fiscal";
+}
+
+<div class="container py-4" style="max-width: 720px;">
+
+    <div class="d-flex align-items-center gap-2 mb-1">
+        <i class="bi bi-percent fs-4"></i>
+        <h1 class="h4 mb-0">Configuración fiscal del negocio</h1>
+    </div>
+    <p class="text-muted mb-4">
+        Define cómo se calcula el IVA en cobros, comprobantes y liquidaciones. Cada servicio o
+        producto puede tener su propia configuración; si no la define, hereda estos valores.
+    </p>
+
+    @if (TempData["Mensaje"] is string mensaje)
+    {
+        <div class="alert alert-success" role="alert">@mensaje</div>
+    }
+
+    <div class="card shadow-sm border-0" style="border-radius: 1rem;">
+        <div class="card-body p-4">
+            <form asp-action="Index" method="post">
+                @Html.AntiForgeryToken()
+                <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
+
+                <div class="form-check form-switch mb-4">
+                    <input asp-for="PreciosIncluyenIva" class="form-check-input" type="checkbox" role="switch"
+                           id="fiscal-incluye-iva" />
+                    <label class="form-check-label fw-semibold" for="fiscal-incluye-iva">
+                        Los precios ya incluyen IVA
+                    </label>
+                    <div class="text-muted small mt-1">
+                        Recomendado en Costa Rica. Si está activo, un precio de ₡10.000 es el total
+                        cobrado y la base sin IVA se calcula como ₡10.000 ÷ 1,13.
+                    </div>
+                </div>
+
+                <div class="mb-4" style="max-width: 16rem;">
+                    <label asp-for="TarifaIvaPorDefecto" class="form-label fw-semibold"></label>
+                    <div class="input-group">
+                        <input asp-for="TarifaIvaPorDefecto" class="form-control" type="number"
+                               step="0.01" min="0" max="100" />
+                        <span class="input-group-text">%</span>
+                    </div>
+                    <span asp-validation-for="TarifaIvaPorDefecto" class="text-danger small"></span>
+                </div>
+
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-floppy2-fill"></i> Guardar cambios
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="alert alert-light border mt-3 small text-muted" role="note">
+        <i class="bi bi-info-circle"></i>
+        Cambiar esta configuración afecta los cálculos <strong>a futuro</strong>. Los cobros y
+        comprobantes ya emitidos conservan sus montos históricos.
+    </div>
+
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

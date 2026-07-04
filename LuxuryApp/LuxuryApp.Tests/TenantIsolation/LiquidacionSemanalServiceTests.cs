@@ -23,7 +23,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var funcionario = await SeedFuncionarioAsync(context, "Ana", 50m, 15m);
             await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 28), 700m);
 
-            var service = CreateService(context);
+            var service = CreateService(context, tenantProvider);
 
             var liquidacionId = await service.RegistrarPagoAsync(new RegistrarLiquidacionSemanalCommand
             {
@@ -64,9 +64,11 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(100m, detalle.MontoPagado);
             Assert.Equal(700m, detalle.MontoServicios);
             Assert.Equal(0m, detalle.MontoProductos);
-            Assert.Equal(91m, detalle.Impuestos);
-            Assert.Equal(609m, detalle.MontoNeto);
-            Assert.Equal(204.5m, detalle.Pendiente);
+            // IVA incluido: base = 700 / 1.13 = 619.47; IVA = 80.53.
+            Assert.Equal(80.53m, detalle.Impuestos);
+            Assert.Equal(619.47m, detalle.MontoNeto);
+            // PagoFinal = 619.47 * 50% = 309.74; pendiente tras pagar 100 = 309.74 - 100 = 209.74.
+            Assert.Equal(209.74m, detalle.Pendiente);
 
             var distribuciones = await context.LiquidacionesSemanalesDistribucionMensual
                 .OrderBy(d => d.Mes)
@@ -103,7 +105,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var funcionario = await SeedFuncionarioAsync(context, "Luis", 40m, 10m);
             await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 14), 500m);
 
-            var service = CreateService(context);
+            var service = CreateService(context, tenantProvider);
 
             await service.RegistrarPagoAsync(new RegistrarLiquidacionSemanalCommand
             {
@@ -140,7 +142,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var funcionario = await SeedFuncionarioAsync(context, "Paola", 50m, 0m);
             await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 15), 100m);
 
-            var service = CreateService(context);
+            var service = CreateService(context, tenantProvider);
 
             var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.RegistrarPagoAsync(
                 new RegistrarLiquidacionSemanalCommand
@@ -193,7 +195,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             });
             await context.SaveChangesAsync();
 
-            var service = CreateService(context);
+            var service = CreateService(context, tenantProvider);
             await service.RegistrarPagoAsync(new RegistrarLiquidacionSemanalCommand
             {
                 SemanaInicio = new DateTime(2026, 4, 27),
@@ -283,7 +285,8 @@ namespace LuxuryApp.Tests.TenantIsolation
             var view = Assert.IsType<ViewResult>(result);
             var model = Assert.IsType<CobroIndexViewModel>(view.Model);
 
-            Assert.Equal(43.50m, model.PagoColaboradores);
+            // Comisión con IVA incluido: base 100/1.13 × 50% ≈ 44.25 (antes 43.50 con el 0.87 incorrecto).
+            Assert.Equal(44.25m, Math.Round(model.PagoColaboradores, 2));
         }
 
         [Fact]
@@ -354,18 +357,202 @@ namespace LuxuryApp.Tests.TenantIsolation
             });
             await context.SaveChangesAsync();
 
-            var service = CreateService(context);
+            var service = CreateService(context, tenantProvider);
             var resumen = await service.ObtenerResumenSemanaAsync(
                 new DateTime(2026, 4, 13),
                 new DateTime(2026, 4, 19));
 
             var pago = Assert.Single(resumen.Funcionarios);
-            Assert.Equal(87m, pago.PagoFinal);
+            // IVA incluido: base = 200 / 1.13 = 176.99; comisión 50% = 88.50.
+            Assert.Equal(88.50m, pago.PagoFinal);
             Assert.Equal(50m, pago.MontoPagado);
-            Assert.Equal(37m, pago.MontoPendiente);
+            Assert.Equal(38.50m, pago.MontoPendiente);
             Assert.Equal(2, pago.HistorialPagos.Count);
             Assert.Contains(pago.HistorialPagos, p => p.OrigenRegistro == "LEGACY");
             Assert.Contains(pago.HistorialPagos, p => p.OrigenRegistro == "LIQUIDACION");
+        }
+
+        [Fact]
+        public async Task ObtenerResumenSemanaAsync_Quincena_ShouldAggregateWeeklyPaymentWithinRange()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Camilo", 50m, 0m);
+            // Producción dentro de la segunda quincena de junio (16–30).
+            await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 6, 22), 200m);
+
+            // Pago registrado por SEMANA (22–28 jun); su producción está toda dentro de la quincena 16–30.
+            context.PagosFuncionarios.Add(new PagoFuncionario
+            {
+                FuncionarioId = funcionario.IdFuncionario,
+                MontoPagado = 20m,
+                FechaPago = new DateTime(2026, 6, 26, 8, 0, 0),
+                InicioSemana = new DateTime(2026, 6, 22),
+                FinSemana = new DateTime(2026, 6, 28),
+                Observacion = "Pago semanal dentro de la quincena"
+            });
+            await context.SaveChangesAsync();
+
+            var service = CreateService(context, tenantProvider);
+            var resumen = await service.ObtenerResumenSemanaAsync(
+                new DateTime(2026, 6, 16),
+                new DateTime(2026, 6, 30));
+
+            var pago = Assert.Single(resumen.Funcionarios);
+            // Antes (coincidencia exacta de rango) esto era 0; ahora la quincena agrega el pago semanal.
+            Assert.Equal(20m, pago.MontoPagado);
+            Assert.Equal(20m, resumen.TotalPagadoGeneral);
+            Assert.Single(pago.HistorialPagos);
+        }
+
+        [Fact]
+        public async Task ObtenerResumenSemanaAsync_ShouldAttributePaymentByProductionDate_NotByHeaderPeriod()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            // Comisión sobre total cobrado (sin IVA) → devengado = monto × 50%, aritmética limpia.
+            var funcionario = await SeedFuncionarioAsync(context, "Cruz", 50m, 50m, rebajarImpuestos: false);
+
+            // Producción de la semana 29 jun – 05 jul: parte en junio (quincena 16–30) y parte en julio.
+            await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 6, 29), 1000m);
+            await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 6, 30), 1000m);
+            await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 7, 3), 2000m);
+
+            // Pago por la semana completa (encabezado 29 jun – 05 jul), monto = planilla de la semana = 2000.
+            context.PagosFuncionarios.Add(new PagoFuncionario
+            {
+                FuncionarioId = funcionario.IdFuncionario,
+                MontoPagado = 2000m,
+                FechaPago = new DateTime(2026, 7, 6, 8, 0, 0),
+                InicioSemana = new DateTime(2026, 6, 29),
+                FinSemana = new DateTime(2026, 7, 5),
+                Observacion = "Pago semanal que cruza el fin de mes"
+            });
+            await context.SaveChangesAsync();
+
+            var service = CreateService(context, tenantProvider);
+
+            // Semana completa: aplica el pago completo (toda su producción está dentro).
+            var semana = await service.ObtenerResumenSemanaAsync(new DateTime(2026, 6, 29), new DateTime(2026, 7, 5));
+            var pagoSemana = Assert.Single(semana.Funcionarios);
+            Assert.Equal(2000m, pagoSemana.PagoFinal);
+            Assert.Equal(2000m, pagoSemana.MontoPagado);
+            Assert.Equal(0m, pagoSemana.MontoPendiente);
+
+            // Quincena 16–30 jun: SOLO cuenta la producción del 29 y 30 (mitad del pago), NO el pago completo.
+            var quincena = await service.ObtenerResumenSemanaAsync(new DateTime(2026, 6, 16), new DateTime(2026, 6, 30));
+            var pagoQuincena = Assert.Single(quincena.Funcionarios);
+            Assert.Equal(1000m, pagoQuincena.PagoFinal);    // planilla de la producción 29–30
+            Assert.Equal(1000m, pagoQuincena.MontoPagado);   // pago prorrateado: 2000 × (1000/2000)
+            Assert.Equal(0m, pagoQuincena.MontoPendiente);
+            Assert.Equal(0m, pagoQuincena.Excedente);
+
+            // El diagnóstico debe mostrar el pago incluido con fracción 0.5 en la quincena.
+            var diag = await service.ObtenerDiagnosticoPagosAsync(new DateTime(2026, 6, 16), new DateTime(2026, 6, 30));
+            var entrada = Assert.Single(diag);
+            Assert.True(entrada.Incluido);
+            Assert.Equal(0.5m, entrada.Fraccion);
+            Assert.Equal(1000m, entrada.MontoAplicado);
+        }
+
+        [Fact]
+        public async Task ObtenerResumenSemanaAsync_ShouldNotDoubleCount_WhenWeekPaidThenQuincenaRemainderPaid()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Nadia", 50m, 50m, rebajarImpuestos: false);
+
+            // Producción quincena 16–30: 1000 el 16 (semana A) y 1000 el 25 (resto de la quincena).
+            await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 6, 16), 1000m);
+            await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 6, 25), 1000m);
+
+            // Pago 1: semana 16–22 pagada completa (500).
+            context.PagosFuncionarios.Add(new PagoFuncionario
+            {
+                FuncionarioId = funcionario.IdFuncionario,
+                MontoPagado = 500m,
+                FechaPago = new DateTime(2026, 6, 22, 8, 0, 0),
+                InicioSemana = new DateTime(2026, 6, 16),
+                FinSemana = new DateTime(2026, 6, 22),
+                Observacion = "Pago semana 16-22"
+            });
+            // Pago 2: "Pagar quincena" por el resto (500), encabezado 16–30 pero paga producción del 25.
+            context.PagosFuncionarios.Add(new PagoFuncionario
+            {
+                FuncionarioId = funcionario.IdFuncionario,
+                MontoPagado = 500m,
+                FechaPago = new DateTime(2026, 6, 30, 8, 0, 0),
+                InicioSemana = new DateTime(2026, 6, 16),
+                FinSemana = new DateTime(2026, 6, 30),
+                Observacion = "Pago quincena (resto)"
+            });
+            await context.SaveChangesAsync();
+
+            var service = CreateService(context, tenantProvider);
+
+            // Ver la semana 16–22: NO debe re-contar el pago de quincena (su producción real es del 25).
+            var semana = await service.ObtenerResumenSemanaAsync(new DateTime(2026, 6, 16), new DateTime(2026, 6, 22));
+            var pagoSemana = Assert.Single(semana.Funcionarios);
+            Assert.Equal(500m, pagoSemana.PagoFinal);
+            Assert.Equal(500m, pagoSemana.MontoPagado);   // solo el pago de la semana, sin bleed
+            Assert.Equal(0m, pagoSemana.MontoPendiente);
+            Assert.Equal(0m, pagoSemana.Excedente);
+
+            // Ver la quincena 16–30: ambos pagos aplican, suma exacta, sin pendiente ni excedente.
+            var quincena = await service.ObtenerResumenSemanaAsync(new DateTime(2026, 6, 16), new DateTime(2026, 6, 30));
+            var pagoQuincena = Assert.Single(quincena.Funcionarios);
+            Assert.Equal(1000m, pagoQuincena.PagoFinal);
+            Assert.Equal(1000m, pagoQuincena.MontoPagado);
+            Assert.Equal(0m, pagoQuincena.MontoPendiente);
+            Assert.Equal(0m, pagoQuincena.Excedente);
+        }
+
+        [Fact]
+        public async Task ObtenerResumenSemanaAsync_Overpayment_ShouldClampPendingToZeroAndReportExcedente()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Sobrepago", 50m, 0m);
+            // 100 => base 88.50, comisión 50% = 44.25.
+            await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 15), 100m);
+
+            // Pago existente (legacy) mayor a lo devengado: simula un sobrepago ya registrado.
+            context.PagosFuncionarios.Add(new PagoFuncionario
+            {
+                FuncionarioId = funcionario.IdFuncionario,
+                MontoPagado = 60m,
+                FechaPago = new DateTime(2026, 4, 18, 8, 0, 0),
+                InicioSemana = new DateTime(2026, 4, 13),
+                FinSemana = new DateTime(2026, 4, 19),
+                Observacion = "Sobrepago"
+            });
+            await context.SaveChangesAsync();
+
+            var service = CreateService(context, tenantProvider);
+            var resumen = await service.ObtenerResumenSemanaAsync(
+                new DateTime(2026, 4, 13),
+                new DateTime(2026, 4, 19));
+
+            var pago = Assert.Single(resumen.Funcionarios);
+            Assert.Equal(44.25m, pago.PagoFinal);
+            Assert.Equal(60m, pago.MontoPagado);
+            Assert.Equal(0m, pago.MontoPendiente);        // nunca negativo
+            Assert.Equal(15.75m, pago.Excedente);          // 60 − 44.25
+            Assert.Equal(44.25m, pago.MontoPagadoAplicado);
+            Assert.Equal(0m, resumen.TotalPendienteGeneral);
+            Assert.Equal(15.75m, resumen.TotalExcedenteGeneral);
         }
 
         [Fact]
@@ -390,7 +577,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             context.ChangeTracker.Clear();
             tenantProvider.TenantId = tenantA;
 
-            var service = CreateService(context);
+            var service = CreateService(context, tenantProvider);
             var resumen = await service.ObtenerResumenSemanaAsync(
                 new DateTime(2026, 4, 13),
                 new DateTime(2026, 4, 19));
@@ -409,19 +596,20 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var disposableContext = context;
             using var disposableConnection = connection;
 
-            // Caso 1: comportamiento histórico (rebaja impuestos). 70000 / 13% / 50% => 30450.
+            // Caso 1: comisión sobre base sin IVA (IVA incluido). 70000 => base 61946.90,
+            // IVA 8053.10, comisión 50% sobre base = 30973.45.
             var funcionario = await SeedFuncionarioAsync(context, "Ana", 50m, 50m, rebajarImpuestos: true);
             await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 14), 70000m);
 
-            var resumen = await CreateService(context).ObtenerResumenSemanaAsync(
+            var resumen = await CreateService(context, tenantProvider).ObtenerResumenSemanaAsync(
                 new DateTime(2026, 4, 13),
                 new DateTime(2026, 4, 19));
 
             var pago = Assert.Single(resumen.Funcionarios);
             Assert.Equal(70000m, pago.TotalGenerado);
-            Assert.Equal(9100m, pago.Impuestos);
-            Assert.Equal(60900m, pago.TotalNeto);
-            Assert.Equal(30450m, pago.PagoFinal);
+            Assert.Equal(8053.10m, pago.Impuestos);
+            Assert.Equal(61946.90m, pago.TotalNeto);
+            Assert.Equal(30973.45m, pago.PagoFinal);
         }
 
         [Fact]
@@ -432,18 +620,19 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var disposableContext = context;
             using var disposableConnection = connection;
 
-            // Caso 2: NO rebaja impuestos. 70000 / 50% => 35000. KPIs del negocio no cambian.
+            // Caso 2: comisión sobre total cobrado. 70000 * 50% => 35000. El IVA de la venta
+            // (KPI del negocio) es siempre IVA incluido: base 61946.90, IVA 8053.10.
             var funcionario = await SeedFuncionarioAsync(context, "Beto", 50m, 50m, rebajarImpuestos: false);
             await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 14), 70000m);
 
-            var resumen = await CreateService(context).ObtenerResumenSemanaAsync(
+            var resumen = await CreateService(context, tenantProvider).ObtenerResumenSemanaAsync(
                 new DateTime(2026, 4, 13),
                 new DateTime(2026, 4, 19));
 
             var pago = Assert.Single(resumen.Funcionarios);
             Assert.Equal(70000m, pago.TotalGenerado);
-            Assert.Equal(9100m, pago.Impuestos);
-            Assert.Equal(60900m, pago.TotalNeto);
+            Assert.Equal(8053.10m, pago.Impuestos);
+            Assert.Equal(61946.90m, pago.TotalNeto);
             Assert.Equal(35000m, pago.PagoFinal);
         }
 
@@ -458,7 +647,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var funcionario = await SeedFuncionarioAsync(context, "Cero", 0m, 0m, rebajarImpuestos: false);
             await SeedCobroServicioAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 14), 70000m);
 
-            var resumen = await CreateService(context).ObtenerResumenSemanaAsync(
+            var resumen = await CreateService(context, tenantProvider).ObtenerResumenSemanaAsync(
                 new DateTime(2026, 4, 13),
                 new DateTime(2026, 4, 19));
 
@@ -477,7 +666,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             // Funcionario activo sin cobros en la semana => pago 0, sin fallar.
             await SeedFuncionarioAsync(context, "SinProduccion", 50m, 50m, rebajarImpuestos: false);
 
-            var resumen = await CreateService(context).ObtenerResumenSemanaAsync(
+            var resumen = await CreateService(context, tenantProvider).ObtenerResumenSemanaAsync(
                 new DateTime(2026, 4, 13),
                 new DateTime(2026, 4, 19));
 
@@ -498,7 +687,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var funcionario = await SeedFuncionarioAsync(context, "ProdSinRebaja", 0m, 50m, rebajarImpuestos: false);
             await SeedCobroProductoAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 14), 70000m);
 
-            var resumen = await CreateService(context).ObtenerResumenSemanaAsync(
+            var resumen = await CreateService(context, tenantProvider).ObtenerResumenSemanaAsync(
                 new DateTime(2026, 4, 13),
                 new DateTime(2026, 4, 19));
 
@@ -510,10 +699,15 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(35000m, producto.GananciaFuncionario);
         }
 
-        private static LiquidacionSemanalService CreateService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
+        private static LiquidacionSemanalService CreateService(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            LuxuryApp.Services.Tenant.ITenantProvider tenantProvider) =>
             new(
                 context,
                 ControllerTestSupport.BusinessDateTimeProvider,
+                new LuxuryApp.Services.Fiscal.TaxCalculationService(),
+                new LuxuryApp.Services.Fiscal.LiquidacionFuncionarioService(),
+                new LuxuryApp.Services.Fiscal.TenantFiscalConfigService(context, tenantProvider),
                 NullLogger<LiquidacionSemanalService>.Instance);
 
         private static async Task<Funcionario> SeedFuncionarioAsync(
@@ -541,6 +735,11 @@ namespace LuxuryApp.Tests.TenantIsolation
                 PorcentajeGanancia = porcentajeGanancia,
                 PorcentajeProducto = porcentajeProducto,
                 RebajarImpuestosAntesDeComision = rebajarImpuestos,
+                // La fuente de verdad del cálculo es ComisionCalculadaSobre; se mantiene coherente
+                // con el flag histórico (true → BaseSinIva, false → TotalCobrado).
+                ComisionCalculadaSobre = rebajarImpuestos
+                    ? LuxuryApp.Models.Fiscal.ComisionCalculadaSobre.BaseSinIva
+                    : LuxuryApp.Models.Fiscal.ComisionCalculadaSobre.TotalCobrado,
                 FechaIngreso = new DateTime(2026, 4, 13),
                 Activo = true
             };

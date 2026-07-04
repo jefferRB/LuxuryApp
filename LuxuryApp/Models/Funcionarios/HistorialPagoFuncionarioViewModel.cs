@@ -17,5 +17,11 @@ namespace LuxuryApp.Models.Funcionarios
         public string? Observacion { get; init; }
 
         public string OrigenRegistro { get; init; } = string.Empty;
+
+        /// <summary>Método de pago (viene del egreso de la liquidación; null en pagos legacy).</summary>
+        public string? MetodoPago { get; init; }
+
+        /// <summary>Usuario que registró el pago (CreadoPor de la liquidación; null en legacy).</summary>
+        public string? RegistradoPor { get; init; }
     }
 }

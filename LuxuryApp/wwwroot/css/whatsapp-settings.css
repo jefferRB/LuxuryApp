@@ -1,0 +1,278 @@
+/* Modulo WhatsApp privado: header, metricas, automatizaciones, estado vacio.
+   Usa tokens --private-* (private-layout.css) + subscription.css para las cards de paquetes. */
+
+.wa-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 1.4rem;
+    color: var(--private-surface-text);
+}
+
+/* ── Header ── */
+.wa-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.wa-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    font-size: .8rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--private-muted-text);
+}
+
+.wa-title {
+    margin: .35rem 0 .25rem;
+    font-size: 1.9rem;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    gap: .7rem;
+    flex-wrap: wrap;
+}
+
+.wa-sub { margin: 0; color: var(--private-muted-text); max-width: 60ch; }
+
+.wa-badge {
+    font-size: .75rem;
+    font-weight: 700;
+    padding: .2rem .65rem;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+}
+.wa-badge--ok { background: var(--private-chart-success); color: #fff; }
+.wa-badge--warn { background: var(--private-chart-warning); color: #fff; }
+.wa-badge--muted { background: var(--private-row-hover-bg); color: var(--private-muted-text); }
+
+.wa-head-links { display: flex; flex-wrap: wrap; gap: .5rem; }
+.wa-quick-link {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    padding: .5rem .85rem;
+    border-radius: 12px;
+    font-size: .85rem;
+    font-weight: 600;
+    text-decoration: none;
+    background: var(--private-row-bg);
+    border: 1px solid var(--private-surface-border);
+    color: var(--private-surface-text);
+}
+.wa-quick-link:hover { background: var(--private-row-hover-bg); color: var(--private-surface-text); }
+
+.wa-addon-note {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    margin: 0;
+    font-size: .85rem;
+    color: var(--private-muted-text);
+}
+
+/* ── Cards ── */
+.wa-card {
+    background: var(--private-surface-bg);
+    border: 1px solid var(--private-surface-border);
+    border-radius: var(--private-card-radius);
+    box-shadow: var(--private-card-shadow);
+    padding: 1.4rem;
+}
+
+.wa-card-kicker {
+    display: block;
+    font-size: .78rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--private-muted-text);
+    margin-bottom: .25rem;
+}
+
+.wa-card-title { margin: 0 0 1rem; font-size: 1.1rem; font-weight: 800; }
+
+.wa-section-title { margin: .5rem 0 .1rem; font-size: 1.2rem; font-weight: 800; }
+.wa-section-sub { margin: 0 0 .35rem; color: var(--private-muted-text); font-size: .9rem; }
+
+/* ── Metricas ── */
+.wa-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+}
+
+.wa-metric { display: flex; flex-direction: column; gap: .2rem; padding: 1.2rem; }
+.wa-metric-label { font-size: .8rem; font-weight: 700; color: var(--private-muted-text); }
+.wa-metric-value { font-size: 1.5rem; font-weight: 800; color: var(--private-surface-text); }
+.wa-metric-of { font-size: .85rem; font-weight: 600; color: var(--private-muted-text); }
+.wa-metric-foot { font-size: .82rem; color: var(--private-muted-text); }
+.wa-metric-foot a { color: var(--private-chart-accent); text-decoration: none; }
+.wa-metric-foot a:hover { text-decoration: underline; }
+
+/* ── Alertas ── */
+.wa-alert {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .8rem 1rem;
+    border-radius: 12px;
+    font-size: .88rem;
+    font-weight: 600;
+}
+.wa-alert--warn { background: var(--private-chart-warning-soft); color: #fff; }
+.wa-alert--info { background: var(--private-chart-info-soft); color: #fff; }
+
+/* ── Estado vacio ── */
+.wa-empty { text-align: center; display: flex; flex-direction: column; align-items: center; gap: .6rem; padding: 2.2rem 1.4rem; }
+.wa-empty-icon { font-size: 2.4rem; color: var(--private-chart-success); }
+.wa-empty-title { margin: 0; font-size: 1.2rem; font-weight: 800; }
+.wa-empty-text { margin: 0; color: var(--private-muted-text); max-width: 48ch; }
+
+.wa-automation--locked { opacity: .85; }
+.wa-locked-note {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    margin: 0;
+    color: var(--private-muted-text);
+    font-style: italic;
+}
+
+/* ── Formulario de automatizaciones ── */
+.wa-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+}
+
+.wa-panel {
+    display: flex;
+    flex-direction: column;
+    gap: .85rem;
+    background: var(--private-row-bg);
+    border: 1px solid var(--private-surface-border);
+    border-radius: 14px;
+    padding: 1.1rem;
+}
+.wa-panel--full { grid-column: 1 / -1; }
+
+.wa-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.wa-panel-head h4 { margin: 0 0 .2rem; font-size: 1rem; font-weight: 800; }
+.wa-panel-head p { margin: 0; font-size: .83rem; color: var(--private-muted-text); }
+
+/* Switch */
+.wa-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex: 0 0 auto; cursor: pointer; }
+.wa-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.wa-switch-track {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: var(--private-input-border);
+    transition: background .15s;
+}
+.wa-switch-track::before {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform .15s;
+}
+/* Combinador general (~) y no adyacente (+): entre el checkbox y el track hay un
+   <input type="hidden"> (patrón booleano de ASP.NET), por lo que el track no es el
+   hermano inmediato del checkbox. Con ~ el estado :checked sí pinta el switch. */
+.wa-switch input:checked ~ .wa-switch-track { background: var(--private-chart-success); }
+.wa-switch input:checked ~ .wa-switch-track::before { transform: translateX(20px); }
+
+.wa-advanced {
+    border-top: 1px solid var(--private-surface-border);
+    padding-top: .85rem;
+    transition: opacity .15s;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+}
+.wa-advanced--disabled { opacity: .45; pointer-events: none; }
+
+.wa-field-label { display: block; font-size: .8rem; font-weight: 700; margin: 0; }
+
+.wa-field {
+    width: 100%;
+    padding: .55rem .7rem;
+    border-radius: 10px;
+    border: 1px solid var(--private-input-border);
+    background: var(--private-input-bg);
+    color: var(--private-input-text);
+    font-size: .9rem;
+}
+
+.wa-mode-panel { display: flex; flex-direction: column; gap: .5rem; }
+
+.wa-check { display: flex; align-items: flex-start; gap: .5rem; font-size: .85rem; cursor: pointer; }
+.wa-check input { margin-top: .2rem; }
+
+.wa-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+.wa-row-2--narrow { max-width: 320px; }
+
+.wa-help-text { font-size: .78rem; color: var(--private-muted-text); margin: 0; }
+
+.wa-form-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: .8rem;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+}
+
+.wa-automation-status { font-size: .85rem; font-weight: 600; }
+.wa-automation-status.is-success { color: var(--private-chart-success); }
+.wa-automation-status.is-error { color: var(--private-chart-danger); }
+.wa-automation-status.is-warning { color: var(--private-chart-warning); }
+
+.wa-save-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: .65rem 1.4rem;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: .92rem;
+    border: none;
+    cursor: pointer;
+    background: var(--private-chart-success);
+    color: #fff;
+    text-decoration: none;
+    transition: filter .15s;
+}
+.wa-save-btn:hover { filter: brightness(1.08); color: #fff; }
+.wa-save-btn:disabled { opacity: .6; cursor: not-allowed; }
+.wa-save-btn--inline { background: var(--private-chart-accent); align-self: center; }
+
+.d-none { display: none !important; }
+
+/* ── Responsive ── */
+@media (max-width: 991.98px) {
+    .wa-summary-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 767.98px) {
+    .wa-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 575.98px) {
+    .wa-summary-grid { grid-template-columns: 1fr; }
+    .wa-title { font-size: 1.5rem; }
+    .wa-form-actions { justify-content: stretch; }
+    .wa-save-btn { width: 100%; }
+}

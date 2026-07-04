@@ -199,6 +199,101 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
+        public async Task RegistrarAsync_ShouldPersistCustomServiceCharge_FromCita_WithoutCatalogService()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Personalizado", porcentajeGanancia: 50m, porcentajeProducto: 10m);
+            // Cita con servicio personalizado: sin ServicioId y sin precio base.
+            var cita = await SeedCitaPersonalizadaAsync(context, funcionario.IdFuncionario, "Diseño especial");
+
+            var service = ControllerTestSupport.CreateCobroService(context);
+            await service.RegistrarAsync(new CobroCreateRequest
+            {
+                FechaCobro = new DateTime(2026, 4, 23, 16, 0, 0),
+                NombreCliente = "Cliente Personalizado",
+                FuncionarioId = funcionario.IdFuncionario,
+                ServicioId = null,
+                ServicioNombrePersonalizado = "Diseño especial",
+                CitaId = cita.Id,
+                Monto = 12500m,
+                MetodoPago = "EFECTIVO"
+            });
+
+            context.ChangeTracker.Clear();
+            var cobro = await context.Cobros.AsNoTracking().SingleAsync();
+
+            Assert.Null(cobro.ServicioId);
+            Assert.Null(cobro.ProductoId);
+            Assert.Equal("Diseño especial", cobro.ServicioNombrePersonalizado);
+            Assert.Equal(cita.Id, cobro.CitaId);
+            Assert.Equal(12500m, cobro.Monto);
+            Assert.Equal("EFECTIVO", cobro.MetodoPago);
+        }
+
+        [Fact]
+        public async Task RegistrarAsync_ShouldRejectCustomService_WhenNotLinkedToCita()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "SinCita");
+            var service = ControllerTestSupport.CreateCobroService(context);
+
+            // Un nombre personalizado sin cita de origen no es un cobro válido: debe exigir
+            // servicio de catálogo o producto. Evita cobros "sueltos" sin servicio ni producto.
+            await Assert.ThrowsAsync<CobroValidationException>(() => service.RegistrarAsync(new CobroCreateRequest
+            {
+                FechaCobro = new DateTime(2026, 4, 23, 17, 0, 0),
+                NombreCliente = "Sin Cita",
+                FuncionarioId = funcionario.IdFuncionario,
+                ServicioNombrePersonalizado = "Algo suelto",
+                Monto = 5000m,
+                MetodoPago = "EFECTIVO"
+            }));
+
+            Assert.Empty(await context.Cobros.ToListAsync());
+        }
+
+        [Fact]
+        public async Task RegistrarAsync_ShouldRejectCustomService_WhenCitaAlreadyCharged()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "DobleCobro");
+            var cita = await SeedCitaPersonalizadaAsync(context, funcionario.IdFuncionario, "Corte libre");
+            var service = ControllerTestSupport.CreateCobroService(context);
+
+            var request = new CobroCreateRequest
+            {
+                FechaCobro = new DateTime(2026, 4, 23, 18, 0, 0),
+                NombreCliente = "Cliente",
+                FuncionarioId = funcionario.IdFuncionario,
+                ServicioNombrePersonalizado = "Corte libre",
+                CitaId = cita.Id,
+                Monto = 7000m,
+                MetodoPago = "EFECTIVO"
+            };
+
+            await service.RegistrarAsync(request);
+
+            // Segundo intento sobre la misma cita: anti doble cobro.
+            await Assert.ThrowsAsync<CobroValidationException>(() => service.RegistrarAsync(request));
+            Assert.Single(await context.Cobros.ToListAsync());
+        }
+
+        [Fact]
         public async Task RegistrarAsync_ShouldReject_WhenServicioAndProductoAreProvidedTogether()
         {
             var tenantId = Guid.NewGuid();
@@ -320,6 +415,27 @@ namespace LuxuryApp.Tests.TenantIsolation
             context.Funcionarios.Add(funcionario);
             await context.SaveChangesAsync();
             return funcionario;
+        }
+
+        private static async Task<LuxuryApp.Models.Calendar.Cita> SeedCitaPersonalizadaAsync(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            int funcionarioId,
+            string nombrePersonalizado)
+        {
+            var cita = new LuxuryApp.Models.Calendar.Cita
+            {
+                NombreCliente = "Cliente Personalizado",
+                FuncionarioId = funcionarioId,
+                ServicioId = null,
+                ServicioNombrePersonalizado = nombrePersonalizado,
+                FechaHoraCita = new DateTime(2026, 4, 23, 16, 0, 0),
+                Tipo = "CITA",
+                DuracionMinutos = 30
+            };
+
+            context.Citas.Add(cita);
+            await context.SaveChangesAsync();
+            return cita;
         }
 
         private static async Task<Servicio> SeedServicioAsync(

@@ -19,6 +19,7 @@ namespace LuxuryApp.Services.Reservas
         private readonly ApplicationDbContext _context;
         private readonly IBookingSettingsService _settingsService;
         private readonly IBookingAvailabilityService _availabilityService;
+        private readonly IBookingCatalogService _catalogService;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ITenantWhatsAppFeatureService _whatsAppFeatureService;
         private readonly INotificationService _notificationService;
@@ -29,6 +30,7 @@ namespace LuxuryApp.Services.Reservas
             ApplicationDbContext context,
             IBookingSettingsService settingsService,
             IBookingAvailabilityService availabilityService,
+            IBookingCatalogService catalogService,
             IBusinessDateTimeProvider businessDateTimeProvider,
             ITenantWhatsAppFeatureService whatsAppFeatureService,
             INotificationService notificationService,
@@ -38,6 +40,7 @@ namespace LuxuryApp.Services.Reservas
             _context = context;
             _settingsService = settingsService;
             _availabilityService = availabilityService;
+            _catalogService = catalogService;
             _businessDateTimeProvider = businessDateTimeProvider;
             _whatsAppFeatureService = whatsAppFeatureService;
             _notificationService = notificationService;
@@ -70,17 +73,8 @@ namespace LuxuryApp.Services.Reservas
             PublicBookingTenantContext context,
             CancellationToken cancellationToken = default)
         {
-            var servicios = await _context.Servicios
-                .AsNoTracking()
-                .Where(s => s.Activo)
-                .OrderBy(s => s.Nombre)
-                .Select(s => new PublicBookingServiceOption
-                {
-                    Id = s.Id,
-                    Nombre = s.Nombre,
-                    DuracionMinutos = s.DuracionMinutos ?? CalendarCommandService.DefaultDurationMinutes
-                })
-                .ToListAsync(cancellationToken);
+            // Solo servicios publicados (con fallback a todos los activos si no hay configuración).
+            var servicios = await _catalogService.GetPublicServicesAsync(cancellationToken);
 
             var funcionarios = context.PermiteElegirFuncionario
                 ? await _context.Funcionarios
@@ -90,7 +84,11 @@ namespace LuxuryApp.Services.Reservas
                     .Select(f => new PublicBookingEmployeeOption
                     {
                         Id = f.IdFuncionario,
-                        Nombre = f.Nombre
+                        Nombre = f.Nombre,
+                        Puesto = f.Puesto != null ? f.Puesto.NombrePuesto : null,
+                        // Foto solo si el negocio la habilita y el funcionario lo permite.
+                        FotoUrl = (context.MostrarFotosFuncionarios && f.MostrarFotoEnReservas) ? f.FotoUrl : null,
+                        ColorAvatar = f.ColorCalendario
                     })
                     .ToListAsync(cancellationToken)
                 : new List<PublicBookingEmployeeOption>();
@@ -115,6 +113,7 @@ namespace LuxuryApp.Services.Reservas
                 MaxDaysAhead = context.MaxDaysAhead,
                 MinDateIso = today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                 MaxDateIso = maxDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                SubmissionToken = Guid.NewGuid().ToString("N"),
                 Servicios = servicios,
                 Funcionarios = funcionarios
             };
@@ -131,12 +130,52 @@ namespace LuxuryApp.Services.Reservas
             {
                 return new BookingAvailabilityResult
                 {
+                    Success = false,
                     Fecha = fecha ?? string.Empty,
                     Mensaje = "Selecciona una fecha válida."
                 };
             }
 
+            // Seguridad: el servicio debe estar publicado online (bloquea ids manipulados/ocultos).
+            var servicios = await _catalogService.GetPublicServicesAsync(cancellationToken);
+            var servicio = servicios.FirstOrDefault(s => s.Id == servicioId);
+            if (servicio is null)
+            {
+                return new BookingAvailabilityResult
+                {
+                    Success = false,
+                    Fecha = fechaParsed.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    Mensaje = "Ese servicio no está disponible para reservas online."
+                };
+            }
+
+            var fechaIso = fechaParsed.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             var funcionarioFiltro = ResolveFuncionarioFiltro(context, funcionarioId);
+
+            // Nombre del profesional elegido (solo si es compatible con el servicio).
+            string? nombreFuncionario = null;
+            if (funcionarioFiltro.HasValue)
+            {
+                if (!servicio.FuncionarioIds.Contains(funcionarioFiltro.Value))
+                {
+                    // Profesional no compatible con el servicio: no exponemos horarios.
+                    return new BookingAvailabilityResult
+                    {
+                        Success = true,
+                        Fecha = fechaIso,
+                        DurationMinutes = servicio.DuracionMinutos,
+                        ServiceName = servicio.Nombre,
+                        Horas = Array.Empty<string>(),
+                        Mensaje = "Ese profesional no atiende este servicio. Elegí otro profesional."
+                    };
+                }
+
+                nombreFuncionario = await _context.Funcionarios
+                    .AsNoTracking()
+                    .Where(f => f.IdFuncionario == funcionarioFiltro.Value && f.Activo)
+                    .Select(f => f.Nombre)
+                    .FirstOrDefaultAsync(cancellationToken);
+            }
 
             var horas = await _availabilityService.GetAvailableSlotsAsync(
                 servicioId,
@@ -144,15 +183,92 @@ namespace LuxuryApp.Services.Reservas
                 funcionarioFiltro,
                 cancellationToken);
 
-            return new BookingAvailabilityResult
+            var result = new BookingAvailabilityResult
             {
-                Fecha = fechaParsed.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-                Horas = horas,
-                Mensaje = horas.Count == 0
-                    ? "No hay espacios disponibles para ese día. Probá con otra fecha."
-                    : null
+                Success = true,
+                Fecha = fechaIso,
+                DurationMinutes = servicio.DuracionMinutos,
+                ServiceName = servicio.Nombre,
+                SelectedEmployeeName = nombreFuncionario,
+                Horas = horas
             };
+
+            if (horas.Count > 0)
+            {
+                return result;
+            }
+
+            // ── Sin horas ese día: construir mensaje inteligente + próximas disponibilidades ──
+            var fechaLabel = FormatFechaLabel(fechaParsed);
+
+            if (funcionarioFiltro.HasValue)
+            {
+                // ¿Hay disponibilidad con otros profesionales compatibles esa misma fecha?
+                var horasCualquiera = await _availabilityService.GetAvailableSlotsAsync(
+                    servicioId, fechaParsed, funcionarioId: null, cancellationToken);
+                result.HasAvailabilityWithOtherEmployees = horasCualquiera.Count > 0;
+
+                var nombre = nombreFuncionario ?? "ese profesional";
+                result.Mensaje =
+                    $"No encontramos espacios de {servicio.DuracionMinutos} min para {servicio.Nombre} con {nombre} el {fechaLabel}. " +
+                    $"Este servicio requiere un bloque continuo de {servicio.DuracionMinutos} minutos.";
+            }
+            else
+            {
+                result.Mensaje =
+                    $"No encontramos espacios de {servicio.DuracionMinutos} min para {servicio.Nombre} en esa fecha. " +
+                    "Probá con otra fecha o revisá los próximos espacios disponibles.";
+            }
+
+            result.NextAvailableSlots = await BuildNextAvailableSlotsAsync(
+                servicioId, fechaParsed, funcionarioFiltro, cancellationToken);
+
+            return result;
         }
+
+        private async Task<IReadOnlyList<NextAvailableSlot>> BuildNextAvailableSlotsAsync(
+            int servicioId,
+            DateOnly fromDate,
+            int? funcionarioId,
+            CancellationToken cancellationToken)
+        {
+            var sugerencias = await _availabilityService.GetNextAvailableSlotsAsync(
+                servicioId, fromDate, funcionarioId, maxSuggestions: 5, cancellationToken);
+
+            if (sugerencias.Count == 0)
+            {
+                return Array.Empty<NextAvailableSlot>();
+            }
+
+            // Nombres de funcionarios de las sugerencias en una sola consulta.
+            var ids = sugerencias.Select(s => s.FuncionarioId).Distinct().ToList();
+            var nombres = await _context.Funcionarios
+                .AsNoTracking()
+                .Where(f => ids.Contains(f.IdFuncionario))
+                .Select(f => new { f.IdFuncionario, f.Nombre })
+                .ToDictionaryAsync(f => f.IdFuncionario, f => f.Nombre, cancellationToken);
+
+            return sugerencias.Select(s => new NextAvailableSlot
+            {
+                Fecha = s.Fecha.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                FechaLabel = FormatFechaLabel(s.Fecha),
+                Hora = s.Hora.ToString("HH:mm", CultureInfo.InvariantCulture),
+                HoraLabel = FormatHoraLabel(s.Hora),
+                FuncionarioId = s.FuncionarioId,
+                FuncionarioNombre = nombres.TryGetValue(s.FuncionarioId, out var n) ? n : null
+            }).ToList();
+        }
+
+        private static readonly CultureInfo CrCulture = CultureInfo.GetCultureInfo("es-CR");
+
+        private static string FormatFechaLabel(DateOnly fecha)
+        {
+            var label = fecha.ToDateTime(TimeOnly.MinValue).ToString("dddd dd/MM", CrCulture);
+            return label.Length > 0 ? char.ToUpper(label[0], CrCulture) + label[1..] : label;
+        }
+
+        private static string FormatHoraLabel(TimeOnly hora) =>
+            hora.ToString("h:mm tt", CrCulture);
 
         public async Task<PublicBookingSubmitResult> SubmitAsync(
             PublicBookingTenantContext context,
@@ -167,6 +283,21 @@ namespace LuxuryApp.Services.Reservas
             if (!string.IsNullOrWhiteSpace(input.Website))
             {
                 return PublicBookingSubmitResult.Ok(mensajeExito);
+            }
+
+            // Idempotencia: si este token ya creó una solicitud (doble click, reintento, JS duplicado),
+            // devolvemos éxito con la solicitud existente y NO creamos otra ni reenviamos notificación.
+            var token = NormalizeToken(input.SubmissionToken);
+            if (token is not null)
+            {
+                var existentePorToken = await _context.BookingRequests
+                    .AsNoTracking()
+                    .AnyAsync(r => r.PublicSubmissionToken == token, cancellationToken);
+
+                if (existentePorToken)
+                {
+                    return PublicBookingSubmitResult.Ok(mensajeExito);
+                }
             }
 
             var nombre = CollapseWhitespace(input.Nombre);
@@ -210,6 +341,12 @@ namespace LuxuryApp.Services.Reservas
             if (fecha > maxFecha)
             {
                 return PublicBookingSubmitResult.Fail("Esa fecha está fuera del rango permitido.");
+            }
+
+            // Seguridad: no se puede reservar un servicio oculto/inactivo manipulando el request.
+            if (!await _catalogService.IsServiceVisibleOnlineAsync(input.ServicioId, cancellationToken))
+            {
+                return PublicBookingSubmitResult.Fail("El servicio seleccionado no está disponible para reservas online.");
             }
 
             // Funcionario solicitado (respeta las reglas del tenant).
@@ -278,6 +415,7 @@ namespace LuxuryApp.Services.Reservas
                 Estado = BookingRequestStates.Pending,
                 Origen = BookingRequestOrigins.PublicLink,
                 AceptaWhatsApp = input.AceptaWhatsApp,
+                PublicSubmissionToken = token,
                 CreatedAtUtc = DateTime.UtcNow,
                 IpHash = HashIp(),
                 UserAgent = ResolveUserAgent()
@@ -291,6 +429,16 @@ namespace LuxuryApp.Services.Reservas
             }
             catch (DbUpdateException)
             {
+                // Carrera: otro POST con el mismo token insertó primero (índice único). Es idempotente:
+                // devolvemos éxito sin crear duplicado ni reenviar notificación.
+                _context.Entry(solicitud).State = EntityState.Detached;
+                if (token is not null &&
+                    await _context.BookingRequests.AsNoTracking()
+                        .AnyAsync(r => r.PublicSubmissionToken == token, cancellationToken))
+                {
+                    return PublicBookingSubmitResult.Ok(mensajeExito);
+                }
+
                 return PublicBookingSubmitResult.Fail(
                     "No pudimos registrar tu solicitud en este momento. Intentá de nuevo.");
             }
@@ -364,6 +512,23 @@ namespace LuxuryApp.Services.Reservas
 
         private static bool TryParseTime(string? value, out TimeOnly time) =>
             TimeOnly.TryParseExact(value, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out time);
+
+        /// <summary>Normaliza el token de envío: solo alfanuméricos/guiones, máx. 64. Vacío → null.</summary>
+        private static string? NormalizeToken(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            var cleaned = new string(value.Trim().Where(c => char.IsLetterOrDigit(c) || c == '-').ToArray());
+            if (cleaned.Length == 0)
+            {
+                return null;
+            }
+
+            return cleaned.Length > 64 ? cleaned[..64] : cleaned;
+        }
 
         private static string CollapseWhitespace(string? value)
         {
