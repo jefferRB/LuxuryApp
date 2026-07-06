@@ -1,8 +1,11 @@
 @model LuxuryApp.Models.Identity.CodigosRecuperacionViewModel
+@using LuxuryApp.Services.Identity
 
 @{
     ViewData["Title"] = "Códigos de recuperación";
-    Layout = "~/Views/Shared/_Layout.cshtml";
+    // Mismo criterio que Enrolar: el funcionario permanece en el chrome de su portal.
+    var esPortalFuncionario = User.IsInRole(AppRoles.Funcionario) && !User.IsInRole(AppRoles.Administrador);
+    Layout = esPortalFuncionario ? "~/Views/Shared/_FuncionarioLayout.cshtml" : "~/Views/Shared/_Layout.cshtml";
 }
 
 <style>

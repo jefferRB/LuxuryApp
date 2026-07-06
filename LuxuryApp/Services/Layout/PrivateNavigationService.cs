@@ -70,6 +70,16 @@ namespace LuxuryApp.Services.Layout
                     Icon = "bi-person-circle",
                     Highlight = false
                 },
+                // MFA opcional para cualquier usuario autenticado (obligatorio solo para
+                // superadmin vía RequireMfaEnrollmentFilter, nunca desde el menú).
+                new()
+                {
+                    Text = "Doble autenticación",
+                    Controller = "Seguridad",
+                    Action = "Enrolar",
+                    Icon = "bi-shield-lock",
+                    Highlight = false
+                },
                 new()
                 {
                     Text = hasCommercialAccess ? "Suscripcion" : "Activar plan",

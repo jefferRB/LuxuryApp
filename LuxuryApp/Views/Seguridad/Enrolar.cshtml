@@ -1,8 +1,11 @@
 @model LuxuryApp.Models.Identity.EnrolarMfaViewModel
+@using LuxuryApp.Services.Identity
 
 @{
     ViewData["Title"] = "Verificación en dos pasos";
-    Layout = "~/Views/Shared/_Layout.cshtml";
+    // Un funcionario configura su MFA sin salir del chrome de su portal; el resto usa el layout general.
+    var esPortalFuncionario = User.IsInRole(AppRoles.Funcionario) && !User.IsInRole(AppRoles.Administrador);
+    Layout = esPortalFuncionario ? "~/Views/Shared/_FuncionarioLayout.cshtml" : "~/Views/Shared/_Layout.cshtml";
 }
 
 <style>
