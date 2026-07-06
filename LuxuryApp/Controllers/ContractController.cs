@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using LuxuryApp.Filters;
 using LuxuryApp.Models.Legal;
 using LuxuryApp.Services.Contracts;
 using Microsoft.AspNetCore.Authorization;
@@ -26,6 +27,9 @@ namespace LuxuryApp.Controllers
         }
 
         [HttpGet]
+        // Excluida del gate de MFA: si un superadmin tiene contrato pendiente Y MFA pendiente,
+        // el contrato debe poder completarse primero (evita ping-pong entre ambos gates).
+        [AllowWithoutMfaEnrollment]
         public async Task<IActionResult> Reaccept(
             string? returnurl = null,
             CancellationToken cancellationToken = default)
@@ -51,6 +55,7 @@ namespace LuxuryApp.Controllers
 
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [AllowWithoutMfaEnrollment]
         public async Task<IActionResult> Reaccept(
             ContractReacceptViewModel model,
             CancellationToken cancellationToken = default)

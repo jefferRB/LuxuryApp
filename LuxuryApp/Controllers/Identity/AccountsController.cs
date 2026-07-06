@@ -1,12 +1,17 @@
+using System.Security.Claims;
 using System.Text;
+using LuxuryApp.Filters;
 using LuxuryApp.Models.Identity;
+using LuxuryApp.Models.Platform;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Account;
 using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.Identity;
+using LuxuryApp.Services.Platform;
 using LuxuryApp.Services.PublicSite;
 using LuxuryApp.Services.Security;
 using LuxuryApp.Services.Tenant;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -280,26 +285,18 @@ namespace LuxuryApp.Controllers.Identity
                     return View(model);
                 }
 
+                if (usuario.TwoFactorEnabled)
+                {
+                    // La contraseña solo completa el paso 1: la cookie de aplicación se emite
+                    // hasta que VerificarCodigo valide el TOTP (o un código de recuperación).
+                    await IniciarPasoDosFactoresAsync(usuario);
+                    return RedirectToAction(
+                        nameof(VerificarCodigo),
+                        new { returnurl = safeReturnUrl, rememberMe = model.RememberMe });
+                }
+
                 await _signInManager.SignInAsync(usuario, model.RememberMe);
-
-                // Funcionario: portal limitado. No es la parte contratante del SaaS,
-                // por lo que se omite el gate de contrato y se le envía a su portal.
-                var esFuncionario = await _userManager.IsInRoleAsync(usuario, AppRoles.Funcionario);
-                var esAdministrador = await _userManager.IsInRoleAsync(usuario, AppRoles.Administrador);
-                if (esFuncionario && !esAdministrador)
-                {
-                    return safeReturnUrl.StartsWith("/MiPortal", StringComparison.OrdinalIgnoreCase)
-                        ? LocalRedirect(safeReturnUrl)
-                        : Redirect("/MiPortal");
-                }
-
-                var contractStatus = await _contractService.GetAcceptanceStatusAsync(usuario.Id);
-                if (contractStatus.BlocksApplicationAccess)
-                {
-                    return RedirectToAction("Reaccept", "Contract", new { returnurl = safeReturnUrl });
-                }
-
-                return LocalRedirect(safeReturnUrl);
+                return await CompletarAccesoAsync(usuario, safeReturnUrl);
             }
 
             if (result.IsLockedOut)
@@ -313,10 +310,187 @@ namespace LuxuryApp.Controllers.Identity
 
         [HttpPost]
         [ValidateAntiForgeryToken]
+        [AllowWithoutMfaEnrollment]
         public async Task<IActionResult> SalirAplicacion()
         {
             await _signInManager.SignOutAsync();
             return RedirectToAction(nameof(HomeController.Index), "Home");
+        }
+
+        [HttpGet]
+        [AllowAnonymous]
+        [AllowWithoutMfaEnrollment]
+        public async Task<IActionResult> VerificarCodigo(string? returnurl = null, bool rememberMe = false)
+        {
+            var usuario = await _signInManager.GetTwoFactorAuthenticationUserAsync();
+            if (usuario is null)
+            {
+                return RedirectToAction(nameof(Acceso));
+            }
+
+            return View(new VerificarCodigoViewModel { ReturnUrl = returnurl, RememberMe = rememberMe });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        [AllowAnonymous]
+        [AllowWithoutMfaEnrollment]
+        public async Task<IActionResult> VerificarCodigo(VerificarCodigoViewModel model)
+        {
+            var usuario = await _signInManager.GetTwoFactorAuthenticationUserAsync();
+            if (usuario is null)
+            {
+                return RedirectToAction(nameof(Acceso));
+            }
+
+            if (!ModelState.IsValid)
+            {
+                return View(model);
+            }
+
+            var safeReturnUrl = Url.IsLocalUrl(model.ReturnUrl)
+                ? model.ReturnUrl!
+                : Url.Content("~/") ?? "/";
+
+            var codigo = model.Codigo.Replace(" ", string.Empty).Replace("-", string.Empty);
+            var result = await _signInManager.TwoFactorAuthenticatorSignInAsync(
+                codigo,
+                model.RememberMe,
+                rememberClient: false);
+
+            if (result.Succeeded)
+            {
+                return await CompletarAccesoAsync(usuario, safeReturnUrl);
+            }
+
+            if (result.IsLockedOut)
+            {
+                return View("Bloqueado");
+            }
+
+            await Task.Delay(250);
+            ModelState.AddModelError(
+                string.Empty,
+                "El código no es válido. Genera uno nuevo en tu aplicación e intenta otra vez.");
+            return View(model);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        [AllowAnonymous]
+        [AllowWithoutMfaEnrollment]
+        public async Task<IActionResult> UsarCodigoRecuperacion(CodigoRecuperacionViewModel model)
+        {
+            var usuario = await _signInManager.GetTwoFactorAuthenticationUserAsync();
+            if (usuario is null)
+            {
+                return RedirectToAction(nameof(Acceso));
+            }
+
+            var safeReturnUrl = Url.IsLocalUrl(model.ReturnUrl)
+                ? model.ReturnUrl!
+                : Url.Content("~/") ?? "/";
+
+            if (!ModelState.IsValid)
+            {
+                ModelState.AddModelError(
+                    string.Empty,
+                    "El código de recuperación no es válido o ya fue usado.");
+                return View(nameof(VerificarCodigo), new VerificarCodigoViewModel { ReturnUrl = model.ReturnUrl });
+            }
+
+            var codigo = model.Codigo.Replace(" ", string.Empty).Trim();
+            var result = await _signInManager.TwoFactorRecoveryCodeSignInAsync(codigo);
+
+            if (result.Succeeded)
+            {
+                await AuditarCodigoRecuperacionAsync(usuario);
+                return await CompletarAccesoAsync(usuario, safeReturnUrl);
+            }
+
+            if (result.IsLockedOut)
+            {
+                return View("Bloqueado");
+            }
+
+            await Task.Delay(250);
+            ModelState.AddModelError(
+                string.Empty,
+                "El código de recuperación no es válido o ya fue usado.");
+            return View(nameof(VerificarCodigo), new VerificarCodigoViewModel { ReturnUrl = model.ReturnUrl });
+        }
+
+        /// <summary>
+        /// Pasos posteriores a la emisión de la cookie de aplicación: portal de funcionario,
+        /// gate de contrato y redirect final. Compartido por el login con contraseña y por la
+        /// verificación TOTP/código de recuperación.
+        /// </summary>
+        private async Task<IActionResult> CompletarAccesoAsync(AppUsuario usuario, string safeReturnUrl)
+        {
+            // Funcionario: portal limitado. No es la parte contratante del SaaS,
+            // por lo que se omite el gate de contrato y se le envía a su portal.
+            var esFuncionario = await _userManager.IsInRoleAsync(usuario, AppRoles.Funcionario);
+            var esAdministrador = await _userManager.IsInRoleAsync(usuario, AppRoles.Administrador);
+            if (esFuncionario && !esAdministrador)
+            {
+                return safeReturnUrl.StartsWith("/MiPortal", StringComparison.OrdinalIgnoreCase)
+                    ? LocalRedirect(safeReturnUrl)
+                    : Redirect("/MiPortal");
+            }
+
+            var contractStatus = await _contractService.GetAcceptanceStatusAsync(usuario.Id);
+            if (contractStatus.BlocksApplicationAccess)
+            {
+                return RedirectToAction("Reaccept", "Contract", new { returnurl = safeReturnUrl });
+            }
+
+            return LocalRedirect(safeReturnUrl);
+        }
+
+        /// <summary>
+        /// Emite la cookie intermedia de dos factores con el mismo formato interno que usa
+        /// SignInManager: GetTwoFactorAuthenticationUserAsync lee el userId del claim Name.
+        /// </summary>
+        private async Task IniciarPasoDosFactoresAsync(AppUsuario usuario)
+        {
+            var identity = new ClaimsIdentity(IdentityConstants.TwoFactorUserIdScheme);
+            identity.AddClaim(new Claim(ClaimTypes.Name, usuario.Id));
+            await HttpContext.SignInAsync(
+                IdentityConstants.TwoFactorUserIdScheme,
+                new ClaimsPrincipal(identity));
+        }
+
+        /// <summary>
+        /// El uso de un código de recuperación de un superadmin queda en la bitácora de
+        /// plataforma. Se resuelve por RequestServices para no ampliar el constructor de un
+        /// controlador público; un fallo de auditoría no bloquea el acceso.
+        /// </summary>
+        private async Task AuditarCodigoRecuperacionAsync(AppUsuario usuario)
+        {
+            if (!usuario.IsPlatformSuperAdmin)
+            {
+                return;
+            }
+
+            try
+            {
+                var auditService = HttpContext.RequestServices.GetRequiredService<IPlatformAuditService>();
+                await auditService.LogAsync(new PlatformAuditEntry
+                {
+                    Action = PlatformAuditActions.MfaRecoveryCodeUsed,
+                    EntityType = PlatformAuditEntityTypes.User,
+                    EntityId = usuario.Id,
+                    TargetUserId = usuario.Id,
+                    TargetUserEmail = usuario.Email
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "No se pudo auditar el uso de código de recuperación del UserId {UserId}.",
+                    usuario.Id);
+            }
         }
 
         [HttpGet]
@@ -539,6 +713,7 @@ namespace LuxuryApp.Controllers.Identity
         }
 
         [AllowAnonymous]
+        [AllowWithoutMfaEnrollment]
         public IActionResult Bloqueado() => View();
 
         private async Task PopulateCurrentContractAsync(

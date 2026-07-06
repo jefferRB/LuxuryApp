@@ -58,6 +58,11 @@ namespace LuxuryApp.Models.Platform
         public const string WhatsAppSettingsUpdated = "WhatsAppSettingsUpdated";
         public const string MetaDiagnosticExecuted = "MetaDiagnosticExecuted";
 
+        /// <summary>MFA TOTP habilitado/deshabilitado/recuperado para una cuenta de plataforma.</summary>
+        public const string MfaEnabled = "MfaEnabled";
+        public const string MfaDisabled = "MfaDisabled";
+        public const string MfaRecoveryCodeUsed = "MfaRecoveryCodeUsed";
+
         /// <summary>
         /// Alerta automática: un upgrade de plan se aplicó y quedó una suscripción recurrente
         /// anterior viva en el proveedor que debe cancelarse manualmente (TiloPay no tiene API).

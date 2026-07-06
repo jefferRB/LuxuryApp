@@ -148,6 +148,9 @@ builder.Services.Configure<SecurityStampValidatorOptions>(options =>
     options.ValidationInterval = TimeSpan.Zero;
 });
 
+builder.Services.Configure<LuxuryApp.Services.Identity.PlatformSecurityOptions>(
+    builder.Configuration.GetSection(LuxuryApp.Services.Identity.PlatformSecurityOptions.SectionName));
+
 builder.Services.AddControllersWithViews(options =>
 {
     options.ModelBinderProviders.Insert(0, new FlexibleDecimalModelBinderProvider());
@@ -157,6 +160,10 @@ builder.Services.AddControllersWithViews(options =>
         .Build();
 
     options.Filters.Add(new Microsoft.AspNetCore.Mvc.Authorization.AuthorizeFilter(policy));
+
+    // Enrolamiento obligatorio de TOTP para superadmins (S1). Inerte mientras
+    // Security:Mfa:SuperAdminEnforcement sea false.
+    options.Filters.Add<LuxuryApp.Filters.RequireMfaEnrollmentFilter>();
 });
 
 builder.Services.AddAntiforgery(options =>
