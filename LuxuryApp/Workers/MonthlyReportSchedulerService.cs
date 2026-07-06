@@ -1,4 +1,6 @@
+using LuxuryApp.Models.Platform;
 using LuxuryApp.Services.BusinessTime;
+using LuxuryApp.Services.Platform;
 using LuxuryApp.Services.Reports;
 using LuxuryApp.Services.Tenant;
 using Microsoft.Extensions.Options;
@@ -16,17 +18,20 @@ namespace LuxuryApp.Workers
         private readonly TenantExecutionService _tenantExecutionService;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly IOptionsMonitor<MonthlyReportSchedulerOptions> _options;
+        private readonly IWorkerHeartbeatService _heartbeatService;
         private readonly ILogger<MonthlyReportSchedulerService> _logger;
 
         public MonthlyReportSchedulerService(
             TenantExecutionService tenantExecutionService,
             IBusinessDateTimeProvider businessDateTimeProvider,
             IOptionsMonitor<MonthlyReportSchedulerOptions> options,
+            IWorkerHeartbeatService heartbeatService,
             ILogger<MonthlyReportSchedulerService> logger)
         {
             _tenantExecutionService = tenantExecutionService;
             _businessDateTimeProvider = businessDateTimeProvider;
             _options = options;
+            _heartbeatService = heartbeatService;
             _logger = logger;
         }
 
@@ -51,6 +56,11 @@ namespace LuxuryApp.Workers
                 {
                     _logger.LogError(ex, "Error general en MonthlyReportSchedulerService.");
                 }
+
+                await _heartbeatService.TryBeatAsync(
+                    PlatformWorkerNames.MonthlyReportScheduler,
+                    _options.CurrentValue.SchedulerEnabled ? "ciclo completado" : "disabled",
+                    stoppingToken);
 
                 await Task.Delay(GetPollingInterval(), stoppingToken);
             }

@@ -2,7 +2,7 @@
 @model LuxuryApp.Models.Platform.PlatformDashboardViewModel
 
 @{
-    ViewData["Title"] = "Plataforma";
+    ViewData["Title"] = "Tenants · Plataforma";
 }
 
 @section Styles {
@@ -16,12 +16,16 @@
                 <i class="bi bi-shield-lock"></i>
                 Modulo interno premium
             </span>
-            <h1 class="platform-title">Administracion de plataforma</h1>
+            <h1 class="platform-title">Tenants y acceso comercial</h1>
             <p class="platform-subtitle">
-                Consola interna para supervisar tenants, acceso comercial y senales clave del SaaS sin mezclar privilegios globales con el aislamiento comercial de cada cuenta.
+                Gobierno de tenants: acceso comercial, WhatsApp y actividad. Las senales de salud y colas de trabajo viven en Mission Control.
             </p>
         </div>
         <div class="platform-toolbar">
+            <a class="btn btn-outline-dark platform-btn" asp-controller="Platform" asp-action="Index">
+                <i class="bi bi-speedometer2"></i>
+                Mission Control
+            </a>
             <a class="btn btn-outline-dark platform-btn" asp-controller="PlatformUsers" asp-action="Usuarios">
                 <i class="bi bi-people"></i>
                 Usuarios

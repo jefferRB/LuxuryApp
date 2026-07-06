@@ -1,4 +1,6 @@
+using LuxuryApp.Models.Platform;
 using LuxuryApp.Services.Billing;
+using LuxuryApp.Services.Platform;
 using Microsoft.Extensions.Options;
 
 namespace LuxuryApp.Workers
@@ -12,15 +14,18 @@ namespace LuxuryApp.Workers
     {
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly IOptionsMonitor<BillingReconciliationOptions> _options;
+        private readonly IWorkerHeartbeatService _heartbeatService;
         private readonly ILogger<BillingReconciliationWorker> _logger;
 
         public BillingReconciliationWorker(
             IServiceScopeFactory scopeFactory,
             IOptionsMonitor<BillingReconciliationOptions> options,
+            IWorkerHeartbeatService heartbeatService,
             ILogger<BillingReconciliationWorker> logger)
         {
             _scopeFactory = scopeFactory;
             _options = options;
+            _heartbeatService = heartbeatService;
             _logger = logger;
         }
 
@@ -59,6 +64,11 @@ namespace LuxuryApp.Workers
                 {
                     _logger.LogError(ex, "Error general en el pase de reconciliación de Billing.");
                 }
+
+                await _heartbeatService.TryBeatAsync(
+                    PlatformWorkerNames.BillingReconciliation,
+                    _options.CurrentValue.Enabled ? "pase ejecutado" : "disabled",
+                    stoppingToken);
 
                 try
                 {

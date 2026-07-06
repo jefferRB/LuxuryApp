@@ -1,5 +1,7 @@
+using LuxuryApp.Models.Platform;
 using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Calendar;
+using LuxuryApp.Services.Platform;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Services.WhatsApp;
 
@@ -9,15 +11,18 @@ namespace LuxuryApp.Workers
     {
         private readonly TenantExecutionService _tenantExecutionService;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
+        private readonly IWorkerHeartbeatService _heartbeatService;
         private readonly ILogger<ReminderWorker> _logger;
 
         public ReminderWorker(
             TenantExecutionService tenantExecutionService,
             IBusinessDateTimeProvider businessDateTimeProvider,
+            IWorkerHeartbeatService heartbeatService,
             ILogger<ReminderWorker> logger)
         {
             _tenantExecutionService = tenantExecutionService;
             _businessDateTimeProvider = businessDateTimeProvider;
+            _heartbeatService = heartbeatService;
             _logger = logger;
         }
 
@@ -58,6 +63,8 @@ namespace LuxuryApp.Workers
                 {
                     _logger.LogError(ex, "Error general en ReminderWorker");
                 }
+
+                await _heartbeatService.TryBeatAsync(PlatformWorkerNames.Reminder, "ciclo completado", stoppingToken);
 
                 await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
             }

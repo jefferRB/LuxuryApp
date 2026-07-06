@@ -103,9 +103,9 @@
             </div>
         </div>
         <div class="platform-toolbar">
-            <a class="btn btn-outline-dark platform-btn" asp-controller="Platform" asp-action="Index">
+            <a class="btn btn-outline-dark platform-btn" asp-controller="Platform" asp-action="Tenants">
                 <i class="bi bi-arrow-left"></i>
-                Volver a Plataforma
+                Volver a Tenants
             </a>
             <a class="btn btn-outline-dark platform-btn"
                asp-controller="PlatformUsers" asp-action="Usuarios"
@@ -456,7 +456,7 @@
                             <input type="hidden" name="tenantId" value="@Model.TenantId" />
                         </form>
                         <a class="btn btn-outline-dark btn-sm platform-btn"
-                           asp-controller="Platform" asp-action="Index">
+                           asp-controller="Platform" asp-action="Tenants">
                             <i class="bi bi-sliders"></i>
                             Configurar en Plataforma
                         </a>

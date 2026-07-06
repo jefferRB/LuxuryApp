@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using LuxuryApp.Models.Platform;
+using LuxuryApp.Models.Platform.MissionControl;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Models.WhatsApp;
 using LuxuryApp.Services.Identity;
@@ -27,6 +28,7 @@ namespace LuxuryApp.Controllers.Platform
         private readonly IPlatformMetricsService _metricsService;
         private readonly IPlatformHealthService _healthService;
         private readonly IPlatformWhatsAppStatusService _whatsAppStatusService;
+        private readonly IPlatformMissionControlService _missionControlService;
 
         public PlatformController(
             ApplicationDbContext context,
@@ -37,7 +39,8 @@ namespace LuxuryApp.Controllers.Platform
             IPlatformAuditService auditService,
             IPlatformMetricsService metricsService,
             IPlatformHealthService healthService,
-            IPlatformWhatsAppStatusService whatsAppStatusService)
+            IPlatformWhatsAppStatusService whatsAppStatusService,
+            IPlatformMissionControlService missionControlService)
         {
             _context = context;
             _commercialAccessResolver = commercialAccessResolver;
@@ -48,6 +51,7 @@ namespace LuxuryApp.Controllers.Platform
             _metricsService = metricsService;
             _healthService = healthService;
             _whatsAppStatusService = whatsAppStatusService;
+            _missionControlService = missionControlService;
         }
 
         /// <summary>
@@ -65,8 +69,28 @@ namespace LuxuryApp.Controllers.Platform
             }
         }
 
+        /// <summary>
+        /// Mission Control: nueva pantalla principal de la consola. Señales de salud,
+        /// colas de trabajo y pulso del día (arquitectura: docs/arquitectura-consola-plataforma.md §5.3).
+        /// </summary>
         [HttpGet]
-        public async Task<IActionResult> Index(CancellationToken cancellationToken)
+        public async Task<IActionResult> Index(bool refresh = false, CancellationToken cancellationToken = default)
+        {
+            var snapshot = await _missionControlService.GetSnapshotAsync(refresh, cancellationToken);
+            return View(snapshot);
+        }
+
+        /// <summary>Misma fotografía en JSON para monitoreo externo autenticado (patrón BillingHealth).</summary>
+        [HttpGet("/Platform/MissionControl/json")]
+        public async Task<IActionResult> MissionControlJson(CancellationToken cancellationToken)
+        {
+            var snapshot = await _missionControlService.GetSnapshotAsync(cancellationToken: cancellationToken);
+            return Json(snapshot);
+        }
+
+        /// <summary>Gobierno de tenants (antes la portada de /Platform; el contenido no cambió).</summary>
+        [HttpGet]
+        public async Task<IActionResult> Tenants(CancellationToken cancellationToken)
         {
             var plans = await _context.Planes
                 .AsNoTracking()
@@ -378,7 +402,7 @@ namespace LuxuryApp.Controllers.Platform
             if (!ModelState.IsValid)
             {
                 TempData["PlatformError"] = "Revisa la configuracion de WhatsApp. El limite no puede ser negativo y la zona horaria es obligatoria.";
-                return RedirectToAction(nameof(Index));
+                return RedirectToAction(nameof(Tenants));
             }
 
             var tenantExists = await _context.Tenants
@@ -395,7 +419,7 @@ namespace LuxuryApp.Controllers.Platform
                 if (string.IsNullOrWhiteSpace(whatsappSettings.ManualAssignmentObservation))
                 {
                     TempData["PlatformError"] = "La observacion es obligatoria al cambiar el paquete WhatsApp.";
-                    return RedirectToAction(nameof(Index));
+                    return RedirectToAction(nameof(Tenants));
                 }
 
                 await _tenantExecutionService.RunForTenantAsync(
@@ -449,7 +473,7 @@ namespace LuxuryApp.Controllers.Platform
             }, cancellationToken);
 
             TempData["PlatformSuccess"] = "Configuracion WhatsApp del tenant actualizada.";
-            return RedirectToAction(nameof(Index));
+            return RedirectToAction(nameof(Tenants));
         }
 
         [HttpPost]
@@ -529,7 +553,7 @@ namespace LuxuryApp.Controllers.Platform
                 if (!hasValidPlan)
                 {
                     TempData["PlatformError"] = "Los tenants exentos o internos requieren un plan forzado activo.";
-                    return RedirectToAction(nameof(Index));
+                    return RedirectToAction(nameof(Tenants));
                 }
             }
 
@@ -560,7 +584,7 @@ namespace LuxuryApp.Controllers.Platform
             }, cancellationToken);
 
             TempData["PlatformSuccess"] = "Configuracion comercial del tenant actualizada.";
-            return RedirectToAction(nameof(Index));
+            return RedirectToAction(nameof(Tenants));
         }
 
         [HttpGet]

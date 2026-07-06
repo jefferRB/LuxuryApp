@@ -303,6 +303,9 @@ builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformMetricsService, 
 builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformHealthService, LuxuryApp.Services.Platform.PlatformHealthService>();
 builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformWhatsAppStatusService, LuxuryApp.Services.Platform.PlatformWhatsAppStatusService>();
 builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformTenantProfileService, LuxuryApp.Services.Platform.PlatformTenantProfileService>();
+// Mission Control: heartbeat singleton (crea su propio scope EF) + snapshot cacheado de señales/colas.
+builder.Services.AddSingleton<LuxuryApp.Services.Platform.IWorkerHeartbeatService, LuxuryApp.Services.Platform.WorkerHeartbeatService>();
+builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformMissionControlService, LuxuryApp.Services.Platform.PlatformMissionControlService>();
 builder.Services.AddScoped<SaaSPaymentService>();
 builder.Services.AddScoped<PaymentProviderResolver>();
 

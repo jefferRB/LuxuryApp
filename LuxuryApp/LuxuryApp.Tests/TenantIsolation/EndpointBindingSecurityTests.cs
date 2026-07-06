@@ -634,7 +634,10 @@ namespace LuxuryApp.Tests.TenantIsolation
                 Path.Combine("Services", "Billing", "BillingReconciliationService.cs"),
                 // Health check de Billing (SuperAdmin): agregados cross-tenant deliberados,
                 // gateado por PlatformSuperAdmin en PlatformBillingHealthController.
-                Path.Combine("Services", "Billing", "BillingHealthService.cs")
+                Path.Combine("Services", "Billing", "BillingHealthService.cs"),
+                // Mission Control (SuperAdmin): señales/colas cross-tenant deliberadas,
+                // gateado por PlatformSuperAdmin en PlatformController.
+                Path.Combine("Services", "Platform", "PlatformMissionControlService.cs")
             };
 
             var targetRoots = new[]

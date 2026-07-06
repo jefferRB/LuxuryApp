@@ -108,7 +108,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new NullPlatformAuditService(),
                 new NullPlatformMetricsService(),
                 new NullPlatformHealthService(),
-                new NullPlatformWhatsAppStatusService());
+                new NullPlatformWhatsAppStatusService(),
+                new NullPlatformMissionControlService());
             ControllerTestSupport.AttachHttpContext(
                 controller,
                 ControllerTestSupport.BuildTenantPrincipal("platform-user", Guid.NewGuid(), isPlatformSuperAdmin: true));
@@ -126,7 +127,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 CancellationToken.None);
 
             var redirect = Assert.IsType<RedirectToActionResult>(result);
-            Assert.Equal(nameof(PlatformController.Index), redirect.ActionName);
+            // Tras el rename de la Ola Mission Control, guardar configuración devuelve a la tabla de tenants.
+            Assert.Equal(nameof(PlatformController.Tenants), redirect.ActionName);
 
             var settings = await context.TenantWhatsAppSettings.IgnoreQueryFilters().AsNoTracking().SingleAsync();
             Assert.True(settings.IsEnabled);
@@ -172,7 +174,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new NullPlatformAuditService(),
                 new NullPlatformMetricsService(),
                 new NullPlatformHealthService(),
-                new NullPlatformWhatsAppStatusService());
+                new NullPlatformWhatsAppStatusService(),
+                new NullPlatformMissionControlService());
             ControllerTestSupport.AttachHttpContext(
                 controller,
                 ControllerTestSupport.BuildTenantPrincipal("platform-user", Guid.NewGuid(), isPlatformSuperAdmin: true));
@@ -302,7 +305,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new NullPlatformAuditService(),
                 new NullPlatformMetricsService(),
                 new NullPlatformHealthService(),
-                new NullPlatformWhatsAppStatusService())
+                new NullPlatformWhatsAppStatusService(),
+                new NullPlatformMissionControlService())
             {
                 ControllerContext = new ControllerContext
                 {
@@ -539,6 +543,14 @@ namespace LuxuryApp.Tests.TenantIsolation
             public void SaveTempData(HttpContext context, IDictionary<string, object> values)
             {
             }
+        }
+
+        private sealed class NullPlatformMissionControlService : LuxuryApp.Services.Platform.IPlatformMissionControlService
+        {
+            public Task<LuxuryApp.Models.Platform.MissionControl.MissionControlSnapshotViewModel> GetSnapshotAsync(
+                bool forceRefresh = false,
+                CancellationToken cancellationToken = default) =>
+                Task.FromResult(new LuxuryApp.Models.Platform.MissionControl.MissionControlSnapshotViewModel());
         }
     }
 }

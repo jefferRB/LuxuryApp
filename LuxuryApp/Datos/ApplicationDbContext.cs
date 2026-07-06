@@ -922,6 +922,14 @@ namespace ProyectoIdentity.Datos
                     .HasDatabaseName("IX_PlatformAuditLogs_Action");
             });
 
+            modelBuilder.Entity<PlatformWorkerHeartbeat>(entity =>
+            {
+                // Latidos de workers. Cross-tenant, fuera del RLS (no es ITenantEntity).
+                entity.HasKey(h => h.WorkerName);
+                entity.Property(h => h.WorkerName).HasMaxLength(100);
+                entity.Property(h => h.LastCycleSummary).HasMaxLength(300);
+            });
+
             modelBuilder.Entity<Tenant>(entity =>
             {
                 entity.Property(t => t.Nombre).IsRequired();
@@ -1524,6 +1532,7 @@ namespace ProyectoIdentity.Datos
         public DbSet<TenantMonthlyReportEmailLog> TenantMonthlyReportEmailLogs { get; set; }
 
         public DbSet<PlatformAuditLog> PlatformAuditLogs { get; set; }
+        public DbSet<PlatformWorkerHeartbeat> PlatformWorkerHeartbeats { get; set; }
         public DbSet<PlanChangeIntent> PlanChangeIntents { get; set; }
 
 

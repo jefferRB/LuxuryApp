@@ -35,6 +35,12 @@ namespace LuxuryApp.Models.Legal
                 </section>
                 """;
 
+            // Los raw string literals heredan los line endings del archivo fuente (CRLF en
+            // checkouts Windows, LF en Linux). Sin normalizar, el hash del contrato cambia
+            // según la máquina que genere una migración y EF re-emite un UpdateData que
+            // alteraría el documento legal en producción. Producción tiene la versión LF.
+            contentHtml = contentHtml.Replace("\r\n", "\n");
+
             var now = InitialEffectiveFromUtc;
 
             return new ContractDocument
