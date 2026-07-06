@@ -9,7 +9,7 @@ namespace LuxuryApp.Models.Identity
         //todas las validaciones con buen manejo
         public string Email { get; set; } = string.Empty;
         [Required(ErrorMessage = "The Password is required ")]
-        [StringLength(50, ErrorMessage = "The {0} must be at least {2} characters long", MinimumLength = 5)]
+        [StringLength(50, ErrorMessage = "The {0} must be at least {2} characters long", MinimumLength = 8)]
         [DataType(DataType.Password)]
         [Display(Name = "Contraseña")] // Used to choose the name to display
         public string Password { get; set; } = string.Empty;

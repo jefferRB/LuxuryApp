@@ -11,7 +11,7 @@ namespace LuxuryApp.Models.Identity
         public string Token { get; set; } = string.Empty;
 
         [Required(ErrorMessage = "La contrasena es requerida.")]
-        [StringLength(50, MinimumLength = 5, ErrorMessage = "La contrasena debe tener entre 5 y 50 caracteres.")]
+        [StringLength(50, MinimumLength = 8, ErrorMessage = "La contrasena debe tener entre 8 y 50 caracteres.")]
         [DataType(DataType.Password)]
         [Display(Name = "Nueva contrasena")]
         public string Password { get; set; } = string.Empty;

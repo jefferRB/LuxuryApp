@@ -79,7 +79,8 @@ builder.Services.AddDbContext<ApplicationDbContext>((serviceProvider, options) =
 builder.Services
     .AddIdentity<AppUsuario, IdentityRole>()
     .AddEntityFrameworkStores<ApplicationDbContext>()
-    .AddDefaultTokenProviders();
+    .AddDefaultTokenProviders()
+    .AddPasswordValidator<SuperAdminPasswordValidator>();
 
 builder.Services.AddAuthorization(options =>
 {
@@ -135,10 +136,11 @@ builder.Services.ConfigureApplicationCookie(options =>
 
 builder.Services.Configure<IdentityOptions>(options =>
 {
-    options.Password.RequiredLength = 5;
+    // Mínimo global 8; las cuentas de plataforma exigen 12 vía SuperAdminPasswordValidator.
+    options.Password.RequiredLength = 8;
     options.Password.RequireUppercase = true;
-    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(1);
-    options.Lockout.MaxFailedAccessAttempts = 3;
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+    options.Lockout.MaxFailedAccessAttempts = 5;
 });
 
 builder.Services.Configure<SecurityStampValidatorOptions>(options =>

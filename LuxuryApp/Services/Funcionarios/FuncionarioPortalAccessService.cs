@@ -413,7 +413,7 @@ namespace LuxuryApp.Services.Funcionarios
 
         private static string GenerarPasswordSegura()
         {
-            // Cumple la política (5+ chars, mayúscula). Aleatoria; nunca se muestra.
+            // Cumple la política (8+ chars, mayúscula). Aleatoria; nunca se muestra.
             const string mayus = "ABCDEFGHJKLMNPQRSTUVWXYZ";
             const string minus = "abcdefghijkmnpqrstuvwxyz";
             const string nums = "23456789";
