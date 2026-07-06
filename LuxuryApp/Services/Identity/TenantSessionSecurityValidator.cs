@@ -93,6 +93,16 @@ namespace LuxuryApp.Services.Identity
                     return false;
                 }
 
+                var superAdminClaim = principal.FindFirstValue(CustomClaimTypes.PlatformSuperAdmin);
+                if (string.Equals(superAdminClaim, bool.TrueString, StringComparison.OrdinalIgnoreCase)
+                    && !userState.IsPlatformSuperAdmin)
+                {
+                    _logger.LogWarning(
+                        "Sesion rechazada para UserId {UserId} porque el claim platform_super_admin fue revocado en la base de datos.",
+                        userId);
+                    return false;
+                }
+
                 if (userState.IsPlatformSuperAdmin)
                 {
                     return true;

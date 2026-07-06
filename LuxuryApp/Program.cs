@@ -112,21 +112,24 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.SlidingExpiration = true;
     options.Events.OnValidatePrincipal = async context =>
     {
+        // El validator debe correr ANTES que el security stamp validator: con
+        // ValidationInterval = Zero el stamp validator regenera el principal desde la BD
+        // en cada request, y los checks de claims obsoletos (tenant desalineado,
+        // platform_super_admin revocado) nunca verían la cookie original.
+        if (context.Principal?.Identity?.IsAuthenticated == true)
+        {
+            var validator = context.HttpContext.RequestServices.GetRequiredService<TenantSessionSecurityValidator>();
+            var isValid = await validator.ValidateAsync(context.Principal, context.HttpContext.RequestAborted);
+
+            if (!isValid)
+            {
+                context.RejectPrincipal();
+                await context.HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
+                return;
+            }
+        }
+
         await SecurityStampValidator.ValidatePrincipalAsync(context);
-
-        if (context.Principal?.Identity?.IsAuthenticated != true)
-        {
-            return;
-        }
-
-        var validator = context.HttpContext.RequestServices.GetRequiredService<TenantSessionSecurityValidator>();
-        var isValid = await validator.ValidateAsync(context.Principal, context.HttpContext.RequestAborted);
-
-        if (!isValid)
-        {
-            context.RejectPrincipal();
-            await context.HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
-        }
     };
 });
 

@@ -102,6 +102,94 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
+        public async Task TenantSessionSecurityValidator_ShouldRejectRevokedPlatformSuperAdminClaim()
+        {
+            var tenantProvider = new TestTenantProvider();
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var tenantId = Guid.NewGuid();
+            var userId = Guid.NewGuid().ToString("N");
+
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = "Tenant activo",
+                Activo = true
+            });
+
+            context.Users.Add(new AppUsuario
+            {
+                Id = userId,
+                UserName = "exadmin@test.local",
+                NormalizedUserName = "EXADMIN@TEST.LOCAL",
+                Email = "exadmin@test.local",
+                NormalizedEmail = "EXADMIN@TEST.LOCAL",
+                TenantId = tenantId,
+                State = true,
+                IsPlatformSuperAdmin = false,
+                SecurityStamp = Guid.NewGuid().ToString("N")
+            });
+
+            await context.SaveChangesAsync();
+
+            // Cookie viva emitida cuando el usuario aún era superadmin: el claim dice True,
+            // la BD ya dice false. Debe expulsarse en el siguiente request, no al expirar.
+            var principal = BuildPrincipal(userId, tenantId, isPlatformSuperAdmin: true);
+            var validator = new TenantSessionSecurityValidator(
+                context,
+                NullLogger<TenantSessionSecurityValidator>.Instance);
+
+            var isValid = await validator.ValidateAsync(principal);
+
+            Assert.False(isValid);
+        }
+
+        [Fact]
+        public async Task TenantSessionSecurityValidator_ShouldAllowCurrentPlatformSuperAdmin()
+        {
+            var tenantProvider = new TestTenantProvider();
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var tenantId = Guid.NewGuid();
+            var userId = Guid.NewGuid().ToString("N");
+
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = "Tenant plataforma",
+                Activo = true
+            });
+
+            context.Users.Add(new AppUsuario
+            {
+                Id = userId,
+                UserName = "superadmin@test.local",
+                NormalizedUserName = "SUPERADMIN@TEST.LOCAL",
+                Email = "superadmin@test.local",
+                NormalizedEmail = "SUPERADMIN@TEST.LOCAL",
+                TenantId = tenantId,
+                State = true,
+                IsPlatformSuperAdmin = true,
+                SecurityStamp = Guid.NewGuid().ToString("N")
+            });
+
+            await context.SaveChangesAsync();
+
+            var principal = BuildPrincipal(userId, tenantId, isPlatformSuperAdmin: true);
+            var validator = new TenantSessionSecurityValidator(
+                context,
+                NullLogger<TenantSessionSecurityValidator>.Instance);
+
+            var isValid = await validator.ValidateAsync(principal);
+
+            Assert.True(isValid);
+        }
+
+        [Fact]
         public async Task TenantSessionSecurityValidator_ShouldTreatExpectedCancellationAsNonFailure()
         {
             var tenantProvider = new TestTenantProvider();
