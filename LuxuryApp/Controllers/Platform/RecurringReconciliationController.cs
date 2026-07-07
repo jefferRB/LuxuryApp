@@ -19,33 +19,29 @@ namespace LuxuryApp.Controllers.Platform
         private readonly ApplicationDbContext _context;
         private readonly SaaSPaymentService _paymentService;
         private readonly UserManager<AppUsuario> _userManager;
-        private readonly IWebHostEnvironment _environment;
         private readonly ILogger<RecurringReconciliationController> _logger;
 
         public RecurringReconciliationController(
             ApplicationDbContext context,
             SaaSPaymentService paymentService,
             UserManager<AppUsuario> userManager,
-            IWebHostEnvironment environment,
             ILogger<RecurringReconciliationController> logger)
         {
             _context = context;
             _paymentService = paymentService;
             _userManager = userManager;
-            _environment = environment;
             _logger = logger;
         }
 
         [HttpGet("")]
         public async Task<IActionResult> Index(Guid? paymentId = null, CancellationToken cancellationToken = default)
         {
-            var access = ResolveAccess();
-            if (!access.IsAllowed)
+            if (!HasPlatformSuperAdminClaim())
             {
                 return Forbid();
             }
 
-            var model = await BuildPageModelAsync(access, paymentId, approvalForm: null, cancellationToken);
+            var model = await BuildPageModelAsync(paymentId, approvalForm: null, cancellationToken);
             return View(model);
         }
 
@@ -56,15 +52,14 @@ namespace LuxuryApp.Controllers.Platform
             PlatformRecurringApprovalFormViewModel approvalForm,
             CancellationToken cancellationToken = default)
         {
-            var access = ResolveAccess();
-            if (!access.IsAllowed)
+            if (!HasPlatformSuperAdminClaim())
             {
                 return Forbid();
             }
 
             if (!ModelState.IsValid)
             {
-                var invalidModel = await BuildPageModelAsync(access, approvalForm.PaymentId, approvalForm, cancellationToken);
+                var invalidModel = await BuildPageModelAsync(approvalForm.PaymentId, approvalForm, cancellationToken);
                 return View("Index", invalidModel);
             }
 
@@ -74,7 +69,7 @@ namespace LuxuryApp.Controllers.Platform
                 .Include(payment => payment.Plan)
                 .FirstOrDefaultAsync(payment => payment.Id == approvalForm.PaymentId, cancellationToken);
 
-            if (selectedPayment is null || !CanAccessPayment(access, selectedPayment.TenantId))
+            if (selectedPayment is null)
             {
                 return NotFound();
             }
@@ -115,43 +110,25 @@ namespace LuxuryApp.Controllers.Platform
             catch (InvalidOperationException ex)
             {
                 ModelState.AddModelError(string.Empty, ex.Message);
-                var errorModel = await BuildPageModelAsync(access, approvalForm.PaymentId, approvalForm, cancellationToken);
+                var errorModel = await BuildPageModelAsync(approvalForm.PaymentId, approvalForm, cancellationToken);
                 return View("Index", errorModel);
             }
         }
 
-        private AccessContext ResolveAccess()
-        {
-            var isPlatformSuperAdmin = User.HasClaim(CustomClaimTypes.PlatformSuperAdmin, bool.TrueString);
-            if (isPlatformSuperAdmin)
-            {
-                return new AccessContext(true, true, false, null);
-            }
-
-            if (!_environment.IsDevelopment() || !User.IsInRole("Administrador"))
-            {
-                return new AccessContext(false, false, false, null);
-            }
-
-            var tenantClaim = User.FindFirstValue(CustomClaimTypes.TenantId);
-            if (!Guid.TryParse(tenantClaim, out var tenantId) || tenantId == Guid.Empty)
-            {
-                return new AccessContext(false, false, false, null);
-            }
-
-            return new AccessContext(true, false, true, tenantId);
-        }
-
-        private bool CanAccessPayment(AccessContext access, Guid tenantId) =>
-            access.IsPlatformSuperAdmin || (access.TenantId.HasValue && access.TenantId.Value == tenantId);
+        /// <summary>
+        /// La policy PlatformSuperAdmin de la clase ya bloquea a cualquier otro usuario;
+        /// este check dentro de la acción es defensa en profundidad, no una segunda vía
+        /// de acceso (la rama Development+Administrador que existía aquí era inalcanzable).
+        /// </summary>
+        private bool HasPlatformSuperAdminClaim() =>
+            User.HasClaim(CustomClaimTypes.PlatformSuperAdmin, bool.TrueString);
 
         private async Task<PlatformRecurringReconciliationPageViewModel> BuildPageModelAsync(
-            AccessContext access,
             Guid? selectedPaymentId,
             PlatformRecurringApprovalFormViewModel? approvalForm,
             CancellationToken cancellationToken)
         {
-            var paymentsQuery = _context.PagosSuscripcion
+            var payments = await _context.PagosSuscripcion
                 .IgnoreQueryFilters()
                 .AsNoTracking()
                 .Include(payment => payment.Plan)
@@ -159,14 +136,7 @@ namespace LuxuryApp.Controllers.Platform
                     payment.Proveedor == PaymentProviderType.Tilopay &&
                     payment.TilopayRecurringPlanId.HasValue &&
                     (payment.Estado == EstadoPagoProveedor.Pendiente ||
-                     payment.Estado == EstadoPagoProveedor.ManualReview));
-
-            if (access.TenantId.HasValue)
-            {
-                paymentsQuery = paymentsQuery.Where(payment => payment.TenantId == access.TenantId.Value);
-            }
-
-            var payments = await paymentsQuery
+                     payment.Estado == EstadoPagoProveedor.ManualReview))
                 .OrderByDescending(payment => payment.FechaCreacionUtc)
                 .Take(50)
                 .ToListAsync(cancellationToken);
@@ -179,11 +149,6 @@ namespace LuxuryApp.Controllers.Platform
                     .AsNoTracking()
                     .Include(payment => payment.Plan)
                     .FirstOrDefaultAsync(payment => payment.Id == selectedPaymentId.Value, cancellationToken);
-
-                if (selectedPayment is not null && !CanAccessPayment(access, selectedPayment.TenantId))
-                {
-                    selectedPayment = null;
-                }
             }
 
             selectedPayment ??= payments.FirstOrDefault();
@@ -236,9 +201,6 @@ namespace LuxuryApp.Controllers.Platform
 
             return new PlatformRecurringReconciliationPageViewModel
             {
-                IsDevelopmentAccess = access.IsDevelopmentAccess,
-                IsPlatformSuperAdmin = access.IsPlatformSuperAdmin,
-                IsTenantScopedView = access.TenantId.HasValue,
                 Items = items,
                 SelectedItem = selectedItem,
                 ApprovalForm = form
@@ -278,12 +240,6 @@ namespace LuxuryApp.Controllers.Platform
                 IsAddon = payment.Plan?.Codigo is { } planCode && PlanCodes.WhatsAppAddons.Contains(planCode, StringComparer.OrdinalIgnoreCase)
             };
         }
-
-        private sealed record AccessContext(
-            bool IsAllowed,
-            bool IsPlatformSuperAdmin,
-            bool IsDevelopmentAccess,
-            Guid? TenantId);
 
         private sealed record TenantUserLookup(Guid TenantId, string UserId, string? Email);
     }

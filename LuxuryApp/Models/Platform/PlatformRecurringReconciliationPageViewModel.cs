@@ -5,9 +5,6 @@ namespace LuxuryApp.Models.Platform
 {
     public sealed class PlatformRecurringReconciliationPageViewModel
     {
-        public bool IsDevelopmentAccess { get; init; }
-        public bool IsPlatformSuperAdmin { get; init; }
-        public bool IsTenantScopedView { get; init; }
         public IReadOnlyCollection<PlatformRecurringReconciliationItemViewModel> Items { get; init; } = Array.Empty<PlatformRecurringReconciliationItemViewModel>();
         public PlatformRecurringReconciliationItemViewModel? SelectedItem { get; init; }
         public PlatformRecurringApprovalFormViewModel ApprovalForm { get; init; } = new();

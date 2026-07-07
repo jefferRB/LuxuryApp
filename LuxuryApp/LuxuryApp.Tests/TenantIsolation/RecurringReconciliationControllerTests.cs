@@ -29,7 +29,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var userManager = CreateUserManager(context);
 
             var tenantId = await SeedPendingRecurringAsync(context);
-            var controller = CreateController(context, userManager, environmentName: "Development");
+            var controller = CreateController(context, userManager);
             ControllerTestSupport.AttachHttpContext(controller, BuildPrincipal("user-1", tenantId));
 
             var result = await controller.Index();
@@ -38,28 +38,26 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
-        public async Task Index_ShouldAllowDevelopmentAdministratorWithinOwnTenant()
+        public async Task Index_ShouldForbidTenantAdministratorWithoutSuperAdminClaim()
         {
+            // La rama Development+Administrador fue eliminada (S10): el rol de tenant
+            // nunca fue una vía de acceso real porque la policy de clase ya bloqueaba.
             var (context, connection) = CreateSystemContext();
             using var disposableContext = context;
             using var disposableConnection = connection;
             using var userManager = CreateUserManager(context);
 
             var tenantId = await SeedPendingRecurringAsync(context);
-            var controller = CreateController(context, userManager, environmentName: "Development");
+            var controller = CreateController(context, userManager);
             ControllerTestSupport.AttachHttpContext(controller, BuildPrincipal("admin-1", tenantId, role: "Administrador"));
 
             var result = await controller.Index();
 
-            var view = Assert.IsType<ViewResult>(result);
-            var model = Assert.IsAssignableFrom<LuxuryApp.Models.Platform.PlatformRecurringReconciliationPageViewModel>(view.Model);
-            Assert.True(model.IsDevelopmentAccess);
-            Assert.True(model.IsTenantScopedView);
-            Assert.Single(model.Items);
+            Assert.IsType<ForbidResult>(result);
         }
 
         [Fact]
-        public async Task Index_ShouldAllowPlatformSuperAdminOutsideDevelopment()
+        public async Task Index_ShouldAllowPlatformSuperAdmin()
         {
             var (context, connection) = CreateSystemContext();
             using var disposableContext = context;
@@ -67,22 +65,19 @@ namespace LuxuryApp.Tests.TenantIsolation
             using var userManager = CreateUserManager(context);
 
             var tenantId = await SeedPendingRecurringAsync(context);
-            var controller = CreateController(context, userManager, environmentName: "Production");
+            var controller = CreateController(context, userManager);
             ControllerTestSupport.AttachHttpContext(controller, BuildPrincipal("superadmin-1", tenantId, isPlatformSuperAdmin: true));
 
             var result = await controller.Index();
 
             var view = Assert.IsType<ViewResult>(result);
             var model = Assert.IsAssignableFrom<LuxuryApp.Models.Platform.PlatformRecurringReconciliationPageViewModel>(view.Model);
-            Assert.True(model.IsPlatformSuperAdmin);
-            Assert.False(model.IsTenantScopedView);
             Assert.Single(model.Items);
         }
 
         private static RecurringReconciliationController CreateController(
             ApplicationDbContext context,
-            UserManager<AppUsuario> userManager,
-            string environmentName)
+            UserManager<AppUsuario> userManager)
         {
             var cache = new MemoryCache(new MemoryCacheOptions());
             var repeatOptions = new TilopayRepeatOptions
@@ -129,10 +124,6 @@ namespace LuxuryApp.Tests.TenantIsolation
                 context,
                 service,
                 userManager,
-                new TestWebHostEnvironment
-                {
-                    EnvironmentName = environmentName
-                },
                 NullLogger<RecurringReconciliationController>.Instance);
         }
 

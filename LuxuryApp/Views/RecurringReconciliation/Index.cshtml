@@ -25,18 +25,8 @@
             </p>
         </div>
         <div class="text-muted small">
-            @if (Model.IsPlatformSuperAdmin)
-            {
-                <span class="badge text-bg-dark">PlatformSuperAdmin</span>
-            }
-            else if (Model.IsDevelopmentAccess)
-            {
-                <span class="badge text-bg-info">Development/Admin</span>
-            }
-            @if (Model.IsTenantScopedView)
-            {
-                <span class="badge text-bg-secondary">Vista filtrada a tu tenant</span>
-            }
+            @* Único acceso posible: la policy de clase exige PlatformSuperAdmin. *@
+            <span class="badge text-bg-dark">PlatformSuperAdmin</span>
         </div>
     </div>
 
