@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using LuxuryApp.Models.Platform;
 using LuxuryApp.Models.Platform.MissionControl;
 using LuxuryApp.Models.SaaS;
@@ -56,18 +57,10 @@ namespace LuxuryApp.Controllers.Platform
 
         /// <summary>
         /// Audita una acción de plataforma sin romper el flujo si la bitácora falla.
+        /// El fallo queda en el log de la aplicación (S6), nunca tragado en silencio.
         /// </summary>
-        private async Task SafeAuditAsync(PlatformAuditEntry entry, CancellationToken cancellationToken)
-        {
-            try
-            {
-                await _auditService.LogAsync(entry, cancellationToken);
-            }
-            catch
-            {
-                // La auditoría no debe tumbar una acción comercial/WhatsApp que ya funcionó.
-            }
-        }
+        private Task SafeAuditAsync(PlatformAuditEntry entry, CancellationToken cancellationToken) =>
+            _auditService.TryLogAsync(entry, cancellationToken);
 
         /// <summary>
         /// Mission Control: nueva pantalla principal de la consola. Señales de salud,
@@ -661,9 +654,19 @@ namespace LuxuryApp.Controllers.Platform
                 return NotFound();
             }
 
+            var estadoAnterior = code.Activo;
             code.Activo = !code.Activo;
             code.FechaActualizacionUtc = DateTime.UtcNow;
             await _context.SaveChangesAsync(cancellationToken);
+
+            await SafeAuditAsync(new PlatformAuditEntry
+            {
+                Action = PlatformAuditActions.PromotionalCodeToggled,
+                EntityType = PlatformAuditEntityTypes.PromotionalCode,
+                EntityId = code.Id.ToString(),
+                BeforeJson = JsonSerializer.Serialize(new { code.Codigo, Activo = estadoAnterior }),
+                AfterJson = JsonSerializer.Serialize(new { code.Codigo, code.Activo })
+            }, cancellationToken);
 
             TempData["PlatformSuccess"] = code.Activo
                 ? "Codigo promocional activado."

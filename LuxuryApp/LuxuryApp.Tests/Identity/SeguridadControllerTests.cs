@@ -286,6 +286,9 @@ namespace LuxuryApp.Tests.Identity
                 return Task.CompletedTask;
             }
 
+            public Task TryLogAsync(PlatformAuditEntry entry, CancellationToken cancellationToken = default) =>
+                LogAsync(entry, cancellationToken);
+
             public Task<IReadOnlyList<PlatformAuditLog>> GetRecentAsync(int take = 100, CancellationToken cancellationToken = default) =>
                 Task.FromResult<IReadOnlyList<PlatformAuditLog>>(Array.Empty<PlatformAuditLog>());
 

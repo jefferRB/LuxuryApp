@@ -468,9 +468,104 @@ namespace LuxuryApp.Tests.TenantIsolation
                     PhoneNumberBelongsToConfiguredWaba: true));
         }
 
+        [Fact]
+        public async Task TogglePromotionalCode_ShouldAuditBeforeAndAfterState()
+        {
+            var tenantProvider = new TestTenantProvider();
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var planId = Guid.NewGuid();
+            context.Planes.Add(new Plan
+            {
+                Id = planId,
+                Nombre = "Plan audit",
+                PrecioMensual = 10,
+                Moneda = "CRC",
+                Activo = true
+            });
+
+            var codeId = Guid.NewGuid();
+            context.PromotionalCodes.Add(new PromotionalCode
+            {
+                Id = codeId,
+                Codigo = "AUDIT-TEST",
+                Activo = true,
+                PlanId = planId
+            });
+            await context.SaveChangesAsync();
+
+            var cache = new MemoryCache(new MemoryCacheOptions());
+            var accessCache = new TenantCommercialAccessCache(cache);
+            var auditService = new RecordingPlatformAuditService();
+            using var provider = new ServiceCollection().BuildServiceProvider();
+
+            var controller = new PlatformController(
+                context,
+                CreateResolver(context, cache, accessCache),
+                accessCache,
+                new TenantExecutionService(
+                    provider.GetRequiredService<IServiceScopeFactory>(),
+                    NullLogger<TenantExecutionService>.Instance),
+                new StubMetaWhatsAppClient(),
+                auditService,
+                new NullPlatformMetricsService(),
+                new NullPlatformHealthService(),
+                new NullPlatformWhatsAppStatusService(),
+                new NullPlatformMissionControlService());
+            ControllerTestSupport.AttachHttpContext(
+                controller,
+                ControllerTestSupport.BuildTenantPrincipal("platform-user", Guid.NewGuid(), isPlatformSuperAdmin: true));
+
+            var result = await controller.TogglePromotionalCode(codeId, CancellationToken.None);
+
+            Assert.IsType<RedirectToActionResult>(result);
+
+            var updated = await context.PromotionalCodes.SingleAsync(code => code.Id == codeId);
+            Assert.False(updated.Activo);
+
+            var entry = Assert.Single(auditService.Entries);
+            Assert.Equal(PlatformAuditActions.PromotionalCodeToggled, entry.Action);
+            Assert.Equal(PlatformAuditEntityTypes.PromotionalCode, entry.EntityType);
+            Assert.Equal(codeId.ToString(), entry.EntityId);
+            Assert.Contains("\"Activo\":true", entry.BeforeJson);
+            Assert.Contains("\"Activo\":false", entry.AfterJson);
+            Assert.Contains("AUDIT-TEST", entry.BeforeJson);
+        }
+
+        private sealed class RecordingPlatformAuditService : IPlatformAuditService
+        {
+            public List<PlatformAuditEntry> Entries { get; } = new();
+
+            public Task LogAsync(PlatformAuditEntry entry, CancellationToken cancellationToken = default)
+            {
+                Entries.Add(entry);
+                return Task.CompletedTask;
+            }
+
+            public Task TryLogAsync(PlatformAuditEntry entry, CancellationToken cancellationToken = default) =>
+                LogAsync(entry, cancellationToken);
+
+            public Task<IReadOnlyList<PlatformAuditLog>> GetRecentAsync(int take = 100, CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<PlatformAuditLog>>(Array.Empty<PlatformAuditLog>());
+
+            public Task<IReadOnlyList<PlatformAuditLog>> GetByTenantAsync(Guid tenantId, int take = 100, CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<PlatformAuditLog>>(Array.Empty<PlatformAuditLog>());
+
+            public Task<IReadOnlyList<PlatformAuditLog>> GetByUserAsync(string targetUserId, int take = 100, CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<PlatformAuditLog>>(Array.Empty<PlatformAuditLog>());
+
+            public Task<int> CountActorFailuresSinceAsync(string actorUserId, DateTime sinceUtc, CancellationToken cancellationToken = default) =>
+                Task.FromResult(0);
+        }
+
         private sealed class NullPlatformAuditService : IPlatformAuditService
         {
             public Task LogAsync(PlatformAuditEntry entry, CancellationToken cancellationToken = default) =>
+                Task.CompletedTask;
+
+            public Task TryLogAsync(PlatformAuditEntry entry, CancellationToken cancellationToken = default) =>
                 Task.CompletedTask;
 
             public Task<IReadOnlyList<PlatformAuditLog>> GetRecentAsync(int take = 100, CancellationToken cancellationToken = default) =>

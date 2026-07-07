@@ -167,16 +167,8 @@ namespace LuxuryApp.Controllers.Platform
             return RedirectToAction(nameof(Detalle), new { tenantId });
         }
 
-        private async Task SafeAuditAsync(PlatformAuditEntry entry, CancellationToken cancellationToken)
-        {
-            try
-            {
-                await _auditService.LogAsync(entry, cancellationToken);
-            }
-            catch
-            {
-                // La auditoría no debe tumbar una acción que ya se ejecutó.
-            }
-        }
+        // La auditoría no debe tumbar una acción que ya se ejecutó; el fallo queda en el log (S6).
+        private Task SafeAuditAsync(PlatformAuditEntry entry, CancellationToken cancellationToken) =>
+            _auditService.TryLogAsync(entry, cancellationToken);
     }
 }

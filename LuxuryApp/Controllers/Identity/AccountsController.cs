@@ -463,34 +463,24 @@ namespace LuxuryApp.Controllers.Identity
         /// <summary>
         /// El uso de un código de recuperación de un superadmin queda en la bitácora de
         /// plataforma. Se resuelve por RequestServices para no ampliar el constructor de un
-        /// controlador público; un fallo de auditoría no bloquea el acceso.
+        /// controlador público; TryLogAsync nunca lanza (el fallo queda en el log, S6).
         /// </summary>
-        private async Task AuditarCodigoRecuperacionAsync(AppUsuario usuario)
+        private Task AuditarCodigoRecuperacionAsync(AppUsuario usuario)
         {
             if (!usuario.IsPlatformSuperAdmin)
             {
-                return;
+                return Task.CompletedTask;
             }
 
-            try
+            var auditService = HttpContext.RequestServices.GetRequiredService<IPlatformAuditService>();
+            return auditService.TryLogAsync(new PlatformAuditEntry
             {
-                var auditService = HttpContext.RequestServices.GetRequiredService<IPlatformAuditService>();
-                await auditService.LogAsync(new PlatformAuditEntry
-                {
-                    Action = PlatformAuditActions.MfaRecoveryCodeUsed,
-                    EntityType = PlatformAuditEntityTypes.User,
-                    EntityId = usuario.Id,
-                    TargetUserId = usuario.Id,
-                    TargetUserEmail = usuario.Email
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(
-                    ex,
-                    "No se pudo auditar el uso de código de recuperación del UserId {UserId}.",
-                    usuario.Id);
-            }
+                Action = PlatformAuditActions.MfaRecoveryCodeUsed,
+                EntityType = PlatformAuditEntityTypes.User,
+                EntityId = usuario.Id,
+                TargetUserId = usuario.Id,
+                TargetUserEmail = usuario.Email
+            });
         }
 
         [HttpGet]

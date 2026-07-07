@@ -223,31 +223,24 @@ namespace LuxuryApp.Controllers.Identity
 
         /// <summary>
         /// La bitácora de plataforma registra el MFA de superadmins; para usuarios de tenant
-        /// no se audita aquí (no es una acción de plataforma). Un fallo de auditoría no debe
-        /// frenar el enrolamiento.
+        /// no se audita aquí (no es una acción de plataforma). TryLogAsync nunca lanza:
+        /// un fallo de auditoría no frena el enrolamiento y queda en el log (S6).
         /// </summary>
-        private async Task AuditarAsync(AppUsuario usuario, string accion)
+        private Task AuditarAsync(AppUsuario usuario, string accion)
         {
             if (!usuario.IsPlatformSuperAdmin)
             {
-                return;
+                return Task.CompletedTask;
             }
 
-            try
+            return _auditService.TryLogAsync(new PlatformAuditEntry
             {
-                await _auditService.LogAsync(new PlatformAuditEntry
-                {
-                    Action = accion,
-                    EntityType = PlatformAuditEntityTypes.User,
-                    EntityId = usuario.Id,
-                    TargetUserId = usuario.Id,
-                    TargetUserEmail = usuario.Email
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "No se pudo auditar {Accion} para UserId {UserId}.", accion, usuario.Id);
-            }
+                Action = accion,
+                EntityType = PlatformAuditEntityTypes.User,
+                EntityId = usuario.Id,
+                TargetUserId = usuario.Id,
+                TargetUserEmail = usuario.Email
+            });
         }
     }
 }

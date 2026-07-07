@@ -25,6 +25,13 @@ namespace LuxuryApp.Services.Platform
     {
         Task LogAsync(PlatformAuditEntry entry, CancellationToken cancellationToken = default);
 
+        /// <summary>
+        /// Igual que <see cref="LogAsync"/> pero nunca lanza: la bitácora no debe tumbar una
+        /// acción que ya se ejecutó. Un fallo se registra en el log de la aplicación (S6)
+        /// en vez de tragarse en silencio.
+        /// </summary>
+        Task TryLogAsync(PlatformAuditEntry entry, CancellationToken cancellationToken = default);
+
         Task<IReadOnlyList<PlatformAuditLog>> GetRecentAsync(int take = 100, CancellationToken cancellationToken = default);
 
         Task<IReadOnlyList<PlatformAuditLog>> GetByTenantAsync(Guid tenantId, int take = 100, CancellationToken cancellationToken = default);

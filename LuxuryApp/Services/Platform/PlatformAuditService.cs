@@ -11,13 +11,33 @@ namespace LuxuryApp.Services.Platform
     {
         private readonly ApplicationDbContext _context;
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly ILogger<PlatformAuditService> _logger;
 
         public PlatformAuditService(
             ApplicationDbContext context,
-            IHttpContextAccessor httpContextAccessor)
+            IHttpContextAccessor httpContextAccessor,
+            ILogger<PlatformAuditService> logger)
         {
             _context = context;
             _httpContextAccessor = httpContextAccessor;
+            _logger = logger;
+        }
+
+        public async Task TryLogAsync(PlatformAuditEntry entry, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await LogAsync(entry, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Fallo al escribir la bitácora de plataforma. Action {Action}. EntityType {EntityType}. EntityId {EntityId}.",
+                    entry.Action,
+                    entry.EntityType,
+                    entry.EntityId);
+            }
         }
 
         public async Task LogAsync(PlatformAuditEntry entry, CancellationToken cancellationToken = default)

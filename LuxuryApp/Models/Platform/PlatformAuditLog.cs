@@ -63,6 +63,9 @@ namespace LuxuryApp.Models.Platform
         public const string MfaDisabled = "MfaDisabled";
         public const string MfaRecoveryCodeUsed = "MfaRecoveryCodeUsed";
 
+        /// <summary>Activación/desactivación de un código promocional (S11).</summary>
+        public const string PromotionalCodeToggled = "PromotionalCodeToggled";
+
         /// <summary>
         /// Alerta automática: un upgrade de plan se aplicó y quedó una suscripción recurrente
         /// anterior viva en el proveedor que debe cancelarse manualmente (TiloPay no tiene API).
@@ -95,5 +98,6 @@ namespace LuxuryApp.Models.Platform
         public const string Tenant = "Tenant";
         public const string Subscription = "Subscription";
         public const string Billing = "Billing";
+        public const string PromotionalCode = "PromotionalCode";
     }
 }
