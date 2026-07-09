@@ -14,5 +14,11 @@ namespace LuxuryApp.Models.SaaS
 
         /// <summary>Calculadora dinamica de suscripcion (reemplaza las tarjetas BASIC/PRO/BUSINESS).</summary>
         public SubscriptionCalculatorViewModel? Calculator { get; init; }
+
+        /// <summary>
+        /// True si la integración admin de TiloPay está activa: habilita el botón
+        /// "Actualizar tarjeta / Reintentar pago" (recurrentUrl) cuando la suscripción está morosa.
+        /// </summary>
+        public bool RecurrentUpdateAvailable { get; init; }
     }
 }

@@ -40,6 +40,7 @@ namespace LuxuryApp.Controllers
         private readonly OpcionesTilopay _tilopayOptions;
         private readonly OpcionesPago _paymentOptions;
         private readonly TilopayRepeatOptions _tilopayRepeatOptions;
+        private readonly LuxuryApp.Services.Tilopay.ITilopayRepeatAdminService _tilopayRepeatAdminService;
 
         public BillingController(
             ILogger<BillingController> logger,
@@ -58,7 +59,8 @@ namespace LuxuryApp.Controllers
             IWebHostEnvironment environment,
             IOptions<OpcionesTilopay> tilopayOptions,
             IOptions<OpcionesPago> paymentOptions,
-            IOptions<TilopayRepeatOptions> tilopayRepeatOptions)
+            IOptions<TilopayRepeatOptions> tilopayRepeatOptions,
+            LuxuryApp.Services.Tilopay.ITilopayRepeatAdminService tilopayRepeatAdminService)
         {
             _logger = logger;
             _context = context;
@@ -77,6 +79,78 @@ namespace LuxuryApp.Controllers
             _tilopayOptions = tilopayOptions.Value;
             _paymentOptions = paymentOptions.Value;
             _tilopayRepeatOptions = tilopayRepeatOptions.Value;
+            _tilopayRepeatAdminService = tilopayRepeatAdminService;
+        }
+
+        /// <summary>
+        /// Genera y redirige a la recurrentUrl de TiloPay para actualizar tarjeta / reintentar el
+        /// cobro SIN crear un suscriptor nuevo. Se usa cuando la suscripción está morosa/fallida.
+        /// </summary>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ActualizarTarjeta(CancellationToken cancellationToken)
+        {
+            var user = await _userManager.GetUserAsync(User);
+            if (user is null)
+            {
+                return Challenge();
+            }
+
+            if (user.TenantId == Guid.Empty || string.IsNullOrWhiteSpace(user.Email))
+            {
+                TempData["BillingError"] = "Tu cuenta no tiene los datos necesarios para actualizar el pago.";
+                return RedirectToAction(nameof(Suscripcion));
+            }
+
+            if (!_tilopayRepeatAdminService.IsEnabled)
+            {
+                TempData["BillingError"] = "La actualización de tarjeta en línea no está disponible en este momento. Contacta soporte.";
+                return RedirectToAction(nameof(Suscripcion));
+            }
+
+            var subscription = await _context.Suscripciones
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(s => s.TenantId == user.TenantId && s.TilopayRecurringPlanId != null)
+                .OrderByDescending(s => s.FechaUltimaActualizacionUtc ?? s.FechaInicio)
+                .Select(s => new { s.TilopayRecurringPlanId })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (subscription?.TilopayRecurringPlanId is not { } recurringPlanId)
+            {
+                TempData["BillingError"] = "No encontramos una suscripción recurrente para actualizar. Elegí un plan para continuar.";
+                return RedirectToAction(nameof(Suscripcion));
+            }
+
+            var result = await _tilopayRepeatAdminService.GetRecurrentUrlAsync(
+                recurringPlanId,
+                user.Email,
+                cancellationToken);
+
+            if (!result.Succeeded || string.IsNullOrWhiteSpace(result.Url))
+            {
+                _logger.LogWarning(
+                    "recurrentUrl no disponible para actualizar tarjeta. TenantId {TenantId}. PlanId {PlanId}.",
+                    user.TenantId,
+                    recurringPlanId);
+                TempData["BillingError"] = "No pudimos abrir la página para actualizar tu pago. Intentá de nuevo o contactá soporte.";
+                return RedirectToAction(nameof(Suscripcion));
+            }
+
+            _context.PlatformAuditLogs.Add(new LuxuryApp.Models.Platform.PlatformAuditLog
+            {
+                Id = Guid.NewGuid(),
+                ActorUserId = user.Id,
+                ActorEmail = user.Email,
+                Action = LuxuryApp.Models.Platform.PlatformAuditActions.RecurrentUrlGenerated,
+                EntityType = LuxuryApp.Models.Platform.PlatformAuditEntityTypes.Subscription,
+                TenantId = user.TenantId,
+                Reason = $"recurrentUrl generado por el usuario para actualizar tarjeta/reintentar. Plan {recurringPlanId}.",
+                CreatedAtUtc = DateTime.UtcNow
+            });
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return Redirect(result.Url);
         }
 
         [AllowAnonymous]
@@ -163,7 +237,8 @@ namespace LuxuryApp.Controllers
                 CurrentSubscription = currentSubscription,
                 IsAuthenticated = true,
                 SelectedPlanId = selectedPlanId,
-                Calculator = BuildCalculator(currentSubscription)
+                Calculator = BuildCalculator(currentSubscription),
+                RecurrentUpdateAvailable = _tilopayRepeatAdminService.IsEnabled
             });
         }
 

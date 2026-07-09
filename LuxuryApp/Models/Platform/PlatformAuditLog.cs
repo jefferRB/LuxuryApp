@@ -93,6 +93,27 @@ namespace LuxuryApp.Models.Platform
 
         /// <summary>Hallazgo que requiere decisión humana; la reconciliación nunca toca datos ambiguos.</summary>
         public const string BillingReconciliationAlert = "BillingReconciliationAlert";
+
+        // ── Resolución y gestión del suscriptor recurrente de TiloPay ──
+        public const string ProviderSubscriberResolved = "ProviderSubscriberResolved";
+        public const string ProviderSubscriberResolutionPending = "ProviderSubscriberResolutionPending";
+        public const string ProviderSubscriberResolutionAmbiguous = "ProviderSubscriberResolutionAmbiguous";
+        public const string ProviderSubscriberResolutionFailed = "ProviderSubscriberResolutionFailed";
+        public const string RecurrentUrlGenerated = "RecurrentUrlGenerated";
+        public const string CheckoutBlockedExistingProviderSubscriber = "CheckoutBlockedExistingProviderSubscriber";
+
+        /// <summary>
+        /// Checkout bloqueado porque no se pudo verificar el suscriptor en TiloPay (API caído/erróneo)
+        /// Y existe señal local de suscripción previa: bloquear evita crear un suscriptor duplicado.
+        /// </summary>
+        public const string CheckoutBlockedProviderVerificationUnavailable = "CheckoutBlockedProviderVerificationUnavailable";
+        public const string ProviderSubscriptionPaused = "ProviderSubscriptionPaused";
+        public const string ProviderSubscriptionReactivated = "ProviderSubscriptionReactivated";
+        public const string ProviderSubscriptionDeleted = "ProviderSubscriptionDeleted";
+        public const string ProviderSubscriptionDeleteFailed = "ProviderSubscriptionDeleteFailed";
+        public const string UpgradeOldProviderSubscriptionCancellationRequired = "UpgradeOldProviderSubscriptionCancellationRequired";
+        public const string UpgradeOldProviderSubscriptionCancellationCompleted = "UpgradeOldProviderSubscriptionCancellationCompleted";
+        public const string UpgradeOldProviderSubscriptionCancellationFailed = "UpgradeOldProviderSubscriptionCancellationFailed";
     }
 
     public static class PlatformAuditEntityTypes

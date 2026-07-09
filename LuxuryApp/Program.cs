@@ -365,6 +365,19 @@ builder.Services.Configure<LuxuryApp.Services.Billing.BillingReconciliationOptio
 builder.Services.AddScoped<LuxuryApp.Services.Billing.IBillingReconciliationService, LuxuryApp.Services.Billing.BillingReconciliationService>();
 builder.Services.AddScoped<LuxuryApp.Services.Billing.IBillingHealthService, LuxuryApp.Services.Billing.BillingHealthService>();
 builder.Services.AddHostedService<LuxuryApp.Workers.BillingReconciliationWorker>();
+
+// Cliente admin de TiloPay Repeat: resuelve id_suscriptor y gestiona el suscriptor del proveedor.
+// Deshabilitado por defecto (TilopayRepeatAdmin:Enabled=false): el flujo de compra actual no cambia.
+builder.Services.Configure<OpcionesTilopayRepeatAdmin>(builder.Configuration.GetSection("TilopayRepeatAdmin"));
+builder.Services.AddHttpClient<LuxuryApp.Services.Tilopay.ITilopayRepeatAdminService, LuxuryApp.Services.Tilopay.TilopayRepeatAdminService>(
+    (serviceProvider, client) =>
+    {
+        var options = serviceProvider.GetRequiredService<IOptions<OpcionesTilopay>>().Value;
+        client.BaseAddress = new Uri(options.BaseUrl);
+        client.Timeout = TimeSpan.FromSeconds(Math.Max(5, options.TimeoutSeconds));
+    });
+builder.Services.AddScoped<LuxuryApp.Services.Billing.ISubscriberResolutionService, LuxuryApp.Services.Billing.SubscriberResolutionService>();
+builder.Services.AddScoped<LuxuryApp.Services.Billing.IProviderSubscriptionManager, LuxuryApp.Services.Billing.ProviderSubscriptionManager>();
 builder.Services.AddHttpClient<PublicCallbackHealthService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(10);

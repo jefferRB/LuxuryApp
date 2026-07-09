@@ -645,7 +645,13 @@ namespace LuxuryApp.Tests.TenantIsolation
                 Path.Combine("Services", "Billing", "BillingHealthService.cs"),
                 // Mission Control (SuperAdmin): señales/colas cross-tenant deliberadas,
                 // gateado por PlatformSuperAdmin en PlatformController.
-                Path.Combine("Services", "Platform", "PlatformMissionControlService.cs")
+                Path.Combine("Services", "Platform", "PlatformMissionControlService.cs"),
+                // Resolución de id_suscriptor: corre desde webhook/worker sin contexto de tenant;
+                // filtra por TenantId explícito y escribe bajo BeginScope(tenantId) para RLS.
+                Path.Combine("Services", "Billing", "SubscriberResolutionService.cs"),
+                // Gestión del suscriptor del proveedor (cancel/pause/reactivate/upgrade): corre
+                // desde webhook/plataforma sin contexto de tenant; filtra por TenantId explícito.
+                Path.Combine("Services", "Billing", "ProviderSubscriptionManager.cs")
             };
 
             var targetRoots = new[]

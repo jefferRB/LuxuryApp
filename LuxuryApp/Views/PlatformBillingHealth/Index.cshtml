@@ -131,6 +131,48 @@
         <div class="col-lg-6">
             <div class="card shadow-sm border-0 h-100">
                 <div class="card-body">
+                    <h2 class="h6 text-uppercase text-muted mb-3">Suscriptor recurrente (TiloPay)</h2>
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                            Suscripciones activas sin id_suscriptor
+                            <span class="badge @CountBadge(Model.ActiveSubscriptionsWithoutSubscriberId)">@Model.ActiveSubscriptionsWithoutSubscriberId</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                            Pagos confirmados sin id_suscriptor
+                            <span class="badge @CountBadge(Model.ConfirmedPaymentsWithoutSubscriberId)">@Model.ConfirmedPaymentsWithoutSubscriberId</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                            Resoluciones pendientes (7 días)
+                            <span class="badge @CountBadge(Model.SubscriberResolutionsPendingLast7d)">@Model.SubscriberResolutionsPendingLast7d</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                            Resoluciones ambiguas (7 días)
+                            <span class="badge @CountBadge(Model.SubscriberResolutionsAmbiguousLast7d)">@Model.SubscriberResolutionsAmbiguousLast7d</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                            Resueltos correctamente (7 días)
+                            <span class="badge text-bg-success">@Model.SubscriberResolvedLast7d</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                            Checkouts bloqueados por duplicado (7 días)
+                            <span class="badge text-bg-secondary">@Model.CheckoutsBlockedByDuplicateLast7d</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                            Cancelaciones de proveedor fallidas (7 días)
+                            <span class="badge @CountBadge(Model.ProviderCancellationsFailedLast7d)">@Model.ProviderCancellationsFailedLast7d</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                            Última resolución exitosa
+                            <span class="badge text-bg-secondary">@FormatUtc(Model.LastSuccessfulSubscriberResolutionUtc)</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
                     <h2 class="h6 text-uppercase text-muted mb-3">Reconciliación automática</h2>
                     <ul class="list-group list-group-flush">
                         <li class="list-group-item d-flex justify-content-between align-items-center px-0">

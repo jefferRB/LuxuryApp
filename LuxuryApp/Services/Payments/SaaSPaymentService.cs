@@ -28,6 +28,10 @@ namespace LuxuryApp.Services.Payments
         private readonly TilopayRepeatOptions _tilopayRepeatOptions;
         private readonly IHostEnvironment? _environment;
         private readonly IPlanChangeService? _planChangeService;
+        private readonly Billing.ISubscriberResolutionService? _subscriberResolutionService;
+        private readonly Tilopay.ITilopayRepeatAdminService? _tilopayRepeatAdminService;
+        private readonly Billing.IProviderSubscriptionManager? _providerSubscriptionManager;
+        private readonly OpcionesTilopayRepeatAdmin _tilopayRepeatAdminOptions;
 
         public SaaSPaymentService(
             ApplicationDbContext db,
@@ -39,7 +43,11 @@ namespace LuxuryApp.Services.Payments
             IOptions<TilopayRepeatOptions> tilopayRepeatOptions,
             ILogger<SaaSPaymentService> logger,
             IHostEnvironment? environment = null,
-            IPlanChangeService? planChangeService = null)
+            IPlanChangeService? planChangeService = null,
+            Billing.ISubscriberResolutionService? subscriberResolutionService = null,
+            Tilopay.ITilopayRepeatAdminService? tilopayRepeatAdminService = null,
+            IOptions<OpcionesTilopayRepeatAdmin>? tilopayRepeatAdminOptions = null,
+            Billing.IProviderSubscriptionManager? providerSubscriptionManager = null)
         {
             _db = db;
             _providerResolver = providerResolver;
@@ -51,6 +59,10 @@ namespace LuxuryApp.Services.Payments
             _tilopayRepeatOptions = tilopayRepeatOptions.Value;
             _environment = environment;
             _planChangeService = planChangeService;
+            _subscriberResolutionService = subscriberResolutionService;
+            _tilopayRepeatAdminService = tilopayRepeatAdminService;
+            _providerSubscriptionManager = providerSubscriptionManager;
+            _tilopayRepeatAdminOptions = tilopayRepeatAdminOptions?.Value ?? new OpcionesTilopayRepeatAdmin();
         }
 
         public async Task<PaymentCheckoutResult> CreateCheckoutAsync(
@@ -292,6 +304,24 @@ namespace LuxuryApp.Services.Payments
 
                 throw new RecurringCheckoutBlockedException(
                     "Tenés un pago reciente en revisión. Para evitar un cobro doble no iniciamos otro pago ahora. Contactá soporte para completar la activación de tu suscripción.");
+            }
+
+            // BLINDAJE ANTI-DUPLICADO: si ya existe un suscriptor en TiloPay para este email/plan,
+            // crear un hosted link nuevo generaría un segundo suscriptor (doble cobro recurrente).
+            // En su lugar redirigimos a recurrentUrl (actualizar tarjeta / reintentar) sin duplicar.
+            // Falla-abierto: si el API admin está caído, NO bloqueamos la venta (la reconciliación
+            // y la máquina de ManualReview cubren el caso raro de duplicado por outage).
+            var existingSubscriberCheckout = await TryRouteToExistingSubscriberAsync(
+                tenantId,
+                plan.Id,
+                repeatRegistration.Plan.TilopayPlanId,
+                repeatRegistration.Plan.IsAddon,
+                customerEmail,
+                cancellationToken);
+
+            if (existingSubscriberCheckout is not null)
+            {
+                return existingSubscriberCheckout;
             }
 
             var reusableCheckout = await FindReusablePendingCheckoutAsync(
@@ -1567,6 +1597,38 @@ namespace LuxuryApp.Services.Payments
                     intento,
                     cancellationToken);
 
+                // El evento ya está persistido (commit hecho arriba). Ahora, fuera de toda
+                // transacción SQL, intentamos resolver el id_suscriptor por (plan, email) —los
+                // webhooks de TiloPay no lo traen— y persistirlo en una transacción corta aparte.
+                // Best-effort: si falla, la activación queda intacta y la reconciliación reintenta.
+                await TryResolveSubscriberAfterRecurringWebhookAsync(
+                    webhook,
+                    tenantId,
+                    internalPlan.Id,
+                    resolvedPlan.IsAddon,
+                    intento,
+                    cancellationToken);
+
+                // Si este pago exitoso aplicó un cambio de plan, cancelar el suscriptor ANTERIOR en
+                // TiloPay para no arrastrar doble cobro. Post-commit, best-effort, HTTP fuera de tx.
+                if (!resolvedPlan.IsAddon &&
+                    (IsRecurringPaymentSuccessEvent(webhook.EventType) || IsRecurringApproved(webhook)) &&
+                    _providerSubscriptionManager is not null &&
+                    _providerSubscriptionManager.IsEnabled)
+                {
+                    try
+                    {
+                        await _providerSubscriptionManager.TryCancelOldSubscriberForUpgradeAsync(tenantId, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(
+                            ex,
+                            "Cancelación del suscriptor anterior tras upgrade no se completó. TenantId {TenantId}.",
+                            tenantId);
+                    }
+                }
+
                 return new PaymentWebhookProcessingResult
                 {
                     EventId = webhook.EventId,
@@ -2402,6 +2464,286 @@ namespace LuxuryApp.Services.Payments
             await _db.SaveChangesAsync(cancellationToken);
         }
 
+        /// <summary>
+        /// Decide cómo abrir el checkout recurrente frente al riesgo de duplicar el suscriptor:
+        /// <list type="bullet">
+        /// <item>API dice 0 suscriptores → null (crear hosted link es seguro).</item>
+        /// <item>API dice 1 → persiste el id_suscriptor y enruta a recurrentUrl (no crea hosted link).</item>
+        /// <item>API dice &gt;1 → bloquea + ManualReview + alerta crítica.</item>
+        /// <item>API caído/erróneo → falla-CERRADO SOLO si hay señal local de suscripción previa
+        /// (suscripción activa/morosa, ProviderSubscriptionId, o pagos pendiente/fallido/confirmado/
+        /// revisión del mismo plan). Si el tenant no tiene NINGUNA señal, es una primera compra
+        /// limpia y se permite el hosted link.</item>
+        /// </list>
+        /// Nunca marca la suscripción como perdida ni cancela nada.
+        /// </summary>
+        private async Task<PaymentCheckoutResult?> TryRouteToExistingSubscriberAsync(
+            Guid tenantId,
+            Guid planId,
+            int tilopayRecurringPlanId,
+            bool isAddon,
+            string customerEmail,
+            CancellationToken cancellationToken)
+        {
+            if (_tilopayRepeatAdminService is null ||
+                !_tilopayRepeatAdminService.IsEnabled ||
+                !_tilopayRepeatAdminOptions.BlockDuplicateCheckout ||
+                string.IsNullOrWhiteSpace(customerEmail))
+            {
+                return null;
+            }
+
+            Tilopay.SubscriberResolutionResult resolution;
+            try
+            {
+                resolution = await _tilopayRepeatAdminService.ResolveSubscriberAsync(
+                    tilopayRecurringPlanId,
+                    customerEmail,
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Excepción consultando suscriptor existente; se evalúa señal local antes de decidir. TenantId {TenantId}. PlanId {PlanId}.",
+                    tenantId,
+                    planId);
+
+                await GuardInconclusiveVerificationAsync(tenantId, tilopayRecurringPlanId, isAddon, "excepción al consultar TiloPay", cancellationToken);
+                return null;
+            }
+
+            if (resolution.Status == Tilopay.SubscriberResolutionStatus.Error)
+            {
+                // Consulta NO concluyente (API caído/erróneo): falla-cerrado si hay señal local.
+                await GuardInconclusiveVerificationAsync(
+                    tenantId,
+                    tilopayRecurringPlanId,
+                    isAddon,
+                    resolution.Detail ?? "respuesta no concluyente de TiloPay",
+                    cancellationToken);
+                return null;
+            }
+
+            if (resolution.Status == Tilopay.SubscriberResolutionStatus.NotFound)
+            {
+                // 0 suscriptores confirmado por el API: seguro/necesario crear checkout nuevo.
+                return null;
+            }
+
+            if (resolution.Status == Tilopay.SubscriberResolutionStatus.Ambiguous)
+            {
+                _db.PlatformAuditLogs.Add(new Models.Platform.PlatformAuditLog
+                {
+                    Id = Guid.NewGuid(),
+                    ActorUserId = "system",
+                    ActorEmail = "system",
+                    Action = Models.Platform.PlatformAuditActions.CheckoutBlockedExistingProviderSubscriber,
+                    EntityType = Models.Platform.PlatformAuditEntityTypes.Subscription,
+                    TenantId = tenantId,
+                    Reason = $"Checkout bloqueado: {resolution.MatchCount} suscriptores TiloPay coinciden por email para el plan {tilopayRecurringPlanId}. Requiere revisión manual antes de cobrar.",
+                    CreatedAtUtc = DateTime.UtcNow
+                });
+                await _db.SaveChangesAsync(cancellationToken);
+
+                throw new RecurringCheckoutBlockedException(
+                    "Encontramos más de una suscripción asociada a tu correo. Para evitar un cobro doble, contactá soporte y lo resolvemos enseguida.");
+            }
+
+            // Found: existe exactamente un suscriptor. Persistir su id si falta y enrutar a recurrentUrl.
+            var subscriber = resolution.Subscriber!;
+            await PersistExistingSubscriberAsync(tenantId, isAddon, subscriber.SubscriberId, cancellationToken);
+
+            var recurrentUrl = await _tilopayRepeatAdminService.GetRecurrentUrlAsync(
+                tilopayRecurringPlanId,
+                customerEmail,
+                cancellationToken);
+
+            _db.PlatformAuditLogs.Add(new Models.Platform.PlatformAuditLog
+            {
+                Id = Guid.NewGuid(),
+                ActorUserId = "system",
+                ActorEmail = "system",
+                Action = Models.Platform.PlatformAuditActions.CheckoutBlockedExistingProviderSubscriber,
+                EntityType = Models.Platform.PlatformAuditEntityTypes.Subscription,
+                TenantId = tenantId,
+                Reason = $"Ya existe suscriptor TiloPay (suffix {SensitiveDataMasker.MaskReference(subscriber.SubscriberId)}) para el plan {tilopayRecurringPlanId}. Se enruta a recurrentUrl en vez de crear un hosted link nuevo. RecurrentUrlOk {recurrentUrl.Succeeded}.",
+                CreatedAtUtc = DateTime.UtcNow
+            });
+            await _db.SaveChangesAsync(cancellationToken);
+
+            if (!recurrentUrl.Succeeded || string.IsNullOrWhiteSpace(recurrentUrl.Url))
+            {
+                // El suscriptor existe pero no pudimos generar la URL de actualización: bloquear
+                // (crear otro hosted link duplicaría) y mandar a soporte.
+                throw new RecurringCheckoutBlockedException(
+                    "Ya tenés una suscripción activa con este correo. No pudimos abrir la página para actualizar tu pago; contactá soporte para completar el cambio.");
+            }
+
+            _logger.LogInformation(
+                "Checkout enrutado a recurrentUrl por suscriptor existente. TenantId {TenantId}. PlanId {PlanId}. SubscriberIdSuffix {Suffix}.",
+                tenantId,
+                planId,
+                SensitiveDataMasker.MaskReference(subscriber.SubscriberId));
+
+            return new PaymentCheckoutResult
+            {
+                ProviderType = PaymentProviderType.Tilopay,
+                RedirectUrl = recurrentUrl.Url!,
+                ProviderReference = subscriber.SubscriberId,
+                RawResponse = "{\"mode\":\"tilopay-recurrent-url\"}",
+                CorrelationId = subscriber.SubscriberId
+            };
+        }
+
+        private async Task PersistExistingSubscriberAsync(
+            Guid tenantId,
+            bool isAddon,
+            string subscriberId,
+            CancellationToken cancellationToken)
+        {
+            using var tenantScope = _tenantExecutionContextAccessor.BeginScope(tenantId);
+
+            if (isAddon)
+            {
+                var addon = await _db.TenantSubscriptionAddons
+                    .IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(a => a.TenantId == tenantId, cancellationToken);
+
+                if (addon is not null && string.IsNullOrWhiteSpace(addon.ProviderSubscriptionId))
+                {
+                    addon.ProviderSubscriptionId = subscriberId;
+                    addon.UpdatedAtUtc = DateTime.UtcNow;
+                    await _db.SaveChangesAsync(cancellationToken);
+                }
+
+                return;
+            }
+
+            var subscription = await _db.Suscripciones
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(s => s.TenantId == tenantId, cancellationToken);
+
+            if (subscription is not null && string.IsNullOrWhiteSpace(subscription.ProviderSubscriptionId))
+            {
+                subscription.ProviderSubscriptionId = subscriberId;
+                subscription.FechaUltimaActualizacionUtc = DateTime.UtcNow;
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+        }
+
+        /// <summary>
+        /// Cuando la verificación del suscriptor en TiloPay NO es concluyente (API caído/erróneo),
+        /// permite el checkout SOLO si el tenant no tiene ninguna señal local de suscripción previa.
+        /// Si hay señal (riesgo de duplicado), audita, alerta y BLOQUEA con un mensaje claro. Nunca
+        /// cancela ni marca la suscripción como perdida.
+        /// </summary>
+        private async Task GuardInconclusiveVerificationAsync(
+            Guid tenantId,
+            int tilopayRecurringPlanId,
+            bool isAddon,
+            string reason,
+            CancellationToken cancellationToken)
+        {
+            if (!await HasLocalDuplicateRiskAsync(tenantId, tilopayRecurringPlanId, isAddon, cancellationToken))
+            {
+                // Primera compra limpia: sin historial local, no hay riesgo de duplicar suscriptor.
+                _logger.LogInformation(
+                    "Verificación de suscriptor no concluyente pero sin señal local; se permite checkout. TenantId {TenantId}. PlanId {PlanId}.",
+                    tenantId,
+                    tilopayRecurringPlanId);
+                return;
+            }
+
+            _db.PlatformAuditLogs.Add(new Models.Platform.PlatformAuditLog
+            {
+                Id = Guid.NewGuid(),
+                ActorUserId = "system",
+                ActorEmail = "system",
+                Action = Models.Platform.PlatformAuditActions.CheckoutBlockedProviderVerificationUnavailable,
+                EntityType = Models.Platform.PlatformAuditEntityTypes.Subscription,
+                TenantId = tenantId,
+                Reason = Trim(
+                    $"Checkout bloqueado: no se pudo verificar el suscriptor en TiloPay ({reason}) y existe señal local de suscripción previa para el plan {tilopayRecurringPlanId}. Se evita crear un suscriptor duplicado.",
+                    500),
+                CreatedAtUtc = DateTime.UtcNow
+            });
+            await _db.SaveChangesAsync(cancellationToken);
+
+            _logger.LogWarning(
+                "Checkout bloqueado por verificación no concluyente con señal local de riesgo. TenantId {TenantId}. PlanId {PlanId}.",
+                tenantId,
+                tilopayRecurringPlanId);
+
+            throw new RecurringCheckoutBlockedException(
+                "Estamos verificando tu suscripción para evitar cobros duplicados. Intenta más tarde o contacta soporte.");
+        }
+
+        /// <summary>
+        /// True si existe cualquier señal local de que el tenant ya podría tener un suscriptor en
+        /// TiloPay para este plan: suscripción activa/morosa, ProviderSubscriptionId ya guardado, o
+        /// un pago recurrente pendiente/en revisión/fallido/confirmado del mismo plan (incluye el
+        /// caso "confirmado sin ProviderSubscriberId"). Determinístico y solo lectura.
+        /// </summary>
+        private async Task<bool> HasLocalDuplicateRiskAsync(
+            Guid tenantId,
+            int tilopayRecurringPlanId,
+            bool isAddon,
+            CancellationToken cancellationToken)
+        {
+            // La señal de "suscriptor previo" se busca en la tabla correcta: para un add-on
+            // el suscriptor vive en TenantSubscriptionAddons, NO en la suscripción base (que
+            // siempre estará activa como precondición del add-on y daría un falso positivo).
+            bool subscriptionRisk;
+            if (isAddon)
+            {
+                subscriptionRisk = await _db.TenantSubscriptionAddons
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .AnyAsync(
+                        addon =>
+                            addon.TenantId == tenantId &&
+                            (addon.ProviderSubscriptionId != null ||
+                             addon.Estado == EstadoSuscripcion.Activa ||
+                             addon.Estado == EstadoSuscripcion.Morosa),
+                        cancellationToken);
+            }
+            else
+            {
+                subscriptionRisk = await _db.Suscripciones
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .AnyAsync(
+                        subscription =>
+                            subscription.TenantId == tenantId &&
+                            (subscription.ProviderSubscriptionId != null ||
+                             subscription.Estado == EstadoSuscripcion.Activa ||
+                             subscription.Estado == EstadoSuscripcion.Morosa),
+                        cancellationToken);
+            }
+
+            if (subscriptionRisk)
+            {
+                return true;
+            }
+
+            // Los pagos SÍ se filtran por el plan recurrente exacto (base o add-on): un pago del
+            // mismo plan indica un intento/cobro que pudo crear el suscriptor de ESTE plan.
+            return await _db.PagosSuscripcion
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .AnyAsync(
+                    payment =>
+                        payment.TenantId == tenantId &&
+                        payment.Proveedor == PaymentProviderType.Tilopay &&
+                        payment.TilopayRecurringPlanId == tilopayRecurringPlanId &&
+                        (payment.Estado == EstadoPagoProveedor.Pendiente ||
+                         payment.Estado == EstadoPagoProveedor.ManualReview ||
+                         payment.Estado == EstadoPagoProveedor.Fallido ||
+                         payment.Estado == EstadoPagoProveedor.Confirmado),
+                    cancellationToken);
+        }
+
         private async Task<PagoSuscripcion?> FindReusablePendingCheckoutAsync(
             Guid tenantId,
             Guid planId,
@@ -2782,6 +3124,73 @@ namespace LuxuryApp.Services.Payments
                 Reason = Trim($"Evento {evento.Tipo}: {reason} Revisar Platform/RecurringCheckouts.", 500),
                 CreatedAtUtc = DateTime.UtcNow
             });
+        }
+
+        /// <summary>
+        /// Tras un webhook recurrente de registro o pago exitoso, resuelve el id_suscriptor por
+        /// (plan, email) y lo persiste. Best-effort y aislado: nunca lanza hacia el flujo del webhook.
+        /// La llamada HTTP y la transacción corta viven dentro del propio servicio de resolución.
+        /// </summary>
+        private async Task TryResolveSubscriberAfterRecurringWebhookAsync(
+            PaymentProviderWebhookData webhook,
+            Guid tenantId,
+            Guid internalPlanId,
+            bool isAddon,
+            PagoSuscripcion? intento,
+            CancellationToken cancellationToken)
+        {
+            if (_subscriberResolutionService is null || !_subscriberResolutionService.IsEnabled)
+            {
+                return;
+            }
+
+            // Solo alta y pago exitoso: son los eventos donde el suscriptor debe existir en TiloPay.
+            var isRegistration = IsRecurringRegistrationEvent(webhook.EventType);
+            var isPaymentSuccess = IsRecurringPaymentSuccessEvent(webhook.EventType) || IsRecurringApproved(webhook);
+            if (!isRegistration && !isPaymentSuccess)
+            {
+                return;
+            }
+
+            // Si el webhook (futuro) ya trajo el suscriptor y quedó persistido, no consultamos API.
+            if (!string.IsNullOrWhiteSpace(intento?.ProviderSubscriberId))
+            {
+                return;
+            }
+
+            if (!webhook.RecurringPlanId.HasValue)
+            {
+                return;
+            }
+
+            var email = FirstNonEmpty(webhook.CustomerEmail, intento?.ClienteEmail);
+            if (string.IsNullOrWhiteSpace(email))
+            {
+                return;
+            }
+
+            try
+            {
+                await _subscriberResolutionService.TryResolveAndPersistAsync(
+                    new Billing.SubscriberResolutionContext
+                    {
+                        TenantId = tenantId,
+                        TilopayRecurringPlanId = webhook.RecurringPlanId.Value,
+                        Email = email,
+                        PaymentId = intento?.Id,
+                        IsAddon = isAddon,
+                        Source = isRegistration ? "webhook_registration" : "webhook_payment"
+                    },
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Resolución de suscriptor tras webhook no se completó. TenantId {TenantId}. PlanId {PlanId}.",
+                    tenantId,
+                    internalPlanId);
+            }
         }
 
         private static bool IsRecurringApproved(PaymentProviderWebhookData webhook)

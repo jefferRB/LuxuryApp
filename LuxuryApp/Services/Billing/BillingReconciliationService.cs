@@ -41,6 +41,8 @@ namespace LuxuryApp.Services.Billing
         private readonly IBusinessDateTimeProvider _clock;
         private readonly TilopayRepeatOptions _repeatOptions;
         private readonly BillingReconciliationOptions _options;
+        private readonly ISubscriberResolutionService? _subscriberResolutionService;
+        private readonly int _adminMaxAttempts;
         private readonly ILogger<BillingReconciliationService> _logger;
 
         public BillingReconciliationService(
@@ -50,7 +52,9 @@ namespace LuxuryApp.Services.Billing
             IBusinessDateTimeProvider clock,
             IOptions<TilopayRepeatOptions> repeatOptions,
             IOptions<BillingReconciliationOptions> options,
-            ILogger<BillingReconciliationService> logger)
+            ILogger<BillingReconciliationService> logger,
+            ISubscriberResolutionService? subscriberResolutionService = null,
+            IOptions<OpcionesTilopayRepeatAdmin>? adminOptions = null)
         {
             _db = db;
             _suscripcionService = suscripcionService;
@@ -58,6 +62,8 @@ namespace LuxuryApp.Services.Billing
             _clock = clock;
             _repeatOptions = repeatOptions.Value;
             _options = options.Value;
+            _subscriberResolutionService = subscriberResolutionService;
+            _adminMaxAttempts = adminOptions?.Value.MaxReconciliationResolveAttempts ?? 6;
             _logger = logger;
         }
 
@@ -71,6 +77,7 @@ namespace LuxuryApp.Services.Billing
             await ExpireStalePendingAttemptsAsync(report, nowUtc, cancellationToken);
             await AlertStaleManualReviewsAsync(report, nowUtc, cancellationToken);
             await AlertStuckEventsAsync(report, nowUtc, cancellationToken);
+            await BackfillMissingSubscriberIdsAsync(report, nowUtc, cancellationToken);
 
             report.FinishedUtc = GetUtcNow();
 
@@ -105,6 +112,147 @@ namespace LuxuryApp.Services.Billing
                 report.AlertsSuppressedByCooldown);
 
             return report;
+        }
+
+        // ── 6. Backfill de id_suscriptor faltante (subscriber resolution) ─────────────
+
+        private async Task BackfillMissingSubscriberIdsAsync(
+            BillingReconciliationReport report,
+            DateTime nowUtc,
+            CancellationToken cancellationToken)
+        {
+            // Solo si la integración admin de TiloPay está activa; si no, no hay forma de resolver.
+            if (_subscriberResolutionService is null || !_subscriberResolutionService.IsEnabled)
+            {
+                return;
+            }
+
+            // Pass A (local, sin API): suscripción base con ProviderSubscriptionId NULL cuando ya
+            // existe un pago confirmado del mismo tenant con ProviderSubscriberId conocido → copiar.
+            var subscriptionsMissingId = await _db.Suscripciones
+                .IgnoreQueryFilters()
+                .Where(subscription =>
+                    subscription.Proveedor == PaymentProviderType.Tilopay &&
+                    subscription.TilopayRecurringPlanId != null &&
+                    subscription.ProviderSubscriptionId == null &&
+                    (subscription.Estado == EstadoSuscripcion.Activa ||
+                     subscription.Estado == EstadoSuscripcion.Morosa))
+                .ToListAsync(cancellationToken);
+
+            foreach (var subscription in subscriptionsMissingId)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var knownSubscriberId = await _db.PagosSuscripcion
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .Where(payment =>
+                        payment.TenantId == subscription.TenantId &&
+                        payment.Proveedor == PaymentProviderType.Tilopay &&
+                        payment.Estado == EstadoPagoProveedor.Confirmado &&
+                        payment.ProviderSubscriberId != null)
+                    .OrderByDescending(payment => payment.FechaConfirmacionUtc)
+                    .Select(payment => payment.ProviderSubscriberId)
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (!string.IsNullOrWhiteSpace(knownSubscriberId))
+                {
+                    subscription.ProviderSubscriptionId = knownSubscriberId;
+                    subscription.FechaUltimaActualizacionUtc = nowUtc;
+
+                    _db.PlatformAuditLogs.Add(new PlatformAuditLog
+                    {
+                        Id = Guid.NewGuid(),
+                        ActorUserId = "system",
+                        ActorEmail = "system",
+                        Action = PlatformAuditActions.ProviderSubscriberResolved,
+                        EntityType = PlatformAuditEntityTypes.Subscription,
+                        EntityId = subscription.Id.ToString(),
+                        TenantId = subscription.TenantId,
+                        Reason = "id_suscriptor copiado localmente desde un pago confirmado del mismo tenant (reconciliación).",
+                        CreatedAtUtc = nowUtc
+                    });
+
+                    report.SubscriberIdsBackfilledLocally++;
+                }
+            }
+
+            if (report.SubscriberIdsBackfilledLocally > 0)
+            {
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+
+            // Pass B (API): pagos recurrentes CONFIRMADOS sin ProviderSubscriberId y con email.
+            // Se resuelve por (plan, email) contra TiloPay; el servicio persiste y audita.
+            var lookbackUtc = nowUtc.AddDays(-Math.Max(1, _options.ConfirmedPaymentLookbackDays));
+            var paymentsMissingSubscriber = await _db.PagosSuscripcion
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(payment =>
+                    payment.Proveedor == PaymentProviderType.Tilopay &&
+                    payment.Estado == EstadoPagoProveedor.Confirmado &&
+                    payment.TilopayRecurringPlanId != null &&
+                    payment.ProviderSubscriberId == null &&
+                    payment.ClienteEmail != null &&
+                    payment.FechaConfirmacionUtc >= lookbackUtc)
+                .OrderByDescending(payment => payment.FechaConfirmacionUtc)
+                .Select(payment => new
+                {
+                    payment.Id,
+                    payment.TenantId,
+                    payment.PlanId,
+                    payment.TilopayRecurringPlanId,
+                    payment.ClienteEmail
+                })
+                .Take(100)
+                .ToListAsync(cancellationToken);
+
+            foreach (var payment in paymentsMissingSubscriber)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // No reintentar indefinidamente: si ya hubo demasiados intentos fallidos/pending,
+                // se deja como alerta persistente (visible en BillingHealth) y no se llama más.
+                var priorAttempts = await _db.PlatformAuditLogs.CountAsync(
+                    log =>
+                        (log.Action == PlatformAuditActions.ProviderSubscriberResolutionPending ||
+                         log.Action == PlatformAuditActions.ProviderSubscriberResolutionFailed) &&
+                        log.EntityId == payment.Id.ToString(),
+                    cancellationToken);
+
+                if (priorAttempts >= Math.Max(1, _adminMaxAttempts))
+                {
+                    continue;
+                }
+
+                var isAddon = _repeatOptions.FindByRecurringPlanId(payment.TilopayRecurringPlanId)?.IsAddon ?? false;
+
+                var outcome = await _subscriberResolutionService.TryResolveAndPersistAsync(
+                    new SubscriberResolutionContext
+                    {
+                        TenantId = payment.TenantId,
+                        TilopayRecurringPlanId = payment.TilopayRecurringPlanId!.Value,
+                        Email = payment.ClienteEmail,
+                        PaymentId = payment.Id,
+                        IsAddon = isAddon,
+                        Source = "reconciliation"
+                    },
+                    cancellationToken);
+
+                switch (outcome)
+                {
+                    case SubscriberPersistenceOutcome.Resolved:
+                        report.SubscriberIdsResolved++;
+                        break;
+                    case SubscriberPersistenceOutcome.Ambiguous:
+                        report.SubscriberIdsAmbiguous++;
+                        break;
+                    case SubscriberPersistenceOutcome.Pending:
+                    case SubscriberPersistenceOutcome.Failed:
+                        report.SubscriberIdsPending++;
+                        break;
+                }
+            }
         }
 
         // ── 1. Pagos confirmados sin activación ──────────────────────────────────────

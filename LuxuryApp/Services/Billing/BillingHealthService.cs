@@ -47,6 +47,16 @@ namespace LuxuryApp.Services.Billing
         public string? LastReconciliationSummaryJson { get; init; }
         public int OpenAlertsLast24h { get; init; }
         public int AutoRepairsLast7d { get; init; }
+
+        // Suscriptor recurrente (TiloPay Repeat Admin).
+        public int ActiveSubscriptionsWithoutSubscriberId { get; init; }
+        public int ConfirmedPaymentsWithoutSubscriberId { get; init; }
+        public int SubscriberResolutionsPendingLast7d { get; init; }
+        public int SubscriberResolutionsAmbiguousLast7d { get; init; }
+        public int SubscriberResolvedLast7d { get; init; }
+        public int CheckoutsBlockedByDuplicateLast7d { get; init; }
+        public int ProviderCancellationsFailedLast7d { get; init; }
+        public DateTime? LastSuccessfulSubscriberResolutionUtc { get; init; }
     }
 
     public interface IBillingHealthService
@@ -177,6 +187,54 @@ namespace LuxuryApp.Services.Billing
                     log.Action == PlatformAuditActions.BillingAutoRepairApplied &&
                     log.CreatedAtUtc >= last7dUtc, cancellationToken);
 
+            // ── Suscriptor recurrente (TiloPay Repeat Admin) ──
+            var activeSubsWithoutSubscriberId = await _db.Suscripciones.IgnoreQueryFilters()
+                .CountAsync(s =>
+                    s.Proveedor == PaymentProviderType.Tilopay &&
+                    s.TilopayRecurringPlanId != null &&
+                    s.ProviderSubscriptionId == null &&
+                    (s.Estado == EstadoSuscripcion.Activa || s.Estado == EstadoSuscripcion.Morosa),
+                    cancellationToken);
+
+            var confirmedPaymentsWithoutSubscriberId = await _db.PagosSuscripcion.IgnoreQueryFilters()
+                .CountAsync(p =>
+                    p.Proveedor == PaymentProviderType.Tilopay &&
+                    p.Estado == EstadoPagoProveedor.Confirmado &&
+                    p.TilopayRecurringPlanId != null &&
+                    p.ProviderSubscriberId == null,
+                    cancellationToken);
+
+            var resolutionsPending7d = await _db.PlatformAuditLogs
+                .CountAsync(log =>
+                    log.Action == PlatformAuditActions.ProviderSubscriberResolutionPending &&
+                    log.CreatedAtUtc >= last7dUtc, cancellationToken);
+
+            var resolutionsAmbiguous7d = await _db.PlatformAuditLogs
+                .CountAsync(log =>
+                    log.Action == PlatformAuditActions.ProviderSubscriberResolutionAmbiguous &&
+                    log.CreatedAtUtc >= last7dUtc, cancellationToken);
+
+            var resolved7d = await _db.PlatformAuditLogs
+                .CountAsync(log =>
+                    log.Action == PlatformAuditActions.ProviderSubscriberResolved &&
+                    log.CreatedAtUtc >= last7dUtc, cancellationToken);
+
+            var checkoutsBlocked7d = await _db.PlatformAuditLogs
+                .CountAsync(log =>
+                    (log.Action == PlatformAuditActions.CheckoutBlockedExistingProviderSubscriber ||
+                     log.Action == PlatformAuditActions.CheckoutBlockedProviderVerificationUnavailable) &&
+                    log.CreatedAtUtc >= last7dUtc, cancellationToken);
+
+            var providerCancellationsFailed7d = await _db.PlatformAuditLogs
+                .CountAsync(log =>
+                    (log.Action == PlatformAuditActions.UpgradeOldProviderSubscriptionCancellationFailed ||
+                     log.Action == PlatformAuditActions.ProviderSubscriptionDeleteFailed) &&
+                    log.CreatedAtUtc >= last7dUtc, cancellationToken);
+
+            var lastResolutionUtc = await _db.PlatformAuditLogs
+                .Where(log => log.Action == PlatformAuditActions.ProviderSubscriberResolved)
+                .MaxAsync(log => (DateTime?)log.CreatedAtUtc, cancellationToken);
+
             return new BillingHealthSnapshot
             {
                 GeneratedAtUtc = nowUtc,
@@ -203,7 +261,15 @@ namespace LuxuryApp.Services.Billing
                 LastReconciliationUtc = lastReconciliation?.CreatedAtUtc,
                 LastReconciliationSummaryJson = lastReconciliation?.AfterJson,
                 OpenAlertsLast24h = openAlerts24h,
-                AutoRepairsLast7d = autoRepairs7d
+                AutoRepairsLast7d = autoRepairs7d,
+                ActiveSubscriptionsWithoutSubscriberId = activeSubsWithoutSubscriberId,
+                ConfirmedPaymentsWithoutSubscriberId = confirmedPaymentsWithoutSubscriberId,
+                SubscriberResolutionsPendingLast7d = resolutionsPending7d,
+                SubscriberResolutionsAmbiguousLast7d = resolutionsAmbiguous7d,
+                SubscriberResolvedLast7d = resolved7d,
+                CheckoutsBlockedByDuplicateLast7d = checkoutsBlocked7d,
+                ProviderCancellationsFailedLast7d = providerCancellationsFailed7d,
+                LastSuccessfulSubscriberResolutionUtc = lastResolutionUtc
             };
         }
     }

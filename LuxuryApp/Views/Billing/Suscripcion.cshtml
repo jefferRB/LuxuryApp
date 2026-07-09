@@ -68,6 +68,23 @@
             }
         </div>
         <div class="sub-state-action">
+            @{
+                var needsPaymentUpdate = sub is not null &&
+                    (sub.IsInGracePeriod ||
+                     sub.Status == LuxuryApp.Models.SaaS.EstadoSuscripcion.Morosa ||
+                     sub.Status == LuxuryApp.Models.SaaS.EstadoSuscripcion.Fallida ||
+                     sub.Status == LuxuryApp.Models.SaaS.EstadoSuscripcion.Vencida ||
+                     sub.Status == LuxuryApp.Models.SaaS.EstadoSuscripcion.Suspendida);
+            }
+            @if (needsPaymentUpdate && Model.RecurrentUpdateAvailable)
+            {
+                <form asp-action="ActualizarTarjeta" method="post" class="d-inline">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="sub-btn sub-btn--primary">
+                        <i class="bi bi-credit-card"></i> Actualizar tarjeta / Reintentar pago
+                    </button>
+                </form>
+            }
             <a href="#planes" class="sub-btn sub-btn--primary">
                 @(hasBaseAccess ? "Cambiar plan" : "Ver planes")
             </a>

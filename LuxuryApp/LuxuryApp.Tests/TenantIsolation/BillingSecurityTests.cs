@@ -1629,7 +1629,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new LuxuryApp.Tests.Support.TestWebHostEnvironment(),
                 Options.Create(new OpcionesTilopay()),
                 Options.Create(new OpcionesPago()),
-                Options.Create(new TilopayRepeatOptions()));
+                Options.Create(new TilopayRepeatOptions()),
+                new DisabledTilopayRepeatAdminService());
 
         private static LuxuryApp.Services.SaaS.ISubscriptionPricingCatalog CreateCalculatorCatalog()
         {

@@ -30,6 +30,18 @@ namespace LuxuryApp.Services.Billing
         /// <summary>Alertas omitidas por cooldown (ya alertadas recientemente).</summary>
         public int AlertsSuppressedByCooldown { get; set; }
 
+        /// <summary>id_suscriptor faltante resuelto y persistido en este pase.</summary>
+        public int SubscriberIdsResolved { get; set; }
+
+        /// <summary>Casos donde el id_suscriptor sigue sin resolver (NotFound tras reintentos).</summary>
+        public int SubscriberIdsPending { get; set; }
+
+        /// <summary>Casos ambiguos (varios suscriptores por email): requieren revisión manual.</summary>
+        public int SubscriberIdsAmbiguous { get; set; }
+
+        /// <summary>id_suscriptor copiado localmente desde un pago confirmado (sin llamar al API).</summary>
+        public int SubscriberIdsBackfilledLocally { get; set; }
+
         public double DurationMs => (FinishedUtc - StartedUtc).TotalMilliseconds;
 
         public bool HasFindings =>
