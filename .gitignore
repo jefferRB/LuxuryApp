@@ -361,3 +361,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Runtime: imagenes publicas subidas por tenants (paginas publicas). No versionar.
+App_Data/
