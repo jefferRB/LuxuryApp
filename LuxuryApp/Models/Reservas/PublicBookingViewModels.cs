@@ -26,6 +26,10 @@ namespace LuxuryApp.Models.Reservas
         /// <summary>Token de idempotencia único de esta carga del formulario.</summary>
         public string SubmissionToken { get; set; } = string.Empty;
 
+        public int? PreselectedServiceId { get; set; }
+
+        public string? PreselectedServiceName { get; set; }
+
         public IReadOnlyList<PublicBookingServiceOption> Servicios { get; set; } =
             Array.Empty<PublicBookingServiceOption>();
 

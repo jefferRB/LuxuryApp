@@ -11,6 +11,7 @@ using LuxuryApp.Models.Legal;
 using LuxuryApp.Models.Notifications;
 using LuxuryApp.Models.Platform;
 using LuxuryApp.Models.Productos;
+using LuxuryApp.Models.PublicPages;
 using LuxuryApp.Models.Reports;
 using LuxuryApp.Models.Reservas;
 using LuxuryApp.Models.Saas;
@@ -729,6 +730,134 @@ namespace ProyectoIdentity.Datos
                     .OnDelete(DeleteBehavior.Cascade);
             });
 
+            modelBuilder.Entity<TenantPublicPage>(entity =>
+            {
+                entity.Property(page => page.HeroTitle).HasMaxLength(120);
+                entity.Property(page => page.HeroSubtitle).HasMaxLength(180);
+                entity.Property(page => page.HeroEyebrow).HasMaxLength(80);
+                entity.Property(page => page.Description).HasMaxLength(1500);
+                entity.Property(page => page.LogoUrl).HasMaxLength(400);
+                entity.Property(page => page.CoverImageUrl).HasMaxLength(400);
+                entity.Property(page => page.Phone).HasMaxLength(30);
+                entity.Property(page => page.WhatsAppPhone).HasMaxLength(30);
+                entity.Property(page => page.Email).HasMaxLength(256);
+                entity.Property(page => page.Address).HasMaxLength(300);
+                entity.Property(page => page.GoogleMapsUrl).HasMaxLength(500);
+                entity.Property(page => page.WazeUrl).HasMaxLength(500);
+                entity.Property(page => page.InstagramUrl).HasMaxLength(300);
+                entity.Property(page => page.FacebookUrl).HasMaxLength(300);
+                entity.Property(page => page.TikTokUrl).HasMaxLength(300);
+                entity.Property(page => page.SeoTitle).HasMaxLength(70);
+                entity.Property(page => page.SeoDescription).HasMaxLength(180);
+                entity.Property(page => page.BusinessHours).HasMaxLength(500);
+
+                entity.Property(page => page.IsPublished).HasDefaultValue(false);
+                entity.Property(page => page.ShowServices).HasDefaultValue(true);
+                entity.Property(page => page.ShowPrices).HasDefaultValue(true);
+                entity.Property(page => page.ShowTeam).HasDefaultValue(false);
+                entity.Property(page => page.ShowLocation).HasDefaultValue(true);
+                entity.Property(page => page.ShowWhatsAppButton).HasDefaultValue(true);
+
+                entity.HasIndex(page => page.TenantId)
+                    .IsUnique()
+                    .HasDatabaseName("UX_TenantPublicPages_TenantId");
+
+                entity.HasOne(page => page.Tenant)
+                    .WithOne()
+                    .HasForeignKey<TenantPublicPage>(page => page.TenantId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<TenantPublicAsset>(entity =>
+            {
+                entity.Property(asset => asset.AssetType)
+                    .HasConversion<int>();
+
+                entity.Property(asset => asset.StorageKey)
+                    .HasMaxLength(500)
+                    .IsRequired();
+
+                entity.Property(asset => asset.PublicUrl)
+                    .HasMaxLength(800)
+                    .IsRequired();
+
+                entity.Property(asset => asset.ContentType)
+                    .HasMaxLength(60)
+                    .IsRequired();
+
+                entity.Property(asset => asset.OriginalFileName)
+                    .HasMaxLength(180);
+
+                entity.Property(asset => asset.IsActive)
+                    .HasDefaultValue(true);
+
+                entity.HasIndex(asset => asset.TenantId)
+                    .HasDatabaseName("IX_TenantPublicAssets_TenantId");
+
+                entity.HasIndex(asset => new { asset.TenantId, asset.AssetType })
+                    .HasDatabaseName("IX_TenantPublicAssets_TenantId_AssetType");
+
+                entity.HasIndex(asset => new { asset.TenantId, asset.ServicioId, asset.AssetType })
+                    .HasDatabaseName("IX_TenantPublicAssets_TenantId_ServicioId_AssetType");
+
+                entity.HasIndex(asset => asset.TenantPublicPageId)
+                    .HasDatabaseName("IX_TenantPublicAssets_TenantPublicPageId");
+
+                entity.HasIndex(asset => asset.StorageKey)
+                    .IsUnique()
+                    .HasDatabaseName("UX_TenantPublicAssets_StorageKey");
+
+                entity.HasOne(asset => asset.Tenant)
+                    .WithMany()
+                    .HasForeignKey(asset => asset.TenantId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(asset => asset.TenantPublicPage)
+                    .WithMany()
+                    .HasForeignKey(asset => asset.TenantPublicPageId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(asset => asset.Servicio)
+                    .WithMany()
+                    .HasForeignKey(asset => asset.ServicioId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<TenantPublicPageDailyMetric>(entity =>
+            {
+                entity.Property(metric => metric.Date)
+                    .HasColumnType("date");
+
+                entity.Property(metric => metric.MetricType)
+                    .HasConversion<int>();
+
+                entity.Property(metric => metric.Slug)
+                    .HasMaxLength(80)
+                    .IsRequired();
+
+                entity.Property(metric => metric.Count)
+                    .HasDefaultValue(0L);
+
+                entity.HasIndex(metric => new { metric.TenantId, metric.Date })
+                    .HasDatabaseName("IX_TenantPublicPageDailyMetrics_TenantId_Date");
+
+                entity.HasIndex(metric => new { metric.TenantId, metric.Date, metric.MetricType })
+                    .HasDatabaseName("IX_TenantPublicPageDailyMetrics_TenantId_Date_MetricType");
+
+                entity.HasIndex(metric => new { metric.TenantId, metric.Date, metric.MetricType, metric.ServicioId })
+                    .HasDatabaseName("IX_TenantPublicPageDailyMetrics_TenantId_Date_MetricType_ServicioId");
+
+                entity.HasOne(metric => metric.Tenant)
+                    .WithMany()
+                    .HasForeignKey(metric => metric.TenantId)
+                    .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(metric => metric.Servicio)
+                    .WithMany()
+                    .HasForeignKey(metric => metric.ServicioId)
+                    .OnDelete(DeleteBehavior.NoAction);
+            });
+
             modelBuilder.Entity<BookingRequest>(entity =>
             {
                 entity.Property(r => r.NombreCliente).HasMaxLength(100).IsRequired();
@@ -920,6 +1049,21 @@ namespace ProyectoIdentity.Datos
                     .HasDatabaseName("IX_PlatformAuditLogs_EntityType_EntityId");
                 entity.HasIndex(log => log.Action)
                     .HasDatabaseName("IX_PlatformAuditLogs_Action");
+            });
+
+            modelBuilder.Entity<PlatformCommercialSnapshot>(entity =>
+            {
+                // Historia comercial mensual (AD-4). Cross-tenant, fuera del RLS (no es
+                // ITenantEntity). Una fila por mes calendario; nunca se purga (AD-5).
+                entity.Property(snapshot => snapshot.TriggerType).HasMaxLength(20).IsRequired();
+                entity.Property(snapshot => snapshot.TriggeredByEmail).HasMaxLength(256);
+                entity.Property(snapshot => snapshot.MrrTotal).HasColumnType("decimal(18,2)");
+                entity.Property(snapshot => snapshot.ArrTotal).HasColumnType("decimal(18,2)");
+                entity.Property(snapshot => snapshot.ChurnedMrr).HasColumnType("decimal(18,2)");
+
+                entity.HasIndex(snapshot => new { snapshot.PeriodYear, snapshot.PeriodMonth })
+                    .IsUnique()
+                    .HasDatabaseName("UX_PlatformCommercialSnapshots_Period");
             });
 
             modelBuilder.Entity<PlatformWorkerHeartbeat>(entity =>
@@ -1525,6 +1669,9 @@ namespace ProyectoIdentity.Datos
         //Reservas online: catálogo publicable y relación servicio-funcionario
         public DbSet<TenantBookingServiceSetting> TenantBookingServiceSettings { get; set; }
         public DbSet<TenantBookingFuncionarioService> TenantBookingFuncionarioServices { get; set; }
+        public DbSet<TenantPublicPage> TenantPublicPages { get; set; }
+        public DbSet<TenantPublicAsset> TenantPublicAssets { get; set; }
+        public DbSet<TenantPublicPageDailyMetric> TenantPublicPageDailyMetrics { get; set; }
         //Centro de Notificaciones
         public DbSet<TenantNotification> TenantNotifications { get; set; }
         //Resumen Ejecutivo Mensual (LuxuryCloud Insights)
@@ -1533,6 +1680,7 @@ namespace ProyectoIdentity.Datos
 
         public DbSet<PlatformAuditLog> PlatformAuditLogs { get; set; }
         public DbSet<PlatformWorkerHeartbeat> PlatformWorkerHeartbeats { get; set; }
+        public DbSet<PlatformCommercialSnapshot> PlatformCommercialSnapshots { get; set; }
         public DbSet<PlanChangeIntent> PlanChangeIntents { get; set; }
 
 

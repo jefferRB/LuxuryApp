@@ -71,10 +71,14 @@ namespace LuxuryApp.Services.Reservas
 
         public async Task<PublicBookingPageViewModel> BuildPageAsync(
             PublicBookingTenantContext context,
+            int? preselectedServiceId = null,
             CancellationToken cancellationToken = default)
         {
             // Solo servicios publicados (con fallback a todos los activos si no hay configuración).
             var servicios = await _catalogService.GetPublicServicesAsync(cancellationToken);
+            var preselectedService = preselectedServiceId.HasValue
+                ? servicios.FirstOrDefault(servicio => servicio.Id == preselectedServiceId.Value)
+                : null;
 
             var funcionarios = context.PermiteElegirFuncionario
                 ? await _context.Funcionarios
@@ -114,6 +118,8 @@ namespace LuxuryApp.Services.Reservas
                 MinDateIso = today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                 MaxDateIso = maxDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                 SubmissionToken = Guid.NewGuid().ToString("N"),
+                PreselectedServiceId = preselectedService?.Id,
+                PreselectedServiceName = preselectedService?.Nombre,
                 Servicios = servicios,
                 Funcionarios = funcionarios
             };

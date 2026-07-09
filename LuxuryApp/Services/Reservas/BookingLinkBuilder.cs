@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Http;
 
 namespace LuxuryApp.Services.Reservas
@@ -32,6 +33,18 @@ namespace LuxuryApp.Services.Reservas
 
             // Fallback relativo: si no hay request (ej. background) se devuelve la ruta.
             return $"/{PublicBookingBasePath}/{trimmed}";
+        }
+
+        public static string? BuildForService(HttpRequest? request, string? slug, int serviceId)
+        {
+            var bookingUrl = Build(request, slug);
+            if (string.IsNullOrWhiteSpace(bookingUrl) || serviceId <= 0)
+            {
+                return bookingUrl;
+            }
+
+            var separator = bookingUrl.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+            return $"{bookingUrl}{separator}servicioId={serviceId.ToString(CultureInfo.InvariantCulture)}";
         }
 
         /// <summary>

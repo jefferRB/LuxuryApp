@@ -620,6 +620,12 @@ namespace LuxuryApp.Tests.TenantIsolation
                 // verificacion de unicidad de slug (TenantId != actual).
                 Path.Combine("Services", "Reservas", "BookingSettingsService.cs"),
                 Path.Combine("Services", "Tenant", "TenantDisplayNameService.cs"),
+                // Pagina publica del tenant: resuelve por slug publico antes de tener
+                // contexto de tenant y luego proyecta solo datos publicos.
+                Path.Combine("Services", "PublicPages", "TenantPublicPageQueryService.cs"),
+                Path.Combine("Services", "PublicPages", "TenantPublicPageSettingsService.cs"),
+                Path.Combine("Services", "PublicPages", "TenantPublicPageAnalyticsService.cs"),
+                Path.Combine("Services", "PublicPages", "TenantPublicPageRedirectService.cs"),
                 // Consola de plataforma (SuperAdmin): agregados/lecturas cross-tenant deliberados,
                 // gateados por la politica PlatformSuperAdmin en los controllers Platform.
                 Path.Combine("Controllers", "Platform", "PlatformUsersController.cs"),
@@ -629,6 +635,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 Path.Combine("Services", "Platform", "PlatformAuditService.cs"),
                 // Consola de resumen mensual (SuperAdmin): agregados cross-tenant deliberados.
                 Path.Combine("Services", "Platform", "PlatformMonthlyReportService.cs"),
+                // Snapshot comercial (SuperAdmin/worker): agregado mensual cross-tenant deliberado.
+                Path.Combine("Services", "Platform", "PlatformCommercialSnapshotService.cs"),
                 // Reconciliación automática de Billing: corre en background sin contexto de
                 // tenant (worker diario) y debe ver pagos/suscripciones de todos los tenants.
                 Path.Combine("Services", "Billing", "BillingReconciliationService.cs"),

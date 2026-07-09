@@ -1537,6 +1537,87 @@ namespace LuxuryApp.Migrations
                     b.ToTable("PlatformAuditLogs");
                 });
 
+            modelBuilder.Entity("LuxuryApp.Models.Platform.PlatformCommercialSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("ActiveSubscriptions")
+                        .HasColumnType("int");
+
+                    b.Property<int>("AnnualCycleCount")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("ArrTotal")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime>("CapturedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("ChurnedMrr")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("ChurnedTenants")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DetailJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("MonthlyCycleCount")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("MrrTotal")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("NewTenants")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PeriodMonth")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PeriodYear")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TenantsAtencion")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TenantsRiesgo")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TenantsSaludable")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TenantsSinAcceso")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TenantsTotal")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TrialsActivos")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TrialsPorVencer7d")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TriggerType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("TriggeredByEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PeriodYear", "PeriodMonth")
+                        .IsUnique()
+                        .HasDatabaseName("UX_PlatformCommercialSnapshots_Period");
+
+                    b.ToTable("PlatformCommercialSnapshots");
+                });
+
             modelBuilder.Entity("LuxuryApp.Models.Platform.PlatformWorkerHeartbeat", b =>
                 {
                     b.Property<string>("WorkerName")
@@ -1659,6 +1740,270 @@ namespace LuxuryApp.Migrations
                         .HasDatabaseName("IX_Productos_TenantId_Activo_NombreProducto");
 
                     b.ToTable("Productos");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.PublicPages.TenantPublicAsset", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("AssetType")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("OriginalFileName")
+                        .HasMaxLength(180)
+                        .HasColumnType("nvarchar(180)");
+
+                    b.Property<string>("PublicUrl")
+                        .IsRequired()
+                        .HasMaxLength(800)
+                        .HasColumnType("nvarchar(800)");
+
+                    b.Property<int?>("ServicioId")
+                        .HasColumnType("int");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("TenantPublicPageId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServicioId");
+
+                    b.HasIndex("StorageKey")
+                        .IsUnique()
+                        .HasDatabaseName("UX_TenantPublicAssets_StorageKey");
+
+                    b.HasIndex("TenantId")
+                        .HasDatabaseName("IX_TenantPublicAssets_TenantId");
+
+                    b.HasIndex("TenantPublicPageId")
+                        .HasDatabaseName("IX_TenantPublicAssets_TenantPublicPageId");
+
+                    b.HasIndex("TenantId", "AssetType")
+                        .HasDatabaseName("IX_TenantPublicAssets_TenantId_AssetType");
+
+                    b.HasIndex("TenantId", "ServicioId", "AssetType")
+                        .HasDatabaseName("IX_TenantPublicAssets_TenantId_ServicioId_AssetType");
+
+                    b.ToTable("TenantPublicAssets");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.PublicPages.TenantPublicPage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("BusinessHours")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("CoverImageUrl")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1500)
+                        .HasColumnType("nvarchar(1500)");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("FacebookUrl")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("GoogleMapsUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("HeroEyebrow")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<string>("HeroSubtitle")
+                        .HasMaxLength(180)
+                        .HasColumnType("nvarchar(180)");
+
+                    b.Property<string>("HeroTitle")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<string>("InstagramUrl")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<bool>("IsPublished")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("LogoUrl")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("SeoDescription")
+                        .HasMaxLength(180)
+                        .HasColumnType("nvarchar(180)");
+
+                    b.Property<string>("SeoTitle")
+                        .HasMaxLength(70)
+                        .HasColumnType("nvarchar(70)");
+
+                    b.Property<bool>("ShowLocation")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("ShowPrices")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("ShowServices")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("ShowTeam")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<bool>("ShowWhatsAppButton")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TikTokUrl")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("WazeUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("WhatsAppPhone")
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_TenantPublicPages_TenantId");
+
+                    b.ToTable("TenantPublicPages");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.PublicPages.TenantPublicPageDailyMetric", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("Count")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<int>("MetricType")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ServicioId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServicioId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Date")
+                        .HasDatabaseName("IX_TenantPublicPageDailyMetrics_TenantId_Date");
+
+                    b.HasIndex("TenantId", "Date", "MetricType")
+                        .HasDatabaseName("IX_TenantPublicPageDailyMetrics_TenantId_Date_MetricType");
+
+                    b.HasIndex("TenantId", "Date", "MetricType", "ServicioId")
+                        .HasDatabaseName("IX_TenantPublicPageDailyMetrics_TenantId_Date_MetricType_ServicioId");
+
+                    b.ToTable("TenantPublicPageDailyMetrics");
                 });
 
             modelBuilder.Entity("LuxuryApp.Models.Reports.TenantMonthlyReportEmailLog", b =>
@@ -3719,6 +4064,60 @@ namespace LuxuryApp.Migrations
                         .IsRequired();
 
                     b.Navigation("Producto");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.PublicPages.TenantPublicAsset", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Finanzas.Servicio", "Servicio")
+                        .WithMany()
+                        .HasForeignKey("ServicioId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("LuxuryApp.Models.SaaS.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("LuxuryApp.Models.PublicPages.TenantPublicPage", "TenantPublicPage")
+                        .WithMany()
+                        .HasForeignKey("TenantPublicPageId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Servicio");
+
+                    b.Navigation("Tenant");
+
+                    b.Navigation("TenantPublicPage");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.PublicPages.TenantPublicPage", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.SaaS.Tenant", "Tenant")
+                        .WithOne()
+                        .HasForeignKey("LuxuryApp.Models.PublicPages.TenantPublicPage", "TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.PublicPages.TenantPublicPageDailyMetric", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Finanzas.Servicio", "Servicio")
+                        .WithMany()
+                        .HasForeignKey("ServicioId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("LuxuryApp.Models.SaaS.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Servicio");
+
+                    b.Navigation("Tenant");
                 });
 
             modelBuilder.Entity("LuxuryApp.Models.Reservas.BookingRequest", b =>

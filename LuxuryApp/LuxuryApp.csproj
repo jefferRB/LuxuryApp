@@ -23,6 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" Version="4.0.100.2" />
     <PackageReference Include="ClosedXML" Version="0.105.0" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.2" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.1" />
@@ -36,6 +37,7 @@
     <PackageReference Include="MailKit" Version="4.17.0" />
     <PackageReference Include="QuestPDF" Version="2025.7.0" />
     <PackageReference Include="Resend" Version="0.2.1" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
     <PackageReference Include="Stripe.net" Version="51.0.0" />
   </ItemGroup>
 

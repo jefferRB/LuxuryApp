@@ -17,6 +17,8 @@ using LuxuryApp.Services.Layout;
 using LuxuryApp.Services.Localization;
 using LuxuryApp.Services.Notifications;
 using LuxuryApp.Services.Payments;
+using LuxuryApp.Services.PublicPages;
+using LuxuryApp.Services.PublicImages;
 using LuxuryApp.Services.PublicSite;
 using LuxuryApp.Services.Productos;
 using LuxuryApp.Services.Reservas;
@@ -206,6 +208,17 @@ builder.Services.Configure<LuxuryApp.Services.Account.AccountEmailOptions>(
 // URL pública oficial (clave raíz "PublicBaseUrl" / env var PublicBaseUrl). Centraliza los
 // enlaces absolutos de correos/procesos de fondo; nunca usa el host del request ni ngrok.
 builder.Services.Configure<LuxuryApp.Services.Common.PublicSiteOptions>(builder.Configuration);
+builder.Services.AddOptions<PublicImageOptions>()
+    .Bind(builder.Configuration.GetSection(PublicImageOptions.SectionName))
+    .Validate(options =>
+        string.Equals(options.Provider, PublicImageProviders.Local, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(options.Provider, PublicImageProviders.S3Compatible, StringComparison.OrdinalIgnoreCase),
+        "PublicImages:Provider debe ser Local o S3Compatible.")
+    .ValidateOnStart();
+builder.Services.AddOptions<S3StorageOptions>()
+    .Bind(builder.Configuration.GetSection(S3StorageOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<S3StorageOptions>, S3StorageOptionsValidator>();
 builder.Services.Configure<RequestLocalizationOptions>(options =>
 {
     var supportedCultures = new[] { defaultCulture };
@@ -280,6 +293,23 @@ builder.Services.AddScoped<IProductoQueryService, ProductoQueryService>();
 builder.Services.AddScoped<IContractService, ContractService>();
 builder.Services.AddScoped<IPrivateNavigationService, PrivateNavigationService>();
 builder.Services.AddScoped<IPublicSiteContentService, PublicSiteContentService>();
+builder.Services.AddScoped<ITenantPublicPageQueryService, TenantPublicPageQueryService>();
+builder.Services.AddScoped<ITenantPublicPageSettingsService, TenantPublicPageSettingsService>();
+builder.Services.AddScoped<ITenantPublicPageAnalyticsService, TenantPublicPageAnalyticsService>();
+builder.Services.AddScoped<ITenantPublicPageRedirectService, TenantPublicPageRedirectService>();
+builder.Services.AddScoped<IPublicUrlValidationService, PublicUrlValidationService>();
+builder.Services.AddScoped<IPublicAssetQuotaService, PublicAssetQuotaService>();
+builder.Services.AddScoped<IPublicImageUploadService, PublicImageUploadService>();
+builder.Services.AddScoped<IUploadedFileSecurityScanner, NoOpUploadedFileSecurityScanner>();
+builder.Services.AddScoped<LocalPublicImageStorageService>();
+builder.Services.AddScoped<S3CompatiblePublicImageStorageService>();
+builder.Services.AddScoped<IPublicImageStorageService>(serviceProvider =>
+{
+    var options = serviceProvider.GetRequiredService<IOptions<PublicImageOptions>>().Value;
+    return string.Equals(options.Provider, PublicImageProviders.S3Compatible, StringComparison.OrdinalIgnoreCase)
+        ? serviceProvider.GetRequiredService<S3CompatiblePublicImageStorageService>()
+        : serviceProvider.GetRequiredService<LocalPublicImageStorageService>();
+});
 builder.Services.AddScoped<ITenantDisplayNameService, TenantDisplayNameService>();
 // Reservas online por tenant (Fase 1)
 builder.Services.AddScoped<IBookingCatalogService, BookingCatalogService>();
@@ -318,6 +348,13 @@ builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformTenantProfileSer
 // Mission Control: heartbeat singleton (crea su propio scope EF) + snapshot cacheado de señales/colas.
 builder.Services.AddSingleton<LuxuryApp.Services.Platform.IWorkerHeartbeatService, LuxuryApp.Services.Platform.WorkerHeartbeatService>();
 builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformMissionControlService, LuxuryApp.Services.Platform.PlatformMissionControlService>();
+// Snapshot comercial mensual (AD-4): historia de MRR/churn/trials que no se puede
+// reconstruir retroactivamente. El worker queda inerte con Platform:CommercialSnapshot:Enabled=false.
+builder.Services.Configure<LuxuryApp.Models.Platform.PlatformCommercialSnapshotOptions>(
+    builder.Configuration.GetSection(LuxuryApp.Models.Platform.PlatformCommercialSnapshotOptions.SectionName));
+builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformCommercialSnapshotService, LuxuryApp.Services.Platform.PlatformCommercialSnapshotService>();
+builder.Services.AddHostedService<LuxuryApp.Workers.CommercialSnapshotWorker>();
+
 builder.Services.AddScoped<SaaSPaymentService>();
 builder.Services.AddScoped<PaymentProviderResolver>();
 

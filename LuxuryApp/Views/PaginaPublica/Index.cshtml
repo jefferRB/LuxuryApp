@@ -1,0 +1,446 @@
+@model LuxuryApp.Models.PublicPages.EditTenantPublicPageViewModel
+@using System.Globalization
+@{
+    ViewData["Title"] = "Pagina publica";
+    var storagePercent = Math.Min(Model.StorageUsage.PercentUsed, 100).ToString("0.#", CultureInfo.InvariantCulture);
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/tenant-public-page-admin.css" asp-append-version="true" />
+}
+
+<div class="tppa-shell">
+    <div class="tppa-head">
+        <div>
+            <span class="tppa-eyebrow"><i class="bi bi-window"></i> Sitio publico</span>
+            <h1>Pagina publica del negocio</h1>
+            <p>Configura la mini landing de @Model.BusinessName. El boton principal usa el flujo existente de reservas online.</p>
+        </div>
+        <div class="tppa-head-actions">
+            @if (!string.IsNullOrWhiteSpace(Model.PublicSiteUrl))
+            {
+                <a class="tppa-btn tppa-btn-soft" href="@Model.PublicSiteUrl" target="_blank" rel="noopener">
+                    <i class="bi bi-box-arrow-up-right"></i> Abrir sitio
+                </a>
+            }
+            <a class="tppa-btn tppa-btn-soft" asp-controller="Reservas" asp-action="Configuracion">
+                <i class="bi bi-calendar-check"></i> Reservas online
+            </a>
+        </div>
+    </div>
+
+    @if (TempData["PaginaPublicaOk"] is string okMsg && !string.IsNullOrWhiteSpace(okMsg))
+    {
+        <div class="tppa-alert tppa-alert-ok"><i class="bi bi-check2-circle"></i> @okMsg</div>
+    }
+
+    @if (TempData["PaginaPublicaError"] is string errorMsg && !string.IsNullOrWhiteSpace(errorMsg))
+    {
+        <div class="tppa-alert tppa-alert-error"><i class="bi bi-exclamation-triangle"></i> @errorMsg</div>
+    }
+
+    @if (!Model.CanUsePublicLandingPage)
+    {
+        <div class="tppa-alert tppa-alert-warn">
+            <i class="bi bi-exclamation-triangle"></i>
+            Esta funcionalidad no esta disponible para el tenant actual.
+        </div>
+    }
+
+    @if (string.IsNullOrWhiteSpace(Model.PublicSiteUrl))
+    {
+        <div class="tppa-alert tppa-alert-warn">
+            <i class="bi bi-info-circle"></i>
+            Para publicar la landing, primero configura el enlace de reservas online. Se reutiliza el mismo slug.
+        </div>
+    }
+    else
+    {
+        <div class="tppa-link-card">
+            <span>URL publica</span>
+            <code>@Model.PublicSiteUrl</code>
+            @if (!string.IsNullOrWhiteSpace(Model.BookingUrl))
+            {
+                <small>CTA de reservas: @Model.BookingUrl</small>
+            }
+            else
+            {
+                <small>Las reservas online estan desactivadas; la landing no mostrara el boton de reservar.</small>
+            }
+        </div>
+    }
+
+    <div asp-validation-summary="All" class="tppa-alert tppa-alert-error"></div>
+
+    <section class="tppa-card tppa-analytics">
+        <div class="tppa-card-head">
+            <h2><i class="bi bi-activity"></i> Actividad ultimos @Model.Analytics.Days dias</h2>
+        </div>
+        @if (Model.Analytics.HasAnyActivity)
+        {
+            <div class="tppa-metric-grid">
+                <div class="tppa-metric"><span>Visitas</span><strong>@Model.Analytics.PageViews</strong></div>
+                <div class="tppa-metric"><span>Reservar cita</span><strong>@Model.Analytics.ReserveClicks</strong></div>
+                <div class="tppa-metric"><span>Reservas por servicio</span><strong>@Model.Analytics.ServiceReserveClicks</strong></div>
+                <div class="tppa-metric"><span>WhatsApp</span><strong>@Model.Analytics.WhatsAppClicks</strong></div>
+                <div class="tppa-metric"><span>Ubicacion</span><strong>@Model.Analytics.MapsClicks</strong></div>
+            </div>
+
+            @if (Model.Analytics.TopServices.Count > 0)
+            {
+                <div class="tppa-top-services">
+                    <h3>Top servicios con clicks de reserva</h3>
+                    @foreach (var service in Model.Analytics.TopServices)
+                    {
+                        <div class="tppa-top-service-row">
+                            <span>@service.ServiceName</span>
+                            <strong>@service.Clicks</strong>
+                        </div>
+                    }
+                </div>
+            }
+        }
+        else
+        {
+            <p class="tppa-empty-state">Aun no hay actividad registrada para la pagina publica.</p>
+        }
+    </section>
+
+    <section class="tppa-card">
+        <div class="tppa-card-head">
+            <h2><i class="bi bi-images"></i> Imagenes publicas</h2>
+            <div class="tppa-usage">
+                <span data-public-image-usage-label>@Model.StorageUsage.UsedDisplay de @Model.StorageUsage.MaxDisplay usados</span>
+                <div class="tppa-usage-bar">
+                    <span data-public-image-usage-bar style="width:@storagePercent%"></span>
+                </div>
+            </div>
+        </div>
+        <div class="tppa-ajax-status" data-public-image-status hidden></div>
+
+        <div class="tppa-media-grid">
+            <div class="tppa-media-box" data-public-image-slot="logo">
+                <h3>Logo</h3>
+                <div class="tppa-preview-area" data-preview-area>
+                    @if (Model.LogoAsset is not null)
+                    {
+                        <img class="tppa-preview tppa-preview-logo" src="@Model.LogoAsset.Url" alt="Logo actual" />
+                        <small data-size-label>@Model.LogoAsset.SizeDisplay</small>
+                        <form asp-action="RemoveLogo" method="post" data-remove-form data-remove-target="singleton">
+                            @Html.AntiForgeryToken()
+                            <button type="submit" class="tppa-btn tppa-btn-soft">Quitar logo</button>
+                        </form>
+                    }
+                    else
+                    {
+                        <div class="tppa-preview tppa-preview-empty" data-empty-preview>Sin logo</div>
+                    }
+                </div>
+                <form asp-action="UploadLogo" method="post" enctype="multipart/form-data" class="tppa-upload-form" data-public-image-upload data-upload-kind="singleton" data-crop-aspect="1" data-preview-class="tppa-preview-logo" data-preview-alt="Logo actual">
+                    @Html.AntiForgeryToken()
+                    <label class="tppa-file-button">
+                        <span>Cambiar logo</span>
+                        <input type="file" name="file" accept="image/jpeg,image/png,image/webp" class="tppa-file" />
+                    </label>
+                    <button type="submit" class="tppa-btn tppa-btn-primary tppa-fallback-submit">Subir logo</button>
+                </form>
+            </div>
+
+            <div class="tppa-media-box" data-public-image-slot="cover">
+                <h3>Portada</h3>
+                <div class="tppa-preview-area" data-preview-area>
+                    @if (Model.CoverAsset is not null)
+                    {
+                        <img class="tppa-preview tppa-preview-cover" src="@Model.CoverAsset.Url" alt="Portada actual" />
+                        <small data-size-label>@Model.CoverAsset.SizeDisplay</small>
+                        <form asp-action="RemoveCover" method="post" data-remove-form data-remove-target="singleton">
+                            @Html.AntiForgeryToken()
+                            <button type="submit" class="tppa-btn tppa-btn-soft">Quitar portada</button>
+                        </form>
+                    }
+                    else
+                    {
+                        <div class="tppa-preview tppa-preview-cover tppa-preview-empty" data-empty-preview>Sin portada</div>
+                    }
+                </div>
+                <form asp-action="UploadCover" method="post" enctype="multipart/form-data" class="tppa-upload-form" data-public-image-upload data-upload-kind="singleton" data-crop-aspect="1.7777777778" data-preview-class="tppa-preview-cover" data-preview-alt="Portada actual">
+                    @Html.AntiForgeryToken()
+                    <label class="tppa-file-button">
+                        <span>Cambiar portada</span>
+                        <input type="file" name="file" accept="image/jpeg,image/png,image/webp" class="tppa-file" />
+                    </label>
+                    <button type="submit" class="tppa-btn tppa-btn-primary tppa-fallback-submit">Subir portada</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="tppa-gallery-admin">
+            <div class="tppa-gallery-head">
+                <h3>Galeria del negocio</h3>
+                <small data-gallery-counter data-gallery-max="@Model.MaxBusinessGalleryImages">@Model.BusinessGallery.Count de @Model.MaxBusinessGalleryImages imagenes</small>
+            </div>
+            <div class="tppa-thumb-grid" data-gallery-list="business" @(Model.BusinessGallery.Count == 0 ? "hidden" : null)>
+                @if (Model.BusinessGallery.Count > 0)
+                {
+                    @foreach (var image in Model.BusinessGallery)
+                    {
+                        <div class="tppa-thumb" data-asset-id="@image.Id">
+                            <img src="@image.Url" alt="Imagen de galeria" />
+                            <small data-size-label>@image.SizeDisplay</small>
+                            <form asp-action="RemoveBusinessGalleryImage" method="post" data-remove-form data-remove-target="gallery">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="assetId" value="@image.Id" />
+                                <button type="submit" class="tppa-link-button">Quitar</button>
+                            </form>
+                        </div>
+                    }
+                }
+            </div>
+            @if (Model.BusinessGallery.Count < Model.MaxBusinessGalleryImages)
+            {
+                <form asp-action="UploadBusinessGalleryImage" method="post" enctype="multipart/form-data" class="tppa-upload-form tppa-upload-inline" data-public-image-upload data-upload-kind="gallery" data-gallery-list-target="business" data-crop-aspect="0.8" data-preview-alt="Imagen de galeria">
+                    @Html.AntiForgeryToken()
+                    <label class="tppa-file-button">
+                        <span>Agregar imagen</span>
+                        <input type="file" name="file" accept="image/jpeg,image/png,image/webp" class="tppa-file" />
+                    </label>
+                    <button type="submit" class="tppa-btn tppa-btn-primary tppa-fallback-submit">Subir imagen</button>
+                </form>
+            }
+        </div>
+    </section>
+
+    @if (Model.ServiceAssets.Count > 0)
+    {
+        <section class="tppa-card">
+            <h2><i class="bi bi-scissors"></i> Imagenes por servicio</h2>
+            <div class="tppa-service-media-list">
+                @foreach (var service in Model.ServiceAssets)
+                {
+                    <article class="tppa-service-media">
+                        <div class="tppa-service-media-title">
+                            <h3>@service.ServiceName</h3>
+                            <small data-service-gallery-counter data-gallery-max="@service.MaxGalleryImages">Galeria: @service.GalleryImages.Count de @service.MaxGalleryImages</small>
+                        </div>
+
+                        <div class="tppa-service-media-grid">
+                            <div data-public-image-slot="service-main" data-service-id="@service.ServiceId">
+                                <h4>Imagen principal</h4>
+                                <div class="tppa-preview-area" data-preview-area>
+                                    @if (service.MainImage is not null)
+                                    {
+                                        <img class="tppa-preview tppa-preview-service-main" src="@service.MainImage.Url" alt="Imagen principal de @service.ServiceName" />
+                                        <small data-size-label>@service.MainImage.SizeDisplay</small>
+                                        <form asp-action="RemoveServiceMainImage" method="post" data-remove-form data-remove-target="singleton">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="serviceId" value="@service.ServiceId" />
+                                            <button type="submit" class="tppa-btn tppa-btn-soft">Quitar imagen principal</button>
+                                        </form>
+                                    }
+                                    else
+                                    {
+                                        <div class="tppa-preview tppa-preview-service-main tppa-preview-empty" data-empty-preview>Sin imagen principal</div>
+                                    }
+                                </div>
+                                <form asp-action="UploadServiceMainImage" method="post" enctype="multipart/form-data" class="tppa-upload-form" data-public-image-upload data-upload-kind="singleton" data-crop-aspect="1.3333333333" data-preview-class="tppa-preview-service-main" data-preview-alt="Imagen principal de @service.ServiceName">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="serviceId" value="@service.ServiceId" />
+                                    <label class="tppa-file-button">
+                                        <span>Cambiar imagen principal</span>
+                                        <input type="file" name="file" accept="image/jpeg,image/png,image/webp" class="tppa-file" />
+                                    </label>
+                                    <button type="submit" class="tppa-btn tppa-btn-primary tppa-fallback-submit">Subir principal</button>
+                                </form>
+                            </div>
+
+                            <div>
+                                <h4>Trabajos realizados</h4>
+                                <div class="tppa-thumb-grid" data-gallery-list="service-@service.ServiceId" @(service.GalleryImages.Count == 0 ? "hidden" : null)>
+                                    @if (service.GalleryImages.Count > 0)
+                                    {
+                                        @foreach (var image in service.GalleryImages)
+                                        {
+                                            <div class="tppa-thumb" data-asset-id="@image.Id">
+                                                <img src="@image.Url" alt="Trabajo realizado de @service.ServiceName" />
+                                                <small data-size-label>@image.SizeDisplay</small>
+                                                <form asp-action="RemoveServiceGalleryImage" method="post" data-remove-form data-remove-target="gallery">
+                                                    @Html.AntiForgeryToken()
+                                                    <input type="hidden" name="assetId" value="@image.Id" />
+                                                    <button type="submit" class="tppa-link-button">Quitar</button>
+                                                </form>
+                                            </div>
+                                        }
+                                    }
+                                </div>
+                                @if (service.CanAddGalleryImage)
+                                {
+                                    <form asp-action="UploadServiceGalleryImage" method="post" enctype="multipart/form-data" class="tppa-upload-form tppa-upload-inline" data-public-image-upload data-upload-kind="gallery" data-gallery-list-target="service-@service.ServiceId" data-crop-aspect="0.8" data-preview-alt="Trabajo realizado de @service.ServiceName">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="serviceId" value="@service.ServiceId" />
+                                        <label class="tppa-file-button">
+                                            <span>Agregar trabajo</span>
+                                            <input type="file" name="file" accept="image/jpeg,image/png,image/webp" class="tppa-file" />
+                                        </label>
+                                        <button type="submit" class="tppa-btn tppa-btn-primary tppa-fallback-submit">Subir trabajo</button>
+                                    </form>
+                                }
+                            </div>
+                        </div>
+                    </article>
+                }
+            </div>
+        </section>
+    }
+
+    <form asp-controller="PaginaPublica" asp-action="Index" method="post" class="tppa-form">
+        @Html.AntiForgeryToken()
+
+        <section class="tppa-card">
+            <h2><i class="bi bi-toggle-on"></i> Estado</h2>
+            <label class="tppa-switch">
+                <input type="checkbox" asp-for="IsPublished" />
+                <span>
+                    <strong>Publicar pagina</strong>
+                    <small>Si esta apagado, /sitio/{slug} devuelve NotFound y no se indexa.</small>
+                </span>
+            </label>
+        </section>
+
+        <section class="tppa-card">
+            <h2><i class="bi bi-stars"></i> Hero principal</h2>
+            <div class="tppa-grid2">
+                <div class="tppa-field">
+                    <label asp-for="HeroTitle"></label>
+                    <input asp-for="HeroTitle" maxlength="120" class="tppa-input" placeholder="@Model.BusinessName" />
+                    <span asp-validation-for="HeroTitle" class="tppa-validation"></span>
+                </div>
+                <div class="tppa-field">
+                    <label asp-for="HeroSubtitle"></label>
+                    <input asp-for="HeroSubtitle" maxlength="180" class="tppa-input" placeholder="Barberia, salon o spa profesional" />
+                    <span asp-validation-for="HeroSubtitle" class="tppa-validation"></span>
+                </div>
+                <div class="tppa-field">
+                    <label asp-for="HeroEyebrow"></label>
+                    <input asp-for="HeroEyebrow" maxlength="80" class="tppa-input" placeholder="Estudio premium, barberia clasica, salon boutique..." />
+                    <span asp-validation-for="HeroEyebrow" class="tppa-validation"></span>
+                </div>
+            </div>
+            <div class="tppa-field">
+                <label asp-for="Description"></label>
+                <textarea asp-for="Description" maxlength="1500" rows="4" class="tppa-input"></textarea>
+                <span asp-validation-for="Description" class="tppa-validation"></span>
+            </div>
+        </section>
+
+        <section class="tppa-card">
+            <h2><i class="bi bi-telephone"></i> Contacto y redes</h2>
+            <div class="tppa-grid2">
+                <div class="tppa-field">
+                    <label asp-for="Phone"></label>
+                    <input asp-for="Phone" maxlength="30" class="tppa-input" />
+                    <span asp-validation-for="Phone" class="tppa-validation"></span>
+                </div>
+                <div class="tppa-field">
+                    <label asp-for="WhatsAppPhone"></label>
+                    <input asp-for="WhatsAppPhone" maxlength="30" class="tppa-input" placeholder="50688889999" />
+                    <span asp-validation-for="WhatsAppPhone" class="tppa-validation"></span>
+                </div>
+                <div class="tppa-field">
+                    <label asp-for="Email"></label>
+                    <input asp-for="Email" maxlength="256" class="tppa-input" />
+                    <span asp-validation-for="Email" class="tppa-validation"></span>
+                </div>
+                <div class="tppa-field">
+                    <label asp-for="Address"></label>
+                    <input asp-for="Address" maxlength="300" class="tppa-input" />
+                    <span asp-validation-for="Address" class="tppa-validation"></span>
+                </div>
+                <div class="tppa-field">
+                    <label asp-for="BusinessHours"></label>
+                    <textarea asp-for="BusinessHours" maxlength="500" rows="4" class="tppa-input" placeholder="Lun a Sab: 9:00 a.m. - 7:00 p.m."></textarea>
+                    <span asp-validation-for="BusinessHours" class="tppa-validation"></span>
+                </div>
+            </div>
+            <div class="tppa-grid2">
+                <div class="tppa-field">
+                    <label asp-for="GoogleMapsUrl"></label>
+                    <input asp-for="GoogleMapsUrl" maxlength="500" class="tppa-input" placeholder="https://maps.google.com/..." />
+                    <span asp-validation-for="GoogleMapsUrl" class="tppa-validation"></span>
+                </div>
+                <div class="tppa-field">
+                    <label asp-for="WazeUrl"></label>
+                    <input asp-for="WazeUrl" maxlength="500" class="tppa-input" placeholder="https://waze.com/ul?..." />
+                    <span asp-validation-for="WazeUrl" class="tppa-validation"></span>
+                </div>
+                <div class="tppa-field">
+                    <label asp-for="InstagramUrl"></label>
+                    <input asp-for="InstagramUrl" maxlength="300" class="tppa-input" placeholder="https://instagram.com/..." />
+                    <span asp-validation-for="InstagramUrl" class="tppa-validation"></span>
+                </div>
+                <div class="tppa-field">
+                    <label asp-for="FacebookUrl"></label>
+                    <input asp-for="FacebookUrl" maxlength="300" class="tppa-input" placeholder="https://facebook.com/..." />
+                    <span asp-validation-for="FacebookUrl" class="tppa-validation"></span>
+                </div>
+                <div class="tppa-field">
+                    <label asp-for="TikTokUrl"></label>
+                    <input asp-for="TikTokUrl" maxlength="300" class="tppa-input" placeholder="https://tiktok.com/..." />
+                    <span asp-validation-for="TikTokUrl" class="tppa-validation"></span>
+                </div>
+            </div>
+        </section>
+
+        <section class="tppa-card">
+            <h2><i class="bi bi-sliders"></i> Secciones visibles</h2>
+            <div class="tppa-switch-grid">
+                <label class="tppa-switch">
+                    <input type="checkbox" asp-for="ShowServices" />
+                    <span><strong>Mostrar servicios</strong><small>Usa servicios activos y configuracion de reservas.</small></span>
+                </label>
+                <label class="tppa-switch">
+                    <input type="checkbox" asp-for="ShowPrices" />
+                    <span><strong>Mostrar precios</strong><small>Respeta tambien el ShowPrice de servicios publicados.</small></span>
+                </label>
+                <label class="tppa-switch">
+                    <input type="checkbox" asp-for="ShowTeam" />
+                    <span><strong>Mostrar equipo</strong><small>Solo funcionarios activos y datos publicos minimos.</small></span>
+                </label>
+                <label class="tppa-switch">
+                    <input type="checkbox" asp-for="ShowLocation" />
+                    <span><strong>Mostrar ubicacion</strong><small>Direccion y enlace seguro a mapas.</small></span>
+                </label>
+                <label class="tppa-switch">
+                    <input type="checkbox" asp-for="ShowWhatsAppButton" />
+                    <span><strong>Mostrar boton WhatsApp</strong><small>Solo si hay numero configurado.</small></span>
+                </label>
+            </div>
+        </section>
+
+        <section class="tppa-card">
+            <h2><i class="bi bi-search"></i> SEO basico</h2>
+            <div class="tppa-grid2">
+                <div class="tppa-field">
+                    <label asp-for="SeoTitle"></label>
+                    <input asp-for="SeoTitle" maxlength="70" class="tppa-input" />
+                    <span asp-validation-for="SeoTitle" class="tppa-validation"></span>
+                </div>
+                <div class="tppa-field">
+                    <label asp-for="SeoDescription"></label>
+                    <input asp-for="SeoDescription" maxlength="180" class="tppa-input" />
+                    <span asp-validation-for="SeoDescription" class="tppa-validation"></span>
+                </div>
+            </div>
+        </section>
+
+        <div class="tppa-actions">
+            <button type="submit" class="tppa-btn tppa-btn-primary">
+                <i class="bi bi-save"></i> Guardar pagina publica
+            </button>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script src="~/js/tenant-public-image-uploader.js" asp-append-version="true"></script>
+}

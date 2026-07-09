@@ -24,5 +24,6 @@ namespace LuxuryApp.Models.Platform
         public const string Visitas = "VisitasBackgroundService";
         public const string BillingReconciliation = "BillingReconciliationWorker";
         public const string MonthlyReportScheduler = "MonthlyReportSchedulerService";
+        public const string CommercialSnapshot = "CommercialSnapshotWorker";
     }
 }

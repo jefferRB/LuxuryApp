@@ -103,6 +103,15 @@ namespace LuxuryApp.Services.Layout
                     Icon = "bi-percent",
                     Highlight = false
                 });
+
+                secondaryItems.Add(new NavigationMenuItemViewModel
+                {
+                    Text = "Pagina publica",
+                    Controller = "PaginaPublica",
+                    Action = "Index",
+                    Icon = "bi-window",
+                    Highlight = false
+                });
             }
 
             // Resumen Ejecutivo Mensual: función administrada EXCLUSIVAMENTE por el super admin

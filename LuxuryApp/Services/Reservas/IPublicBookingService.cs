@@ -23,7 +23,10 @@ namespace LuxuryApp.Services.Reservas
         Task<PublicBookingTenantContext?> ResolveContextAsync(string slug, CancellationToken cancellationToken = default);
 
         /// <summary>Construye el modelo de la página pública (servicios, funcionarios, rango de fechas).</summary>
-        Task<PublicBookingPageViewModel> BuildPageAsync(PublicBookingTenantContext context, CancellationToken cancellationToken = default);
+        Task<PublicBookingPageViewModel> BuildPageAsync(
+            PublicBookingTenantContext context,
+            int? preselectedServiceId = null,
+            CancellationToken cancellationToken = default);
 
         /// <summary>Horarios disponibles para la página pública (valida fecha/servicio internamente).</summary>
         Task<BookingAvailabilityResult> GetAvailabilityAsync(

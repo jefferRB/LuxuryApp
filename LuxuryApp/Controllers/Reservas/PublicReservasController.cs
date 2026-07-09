@@ -24,7 +24,10 @@ namespace LuxuryApp.Controllers.Reservas
         }
 
         [HttpGet("{slug}")]
-        public async Task<IActionResult> Index(string slug, CancellationToken cancellationToken)
+        public async Task<IActionResult> Index(
+            string slug,
+            [FromQuery(Name = "servicioId")] int? servicioId,
+            CancellationToken cancellationToken)
         {
             var context = await _publicBookingService.ResolveContextAsync(slug, cancellationToken);
             if (context is null)
@@ -35,7 +38,7 @@ namespace LuxuryApp.Controllers.Reservas
             }
 
             Response.Headers["X-Robots-Tag"] = "noindex, nofollow";
-            var page = await _publicBookingService.BuildPageAsync(context, cancellationToken);
+            var page = await _publicBookingService.BuildPageAsync(context, servicioId, cancellationToken);
             return View(page);
         }
 
