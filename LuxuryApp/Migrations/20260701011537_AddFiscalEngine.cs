@@ -101,8 +101,21 @@ namespace LuxuryApp.Migrations
             // existentes que venían con RebajarImpuestosAntesDeComision = 1 deben conservar su
             // comportamiento histórico → comisión sobre la base sin IVA (BaseSinIva = 1). Los que
             // tenían el flag en 0 permanecen en TotalCobrado. Idempotente y no destructivo.
-            migrationBuilder.Sql(
-                "UPDATE [Funcionarios] SET [ComisionCalculadaSobre] = 1 WHERE [RebajarImpuestosAntesDeComision] = 1;");
+            migrationBuilder.Sql("""
+IF EXISTS (
+    SELECT 1
+    FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.Funcionarios')
+      AND name = N'ComisionCalculadaSobre'
+)
+BEGIN
+    EXEC sys.sp_executesql N'
+        UPDATE dbo.Funcionarios
+        SET ComisionCalculadaSobre = 1
+        WHERE RebajarImpuestosAntesDeComision = 1;
+    ';
+END
+""");
         }
 
         /// <inheritdoc />

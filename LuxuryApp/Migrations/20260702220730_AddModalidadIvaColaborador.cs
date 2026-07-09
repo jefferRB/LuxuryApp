@@ -22,8 +22,21 @@ namespace LuxuryApp.Migrations
             // su IVA y se descompone SIN aumentar el total (antes se sumaba por encima, modalidad C). Los
             // pagos ya registrados son snapshots inmutables (LiquidacionSemanalDetalle) y NO se recalculan;
             // solo cambian los cálculos del periodo vigente/futuro. Idempotente y no destructivo.
-            migrationBuilder.Sql(
-                "UPDATE [Funcionarios] SET [ModalidadIvaColaborador] = 1 WHERE [ColaboradorFacturaIva] = 1;");
+            migrationBuilder.Sql("""
+IF EXISTS (
+    SELECT 1
+    FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.Funcionarios')
+      AND name = N'ModalidadIvaColaborador'
+)
+BEGIN
+    EXEC sys.sp_executesql N'
+        UPDATE dbo.Funcionarios
+        SET ModalidadIvaColaborador = 1
+        WHERE ColaboradorFacturaIva = 1;
+    ';
+END
+""");
         }
 
         /// <inheritdoc />
