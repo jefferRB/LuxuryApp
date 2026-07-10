@@ -96,6 +96,13 @@ namespace LuxuryApp.Models.Funcionarios
 
         /// <summary>Si la foto puede mostrarse a los clientes en el link público de reservas. Default true.</summary>
         public bool MostrarFotoEnReservas { get; set; } = true;
+
+        /// <summary>
+        /// Descripción pública corta del profesional (bio) que puede mostrarse en la landing
+        /// pública del negocio, junto a su foto. Null/vacío = no se muestra. Texto plano.
+        /// </summary>
+        [MaxLength(280)]
+        public string? DescripcionPublica { get; set; }
     }
 
 }

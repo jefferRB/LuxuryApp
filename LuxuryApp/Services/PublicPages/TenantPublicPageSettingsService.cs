@@ -17,6 +17,7 @@ namespace LuxuryApp.Services.PublicPages
         private readonly IPublicUrlValidationService _urlValidationService;
         private readonly IPublicAssetQuotaService _quotaService;
         private readonly ITenantPublicPageAnalyticsService _analyticsService;
+        private readonly IBusinessScheduleService _businessScheduleService;
         private readonly PublicImageOptions _imageOptions;
 
         public TenantPublicPageSettingsService(
@@ -26,6 +27,7 @@ namespace LuxuryApp.Services.PublicPages
             IPublicUrlValidationService urlValidationService,
             IPublicAssetQuotaService quotaService,
             ITenantPublicPageAnalyticsService analyticsService,
+            IBusinessScheduleService businessScheduleService,
             IOptions<PublicImageOptions> imageOptions)
         {
             _context = context;
@@ -34,6 +36,7 @@ namespace LuxuryApp.Services.PublicPages
             _urlValidationService = urlValidationService;
             _quotaService = quotaService;
             _analyticsService = analyticsService;
+            _businessScheduleService = businessScheduleService;
             _imageOptions = imageOptions.Value;
         }
 
@@ -121,6 +124,10 @@ namespace LuxuryApp.Services.PublicPages
             }
 
             page.IsPublished = input.IsPublished;
+            page.PublicBusinessName = _urlValidationService.NormalizePlainText(
+                input.PublicBusinessName,
+                120,
+                nameof(EditTenantPublicPageViewModel.PublicBusinessName));
             page.HeroTitle = _urlValidationService.NormalizePlainText(
                 input.HeroTitle,
                 120,
@@ -157,6 +164,9 @@ namespace LuxuryApp.Services.PublicPages
                 input.BusinessHours,
                 500,
                 nameof(EditTenantPublicPageViewModel.BusinessHours));
+            // Horario estructurado (doble turno por dia). Puede lanzar validacion.
+            page.BusinessHoursJson = _businessScheduleService.Serialize(
+                _businessScheduleService.BuildFromInputs(input.ScheduleDays));
             page.GoogleMapsUrl = _urlValidationService.NormalizeGoogleMapsUrl(
                 input.GoogleMapsUrl,
                 nameof(EditTenantPublicPageViewModel.GoogleMapsUrl));
@@ -219,6 +229,7 @@ namespace LuxuryApp.Services.PublicPages
             var model = new EditTenantPublicPageViewModel
             {
                 IsPublished = page.IsPublished,
+                PublicBusinessName = page.PublicBusinessName,
                 HeroTitle = page.HeroTitle,
                 HeroSubtitle = page.HeroSubtitle,
                 HeroEyebrow = page.HeroEyebrow,
@@ -228,6 +239,9 @@ namespace LuxuryApp.Services.PublicPages
                 Email = page.Email,
                 Address = page.Address,
                 BusinessHours = page.BusinessHours,
+                ScheduleDays = _businessScheduleService
+                    .BuildInputs(_businessScheduleService.TryDeserialize(page.BusinessHoursJson))
+                    .ToList(),
                 GoogleMapsUrl = page.GoogleMapsUrl,
                 WazeUrl = page.WazeUrl,
                 InstagramUrl = page.InstagramUrl,
@@ -273,13 +287,16 @@ namespace LuxuryApp.Services.PublicPages
                 MaxBytes = usage.MaxBytes
             };
             model.MaxBusinessGalleryImages = _imageOptions.MaxBusinessGalleryImages;
-            model.MaxServiceGalleryImages = _imageOptions.MaxServiceGalleryImages;
             model.LogoAsset = assets
                 .Where(asset => asset.AssetType == TenantPublicAssetType.Logo)
                 .Select(MapAdminAsset)
                 .FirstOrDefault();
             model.CoverAsset = assets
                 .Where(asset => asset.AssetType == TenantPublicAssetType.Cover)
+                .Select(MapAdminAsset)
+                .FirstOrDefault();
+            model.LocationAsset = assets
+                .Where(asset => asset.AssetType == TenantPublicAssetType.Location)
                 .Select(MapAdminAsset)
                 .FirstOrDefault();
             model.BusinessGallery = assets
@@ -346,12 +363,7 @@ namespace LuxuryApp.Services.PublicPages
                         MainImage = serviceAssets
                             .Where(asset => asset.AssetType == TenantPublicAssetType.ServiceMain)
                             .Select(MapAdminAsset)
-                            .FirstOrDefault(),
-                        GalleryImages = serviceAssets
-                            .Where(asset => asset.AssetType == TenantPublicAssetType.ServiceGallery)
-                            .Select(MapAdminAsset)
-                            .ToList(),
-                        MaxGalleryImages = _imageOptions.MaxServiceGalleryImages
+                            .FirstOrDefault()
                     };
                 })
                 .ToList();

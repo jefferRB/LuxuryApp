@@ -124,7 +124,7 @@ namespace LuxuryApp.Controllers
             {
                 "default-src 'self'",
                 $"img-src {string.Join(' ', imageSources.Distinct(StringComparer.OrdinalIgnoreCase))}",
-                "script-src 'none'",
+                "script-src 'self'",
                 "style-src 'self' 'unsafe-inline'",
                 "object-src 'none'",
                 "base-uri 'self'",

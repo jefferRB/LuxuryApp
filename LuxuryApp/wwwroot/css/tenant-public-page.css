@@ -479,6 +479,113 @@ html {
     background: #111111;
 }
 
+/* Horario estilo Google Maps (details/summary, sin JS por CSP) */
+.tpp-hours {
+    display: block;
+    grid-column: 1 / -1;
+    padding: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.tpp-hours > summary {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 18px;
+    min-height: 112px;
+    cursor: pointer;
+    list-style: none;
+}
+
+.tpp-hours > summary::-webkit-details-marker {
+    display: none;
+}
+
+.tpp-hours-head {
+    display: grid;
+    gap: 5px;
+    flex: 1;
+    min-width: 0;
+}
+
+.tpp-hours-status {
+    font-weight: 800;
+    overflow-wrap: anywhere;
+}
+
+.tpp-hours-status.is-open strong {
+    color: var(--tpp-accent-dark);
+}
+
+.tpp-hours-status.is-closed strong {
+    color: #b4232a;
+}
+
+.tpp-hours-detail {
+    color: var(--tpp-muted);
+    font-weight: 600;
+}
+
+.tpp-hours-chevron {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    color: var(--tpp-muted);
+    transition: transform .18s ease;
+}
+
+.tpp-hours-chevron svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.tpp-hours[open] .tpp-hours-chevron {
+    transform: rotate(180deg);
+}
+
+.tpp-hours-list {
+    list-style: none;
+    margin: 0;
+    padding: 6px 18px 18px;
+    display: grid;
+    gap: 2px;
+    border-top: 1px solid var(--tpp-border);
+}
+
+.tpp-hours-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 7px 0;
+    font-size: .95rem;
+    color: var(--tpp-text);
+}
+
+.tpp-hours-day {
+    color: var(--tpp-muted);
+    font-weight: 700;
+}
+
+.tpp-hours-list li.is-today {
+    font-weight: 800;
+}
+
+.tpp-hours-list li.is-today .tpp-hours-day {
+    color: var(--tpp-text);
+}
+
+.tpp-hours-list li.is-closed .tpp-hours-range {
+    color: var(--tpp-muted);
+}
+
 .tpp-gallery-section {
     width: 100%;
     max-width: none;
@@ -637,20 +744,6 @@ html {
     font-weight: 900;
 }
 
-.tpp-service-gallery {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-}
-
-.tpp-service-gallery img {
-    width: 100%;
-    aspect-ratio: 1 / 1;
-    object-fit: cover;
-    border-radius: 8px;
-    background: var(--tpp-surface-soft);
-}
-
 .tpp-service-cta,
 .public-service-cta {
     display: inline-flex;
@@ -682,38 +775,56 @@ html {
 
 .tpp-team-card {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: 14px;
-    padding: 18px;
+    padding: 16px;
     border: 1px solid var(--tpp-border);
     border-radius: 8px;
     background: var(--tpp-surface);
     box-shadow: var(--tpp-shadow-soft);
+    text-align: center;
 }
 
-.tpp-team-card img,
+.tpp-team-photo {
+    width: 100%;
+}
+
+.tpp-team-photo img,
 .tpp-team-avatar {
-    width: 68px;
-    height: 68px;
-    flex: 0 0 68px;
+    width: 100%;
+    aspect-ratio: 4 / 5;
     border-radius: 8px;
+    background: var(--tpp-accent-soft);
 }
 
-.tpp-team-card img {
+.tpp-team-photo img {
+    display: block;
     object-fit: cover;
 }
 
 .tpp-team-avatar {
-    display: inline-grid;
+    display: grid;
     place-items: center;
-    background: var(--tpp-accent-soft);
     color: var(--tpp-accent-dark);
-    font-size: 1.35rem;
+    font-size: 2.8rem;
     font-weight: 900;
 }
 
-.tpp-team-card p {
-    margin-top: 6px;
+.tpp-team-body {
+    display: grid;
+    gap: 5px;
+}
+
+.tpp-team-role {
+    color: var(--tpp-accent-dark);
+    font-weight: 800;
+    font-size: .92rem;
+}
+
+.tpp-team-bio {
+    color: var(--tpp-muted);
+    line-height: 1.55;
+    font-size: .95rem;
 }
 
 .tpp-location-section {
@@ -747,25 +858,71 @@ html {
     gap: 10px;
 }
 
-.tpp-floating-whatsapp {
+.tpp-location-info {
+    display: grid;
+    gap: 18px;
+    align-content: start;
+}
+
+.tpp-location-card-media {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr);
+    align-items: stretch;
+    gap: clamp(20px, 4vw, 40px);
+}
+
+.tpp-location-media {
+    min-height: 220px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--tpp-surface-soft);
+    box-shadow: var(--tpp-shadow-soft);
+}
+
+.tpp-location-media img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-height: 220px;
+    object-fit: cover;
+}
+
+.tpp-floating-actions {
     position: fixed;
     right: 20px;
     bottom: 22px;
     z-index: 30;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+}
+
+.tpp-floating-btn {
     display: grid;
     place-items: center;
     width: 58px;
     height: 58px;
     border-radius: 999px;
-    background: #24d366;
     color: #fff;
-    box-shadow: 0 18px 38px rgba(36, 211, 102, .34);
     text-decoration: none;
     transition: transform .16s ease, box-shadow .16s ease;
 }
 
-.tpp-floating-whatsapp:hover {
+.tpp-floating-btn:hover {
     transform: translateY(-2px) scale(1.02);
+}
+
+.tpp-floating-btn svg {
+    width: 32px;
+    height: 32px;
+}
+
+.tpp-floating-whatsapp {
+    background: #24d366;
+    box-shadow: 0 18px 38px rgba(36, 211, 102, .34);
+}
+
+.tpp-floating-whatsapp:hover {
     box-shadow: 0 22px 44px rgba(36, 211, 102, .42);
 }
 
@@ -775,6 +932,19 @@ html {
 }
 
 .tpp-floating-whatsapp path {
+    fill: currentColor;
+}
+
+.tpp-floating-instagram {
+    background: linear-gradient(135deg, #7a3df0, #e5367c 48%, #f6a642);
+    box-shadow: 0 18px 38px rgba(229, 54, 124, .34);
+}
+
+.tpp-floating-instagram:hover {
+    box-shadow: 0 22px 44px rgba(229, 54, 124, .42);
+}
+
+.tpp-floating-instagram path {
     fill: currentColor;
 }
 
@@ -914,9 +1084,22 @@ html {
         max-height: 230px;
     }
 
-    .tpp-floating-whatsapp {
+    .tpp-location-card-media {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .tpp-location-media,
+    .tpp-location-media img {
+        min-height: 200px;
+    }
+
+    .tpp-floating-actions {
         right: 16px;
         bottom: calc(86px + env(safe-area-inset-bottom));
+        gap: 12px;
+    }
+
+    .tpp-floating-btn {
         width: 56px;
         height: 56px;
     }
@@ -927,5 +1110,28 @@ html {
 
     .tpp-footer {
         padding-bottom: 106px;
+    }
+}
+
+@media (max-width: 480px) {
+    /* En pantallas muy angostas el horario de doble turno es largo:
+       apilamos dia y rango para que no se corte ni desborde. */
+    .tpp-hours-list li {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+    }
+
+    .tpp-hours-range {
+        text-align: left;
+    }
+
+    .tpp-hours > summary {
+        gap: 10px;
+        padding: 16px;
+    }
+
+    .tpp-nav-brand strong {
+        max-width: 150px;
     }
 }

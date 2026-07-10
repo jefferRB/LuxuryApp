@@ -633,6 +633,302 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(75, updated.DuracionMinutos);
         }
 
+        // ─────────── Autorización de WhatsApp del cliente desde el formulario de cita ───────────
+
+        [Fact]
+        public async Task CreateAsync_ClienteNoAutorizado_SinCheckbox_MantieneClienteSinAutorizacion()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Ana");
+            var servicio = await SeedServicioAsync(context, "Corte", 45);
+            var cliente = await SeedClienteAsync(context, "Cliente Sin Consentimiento", "72220000", aceptaMensajesWhatsApp: false);
+            var service = ControllerTestSupport.CreateCalendarCommandService(context);
+
+            await service.CreateAsync(new CalendarUpsertRequest
+            {
+                ClienteId = cliente.Id,
+                ServicioId = servicio.Id,
+                FechaHoraCita = new DateTime(2026, 4, 24, 9, 0, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA",
+                AutorizarWhatsAppAlGuardar = false
+            });
+
+            context.ChangeTracker.Clear();
+
+            var clienteActual = await context.Clientes.AsNoTracking().SingleAsync(c => c.Id == cliente.Id);
+            Assert.False(clienteActual.AceptaMensajesWhatsApp);
+            // La auditoría del cliente no cambia si no hubo nueva autorización.
+            Assert.Equal(new DateTime(2026, 4, 1, 8, 0, 0, DateTimeKind.Utc), clienteActual.WhatsAppConsentUpdatedAtUtc);
+
+            var cita = await context.Citas.AsNoTracking().SingleAsync();
+            Assert.False(cita.WhatsAppConsentAtCreation);
+        }
+
+        [Fact]
+        public async Task CreateAsync_ClienteNoAutorizado_ConCheckbox_AutorizaClienteYDisparaUnaConfirmacion()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Ana");
+            var servicio = await SeedServicioAsync(context, "Corte", 45);
+            var cliente = await SeedClienteAsync(context, "Cliente Autoriza", "72221111", aceptaMensajesWhatsApp: false);
+            var notifications = new RecordingCalendarWhatsAppNotificationService();
+            var service = ControllerTestSupport.CreateCalendarCommandService(context, notifications);
+
+            var response = await service.CreateAsync(new CalendarUpsertRequest
+            {
+                ClienteId = cliente.Id,
+                ServicioId = servicio.Id,
+                FechaHoraCita = new DateTime(2026, 4, 24, 9, 0, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA",
+                AutorizarWhatsAppAlGuardar = true,
+                WhatsAppConsentCapturedByUserId = "user-123"
+            });
+
+            context.ChangeTracker.Clear();
+
+            var clienteActual = await context.Clientes.AsNoTracking().SingleAsync(c => c.Id == cliente.Id);
+            Assert.True(clienteActual.AceptaMensajesWhatsApp);
+            Assert.Equal("CitaManual", clienteActual.WhatsAppConsentSource);
+            Assert.Equal("wa_optin_v1", clienteActual.WhatsAppConsentTextVersion);
+            Assert.Equal("user-123", clienteActual.WhatsAppConsentCapturedByUserId);
+            Assert.True(clienteActual.WhatsAppConsentUpdatedAtUtc > new DateTime(2026, 4, 1, 8, 0, 0, DateTimeKind.Utc));
+
+            var cita = await context.Citas.AsNoTracking().SingleAsync();
+            Assert.True(cita.WhatsAppConsentAtCreation);
+
+            // El pipeline de confirmación se dispara una sola vez para la cita creada.
+            Assert.Equal(new[] { response.Id }, notifications.ConfirmationCitaIds);
+        }
+
+        [Fact]
+        public async Task CreateAsync_ClienteNoAutorizado_ConCheckbox_SiFallaLaCita_NoPersisteAutorizacion()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Ana");
+            var servicio = await SeedServicioAsync(context, "Corte", 60);
+            var cliente = await SeedClienteAsync(context, "Cliente Rollback", "72222222", aceptaMensajesWhatsApp: false);
+
+            // Cita existente que provoca un traslape → la creación falla dentro de la transacción.
+            await SeedCitaAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 24, 10, 0, 0), servicioId: servicio.Id);
+            context.ChangeTracker.Clear();
+
+            var service = ControllerTestSupport.CreateCalendarCommandService(context);
+
+            await Assert.ThrowsAsync<CalendarValidationException>(() => service.CreateAsync(new CalendarUpsertRequest
+            {
+                ClienteId = cliente.Id,
+                ServicioId = servicio.Id,
+                FechaHoraCita = new DateTime(2026, 4, 24, 10, 30, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA",
+                AutorizarWhatsAppAlGuardar = true,
+                WhatsAppConsentCapturedByUserId = "user-123"
+            }));
+
+            context.ChangeTracker.Clear();
+
+            // La autorización NO debe quedar persistida si la cita no se guardó (atomicidad).
+            var clienteActual = await context.Clientes.AsNoTracking().SingleAsync(c => c.Id == cliente.Id);
+            Assert.False(clienteActual.AceptaMensajesWhatsApp);
+            Assert.Equal(new DateTime(2026, 4, 1, 8, 0, 0, DateTimeKind.Utc), clienteActual.WhatsAppConsentUpdatedAtUtc);
+        }
+
+        [Fact]
+        public async Task CreateAsync_ClienteYaAutorizado_NoPierdeAutorizacion_NiReSellaAuditoria()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Ana");
+            var servicio = await SeedServicioAsync(context, "Corte", 45);
+            var cliente = await SeedClienteAsync(context, "Cliente Autorizado", "72223333", aceptaMensajesWhatsApp: true);
+            var service = ControllerTestSupport.CreateCalendarCommandService(context);
+
+            await service.CreateAsync(new CalendarUpsertRequest
+            {
+                ClienteId = cliente.Id,
+                ServicioId = servicio.Id,
+                FechaHoraCita = new DateTime(2026, 4, 24, 9, 0, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA",
+                // Incluso si por overposting llegara true, no debe re-sellar la auditoría existente.
+                AutorizarWhatsAppAlGuardar = true,
+                WhatsAppConsentCapturedByUserId = "otro-user"
+            });
+
+            context.ChangeTracker.Clear();
+
+            var clienteActual = await context.Clientes.AsNoTracking().SingleAsync(c => c.Id == cliente.Id);
+            Assert.True(clienteActual.AceptaMensajesWhatsApp);
+            Assert.Equal(new DateTime(2026, 4, 1, 8, 0, 0, DateTimeKind.Utc), clienteActual.WhatsAppConsentUpdatedAtUtc);
+            Assert.Equal("ClienteForm", clienteActual.WhatsAppConsentSource);
+
+            var cita = await context.Citas.AsNoTracking().SingleAsync();
+            Assert.True(cita.WhatsAppConsentAtCreation);
+        }
+
+        [Fact]
+        public async Task CreateAsync_ClienteDeOtroTenant_ConCheckbox_RechazaYNoModificaDatos()
+        {
+            var tenantA = Guid.NewGuid();
+            var tenantB = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantB };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var clienteExterno = await SeedClienteAsync(context, "Cliente Externo", "74445555", aceptaMensajesWhatsApp: false);
+
+            tenantProvider.TenantId = tenantA;
+            context.ChangeTracker.Clear();
+
+            var funcionario = await SeedFuncionarioAsync(context, "Ana");
+            var servicio = await SeedServicioAsync(context, "Corte", 30);
+            var service = ControllerTestSupport.CreateCalendarCommandService(context);
+
+            await Assert.ThrowsAsync<CalendarValidationException>(() => service.CreateAsync(new CalendarUpsertRequest
+            {
+                ClienteId = clienteExterno.Id,
+                ServicioId = servicio.Id,
+                FechaHoraCita = new DateTime(2026, 4, 24, 13, 0, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA",
+                AutorizarWhatsAppAlGuardar = true,
+                WhatsAppConsentCapturedByUserId = "user-123"
+            }));
+
+            context.ChangeTracker.Clear();
+
+            // El cliente de otro tenant no debe quedar modificado.
+            var clienteActual = await context.Clientes
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .SingleAsync(c => c.Id == clienteExterno.Id);
+            Assert.False(clienteActual.AceptaMensajesWhatsApp);
+            Assert.Empty(await context.Citas.IgnoreQueryFilters().AsNoTracking().ToListAsync());
+        }
+
+        [Fact]
+        public async Task CreateAsync_ClienteSinTelefonoValido_ConCheckbox_NoAutoriza()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Ana");
+            var servicio = await SeedServicioAsync(context, "Corte", 45);
+            var cliente = await SeedClienteAsync(context, "Cliente Sin Telefono", "   ", aceptaMensajesWhatsApp: false);
+            var service = ControllerTestSupport.CreateCalendarCommandService(context);
+
+            await service.CreateAsync(new CalendarUpsertRequest
+            {
+                ClienteId = cliente.Id,
+                ServicioId = servicio.Id,
+                FechaHoraCita = new DateTime(2026, 4, 24, 9, 0, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA",
+                AutorizarWhatsAppAlGuardar = true,
+                WhatsAppConsentCapturedByUserId = "user-123"
+            });
+
+            context.ChangeTracker.Clear();
+
+            var clienteActual = await context.Clientes.AsNoTracking().SingleAsync(c => c.Id == cliente.Id);
+            Assert.False(clienteActual.AceptaMensajesWhatsApp);
+
+            var cita = await context.Citas.AsNoTracking().SingleAsync();
+            Assert.False(cita.WhatsAppConsentAtCreation);
+        }
+
+        [Fact]
+        public async Task UpdateAsync_ClienteNoAutorizado_SinCheckbox_NoSobrescribeConsentimiento()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Ana");
+            var servicio = await SeedServicioAsync(context, "Corte", 45);
+            var cliente = await SeedClienteAsync(context, "Cliente Edicion", "72224444", aceptaMensajesWhatsApp: false);
+            var cita = await SeedCitaAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 24, 10, 0, 0), servicioId: servicio.Id);
+            cita.ClienteId = cliente.Id;
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            var service = ControllerTestSupport.CreateCalendarCommandService(context);
+
+            await service.UpdateAsync(cita.Id, new CalendarUpsertRequest
+            {
+                ClienteId = cliente.Id,
+                ServicioId = servicio.Id,
+                FechaHoraCita = new DateTime(2026, 4, 24, 11, 0, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA",
+                AutorizarWhatsAppAlGuardar = false
+            });
+
+            context.ChangeTracker.Clear();
+
+            var clienteActual = await context.Clientes.AsNoTracking().SingleAsync(c => c.Id == cliente.Id);
+            Assert.False(clienteActual.AceptaMensajesWhatsApp);
+            Assert.Equal(new DateTime(2026, 4, 1, 8, 0, 0, DateTimeKind.Utc), clienteActual.WhatsAppConsentUpdatedAtUtc);
+        }
+
+        [Fact]
+        public async Task UpdateAsync_ClienteNoAutorizado_ConCheckbox_RegistraAutorizacion()
+        {
+            var tenantProvider = new TestTenantProvider { TenantId = Guid.NewGuid() };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var funcionario = await SeedFuncionarioAsync(context, "Ana");
+            var servicio = await SeedServicioAsync(context, "Corte", 45);
+            var cliente = await SeedClienteAsync(context, "Cliente Edicion Autoriza", "72225555", aceptaMensajesWhatsApp: false);
+            var cita = await SeedCitaAsync(context, funcionario.IdFuncionario, new DateTime(2026, 4, 24, 10, 0, 0), servicioId: servicio.Id);
+            cita.ClienteId = cliente.Id;
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            var service = ControllerTestSupport.CreateCalendarCommandService(context);
+
+            await service.UpdateAsync(cita.Id, new CalendarUpsertRequest
+            {
+                ClienteId = cliente.Id,
+                ServicioId = servicio.Id,
+                FechaHoraCita = new DateTime(2026, 4, 24, 11, 0, 0),
+                FuncionarioId = funcionario.IdFuncionario,
+                Tipo = "CITA",
+                AutorizarWhatsAppAlGuardar = true,
+                WhatsAppConsentCapturedByUserId = "editor-user"
+            });
+
+            context.ChangeTracker.Clear();
+
+            var clienteActual = await context.Clientes.AsNoTracking().SingleAsync(c => c.Id == cliente.Id);
+            Assert.True(clienteActual.AceptaMensajesWhatsApp);
+            Assert.Equal("CitaManual", clienteActual.WhatsAppConsentSource);
+            Assert.Equal("editor-user", clienteActual.WhatsAppConsentCapturedByUserId);
+        }
+
         private static async Task<Funcionario> SeedFuncionarioAsync(
             ProyectoIdentity.Datos.ApplicationDbContext context,
             string nombre,
@@ -767,6 +1063,32 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             public Task CancelPendingNotificationsAsync(int citaId, CancellationToken cancellationToken = default) =>
                 throw new InvalidOperationException("Meta WhatsApp no disponible");
+        }
+
+        // Registra las llamadas al pipeline de confirmación para comprobar que se dispara una sola vez.
+        private sealed class RecordingCalendarWhatsAppNotificationService : ICalendarWhatsAppNotificationService
+        {
+            public List<int> ConfirmationCitaIds { get; } = new();
+
+            public Task QueueAppointmentConfirmationAsync(int citaId, CancellationToken cancellationToken = default)
+            {
+                ConfirmationCitaIds.Add(citaId);
+                return Task.CompletedTask;
+            }
+
+            public Task SendAppointmentConfirmationAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task SendAppointmentReminderAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task<LuxuryApp.Services.Calendar.WhatsAppConfirmationSendResult> SendConfirmationNowAsync(int citaId, string source, CancellationToken cancellationToken = default) =>
+                Task.FromResult(new LuxuryApp.Services.Calendar.WhatsAppConfirmationSendResult(LuxuryApp.Services.Calendar.WhatsAppConfirmationOutcome.Sent, "ok"));
+            public Task QueueAppointmentReminderAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task QueueImmediateReminderOnCreateAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task ProcessInboundReplyAsync(System.Text.Json.JsonElement payload, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task ProcessStatusUpdateAsync(System.Text.Json.JsonElement payload, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task ScheduleDueRemindersAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task GenerateDailyBatchAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task ProcessPendingNotificationsAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task RescheduleConfirmationIfPendingAsync(int citaId, DateTime newFechaHoraCita, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task CancelPendingNotificationsAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
         }
     }
 }

@@ -61,13 +61,59 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
-        public void PublicLandingCsp_DoesNotAllowScriptsOrFrames()
+        public void PublicLandingCsp_AllowsOnlyLocalScriptsAndNoFrames()
         {
             var controller = File.ReadAllText(ProjectPath("Controllers", "PublicSiteController.cs"));
 
-            Assert.Contains("\"script-src 'none'\"", controller);
+            // Solo script local propio ('self'); nunca 'none' (bloquearia el menu) ni inline/eval/externos.
+            Assert.Contains("\"script-src 'self'\"", controller);
+            Assert.DoesNotContain("\"script-src 'none'\"", controller);
+            Assert.DoesNotContain("unsafe-eval", controller, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("\"frame-ancestors 'none'\"", controller);
+            Assert.Contains("\"object-src 'none'\"", controller);
             Assert.DoesNotContain("iframe", controller, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void PublicLanding_HasSectionAnchorsFloatingActionsAndLocationImage()
+        {
+            var view = File.ReadAllText(ProjectPath("Views", "PublicSite", "Index.cshtml"));
+
+            // Anclas de navegacion de una sola pagina.
+            Assert.Contains("id=\"inicio\"", view);
+            Assert.Contains("id=\"trabajos\"", view);
+            Assert.Contains("id=\"servicios\"", view);
+            Assert.Contains("id=\"equipo\"", view);
+            Assert.Contains("id=\"ubicacion\"", view);
+            Assert.Contains("href=\"#inicio\"", view);
+            Assert.Contains("href=\"#servicios\"", view);
+            Assert.Contains("href=\"#ubicacion\"", view);
+
+            // Boton reservar (usa la accion trackeada o el booking url).
+            Assert.Contains("tpp-nav-cta", view);
+            Assert.Contains("reserveUrl", view);
+
+            // Burbujas flotantes: WhatsApp + Instagram condicional.
+            Assert.Contains("tpp-floating-actions", view);
+            Assert.Contains("tpp-floating-instagram", view);
+            Assert.Contains("tpp-floating-whatsapp", view);
+
+            // Imagen de ubicacion condicional (sin bloque vacio si no existe).
+            Assert.Contains("Model.LocationImage", view);
+            Assert.Contains("tpp-location-media", view);
+        }
+
+        [Fact]
+        public void PublicLayout_LoadsLocalMenuScriptOnly()
+        {
+            var layout = File.ReadAllText(ProjectPath("Views", "Shared", "_TenantPublicPageLayout.cshtml"));
+            var menuScript = File.ReadAllText(ProjectPath("wwwroot", "js", "tenant-public-page.js"));
+
+            Assert.Contains("~/js/tenant-public-page.js", layout);
+            // Script local, sin CDN ni recursos externos.
+            Assert.DoesNotContain("https://", menuScript, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("http://", menuScript, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("tpp-nav-toggle", menuScript);
         }
 
         private static string ProjectPath(params string[] parts)

@@ -44,6 +44,11 @@ namespace LuxuryApp.Models.Calendar
 
         public DateTime? WhatsAppConsentCapturedAtUtc { get; set; }
 
+        // Cliente existente que acaba de autorizar WhatsApp desde el formulario de la cita.
+        // Campo específico (anti-overposting): nunca representa el valor persistido del cliente,
+        // solo la intención de otorgar el consentimiento al guardar. Desmarcado = sin cambios.
+        public bool AutorizarWhatsAppAlGuardar { get; set; }
+
         public bool Duplicar { get; set; }
 
         public List<string> FechasDuplicadas { get; set; } = new();

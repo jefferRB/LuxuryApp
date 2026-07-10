@@ -242,6 +242,110 @@ namespace LuxuryApp.Tests.TenantIsolation
                     "user"));
         }
 
+        [Fact]
+        public async Task UploadPublicPageAsset_ValidLocation_UsesLocationKeyAndIsSingleton()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var _ = context;
+            using var __ = connection;
+            await SeedTenantAsync(context, tenantId, "Tenant Location");
+
+            var storage = new FakePublicImageStorageService();
+            var service = CreateUploadService(context, tenantProvider, storage);
+
+            var first = await service.UploadPublicPageAssetAsync(
+                TenantPublicAssetType.Location,
+                CreateImageFile("fachada.png"),
+                "user");
+
+            Assert.Equal(TenantPublicAssetType.Location, first.AssetType);
+            Assert.Contains("/public-page/location/", first.StorageKey);
+            Assert.EndsWith(".webp", first.StorageKey);
+            Assert.True(storage.UploadedBytes[first.StorageKey].Length > 0);
+
+            // Reemplazo: la anterior queda inactiva (singleton) y se borra su storage.
+            var second = await service.UploadPublicPageAssetAsync(
+                TenantPublicAssetType.Location,
+                CreateImageFile("interior.png"),
+                "user");
+
+            var assets = await context.TenantPublicAssets
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(asset => asset.AssetType == TenantPublicAssetType.Location)
+                .ToListAsync();
+
+            Assert.Equal(2, assets.Count);
+            Assert.False(assets.Single(asset => asset.Id == first.Id).IsActive);
+            Assert.True(assets.Single(asset => asset.Id == second.Id).IsActive);
+            Assert.Contains(first.StorageKey, storage.DeletedKeys);
+        }
+
+        [Fact]
+        public async Task RemovePublicPageSingleton_Location_InactivatesAndDeletesStorage()
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var _ = context;
+            using var __ = connection;
+            await SeedTenantAsync(context, tenantId, "Tenant Location Remove");
+
+            var storage = new FakePublicImageStorageService();
+            var service = CreateUploadService(context, tenantProvider, storage);
+
+            var asset = await service.UploadPublicPageAssetAsync(
+                TenantPublicAssetType.Location,
+                CreateImageFile("fachada.png"),
+                "user");
+
+            await service.RemovePublicPageSingletonAsync(TenantPublicAssetType.Location, "user");
+
+            var stored = await context.TenantPublicAssets
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .SingleAsync(item => item.Id == asset.Id);
+
+            Assert.False(stored.IsActive);
+            Assert.NotNull(stored.DeletedAtUtc);
+            Assert.Contains(asset.StorageKey, storage.DeletedKeys);
+        }
+
+        [Fact]
+        public async Task RemovePublicPageSingleton_Location_DoesNotAffectOtherTenant()
+        {
+            var tenantA = Guid.NewGuid();
+            var tenantB = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantB };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var _ = context;
+            using var __ = connection;
+
+            await SeedTenantAsync(context, tenantB, "Tenant B");
+            var storage = new FakePublicImageStorageService();
+            var uploadB = CreateUploadService(context, tenantProvider, storage);
+            var assetB = await uploadB.UploadPublicPageAssetAsync(
+                TenantPublicAssetType.Location,
+                CreateImageFile("fachada-b.png"),
+                "user");
+
+            // Otro tenant intenta remover: solo afecta su propio singleton (ninguno).
+            tenantProvider.TenantId = tenantA;
+            await SeedTenantAsync(context, tenantA, "Tenant A");
+            var uploadA = CreateUploadService(context, tenantProvider, storage);
+            await uploadA.RemovePublicPageSingletonAsync(TenantPublicAssetType.Location, "user");
+
+            var stored = await context.TenantPublicAssets
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .SingleAsync(item => item.Id == assetB.Id);
+
+            Assert.True(stored.IsActive);
+            Assert.DoesNotContain(assetB.StorageKey, storage.DeletedKeys);
+        }
+
         private static PublicImageUploadService CreateUploadService(
             ApplicationDbContext context,
             TestTenantProvider tenantProvider,

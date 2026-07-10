@@ -320,9 +320,9 @@
     <div class="func-form-body">
         <div class="func-access-head">
             <i class="bi bi-camera-fill"></i>
-            <h3 class="func-access-title">Foto del profesional</h3>
+            <h3 class="func-access-title">Perfil público del profesional</h3>
         </div>
-        <p class="func-access-sub">Opcional. Esta foto puede mostrarse a los clientes en el enlace público de reservas.</p>
+        <p class="func-access-sub">Opcional. La foto y la descripción pueden mostrarse a los clientes en el enlace público de reservas y en la landing del negocio.</p>
 
         <div class="func-photo-row">
             <div class="func-photo-preview">
@@ -353,8 +353,16 @@
                     <span>Mostrar mi foto en el enlace público de reservas</span>
                 </label>
 
+                <div class="func-field func-form-full" style="margin-top:.35rem;">
+                    <label class="func-label" for="func-descripcion-publica">Descripción pública (opcional)</label>
+                    <textarea id="func-descripcion-publica" name="descripcionPublica" class="func-input" rows="3"
+                              maxlength="280" placeholder="Ej: Especialista en cortes clásicos y arreglo de barba, con 8 años de experiencia."
+                              style="resize:vertical;min-height:70px;">@Model.DescripcionPublica</textarea>
+                    <span class="func-photo-filename">Se muestra en la sección de equipo de la landing. Máx. 280 caracteres, sin HTML.</span>
+                </div>
+
                 <div class="func-photo-actions">
-                    <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-save"></i> Guardar foto</button>
+                    <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-save"></i> Guardar perfil</button>
                 </div>
             </form>
 

@@ -304,11 +304,16 @@
     font-weight: 800;
 }
 
-.tppa-service-media-list,
 .tppa-gallery-admin,
 .tppa-upload-form {
     display: grid;
     gap: 12px;
+}
+
+.tppa-service-media-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 14px;
 }
 
 .tppa-upload-inline {
@@ -620,5 +625,101 @@
 
     .tppa-crop-actions {
         flex-direction: column-reverse;
+    }
+}
+
+/* Utilitarios de texto de ayuda */
+.tppa-card-sub {
+    margin: -4px 0 4px;
+    color: var(--private-muted-text, #626262);
+    font-size: .9rem;
+}
+
+.tppa-hint {
+    display: block;
+    color: var(--private-muted-text, #626262);
+    font-size: .8rem;
+}
+
+/* Editor estructurado de horario */
+.tppa-hours-editor {
+    display: grid;
+    gap: 8px;
+}
+
+.tppa-hours-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--private-surface-border, #e5e5e5);
+    border-radius: 8px;
+    background: var(--private-surface-bg, #fff);
+}
+
+.tppa-hours-row.is-closed {
+    background: color-mix(in srgb, var(--private-surface-bg, #fff) 92%, #9ca3af 8%);
+}
+
+.tppa-hours-dayname {
+    flex: 0 0 96px;
+    font-weight: 800;
+}
+
+.tppa-hours-closed {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: .86rem;
+    font-weight: 700;
+    color: var(--private-muted-text, #626262);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.tppa-hours-closed input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--private-chart-accent, #047857);
+}
+
+.tppa-hours-times {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.tppa-time {
+    width: auto;
+    min-height: 38px;
+    padding: 6px 8px;
+}
+
+.tppa-hours-dash,
+.tppa-hours-plus {
+    color: var(--private-muted-text, #626262);
+    font-size: .82rem;
+    font-weight: 700;
+}
+
+.tppa-hours-plus {
+    margin: 0 2px;
+}
+
+.tppa-hours-row.is-closed .tppa-hours-times {
+    opacity: .45;
+}
+
+@media (max-width: 560px) {
+    .tppa-hours-times {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .tppa-hours-dayname {
+        flex-basis: auto;
     }
 }

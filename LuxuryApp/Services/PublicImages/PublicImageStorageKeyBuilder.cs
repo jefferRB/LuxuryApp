@@ -24,6 +24,8 @@ namespace LuxuryApp.Services.PublicImages
                     $"tenants/{tenantId:N}/public-page/logo/{suffix}",
                 TenantPublicAssetType.Cover =>
                     $"tenants/{tenantId:N}/public-page/cover/{suffix}",
+                TenantPublicAssetType.Location =>
+                    $"tenants/{tenantId:N}/public-page/location/{suffix}",
                 TenantPublicAssetType.BusinessGallery =>
                     $"tenants/{tenantId:N}/public-page/gallery/{suffix}",
                 TenantPublicAssetType.ServiceMain when serviceId.HasValue =>
@@ -50,7 +52,7 @@ namespace LuxuryApp.Services.PublicImages
                    ValidStorageKeyRegex().IsMatch(normalized);
         }
 
-        [GeneratedRegex(@"^tenants/[a-f0-9]{32}/(public-page/(logo|cover|gallery)|services/[0-9]+/(main|gallery))/[a-f0-9]{32}\.webp$", RegexOptions.CultureInvariant)]
+        [GeneratedRegex(@"^tenants/[a-f0-9]{32}/(public-page/(logo|cover|location|gallery)|services/[0-9]+/(main|gallery))/[a-f0-9]{32}\.webp$", RegexOptions.CultureInvariant)]
         private static partial Regex ValidStorageKeyRegex();
     }
 }

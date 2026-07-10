@@ -111,7 +111,9 @@ namespace LuxuryApp.Services.PublicImages
             CancellationToken cancellationToken = default,
             PublicImageCropRequest? crop = null)
         {
-            if (assetType is not TenantPublicAssetType.ServiceMain and not TenantPublicAssetType.ServiceGallery)
+            // Solo se admite una imagen principal por servicio. La galeria/trabajos por servicio
+            // fue retirada del producto.
+            if (assetType is not TenantPublicAssetType.ServiceMain)
             {
                 throw new PublicImageUploadException("Tipo de imagen de servicio invalido.");
             }
@@ -119,19 +121,7 @@ namespace LuxuryApp.Services.PublicImages
             var tenantId = ResolveTenantId();
             await EnsureServiceBelongsToCurrentTenantAsync(serviceId, cancellationToken);
             var processed = await ProcessImageAsync(file, assetType, crop, cancellationToken);
-            var replacingAsset = assetType == TenantPublicAssetType.ServiceMain
-                ? await FindActiveSingletonAsync(assetType, serviceId, cancellationToken)
-                : null;
-
-            if (assetType == TenantPublicAssetType.ServiceGallery)
-            {
-                await EnsureGalleryLimitAsync(
-                    tenantId,
-                    assetType,
-                    serviceId,
-                    _options.MaxServiceGalleryImages,
-                    cancellationToken);
-            }
+            var replacingAsset = await FindActiveSingletonAsync(assetType, serviceId, cancellationToken);
 
             try
             {
@@ -156,7 +146,9 @@ namespace LuxuryApp.Services.PublicImages
             string? userId,
             CancellationToken cancellationToken = default)
         {
-            if (assetType is not TenantPublicAssetType.Logo and not TenantPublicAssetType.Cover)
+            if (assetType is not TenantPublicAssetType.Logo
+                and not TenantPublicAssetType.Cover
+                and not TenantPublicAssetType.Location)
             {
                 throw new PublicImageUploadException("Tipo de imagen invalido.");
             }
@@ -587,7 +579,8 @@ namespace LuxuryApp.Services.PublicImages
         {
             if (assetType is not TenantPublicAssetType.Logo
                 and not TenantPublicAssetType.Cover
-                and not TenantPublicAssetType.BusinessGallery)
+                and not TenantPublicAssetType.BusinessGallery
+                and not TenantPublicAssetType.Location)
             {
                 throw new PublicImageUploadException("Tipo de imagen de pagina publica invalido.");
             }
@@ -596,6 +589,7 @@ namespace LuxuryApp.Services.PublicImages
         private static bool IsSingleton(TenantPublicAssetType assetType) =>
             assetType is TenantPublicAssetType.Logo
                 or TenantPublicAssetType.Cover
+                or TenantPublicAssetType.Location
                 or TenantPublicAssetType.ServiceMain;
 
         private long ResolveMaxBytes(TenantPublicAssetType assetType) =>
@@ -603,6 +597,7 @@ namespace LuxuryApp.Services.PublicImages
             {
                 TenantPublicAssetType.Logo => _options.MaxLogoBytes,
                 TenantPublicAssetType.Cover => _options.MaxCoverBytes,
+                TenantPublicAssetType.Location => _options.MaxCoverBytes,
                 TenantPublicAssetType.BusinessGallery => _options.MaxGalleryImageBytes,
                 TenantPublicAssetType.ServiceMain => _options.MaxServiceImageBytes,
                 TenantPublicAssetType.ServiceGallery => _options.MaxServiceImageBytes,
@@ -614,6 +609,7 @@ namespace LuxuryApp.Services.PublicImages
             {
                 TenantPublicAssetType.Logo => (_options.LogoMaxWidth, _options.LogoMaxHeight),
                 TenantPublicAssetType.Cover => (_options.CoverMaxWidth, _options.CoverMaxHeight),
+                TenantPublicAssetType.Location => (_options.CoverMaxWidth, _options.CoverMaxHeight),
                 TenantPublicAssetType.ServiceMain => (_options.ServiceImageMaxWidth, _options.ServiceImageMaxHeight),
                 TenantPublicAssetType.ServiceGallery => (_options.ServiceImageMaxWidth, _options.ServiceImageMaxHeight),
                 _ => (_options.GalleryMaxWidth, _options.GalleryMaxHeight)
@@ -624,6 +620,7 @@ namespace LuxuryApp.Services.PublicImages
             {
                 TenantPublicAssetType.Logo => 1d,
                 TenantPublicAssetType.Cover => 16d / 9d,
+                TenantPublicAssetType.Location => 4d / 3d,
                 TenantPublicAssetType.ServiceMain => 4d / 3d,
                 TenantPublicAssetType.BusinessGallery => 4d / 5d,
                 TenantPublicAssetType.ServiceGallery => 4d / 5d,

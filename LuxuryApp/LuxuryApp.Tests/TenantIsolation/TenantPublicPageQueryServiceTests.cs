@@ -3,8 +3,10 @@ using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.PublicPages;
 using LuxuryApp.Models.Reservas;
 using LuxuryApp.Models.SaaS;
+using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.PublicImages;
 using LuxuryApp.Services.PublicPages;
+using LuxuryApp.Services.Tenant;
 using LuxuryApp.Tests.Support;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -49,6 +51,8 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal("Estudio premium", model.HeroEyebrow);
             Assert.Equal("Lun a Sab: 9 a.m. - 7 p.m.", model.BusinessHours);
             Assert.Equal("https://public.test/sitio/barberia-luxury/go/waze", model.WazeActionUrl);
+            // Sin asset de ubicacion configurado no debe haber imagen (evita bloque vacio).
+            Assert.Null(model.LocationImage);
         }
 
         [Fact]
@@ -303,6 +307,18 @@ namespace LuxuryApp.Tests.TenantIsolation
                     Width = 800,
                     Height = 600,
                     IsActive = true
+                },
+                new TenantPublicAsset
+                {
+                    TenantPublicPageId = page.Id,
+                    AssetType = TenantPublicAssetType.Location,
+                    StorageKey = $"tenants/{tenantId:N}/public-page/location/{Guid.NewGuid():N}.webp",
+                    PublicUrl = "https://media.test/location.webp",
+                    ContentType = "image/webp",
+                    SizeBytes = 100,
+                    Width = 1200,
+                    Height = 900,
+                    IsActive = true
                 });
             await context.SaveChangesAsync();
 
@@ -316,6 +332,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal("https://media.test/cover.webp", model.CoverImage?.Url);
             Assert.Equal("https://media.test/gallery.webp", Assert.Single(model.BusinessGallery).Url);
             Assert.Equal("https://media.test/service.webp", Assert.Single(model.Services).MainImage?.Url);
+            Assert.Equal("https://media.test/location.webp", model.LocationImage?.Url);
             Assert.DoesNotContain(model.BusinessGallery, image => image.Url.Contains("inactive", StringComparison.OrdinalIgnoreCase));
         }
 
@@ -356,16 +373,22 @@ namespace LuxuryApp.Tests.TenantIsolation
                 card.ReserveActionUrl);
         }
 
-        private static TenantPublicPageQueryService CreateQueryService(ApplicationDbContext context)
+        private static TenantPublicPageQueryService CreateQueryService(
+            ApplicationDbContext context,
+            IBusinessDateTimeProvider? clock = null)
         {
             var http = new DefaultHttpContext();
             http.Request.Scheme = "https";
             http.Request.Host = new HostString("public.test");
+            var accessor = new HttpContextAccessor { HttpContext = http };
 
             return new TenantPublicPageQueryService(
                 context,
-                new HttpContextAccessor { HttpContext = http },
-                new PublicUrlValidationService());
+                accessor,
+                new PublicUrlValidationService(),
+                new TenantDisplayNameService(context, new TestTenantProvider(), accessor),
+                new BusinessScheduleService(),
+                clock ?? new FixedBusinessDateTimeProvider());
         }
 
         private static async Task SeedTenantAsync(

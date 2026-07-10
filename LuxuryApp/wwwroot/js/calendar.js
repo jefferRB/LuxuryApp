@@ -676,14 +676,49 @@ function renderWhatsAppConsentUI(mode) {
     if (hasClienteId) {
         const consentGranted = config.nombreInput.dataset.selectedClienteWhatsAppOptIn === "true";
 
-        resetManualConsentState(config);
-        config.manualContainer.classList.add("d-none");
-        updateConsentInfoPanel(
-            config.consentInfo,
-            consentGranted
-                ? "WhatsApp autorizado para este cliente."
-                : "WhatsApp no autorizado para este cliente. No se enviarán confirmaciones ni recordatorios.",
-            consentGranted ? "text-success" : "text-warning");
+        // Cliente ya autorizado: estado discreto, sin checkbox (no se puede desautorizar aquí).
+        if (consentGranted) {
+            resetManualConsentState(config);
+            config.manualContainer.classList.add("d-none");
+            updateConsentInfoPanel(
+                config.consentInfo,
+                "WhatsApp autorizado para este cliente.",
+                "text-success");
+            return;
+        }
+
+        // Cliente no autorizado sin teléfono válido: no se permite marcar la autorización.
+        const clientePhone = safeText(config.telefonoInput.value) ||
+            safeText(config.nombreInput.dataset.selectedClientePhone);
+        if (clientePhone === "") {
+            resetManualConsentState(config);
+            config.manualContainer.classList.add("d-none");
+            updateConsentInfoPanel(
+                config.consentInfo,
+                "Este cliente no autoriza mensajes de WhatsApp. Agrega un teléfono válido para poder registrar la autorización.",
+                "text-warning");
+            return;
+        }
+
+        // Cliente no autorizado con teléfono válido: se reutiliza el mismo checkbox de consentimiento
+        // para poder registrar que el cliente acaba de autorizar los mensajes al guardar la cita.
+        config.manualContainer.classList.remove("d-none");
+
+        if (config.manualCheckbox.checked) {
+            ensureConsentCapturedAt(config.manualCheckbox, config.capturedAtInput);
+            updateConsentInfoPanel(
+                config.consentInfo,
+                "La autorización de WhatsApp se guardará al crear la cita.",
+                "text-success");
+        } else {
+            if (config.capturedAtInput) {
+                config.capturedAtInput.value = "";
+            }
+            updateConsentInfoPanel(
+                config.consentInfo,
+                "Actualmente no autoriza mensajes. Marca la casilla si el cliente acaba de autorizar recibir confirmaciones y recordatorios por WhatsApp.",
+                "text-warning");
+        }
         return;
     }
 
@@ -1279,6 +1314,8 @@ function initClienteAutocomplete(config) {
 
     manualCheckbox?.addEventListener("change", () => {
         ensureConsentCapturedAt(manualCheckbox, capturedAtInput);
+        // Re-renderiza el panel de aviso para reflejar el cambio (p. ej. "se guardará al crear la cita").
+        syncConsent();
     });
 
     nombreInput.addEventListener("keydown", event => {
@@ -2673,9 +2710,15 @@ async function guardarCita() {
     const clienteId = esDescanso
         ? null
         : parsePositiveInt(consentConfig.clienteIdInput?.value);
+    // Cliente nuevo (sin clienteId): consentimiento manual capturado en la propia cita.
     const manualConsent = isTenantWhatsAppEnabled() &&
         !esDescanso &&
         !clienteId &&
+        consentConfig.manualCheckbox?.checked === true;
+    // Cliente existente (con clienteId) que acaba de autorizar: mismo checkbox, distinto campo.
+    const autorizarClienteExistente = isTenantWhatsAppEnabled() &&
+        !esDescanso &&
+        !!clienteId &&
         consentConfig.manualCheckbox?.checked === true;
     const consentCapturedAtUtc = manualConsent
         ? ensureConsentCapturedAt(consentConfig.manualCheckbox, consentConfig.capturedAtInput)
@@ -2699,6 +2742,7 @@ async function guardarCita() {
             ? null
             : (manualConsent ? "CitaManual" : "SinConsentimiento"),
         whatsAppConsentCapturedAtUtc: !isTenantWhatsAppEnabled() || esDescanso || clienteId ? null : consentCapturedAtUtc,
+        autorizarWhatsAppAlGuardar: autorizarClienteExistente,
 
         duplicar: duplicar,
         fechasDuplicadas: duplicar ? fechasDuplicadas : []
@@ -3259,6 +3303,7 @@ async function guardarEdicion() {
         data.whatsAppConsentAtCreation = false;
         data.whatsAppConsentSource = null;
         data.whatsAppConsentCapturedAtUtc = null;
+        data.autorizarWhatsAppAlGuardar = false;
 
     } else {
         const esPersonalizado = getServicioModo("edit") === "personalizado";
@@ -3291,6 +3336,9 @@ async function guardarEdicion() {
         const manualConsent = isTenantWhatsAppEnabled() &&
             !clienteId &&
             consentConfig.manualCheckbox?.checked === true;
+        const autorizarClienteExistente = isTenantWhatsAppEnabled() &&
+            !!clienteId &&
+            consentConfig.manualCheckbox?.checked === true;
         const consentCapturedAtUtc = manualConsent
             ? ensureConsentCapturedAt(consentConfig.manualCheckbox, consentConfig.capturedAtInput)
             : null;
@@ -3313,6 +3361,7 @@ async function guardarEdicion() {
             ? null
             : (manualConsent ? "CitaManual" : "SinConsentimiento");
         data.whatsAppConsentCapturedAtUtc = !isTenantWhatsAppEnabled() || clienteId ? null : consentCapturedAtUtc;
+        data.autorizarWhatsAppAlGuardar = autorizarClienteExistente;
 
     }
 

@@ -642,17 +642,11 @@ namespace LuxuryApp.Services.Calendar
 
             if (request.ClienteId.HasValue)
             {
+                // Se carga con seguimiento (sin AsNoTracking) para poder persistir una autorización
+                // recién otorgada dentro de la MISMA transacción que guarda la cita. El filtro global
+                // por tenant garantiza que un ClienteId de otro negocio no se encuentre (→ null).
                 var cliente = await _context.Clientes
-                    .AsNoTracking()
-                    .Where(current => current.Id == request.ClienteId.Value)
-                    .Select(current => new ClienteSnapshot
-                    {
-                        Id = current.Id,
-                        Nombre = current.Nombre,
-                        NumeroTelefono = current.NumeroTelefono,
-                        AceptaMensajesWhatsApp = current.AceptaMensajesWhatsApp
-                    })
-                    .SingleOrDefaultAsync(cancellationToken);
+                    .FirstOrDefaultAsync(current => current.Id == request.ClienteId.Value, cancellationToken);
 
                 if (cliente is null)
                 {
@@ -661,11 +655,16 @@ namespace LuxuryApp.Services.Calendar
                         nameof(CitaCreateVM.ClienteId));
                 }
 
+                var effectiveConsent = ApplyClienteWhatsAppAuthorizationIfRequested(cliente, request);
+
                 return new ResolvedAppointmentData(
                     NombreCliente: cliente.Nombre,
                     TelefonoCliente: cliente.NumeroTelefono,
                     ClienteId: cliente.Id,
-                    WhatsAppConsentAtCreation: cliente.AceptaMensajesWhatsApp,
+                    // El consentimiento efectivo refleja el valor persistido del cliente (ya sea el
+                    // que tenía o el recién otorgado). La decisión de envío la reevalúa el servicio
+                    // de WhatsApp releyendo el cliente, por lo que la fuente de verdad es el Cliente.
+                    WhatsAppConsentAtCreation: effectiveConsent,
                     WhatsAppConsentSource: WhatsAppConsentSources.ClienteRegistrado,
                     WhatsAppConsentCapturedAtUtc: DateTime.UtcNow);
             }
@@ -682,6 +681,42 @@ namespace LuxuryApp.Services.Calendar
                 WhatsAppConsentCapturedAtUtc: consentGranted
                     ? request.WhatsAppConsentCapturedAtUtc ?? DateTime.UtcNow
                     : null);
+        }
+
+        // Aplica la autorización de WhatsApp otorgada desde el formulario de la cita para un cliente
+        // existente. Devuelve el consentimiento efectivo (persistido) del cliente. Reglas:
+        //  - Solo actúa si se marcó explícitamente AutorizarWhatsAppAlGuardar (checkbox del formulario).
+        //  - Nunca desautoriza: si el cliente ya autorizaba, no se toca (evita re-sellar auditoría).
+        //  - Nunca autoriza sin un teléfono válido (no basta con "tener teléfono" vacío/espacios).
+        //  - El cambio queda en el ChangeTracker y se persiste con el SaveChanges de la transacción,
+        //    de modo que si la cita falla, la autorización tampoco se guarda (consistencia atómica).
+        private bool ApplyClienteWhatsAppAuthorizationIfRequested(
+            ClientesModel cliente,
+            CalendarUpsertRequest request)
+        {
+            if (!request.AutorizarWhatsAppAlGuardar ||
+                cliente.AceptaMensajesWhatsApp ||
+                string.IsNullOrWhiteSpace(cliente.NumeroTelefono))
+            {
+                return cliente.AceptaMensajesWhatsApp;
+            }
+
+            var previo = cliente.AceptaMensajesWhatsApp;
+            cliente.AceptaMensajesWhatsApp = true;
+            cliente.WhatsAppConsentUpdatedAtUtc = DateTime.UtcNow;
+            cliente.WhatsAppConsentSource = WhatsAppConsentSources.CitaManual;
+            cliente.WhatsAppConsentTextVersion = WhatsAppConsentTextVersions.WaOptInV1;
+            cliente.WhatsAppConsentCapturedByUserId = request.WhatsAppConsentCapturedByUserId;
+
+            _logger.LogInformation(
+                "Autorizacion de WhatsApp registrada desde el formulario de cita. TenantId {TenantId}. ClienteId {ClienteId}. UsuarioId {UsuarioId}. ValorAnterior {ValorAnterior}. ValorNuevo {ValorNuevo}.",
+                cliente.TenantId,
+                cliente.Id,
+                request.WhatsAppConsentCapturedByUserId,
+                previo,
+                true);
+
+            return true;
         }
 
         private async Task EnsureNoOverlapAsync(
@@ -826,6 +861,8 @@ namespace LuxuryApp.Services.Calendar
                 WhatsAppConsentAtCreation = request.WhatsAppConsentAtCreation,
                 WhatsAppConsentSource = NormalizeOptionalText(request.WhatsAppConsentSource),
                 WhatsAppConsentCapturedAtUtc = NormalizeUtcTimestamp(request.WhatsAppConsentCapturedAtUtc),
+                AutorizarWhatsAppAlGuardar = request.AutorizarWhatsAppAlGuardar,
+                WhatsAppConsentCapturedByUserId = NormalizeOptionalText(request.WhatsAppConsentCapturedByUserId),
                 Duplicar = request.Duplicar,
                 FechasDuplicadas = request.FechasDuplicadas
                     .Where(fecha => !string.IsNullOrWhiteSpace(fecha))
@@ -917,17 +954,6 @@ namespace LuxuryApp.Services.Calendar
             public string Nombre { get; init; } = string.Empty;
 
             public string ColorCalendario { get; init; } = string.Empty;
-        }
-
-        private sealed class ClienteSnapshot
-        {
-            public int Id { get; init; }
-
-            public string Nombre { get; init; } = string.Empty;
-
-            public string NumeroTelefono { get; init; } = string.Empty;
-
-            public bool AceptaMensajesWhatsApp { get; init; }
         }
 
         private sealed record ResolvedAppointmentData(

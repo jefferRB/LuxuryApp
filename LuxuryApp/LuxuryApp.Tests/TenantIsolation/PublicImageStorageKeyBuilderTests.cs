@@ -8,6 +8,7 @@ namespace LuxuryApp.Tests.TenantIsolation
         [Theory]
         [InlineData(TenantPublicAssetType.Logo, null, "/public-page/logo/")]
         [InlineData(TenantPublicAssetType.Cover, null, "/public-page/cover/")]
+        [InlineData(TenantPublicAssetType.Location, null, "/public-page/location/")]
         [InlineData(TenantPublicAssetType.BusinessGallery, null, "/public-page/gallery/")]
         [InlineData(TenantPublicAssetType.ServiceMain, 42, "/services/42/main/")]
         [InlineData(TenantPublicAssetType.ServiceGallery, 42, "/services/42/gallery/")]

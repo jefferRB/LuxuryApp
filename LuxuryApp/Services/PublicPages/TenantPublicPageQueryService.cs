@@ -1,6 +1,8 @@
 using LuxuryApp.Models.PublicPages;
+using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.PublicImages;
 using LuxuryApp.Services.Reservas;
+using LuxuryApp.Services.Tenant;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
@@ -14,15 +16,24 @@ namespace LuxuryApp.Services.PublicPages
         private readonly ApplicationDbContext _context;
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly IPublicUrlValidationService _urlValidationService;
+        private readonly ITenantDisplayNameService _tenantDisplayNameService;
+        private readonly IBusinessScheduleService _businessScheduleService;
+        private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
 
         public TenantPublicPageQueryService(
             ApplicationDbContext context,
             IHttpContextAccessor httpContextAccessor,
-            IPublicUrlValidationService urlValidationService)
+            IPublicUrlValidationService urlValidationService,
+            ITenantDisplayNameService tenantDisplayNameService,
+            IBusinessScheduleService businessScheduleService,
+            IBusinessDateTimeProvider businessDateTimeProvider)
         {
             _context = context;
             _httpContextAccessor = httpContextAccessor;
             _urlValidationService = urlValidationService;
+            _tenantDisplayNameService = tenantDisplayNameService;
+            _businessScheduleService = businessScheduleService;
+            _businessDateTimeProvider = businessDateTimeProvider;
         }
 
         public async Task<TenantPublicPageViewModel?> GetBySlugAsync(
@@ -50,6 +61,7 @@ namespace LuxuryApp.Services.PublicPages
                     Slug = booking.PublicBookingSlug!,
                     BookingEnabled = booking.PublicBookingEnabled,
                     IsPublished = page.IsPublished,
+                    PublicBusinessName = page.PublicBusinessName,
                     HeroTitle = page.HeroTitle,
                     HeroSubtitle = page.HeroSubtitle,
                     HeroEyebrow = page.HeroEyebrow,
@@ -59,6 +71,7 @@ namespace LuxuryApp.Services.PublicPages
                     Email = page.Email,
                     Address = page.Address,
                     BusinessHours = page.BusinessHours,
+                    BusinessHoursJson = page.BusinessHoursJson,
                     GoogleMapsUrl = page.GoogleMapsUrl,
                     WazeUrl = page.WazeUrl,
                     InstagramUrl = page.InstagramUrl,
@@ -108,9 +121,27 @@ namespace LuxuryApp.Services.PublicPages
                 ? await LoadTeamAsync(match.TenantId, cancellationToken)
                 : Array.Empty<PublicTeamMemberViewModel>();
 
-            var heroTitle = FirstNonEmpty(match.HeroTitle, match.BusinessName);
+            // Nombre del negocio: campo publico editable -> nombre visible de plataforma.
+            var businessName = FirstNonEmpty(match.PublicBusinessName);
+            if (string.IsNullOrEmpty(businessName))
+            {
+                businessName = await _tenantDisplayNameService.GetTenantDisplayNameAsync(
+                    match.TenantId,
+                    cancellationToken);
+            }
+
+            if (string.IsNullOrWhiteSpace(businessName))
+            {
+                businessName = match.BusinessName;
+            }
+
+            var schedule = _businessScheduleService.BuildStatus(
+                _businessScheduleService.TryDeserialize(match.BusinessHoursJson),
+                _businessDateTimeProvider.Now());
+
+            var heroTitle = FirstNonEmpty(match.HeroTitle, businessName);
             var description = NormalizeForDisplay(match.Description);
-            var seoDescription = FirstNonEmpty(match.SeoDescription, description, match.HeroSubtitle, match.BusinessName);
+            var seoDescription = FirstNonEmpty(match.SeoDescription, description, match.HeroSubtitle, businessName);
             var whatsAppUrl = match.ShowWhatsAppButton
                 ? _urlValidationService.BuildWhatsAppUrl(match.WhatsAppPhone)
                 : null;
@@ -118,17 +149,21 @@ namespace LuxuryApp.Services.PublicPages
             var wazeUrl = NormalizeForDisplay(match.WazeUrl);
             var logo = assets
                 .Where(asset => asset.AssetType == TenantPublicAssetType.Logo)
-                .Select(asset => MapPublicAsset(asset, $"Logo de {match.BusinessName}"))
+                .Select(asset => MapPublicAsset(asset, $"Logo de {businessName}"))
                 .FirstOrDefault();
             var cover = assets
                 .Where(asset => asset.AssetType == TenantPublicAssetType.Cover)
-                .Select(asset => MapPublicAsset(asset, $"Portada de {match.BusinessName}"))
+                .Select(asset => MapPublicAsset(asset, $"Portada de {businessName}"))
+                .FirstOrDefault();
+            var locationImage = assets
+                .Where(asset => asset.AssetType == TenantPublicAssetType.Location)
+                .Select(asset => MapPublicAsset(asset, $"Ubicacion de {businessName}"))
                 .FirstOrDefault();
 
             return new TenantPublicPageViewModel
             {
                 Slug = match.Slug,
-                BusinessName = match.BusinessName,
+                BusinessName = businessName,
                 HeroTitle = heroTitle,
                 HeroSubtitle = NormalizeForDisplay(match.HeroSubtitle),
                 HeroEyebrow = NormalizeForDisplay(match.HeroEyebrow),
@@ -144,6 +179,8 @@ namespace LuxuryApp.Services.PublicPages
                 Email = NormalizeForDisplay(match.Email),
                 Address = NormalizeForDisplay(match.Address),
                 BusinessHours = NormalizeForDisplay(match.BusinessHours),
+                Schedule = schedule,
+                LocationImage = locationImage,
                 GoogleMapsUrl = googleMapsUrl,
                 WazeUrl = wazeUrl,
                 MapsActionUrl = match.ShowLocation && !string.IsNullOrWhiteSpace(googleMapsUrl)
@@ -160,11 +197,11 @@ namespace LuxuryApp.Services.PublicPages
                 PublicSiteUrl = TenantPublicPageLinkBuilder.Build(request, match.Slug),
                 BookingEnabled = match.BookingEnabled,
                 ShowLocation = match.ShowLocation,
-                SeoTitle = FirstNonEmpty(match.SeoTitle, heroTitle, match.BusinessName),
+                SeoTitle = FirstNonEmpty(match.SeoTitle, heroTitle, businessName),
                 SeoDescription = seoDescription,
                 BusinessGallery = assets
                     .Where(asset => asset.AssetType == TenantPublicAssetType.BusinessGallery)
-                    .Select((asset, index) => MapPublicAsset(asset, $"{match.BusinessName} - imagen {index + 1}"))
+                    .Select((asset, index) => MapPublicAsset(asset, $"{businessName} - imagen {index + 1}"))
                     .ToList(),
                 Services = services,
                 TeamMembers = team
@@ -291,11 +328,7 @@ namespace LuxuryApp.Services.PublicPages
                             MainImage = serviceAssets
                                 .Where(asset => asset.AssetType == TenantPublicAssetType.ServiceMain)
                                 .Select(asset => MapPublicAsset(asset, publicName))
-                                .FirstOrDefault(),
-                            GalleryImages = serviceAssets
-                                .Where(asset => asset.AssetType == TenantPublicAssetType.ServiceGallery)
-                                .Select((asset, index) => MapPublicAsset(asset, $"{publicName} - trabajo {index + 1}"))
-                                .ToList()
+                                .FirstOrDefault()
                         },
                         Order = item.Setting?.DisplayOrder ?? 0,
                         Name = publicName
@@ -320,6 +353,7 @@ namespace LuxuryApp.Services.PublicPages
                 {
                     Name = funcionario.Nombre,
                     Specialty = funcionario.Puesto != null ? funcionario.Puesto.NombrePuesto : null,
+                    Description = funcionario.DescripcionPublica,
                     PhotoUrl = funcionario.MostrarFotoEnReservas ? funcionario.FotoUrl : null
                 })
                 .ToListAsync(cancellationToken);
@@ -369,6 +403,7 @@ namespace LuxuryApp.Services.PublicPages
             public string Slug { get; init; } = string.Empty;
             public bool BookingEnabled { get; init; }
             public bool IsPublished { get; init; }
+            public string? PublicBusinessName { get; init; }
             public string? HeroTitle { get; init; }
             public string? HeroSubtitle { get; init; }
             public string? HeroEyebrow { get; init; }
@@ -378,6 +413,7 @@ namespace LuxuryApp.Services.PublicPages
             public string? Email { get; init; }
             public string? Address { get; init; }
             public string? BusinessHours { get; init; }
+            public string? BusinessHoursJson { get; init; }
             public string? GoogleMapsUrl { get; init; }
             public string? WazeUrl { get; init; }
             public string? InstagramUrl { get; init; }

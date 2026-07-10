@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Claims;
 using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Services.BusinessTime;
@@ -262,7 +263,9 @@ namespace LuxuryApp.Controllers.Calendar
 
             try
             {
-                var created = await _calendarCommandService.CreateAsync(MapUpsertRequest(vm), cancellationToken);
+                var created = await _calendarCommandService.CreateAsync(
+                    MapUpsertRequest(vm, ResolveCurrentUserId()),
+                    cancellationToken);
                 return Ok(created);
             }
             catch (CalendarValidationException ex)
@@ -320,7 +323,10 @@ namespace LuxuryApp.Controllers.Calendar
 
             try
             {
-                var updated = await _calendarCommandService.UpdateAsync(id, MapUpsertRequest(vm), cancellationToken);
+                var updated = await _calendarCommandService.UpdateAsync(
+                    id,
+                    MapUpsertRequest(vm, ResolveCurrentUserId()),
+                    cancellationToken);
                 return Ok(updated);
             }
             catch (CalendarValidationException ex)
@@ -504,7 +510,7 @@ namespace LuxuryApp.Controllers.Calendar
             }
         }
 
-        private static CalendarUpsertRequest MapUpsertRequest(CitaCreateVM vm) =>
+        private static CalendarUpsertRequest MapUpsertRequest(CitaCreateVM vm, string? capturedByUserId) =>
             new()
             {
                 NombreCliente = vm.NombreCliente,
@@ -520,9 +526,15 @@ namespace LuxuryApp.Controllers.Calendar
                 WhatsAppConsentAtCreation = vm.WhatsAppConsentAtCreation,
                 WhatsAppConsentSource = vm.WhatsAppConsentSource,
                 WhatsAppConsentCapturedAtUtc = vm.WhatsAppConsentCapturedAtUtc,
+                AutorizarWhatsAppAlGuardar = vm.AutorizarWhatsAppAlGuardar,
+                // El id del usuario proviene de los claims autenticados, no del cuerpo enviado.
+                WhatsAppConsentCapturedByUserId = capturedByUserId,
                 Duplicar = vm.Duplicar,
                 FechasDuplicadas = vm.FechasDuplicadas
             };
+
+        private string? ResolveCurrentUserId() =>
+            User.FindFirstValue(ClaimTypes.NameIdentifier);
 
         private static CalendarMoveRequest MapMoveRequest(MoveCitaVM vm) =>
             new()

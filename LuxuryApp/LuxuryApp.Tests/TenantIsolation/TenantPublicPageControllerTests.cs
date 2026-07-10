@@ -84,8 +84,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 nameof(PaginaPublicaController.RemoveBusinessGalleryImage),
                 nameof(PaginaPublicaController.UploadServiceMainImage),
                 nameof(PaginaPublicaController.RemoveServiceMainImage),
-                nameof(PaginaPublicaController.UploadServiceGalleryImage),
-                nameof(PaginaPublicaController.RemoveServiceGalleryImage)
+                nameof(PaginaPublicaController.UploadLocationImage),
+                nameof(PaginaPublicaController.RemoveLocationImage)
             };
 
             foreach (var actionName in actionNames)

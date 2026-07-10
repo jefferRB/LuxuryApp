@@ -44,15 +44,7 @@ namespace LuxuryApp.Services.PublicImages
             }
 
             using var client = CreateClient();
-            var request = new PutObjectRequest
-            {
-                BucketName = _options.BucketName,
-                Key = storageKey,
-                InputStream = content,
-                ContentType = contentType,
-                AutoCloseStream = false
-            };
-            request.Headers.CacheControl = CacheControlHeader;
+            var request = BuildPutObjectRequest(_options.BucketName, storageKey, content, contentType);
 
             await client.PutObjectAsync(request, cancellationToken);
 
@@ -103,6 +95,34 @@ namespace LuxuryApp.Services.PublicImages
         public bool IsValidStorageKey(string storageKey) =>
             PublicImageStorageKeyBuilder.IsValidStorageKey(storageKey);
 
+        /// <summary>
+        /// Construye el PutObjectRequest compatible con Cloudflare R2. El AWS SDK v4 agrega por
+        /// defecto un checksum en streaming (STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER) que R2
+        /// no implementa. Desactivamos firma de payload por chunks, el checksum por defecto y el
+        /// chunk-encoding para usar un PUT simple (Content-Length + UNSIGNED-PAYLOAD sobre HTTPS).
+        /// No se fija ChecksumAlgorithm, ServerSideEncryption ni ACL publica.
+        /// </summary>
+        internal static PutObjectRequest BuildPutObjectRequest(
+            string bucketName,
+            string storageKey,
+            Stream content,
+            string contentType)
+        {
+            var request = new PutObjectRequest
+            {
+                BucketName = bucketName,
+                Key = storageKey,
+                InputStream = content,
+                ContentType = contentType,
+                AutoCloseStream = false,
+                DisablePayloadSigning = true,
+                DisableDefaultChecksumValidation = true,
+                UseChunkEncoding = false
+            };
+            request.Headers.CacheControl = CacheControlHeader;
+            return request;
+        }
+
         private AmazonS3Client CreateClient()
         {
             var credentials = new BasicAWSCredentials(_options.AccessKey, _options.SecretKey);
@@ -110,11 +130,13 @@ namespace LuxuryApp.Services.PublicImages
             {
                 ServiceURL = _options.Endpoint,
                 ForcePathStyle = true,
-                AuthenticationRegion = string.Equals(_options.Region, "auto", StringComparison.OrdinalIgnoreCase)
-                    ? "us-east-1"
+                // Cloudflare R2 usa "auto" como region de firma SigV4.
+                AuthenticationRegion = string.IsNullOrWhiteSpace(_options.Region)
+                    ? "auto"
                     : _options.Region
             };
 
+            // Solo mapear a un RegionEndpoint real de AWS cuando NO es R2 ("auto").
             if (!string.Equals(_options.Region, "auto", StringComparison.OrdinalIgnoreCase) &&
                 !string.IsNullOrWhiteSpace(_options.Region))
             {

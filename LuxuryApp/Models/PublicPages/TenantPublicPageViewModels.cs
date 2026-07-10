@@ -18,6 +18,8 @@ namespace LuxuryApp.Models.PublicPages
         public string? Email { get; init; }
         public string? Address { get; init; }
         public string? BusinessHours { get; init; }
+        public BusinessScheduleStatusViewModel? Schedule { get; init; }
+        public PublicImageAssetViewModel? LocationImage { get; init; }
         public string? GoogleMapsUrl { get; init; }
         public string? WazeUrl { get; init; }
         public string? InstagramUrl { get; init; }
@@ -40,11 +42,14 @@ namespace LuxuryApp.Models.PublicPages
         public IReadOnlyList<PublicTeamMemberViewModel> TeamMembers { get; init; } =
             Array.Empty<PublicTeamMemberViewModel>();
 
+        public bool HasBusinessHours =>
+            Schedule?.HasSchedule == true || !string.IsNullOrWhiteSpace(BusinessHours);
+
+        // Instagram ya no aparece en la seccion de informacion (ahora es burbuja flotante).
         public bool HasContactInfo =>
             !string.IsNullOrWhiteSpace(Phone) ||
             !string.IsNullOrWhiteSpace(Email) ||
-            !string.IsNullOrWhiteSpace(BusinessHours) ||
-            !string.IsNullOrWhiteSpace(InstagramUrl) ||
+            HasBusinessHours ||
             !string.IsNullOrWhiteSpace(FacebookUrl) ||
             !string.IsNullOrWhiteSpace(TikTokUrl);
     }
@@ -59,8 +64,6 @@ namespace LuxuryApp.Models.PublicPages
         public string? BookingUrl { get; init; }
         public string? ReserveActionUrl { get; init; }
         public PublicImageAssetViewModel? MainImage { get; init; }
-        public IReadOnlyList<PublicImageAssetViewModel> GalleryImages { get; init; } =
-            Array.Empty<PublicImageAssetViewModel>();
     }
 
     public sealed class PublicImageAssetViewModel
@@ -75,6 +78,7 @@ namespace LuxuryApp.Models.PublicPages
     {
         public string Name { get; init; } = string.Empty;
         public string? Specialty { get; init; }
+        public string? Description { get; init; }
         public string? PhotoUrl { get; init; }
 
         public string Initial =>
@@ -86,6 +90,10 @@ namespace LuxuryApp.Models.PublicPages
     public sealed class EditTenantPublicPageViewModel : IValidatableObject
     {
         public bool IsPublished { get; set; }
+
+        [Display(Name = "Nombre publico del negocio")]
+        [MaxLength(120)]
+        public string? PublicBusinessName { get; set; }
 
         [Display(Name = "Titulo principal")]
         [MaxLength(120)]
@@ -123,6 +131,12 @@ namespace LuxuryApp.Models.PublicPages
         [Display(Name = "Horario del negocio")]
         [MaxLength(500)]
         public string? BusinessHours { get; set; }
+
+        /// <summary>
+        /// Editor estructurado del horario (7 dias, Lunes-Domingo). Al guardar se valida y
+        /// serializa a <c>TenantPublicPage.BusinessHoursJson</c>.
+        /// </summary>
+        public List<BusinessScheduleDayInput> ScheduleDays { get; set; } = new();
 
         [Display(Name = "Google Maps URL")]
         [MaxLength(500)]
@@ -169,6 +183,7 @@ namespace LuxuryApp.Models.PublicPages
         public bool CanUsePublicLandingPage { get; set; } = true;
         public AdminPublicAssetImageViewModel? LogoAsset { get; set; }
         public AdminPublicAssetImageViewModel? CoverAsset { get; set; }
+        public AdminPublicAssetImageViewModel? LocationAsset { get; set; }
         public IReadOnlyList<AdminPublicAssetImageViewModel> BusinessGallery { get; set; } =
             Array.Empty<AdminPublicAssetImageViewModel>();
         public IReadOnlyList<PublicServiceAssetSettingsViewModel> ServiceAssets { get; set; } =
@@ -176,10 +191,10 @@ namespace LuxuryApp.Models.PublicPages
         public PublicAssetUsageViewModel StorageUsage { get; set; } = new();
         public PublicPageAnalyticsSummaryViewModel Analytics { get; set; } = new();
         public int MaxBusinessGalleryImages { get; set; } = 12;
-        public int MaxServiceGalleryImages { get; set; } = 6;
 
         public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
         {
+            foreach (var result in ValidatePlainText(nameof(PublicBusinessName), PublicBusinessName)) yield return result;
             foreach (var result in ValidatePlainText(nameof(HeroTitle), HeroTitle)) yield return result;
             foreach (var result in ValidatePlainText(nameof(HeroSubtitle), HeroSubtitle)) yield return result;
             foreach (var result in ValidatePlainText(nameof(HeroEyebrow), HeroEyebrow)) yield return result;
@@ -277,11 +292,18 @@ namespace LuxuryApp.Models.PublicPages
         public int ServiceId { get; init; }
         public string ServiceName { get; init; } = string.Empty;
         public AdminPublicAssetImageViewModel? MainImage { get; init; }
-        public IReadOnlyList<AdminPublicAssetImageViewModel> GalleryImages { get; init; } =
-            Array.Empty<AdminPublicAssetImageViewModel>();
-        public int MaxGalleryImages { get; init; } = 6;
+    }
 
-        public bool CanAddGalleryImage => GalleryImages.Count < MaxGalleryImages;
+    /// <summary>Un dia del editor estructurado de horario (config interna).</summary>
+    public sealed class BusinessScheduleDayInput
+    {
+        /// <summary>0 = Lunes ... 6 = Domingo.</summary>
+        public int DayIndex { get; set; }
+        public bool Closed { get; set; }
+        public string? Open1 { get; set; }
+        public string? Close1 { get; set; }
+        public string? Open2 { get; set; }
+        public string? Close2 { get; set; }
     }
 
     public sealed class PublicPageAnalyticsSummaryViewModel

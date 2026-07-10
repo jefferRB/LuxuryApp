@@ -295,6 +295,7 @@ builder.Services.AddScoped<IPrivateNavigationService, PrivateNavigationService>(
 builder.Services.AddScoped<IPublicSiteContentService, PublicSiteContentService>();
 builder.Services.AddScoped<ITenantPublicPageQueryService, TenantPublicPageQueryService>();
 builder.Services.AddScoped<ITenantPublicPageSettingsService, TenantPublicPageSettingsService>();
+builder.Services.AddSingleton<IBusinessScheduleService, BusinessScheduleService>();
 builder.Services.AddScoped<ITenantPublicPageAnalyticsService, TenantPublicPageAnalyticsService>();
 builder.Services.AddScoped<ITenantPublicPageRedirectService, TenantPublicPageRedirectService>();
 builder.Services.AddScoped<IPublicUrlValidationService, PublicUrlValidationService>();

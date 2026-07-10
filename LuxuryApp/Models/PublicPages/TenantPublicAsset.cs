@@ -12,7 +12,8 @@ namespace LuxuryApp.Models.PublicPages
         Cover = 2,
         BusinessGallery = 3,
         ServiceMain = 4,
-        ServiceGallery = 5
+        ServiceGallery = 5,
+        Location = 6
     }
 
     public sealed class TenantPublicAsset : ITenantEntity

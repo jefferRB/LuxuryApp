@@ -20,6 +20,13 @@ namespace LuxuryApp.Models.PublicPages
 
         public bool IsPublished { get; set; }
 
+        /// <summary>
+        /// Nombre publico del negocio, editable desde la config. Si esta vacio, la landing
+        /// cae al nombre visible en la plataforma (<c>ITenantDisplayNameService</c>).
+        /// </summary>
+        [MaxLength(120)]
+        public string? PublicBusinessName { get; set; }
+
         [MaxLength(120)]
         public string? HeroTitle { get; set; }
 
@@ -81,8 +88,20 @@ namespace LuxuryApp.Models.PublicPages
         [MaxLength(180)]
         public string? SeoDescription { get; set; }
 
+        /// <summary>
+        /// Horario en texto libre (legacy). Se conserva como respaldo de solo lectura para
+        /// tenants que aun no migraron al horario estructurado <see cref="BusinessHoursJson"/>.
+        /// </summary>
         [MaxLength(500)]
         public string? BusinessHours { get; set; }
+
+        /// <summary>
+        /// Horario estructurado por dia (JSON serializado de <c>BusinessSchedule</c>). Permite
+        /// mostrar estado "Abierto/Cerrado" estilo Google Maps y hasta dos turnos por dia.
+        /// Null = sin horario estructurado configurado.
+        /// </summary>
+        [MaxLength(2000)]
+        public string? BusinessHoursJson { get; set; }
 
         public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 

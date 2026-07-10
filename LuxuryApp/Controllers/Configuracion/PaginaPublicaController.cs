@@ -121,6 +121,33 @@ namespace LuxuryApp.Controllers.Configuracion
                 "Portada removida.",
                 cancellationToken);
 
+        [HttpPost("UploadLocationImage")]
+        [ValidateAntiForgeryToken]
+        public Task<IActionResult> UploadLocationImage(
+            IFormFile? file,
+            PublicImageCropRequest crop,
+            CancellationToken cancellationToken) =>
+            RunImageUploadOperationAsync(
+                () => _imageUploadService.UploadPublicPageAssetAsync(
+                    TenantPublicAssetType.Location,
+                    file,
+                    CurrentUserId,
+                    cancellationToken,
+                    crop),
+                "Imagen de ubicacion actualizada.",
+                cancellationToken);
+
+        [HttpPost("RemoveLocationImage")]
+        [ValidateAntiForgeryToken]
+        public Task<IActionResult> RemoveLocationImage(CancellationToken cancellationToken) =>
+            RunImageRemovalOperationAsync(
+                () => _imageUploadService.RemovePublicPageSingletonAsync(
+                    TenantPublicAssetType.Location,
+                    CurrentUserId,
+                    cancellationToken),
+                "Imagen de ubicacion removida.",
+                cancellationToken);
+
         [HttpPost("UploadBusinessGalleryImage")]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> UploadBusinessGalleryImage(
@@ -177,35 +204,6 @@ namespace LuxuryApp.Controllers.Configuracion
                     CurrentUserId,
                     cancellationToken),
                 "Imagen principal del servicio removida.",
-                cancellationToken);
-
-        [HttpPost("UploadServiceGalleryImage")]
-        [ValidateAntiForgeryToken]
-        public Task<IActionResult> UploadServiceGalleryImage(
-            int serviceId,
-            IFormFile? file,
-            PublicImageCropRequest crop,
-            CancellationToken cancellationToken) =>
-            RunImageUploadOperationAsync(
-                () => _imageUploadService.UploadServiceAssetAsync(
-                    TenantPublicAssetType.ServiceGallery,
-                    serviceId,
-                    file,
-                    CurrentUserId,
-                    cancellationToken,
-                    crop),
-                "Imagen agregada al servicio.",
-                cancellationToken);
-
-        [HttpPost("RemoveServiceGalleryImage")]
-        [ValidateAntiForgeryToken]
-        public Task<IActionResult> RemoveServiceGalleryImage(Guid assetId, CancellationToken cancellationToken) =>
-            RunImageRemovalOperationAsync(
-                () => _imageUploadService.RemoveAssetAsync(
-                    assetId,
-                    CurrentUserId,
-                    cancellationToken),
-                "Imagen removida del servicio.",
                 cancellationToken);
 
         private string? CurrentUserId => User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -293,9 +291,6 @@ namespace LuxuryApp.Controllers.Configuracion
         {
             var model = await _settingsService.BuildForCurrentTenantAsync(Request, cancellationToken);
             var usagePercent = Math.Min(model.StorageUsage.PercentUsed, 100);
-            var serviceAsset = asset?.ServicioId is int serviceId
-                ? model.ServiceAssets.FirstOrDefault(item => item.ServiceId == serviceId)
-                : null;
 
             return new
             {
@@ -310,8 +305,6 @@ namespace LuxuryApp.Controllers.Configuracion
                 usagePercent,
                 businessGalleryCount = model.BusinessGallery.Count,
                 maxBusinessGalleryImages = model.MaxBusinessGalleryImages,
-                serviceGalleryCount = serviceAsset?.GalleryImages.Count,
-                maxServiceGalleryImages = serviceAsset?.MaxGalleryImages,
                 message
             };
         }

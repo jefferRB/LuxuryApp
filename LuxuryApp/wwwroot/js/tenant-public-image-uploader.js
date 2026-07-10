@@ -392,9 +392,9 @@
         return action
             .replace(/UploadLogo$/i, 'RemoveLogo')
             .replace(/UploadCover$/i, 'RemoveCover')
+            .replace(/UploadLocationImage$/i, 'RemoveLocationImage')
             .replace(/UploadBusinessGalleryImage$/i, 'RemoveBusinessGalleryImage')
-            .replace(/UploadServiceMainImage$/i, 'RemoveServiceMainImage')
-            .replace(/UploadServiceGalleryImage$/i, 'RemoveServiceGalleryImage');
+            .replace(/UploadServiceMainImage$/i, 'RemoveServiceMainImage');
     }
 
     function closeCropper() {
@@ -429,7 +429,8 @@
 
     function emptyPreviewText(slot) {
         if (slot === 'logo') return 'Sin logo';
-        if (slot === 'service-main') return 'Sin imagen principal';
+        if (slot === 'service-main') return 'Sin imagen';
+        if (slot === 'location') return 'Sin imagen de ubicacion';
         return 'Sin portada';
     }
 

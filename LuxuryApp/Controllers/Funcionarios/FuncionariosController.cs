@@ -252,7 +252,11 @@ namespace LuxuryApp.Controllers.Funcionarios
         [HttpPost]
         [ValidateAntiForgeryToken]
         [RequestSizeLimit(6 * 1024 * 1024)] // ~6MB; el servicio valida el máximo real (5MB)
-        public async Task<IActionResult> ActualizarFoto(int id, IFormFile? foto, bool mostrarFotoEnReservas)
+        public async Task<IActionResult> ActualizarFoto(
+            int id,
+            IFormFile? foto,
+            bool mostrarFotoEnReservas,
+            string? descripcionPublica)
         {
             var funcionario = await _context.Funcionarios
                 .FirstOrDefaultAsync(f => f.IdFuncionario == id);
@@ -261,6 +265,23 @@ namespace LuxuryApp.Controllers.Funcionarios
             {
                 return NotFound();
             }
+
+            // Descripcion publica (bio) opcional. Texto plano: no se permite HTML.
+            var descripcion = descripcionPublica?.Trim();
+            if (!string.IsNullOrEmpty(descripcion) &&
+                (descripcion.Contains('<', StringComparison.Ordinal) ||
+                 descripcion.Contains('>', StringComparison.Ordinal)))
+            {
+                TempData["Error"] = "La descripción pública no puede contener los caracteres < o >.";
+                return RedirectToAction(nameof(Edit), new { id });
+            }
+
+            if (!string.IsNullOrEmpty(descripcion) && descripcion.Length > 280)
+            {
+                descripcion = descripcion[..280];
+            }
+
+            funcionario.DescripcionPublica = string.IsNullOrWhiteSpace(descripcion) ? null : descripcion;
 
             // Si viene un archivo, se valida y guarda de forma segura (magic bytes, GUID, por tenant).
             if (foto is not null && foto.Length > 0)
@@ -285,7 +306,7 @@ namespace LuxuryApp.Controllers.Funcionarios
             try
             {
                 await _context.SaveChangesAsync();
-                TempData["Mensaje"] = "Foto del profesional actualizada.";
+                TempData["Mensaje"] = "Perfil público del profesional actualizado.";
             }
             catch (Exception ex)
             {

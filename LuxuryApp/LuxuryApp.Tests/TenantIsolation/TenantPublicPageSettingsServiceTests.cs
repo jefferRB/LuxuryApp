@@ -138,6 +138,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                     context,
                     tenantProvider,
                     NullLogger<TenantPublicPageAnalyticsService>.Instance),
+                new BusinessScheduleService(),
                 Options.Create(new PublicImageOptions()));
 
         private static HttpRequest CreateRequest()
