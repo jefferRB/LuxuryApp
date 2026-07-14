@@ -156,6 +156,21 @@
     }
 </div>
 
+<div class="mfa-card">
+    <h1>Sesiones activas</h1>
+    <p class="text-muted">
+        Si iniciaste sesión en un equipo que ya no controlas, cierra la sesión en todos
+        los dispositivos. Tendrás que volver a iniciar sesión en cada uno.
+    </p>
+    <form asp-controller="Seguridad" asp-action="CerrarSesionEnTodosLosDispositivos" method="post" class="mt-2">
+        @Html.AntiForgeryToken()
+        <button type="submit" class="btn btn-outline-danger"
+                onclick="return confirm('¿Cerrar la sesión en todos los dispositivos? Deberás iniciar sesión de nuevo.');">
+            Cerrar sesión en todos los dispositivos
+        </button>
+    </form>
+</div>
+
 @section Scripts {
     @if (!Model.TwoFactorActivo)
     {

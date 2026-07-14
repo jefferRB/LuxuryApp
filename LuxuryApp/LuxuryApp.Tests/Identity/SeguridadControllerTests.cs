@@ -111,6 +111,26 @@ namespace LuxuryApp.Tests.Identity
             Assert.Empty(fixture.AuditService.Entries);
         }
 
+        [Fact]
+        public async Task CerrarSesionEnTodosLosDispositivos_ShouldRotateSecurityStampAndRedirectToLogin()
+        {
+            var fixture = await CreateFixtureAsync(isSuperAdmin: false, enforcement: false);
+            using var disposable = fixture;
+
+            var stampBefore = (await fixture.UserManager.FindByIdAsync(fixture.Usuario.Id))!.SecurityStamp;
+
+            var result = await fixture.Controller.CerrarSesionEnTodosLosDispositivos();
+
+            var redirect = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal("Acceso", redirect.ActionName);
+            Assert.Equal("Accounts", redirect.ControllerName);
+
+            var stampAfter = (await fixture.UserManager.FindByIdAsync(fixture.Usuario.Id))!.SecurityStamp;
+            Assert.NotEqual(stampBefore, stampAfter);
+            Assert.False(string.IsNullOrWhiteSpace(stampAfter));
+            Assert.NotNull(fixture.Controller.TempData["SeguridadMensaje"]);
+        }
+
         private static async Task<SeguridadFixture> CreateFixtureAsync(
             bool isSuperAdmin,
             bool enforcement,
@@ -206,6 +226,9 @@ namespace LuxuryApp.Tests.Identity
             }
 
             public override Task RefreshSignInAsync(AppUsuario user) => Task.CompletedTask;
+
+            // SignOutAsync real requiere IAuthenticationService en el pipeline; en pruebas es no-op.
+            public override Task SignOutAsync() => Task.CompletedTask;
         }
 
         private sealed class NoSchemesProvider : Microsoft.AspNetCore.Authentication.IAuthenticationSchemeProvider

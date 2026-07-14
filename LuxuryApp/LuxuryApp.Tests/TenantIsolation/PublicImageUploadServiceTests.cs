@@ -346,6 +346,150 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.DoesNotContain(assetB.StorageKey, storage.DeletedKeys);
         }
 
+        [Fact]
+        public async Task UploadServiceAsset_VerticalPhoto_CoverFourFive_ProducesFourFive()
+        {
+            var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant Vertical Servicio");
+            using var _ = context;
+            using var __ = connection;
+            var servicio = await SeedServiceAsync(context, "Servicio");
+            var service = CreateUploadService(context, tenantProvider, new FakePublicImageStorageService());
+
+            // Foto vertical 9:16 tomada con celular.
+            var asset = await service.UploadServiceAssetAsync(
+                TenantPublicAssetType.ServiceMain,
+                servicio.Id,
+                CreateImageFile("vertical.png", 900, 1600),
+                "user",
+                crop: new PublicImageCropRequest { FitMode = "Cover", TargetAspectRatio = 4d / 5d });
+
+            AssertAspect(asset, 4d / 5d);
+        }
+
+        [Fact]
+        public async Task UploadPublicPageAsset_VerticalLocation_Original_PreservesAspect()
+        {
+            var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant Vertical Ubicacion");
+            using var _ = context;
+            using var __ = connection;
+            var service = CreateUploadService(context, tenantProvider, new FakePublicImageStorageService());
+
+            var asset = await service.UploadPublicPageAssetAsync(
+                TenantPublicAssetType.Location,
+                CreateImageFile("ubicacion.png", 600, 900), // 2:3 vertical
+                "user",
+                crop: new PublicImageCropRequest { FitMode = "Original" });
+
+            AssertAspect(asset, 600d / 900d);
+            Assert.True(asset.Width <= 1400 && asset.Height <= 1400);
+        }
+
+        [Fact]
+        public async Task UploadPublicPageAsset_VerticalGallery_Original_PreservesAspect()
+        {
+            var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant Vertical Galeria");
+            using var _ = context;
+            using var __ = connection;
+            var service = CreateUploadService(context, tenantProvider, new FakePublicImageStorageService());
+
+            var asset = await service.UploadPublicPageAssetAsync(
+                TenantPublicAssetType.BusinessGallery,
+                CreateImageFile("galeria.png", 800, 1200),
+                "user",
+                crop: new PublicImageCropRequest { FitMode = "Original" });
+
+            AssertAspect(asset, 800d / 1200d);
+        }
+
+        [Fact]
+        public async Task UploadPublicPageAsset_VerticalCover_Padded_ProducesTargetAspect()
+        {
+            var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant Portada Vertical");
+            using var _ = context;
+            using var __ = connection;
+            var service = CreateUploadService(context, tenantProvider, new FakePublicImageStorageService());
+
+            // Portada vertical adaptada a 16:9 con fondo (no se recorta la foto).
+            var asset = await service.UploadPublicPageAssetAsync(
+                TenantPublicAssetType.Cover,
+                CreateImageFile("portada.png", 900, 1600),
+                "user",
+                crop: new PublicImageCropRequest { FitMode = "Padded", TargetAspectRatio = 16d / 9d });
+
+            AssertAspect(asset, 16d / 9d);
+            Assert.True(asset.Width <= 1920 && asset.Height <= 1080);
+        }
+
+        [Fact]
+        public async Task UploadPublicPageAsset_RectangularLogo_Contain_ProducesSquareWithoutHardCrop()
+        {
+            var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant Logo");
+            using var _ = context;
+            using var __ = connection;
+            var service = CreateUploadService(context, tenantProvider, new FakePublicImageStorageService());
+
+            // Logo horizontal 2:1: con Contain queda contenido en un cuadro (no se recorta).
+            var asset = await service.UploadPublicPageAssetAsync(
+                TenantPublicAssetType.Logo,
+                CreateImageFile("logo.png", 400, 200),
+                "user",
+                crop: new PublicImageCropRequest { FitMode = "Contain", TargetAspectRatio = 1d });
+
+            AssertAspect(asset, 1d);
+            Assert.True(asset.Width <= 512 && asset.Height <= 512);
+        }
+
+        [Fact]
+        public async Task UploadPublicPageAsset_Original_Horizontal_PreservesAspect()
+        {
+            var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant Horizontal Original");
+            using var _ = context;
+            using var __ = connection;
+            var service = CreateUploadService(context, tenantProvider, new FakePublicImageStorageService());
+
+            var asset = await service.UploadPublicPageAssetAsync(
+                TenantPublicAssetType.BusinessGallery,
+                CreateImageFile("horizontal.png", 1600, 900),
+                "user",
+                crop: new PublicImageCropRequest { FitMode = "Original" });
+
+            AssertAspect(asset, 1600d / 900d);
+        }
+
+        [Fact]
+        public async Task UploadPublicPageAsset_AbsurdTargetAspect_Throws()
+        {
+            var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant Aspecto Absurdo");
+            using var _ = context;
+            using var __ = connection;
+            var service = CreateUploadService(context, tenantProvider, new FakePublicImageStorageService());
+
+            await Assert.ThrowsAsync<PublicImageUploadException>(() =>
+                service.UploadPublicPageAssetAsync(
+                    TenantPublicAssetType.Cover,
+                    CreateImageFile("absurdo.png", 900, 1600),
+                    "user",
+                    crop: new PublicImageCropRequest { FitMode = "Padded", TargetAspectRatio = 10d }));
+        }
+
+        private static void AssertAspect(TenantPublicAsset asset, double expected)
+        {
+            Assert.True(asset.Width > 0 && asset.Height > 0);
+            var actual = (double)asset.Width / asset.Height;
+            Assert.True(
+                Math.Abs(actual - expected) <= 0.06,
+                $"Aspecto esperado ~{expected:0.###}, obtenido {actual:0.###} ({asset.Width}x{asset.Height}).");
+        }
+
+        private static async Task<(ApplicationDbContext Context, System.Data.Common.DbConnection Connection, TestTenantProvider TenantProvider)> NewTenantContextAsync(string name)
+        {
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            await SeedTenantAsync(context, tenantId, name);
+            return (context, connection, tenantProvider);
+        }
+
         private static PublicImageUploadService CreateUploadService(
             ApplicationDbContext context,
             TestTenantProvider tenantProvider,
@@ -363,10 +507,13 @@ namespace LuxuryApp.Tests.TenantIsolation
                 NullLogger<PublicImageUploadService>.Instance);
         }
 
-        private static IFormFile CreateImageFile(string fileName)
+        private static IFormFile CreateImageFile(string fileName) =>
+            CreateImageFile(fileName, 32, 32);
+
+        private static IFormFile CreateImageFile(string fileName, int width, int height)
         {
             var stream = new MemoryStream();
-            using (var image = new Image<Rgba32>(32, 32))
+            using (var image = new Image<Rgba32>(width, height))
             {
                 image.Mutate(context => context.BackgroundColor(Color.Red));
                 image.SaveAsPng(stream);

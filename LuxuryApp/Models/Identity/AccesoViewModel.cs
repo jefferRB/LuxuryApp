@@ -12,7 +12,10 @@ namespace LuxuryApp.Models.Identity
         [DataType(DataType.Password)]
         [Display(Name = "Contraseña")] // Used to choose the name to display
         public string Password { get; set; } = string.Empty;
-        [Display(Name = "Recordar datos?")]
+        // RememberMe controla ÚNICAMENTE la persistencia de la cookie de autenticación
+        // (sesión vs. dispositivo de confianza). No guarda ni transmite la contraseña: el
+        // navegador o gestor de contraseñas es quien decide ofrecer guardar las credenciales.
+        [Display(Name = "Recordar este dispositivo y mantener mi sesión iniciada")]
         public bool RememberMe { get; set; }
     }
 }

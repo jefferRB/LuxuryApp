@@ -114,12 +114,14 @@ namespace LuxuryApp.Services.Tilopay
             EnsureEnabled();
             ValidateApiCredentials();
 
+            // Contrato real de TiloPay (verificado en prod): body JSON con "key" (ApiKey) e "id"
+            // (el id del plan recurrente COMO STRING). NO es "id_plan"/"plan_id" ni int.
             var raw = await PostAsync(
                 "api/v1/getSuscriptorRepeat",
                 new Dictionary<string, object?>
                 {
                     ["key"] = _tilopayOptions.ApiKey,
-                    ["id_plan"] = tilopayPlanId
+                    ["id"] = tilopayPlanId.ToString(CultureInfo.InvariantCulture)
                 },
                 cancellationToken);
 
@@ -384,15 +386,58 @@ namespace LuxuryApp.Services.Tilopay
 
             if (!response.IsSuccessStatusCode)
             {
+                // Body sanitizado para diagnosticar 4xx/5xx (p.ej. "campo id requerido") sin exponer
+                // secretos: se redactan key/token/password/auth/email/tarjeta/cvv, etc.
                 _logger.LogError(
-                    "TiloPay admin {Path} devolvió error. Status {StatusCode}. BodyLength {BodyLength}",
+                    "TiloPay admin {Path} devolvió error. Status {StatusCode}. BodyLength {BodyLength}. Body {SanitizedBody}",
                     path,
                     response.StatusCode,
-                    raw.Length);
+                    raw.Length,
+                    SanitizeResponseBody(raw));
                 throw new InvalidOperationException($"TiloPay admin {path} devolvió {(int)response.StatusCode}.");
             }
 
             return raw;
+        }
+
+        /// <summary>
+        /// Redacta claves sensibles del body de respuesta para logging seguro (JSON). Si no es JSON,
+        /// devuelve un marcador; nunca vuelca secretos ni datos personales en claro.
+        /// </summary>
+        private static string SanitizeResponseBody(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                using var document = JsonDocument.Parse(raw);
+                return JsonSerializer.Serialize(RedactJsonElement(document.RootElement));
+            }
+            catch (JsonException)
+            {
+                return "[non-json body omitted]";
+            }
+        }
+
+        private static object? RedactJsonElement(JsonElement element)
+        {
+            return element.ValueKind switch
+            {
+                JsonValueKind.Object => element.EnumerateObject().ToDictionary(
+                    property => property.Name,
+                    property => SensitiveDataMasker.IsSensitiveKey(property.Name)
+                        ? SensitiveDataMasker.Redacted
+                        : RedactJsonElement(property.Value)),
+                JsonValueKind.Array => element.EnumerateArray().Select(RedactJsonElement).ToArray(),
+                JsonValueKind.String => element.GetString(),
+                JsonValueKind.Number => element.ToString(),
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                _ => null
+            };
         }
 
         private IReadOnlyList<TilopaySubscriber> ParseSubscribers(string raw, int expectedPlanId)
@@ -441,7 +486,8 @@ namespace LuxuryApp.Services.Tilopay
                         SubscriberId = subscriberId,
                         Email = ReadFirstString(element, "email", "correo", "mail"),
                         Status = ReadFirstString(element, "status", "estado", "state"),
-                        CreatedAtUtc = ReadFirstDateUtc(element, "created_at", "createdAt", "fecha", "fecha_creacion", "date"),
+                        // "create" (con la hora del alta) es el campo real del contrato TiloPay.
+                        CreatedAtUtc = ReadFirstDateUtc(element, "create", "created_at", "createdAt", "fecha", "fecha_creacion", "date"),
                         TilopayPlanId = ReadFirstInt(element, "id_plan", "idPlan", "planId", "plan_id") ?? expectedPlanId
                     });
                 }
@@ -460,7 +506,8 @@ namespace LuxuryApp.Services.Tilopay
             if (root.ValueKind == JsonValueKind.Object)
             {
                 // Buscar un array bajo claves típicas primero, luego cualquier array de objetos.
-                foreach (var key in new[] { "suscriptores", "subscribers", "data", "response", "result", "items" })
+                // "suscriptor" (singular) es la clave real confirmada en el contrato de TiloPay.
+                foreach (var key in new[] { "suscriptor", "suscriptores", "subscribers", "data", "response", "result", "items" })
                 {
                     if (root.TryGetProperty(key, out var candidate) && candidate.ValueKind == JsonValueKind.Array)
                     {
@@ -529,10 +576,16 @@ namespace LuxuryApp.Services.Tilopay
             }
 
             using var linkedCts = CreateTimeout(cancellationToken);
+            // Contrato real de login TiloPay: apiuser + password + key (ApiKey) en el body JSON.
             var response = await _safeReadPolicy.ExecuteAsync(() =>
                 _httpClient.PostAsJsonAsync(
                     "api/v1/login",
-                    new { apiuser = _tilopayOptions.ApiUser, password = _tilopayOptions.ApiPassword },
+                    new
+                    {
+                        apiuser = _tilopayOptions.ApiUser,
+                        password = _tilopayOptions.ApiPassword,
+                        key = _tilopayOptions.ApiKey
+                    },
                     linkedCts.Token));
 
             var raw = await response.Content.ReadAsStringAsync(linkedCts.Token);

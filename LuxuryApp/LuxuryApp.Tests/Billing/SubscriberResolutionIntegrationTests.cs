@@ -132,6 +132,137 @@ namespace LuxuryApp.Tests.Billing
             Assert.True(report.SubscriberIdsResolved >= 1);
         }
 
+        // ── 10 (contrato real). REAL admin service + respuesta real de TiloPay → persiste 374830 ──
+        [Fact]
+        public async Task EndToEnd_RealTilopayResponse_PersistsSubscriberIdInPaymentAndSubscription()
+        {
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(new TestTenantProvider());
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var tenantId = Guid.NewGuid();
+            var plan = new Plan
+            {
+                Id = Guid.NewGuid(),
+                Codigo = "LC_M_01",
+                Nombre = "LuxuryCloud 1 Mensual",
+                PrecioMensual = 8000m,
+                BillingCycle = BillingCycle.Monthly,
+                Moneda = "CRC",
+                MaxFuncionarios = 1,
+                Activo = true
+            };
+            context.Tenants.Add(new Tenant { Id = tenantId, Nombre = "Tenant Real", Activo = true });
+            context.Planes.Add(plan);
+
+            var paymentId = Guid.NewGuid();
+            context.PagosSuscripcion.Add(new PagoSuscripcion
+            {
+                Id = paymentId,
+                TenantId = tenantId,
+                PlanId = plan.Id,
+                Proveedor = PaymentProviderType.Tilopay,
+                Estado = EstadoPagoProveedor.Confirmado,
+                TilopayRecurringPlanId = 6119,
+                ReferenciaInterna = "LXA-0B6BFF-71BBE2920A",
+                ProviderTransactionId = "5328829",
+                ProviderSubscriberId = null,
+                ClienteEmail = "compra1usuario@gmail.com",
+                Monto = 8000m,
+                Moneda = "CRC",
+                FechaCreacionUtc = DateTime.UtcNow.AddHours(-2),
+                FechaConfirmacionUtc = DateTime.UtcNow.AddHours(-2)
+            });
+            context.Suscripciones.Add(new Suscripcion
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                PlanId = plan.Id,
+                Estado = EstadoSuscripcion.Activa,
+                Proveedor = PaymentProviderType.Tilopay,
+                TilopayRecurringPlanId = 6119,
+                ProviderSubscriptionId = null,
+                FechaInicio = DateTime.UtcNow.AddDays(-1),
+                FechaFin = DateTime.UtcNow.AddMonths(1)
+            });
+            await context.SaveChangesAsync();
+
+            // Servicio admin REAL contra la respuesta real de getSuscriptorRepeat (array "suscriptor").
+            var handler = new RealResponseHandler(RealSuscriptorResponse);
+            var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://app.tilopay.com/") };
+            var adminService = new TilopayRepeatAdminService(
+                httpClient,
+                new MemoryCache(new MemoryCacheOptions()),
+                Options.Create(new OpcionesTilopay { ApiUser = "u", ApiPassword = "p", ApiKey = "k", BaseUrl = "https://app.tilopay.com/" }),
+                Options.Create(new OpcionesTilopayRepeatAdmin { Enabled = true, ResolveRetryCount = 0 }),
+                NullLogger<TilopayRepeatAdminService>.Instance);
+
+            var resolution = new SubscriberResolutionService(
+                context,
+                adminService,
+                new TenantExecutionContextAccessor(),
+                new FixedBusinessDateTimeProvider(),
+                NullLogger<SubscriberResolutionService>.Instance);
+
+            var outcome = await resolution.TryResolveAndPersistAsync(new SubscriberResolutionContext
+            {
+                TenantId = tenantId,
+                TilopayRecurringPlanId = 6119,
+                Email = "compra1usuario@gmail.com",
+                PaymentId = paymentId,
+                IsAddon = false,
+                Source = "reconciliation"
+            });
+
+            Assert.Equal(SubscriberPersistenceOutcome.Resolved, outcome);
+
+            var pago = await context.PagosSuscripcion.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal("374830", pago.ProviderSubscriberId);
+
+            var sub = await context.Suscripciones.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal("374830", sub.ProviderSubscriptionId);
+        }
+
+        private const string RealSuscriptorResponse =
+            """
+            {
+              "type": "success",
+              "message": "ok",
+              "suscriptor": [
+                {
+                  "id": 374830,
+                  "name": "Jefferson",
+                  "lastname": "Rojas",
+                  "email": "compra1usuario@gmail.com",
+                  "modality": "LC_M_01",
+                  "amount": "8000.00",
+                  "expire": "2026-08-07",
+                  "coupon": "",
+                  "status": "Active",
+                  "create": "2026-07-07 19:26:00"
+                }
+              ]
+            }
+            """;
+
+        private sealed class RealResponseHandler : System.Net.Http.HttpMessageHandler
+        {
+            private readonly string _suscriptorBody;
+            public RealResponseHandler(string suscriptorBody) => _suscriptorBody = suscriptorBody;
+
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                var path = request.RequestUri!.AbsolutePath;
+                var body = path.EndsWith("login", StringComparison.OrdinalIgnoreCase)
+                    ? """{ "access_token": "fake-token", "expires_in": 3600 }"""
+                    : _suscriptorBody;
+                return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json")
+                });
+            }
+        }
+
         // ── 10. Checkout bloquea hosted link nuevo si ya existe suscriptor ──
         [Fact]
         public async Task Checkout_WithExistingSubscriber_RoutesToRecurrentUrlWithoutNewHostedLink()

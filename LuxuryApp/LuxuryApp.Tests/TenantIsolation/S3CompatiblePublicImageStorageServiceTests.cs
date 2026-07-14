@@ -1,69 +1,50 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Amazon.Runtime;
 using LuxuryApp.Services.PublicImages;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace LuxuryApp.Tests.TenantIsolation
 {
     public class S3CompatiblePublicImageStorageServiceTests
     {
-        [Fact]
-        public void BuildPutObjectRequest_UsesCloudflareR2CompatibleFlagsAndContentLength()
+        [Theory]
+        [InlineData("https://accountid.r2.cloudflarestorage.com", "accountid.r2.cloudflarestorage.com", true)]
+        [InlineData("https://accountid.r2.cloudflarestorage.com/", "accountid.r2.cloudflarestorage.com", true)]
+        [InlineData("http://localhost:9000", "localhost", false)]
+        [InlineData("accountid.r2.cloudflarestorage.com", "accountid.r2.cloudflarestorage.com", true)]
+        public void ResolveEndpoint_NormalizesToHostAndDetectsSsl(string endpoint, string expectedHost, bool expectedSsl)
         {
-            using var content = new MemoryStream(new byte[] { 1, 2, 3, 4 });
+            var (host, secure) = S3CompatiblePublicImageStorageService.ResolveEndpoint(endpoint);
 
-            var request = S3CompatiblePublicImageStorageService.BuildPutObjectRequest(
-                "mi-bucket",
-                "tenants/abc/public-page/location/x.webp",
-                content,
-                "image/webp",
-                content.Length);
-
-            // Flags que evitan el trailer STREAMING-AWS4-HMAC-SHA256-PAYLOAD que R2 no soporta.
-            Assert.True(request.DisablePayloadSigning);
-            Assert.True(request.DisableDefaultChecksumValidation);
-            Assert.False(request.UseChunkEncoding);
-            Assert.False(request.AutoResetStreamPosition);
-            Assert.False(request.AutoCloseStream);
-
-            // Content-Length explicito para forzar un PUT simple (no chunked).
-            Assert.Equal(4, request.Headers.ContentLength);
-
-            // Se preserva el pipeline actual.
-            Assert.Equal("mi-bucket", request.BucketName);
-            Assert.Equal("tenants/abc/public-page/location/x.webp", request.Key);
-            Assert.Equal("image/webp", request.ContentType);
-            Assert.Equal("public, max-age=31536000, immutable", request.Headers.CacheControl);
-            Assert.Same(content, request.InputStream);
-
-            // No se fija checksum explicito (evita interferir con R2).
-            Assert.Null(request.ChecksumAlgorithm);
+            Assert.Equal(expectedHost, host);
+            Assert.Equal(expectedSsl, secure);
         }
 
         [Fact]
-        public void BuildConfig_UsesR2CompatibleChecksumPathStyleAndAutoRegion()
+        public void BuildPublicUrl_ValidKey_UsesPublicBaseUrl()
         {
-            var options = new S3StorageOptions
-            {
-                Endpoint = "https://accountid.r2.cloudflarestorage.com",
-                Region = "auto",
-                BucketName = "luxurycloud-public-assets-prod"
-            };
+            var service = CreateService();
+            var key = $"tenants/{Guid.NewGuid():N}/public-page/location/{Guid.NewGuid():N}.webp";
 
-            var config = S3CompatiblePublicImageStorageService.BuildConfig(options);
+            var url = service.BuildPublicUrl(key);
 
-            Assert.True(config.ForcePathStyle);
-            // El SDK normaliza ServiceURL (puede agregar "/" final).
-            Assert.StartsWith("https://accountid.r2.cloudflarestorage.com", config.ServiceURL);
-            Assert.Equal("auto", config.AuthenticationRegion);
-            // Fix clave v4: no calcular checksum salvo que la operacion lo requiera.
-            Assert.Equal(RequestChecksumCalculation.WHEN_REQUIRED, config.RequestChecksumCalculation);
-            Assert.Equal(ResponseChecksumValidation.WHEN_REQUIRED, config.ResponseChecksumValidation);
-            Assert.Null(config.RegionEndpoint);
+            Assert.Equal($"https://media.luxurycloud.app/{key}", url);
+        }
+
+        [Fact]
+        public async Task UploadAsync_InvalidStorageKey_ThrowsBeforeAnyNetworkCall()
+        {
+            var service = CreateService();
+            using var content = new MemoryStream(new byte[] { 1, 2, 3 });
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.UploadAsync("../evil/path.webp", content, "image/webp"));
         }
 
         [Fact]
@@ -101,6 +82,43 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.False(created);
             Assert.Same(seekable, stream);
             Assert.Equal(0, stream.Position);
+        }
+
+        [Fact]
+        public void Source_UsesMinioAndMarker_AndNoAwsSdkTypes()
+        {
+            var source = File.ReadAllText(ProjectPath(
+                "Services", "PublicImages", "S3CompatiblePublicImageStorageService.cs"));
+
+            // Usa Minio y el marcador requerido.
+            Assert.Contains("R2_MINIO_UPLOAD_ACTIVE", source);
+            Assert.Contains("Minio", source);
+            Assert.Contains("PutObjectArgs", source);
+            Assert.Contains("RemoveObjectArgs", source);
+
+            // Ya no usa AWSSDK.S3.
+            Assert.DoesNotContain("AmazonS3Client", source);
+            Assert.DoesNotContain("PutObjectRequest", source);
+            Assert.DoesNotContain("using Amazon", source);
+        }
+
+        private static S3CompatiblePublicImageStorageService CreateService() =>
+            new(
+                Options.Create(new S3StorageOptions
+                {
+                    Endpoint = "https://accountid.r2.cloudflarestorage.com",
+                    Region = "auto",
+                    BucketName = "luxurycloud-public-assets-prod",
+                    AccessKey = "test-access",
+                    SecretKey = "test-secret",
+                    PublicBaseUrl = "https://media.luxurycloud.app/"
+                }),
+                NullLogger<S3CompatiblePublicImageStorageService>.Instance);
+
+        private static string ProjectPath(params string[] parts)
+        {
+            var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+            return Path.Combine(new[] { root }.Concat(parts).ToArray());
         }
 
         // Stream forward-only para simular un contenido no seekable (ej. red).

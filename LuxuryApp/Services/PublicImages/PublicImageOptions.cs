@@ -52,9 +52,15 @@ namespace LuxuryApp.Services.PublicImages
 
         public int GalleryMaxHeight { get; set; } = 1500;
 
-        public int ServiceImageMaxWidth { get; set; } = 1000;
+        // Caja mas alta para admitir fotos verticales de celular sin encogerlas.
+        public int ServiceImageMaxWidth { get; set; } = 1080;
 
-        public int ServiceImageMaxHeight { get; set; } = 750;
+        public int ServiceImageMaxHeight { get; set; } = 1350;
+
+        // Ubicacion admite vertical u horizontal: caja cuadrada amplia.
+        public int LocationMaxWidth { get; set; } = 1400;
+
+        public int LocationMaxHeight { get; set; } = 1400;
 
         public long MaxDecodedPixels { get; set; } = 24_000_000;
     }

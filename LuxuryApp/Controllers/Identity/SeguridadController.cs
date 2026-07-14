@@ -166,6 +166,35 @@ namespace LuxuryApp.Controllers.Identity
             return RedirectToAction(nameof(Enrolar));
         }
 
+        /// <summary>
+        /// Cierra la sesión en todos los dispositivos rotando el security stamp del usuario.
+        /// Con el validador de stamp corriendo en cada request, cualquier otra cookie viva
+        /// (persistente incluida) queda invalidada en su siguiente petición; además se cierra
+        /// la sesión actual y se redirige al login. No se registra información sensible.
+        /// </summary>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        [AllowWithoutMfaEnrollment]
+        public async Task<IActionResult> CerrarSesionEnTodosLosDispositivos()
+        {
+            var usuario = await _userManager.GetUserAsync(User);
+            if (usuario is null)
+            {
+                return RedirectToAction("Acceso", "Accounts");
+            }
+
+            await _userManager.UpdateSecurityStampAsync(usuario);
+            await _signInManager.SignOutAsync();
+
+            _logger.LogInformation(
+                "Cierre de sesión en todos los dispositivos solicitado. UserId {UserId}.",
+                usuario.Id);
+
+            TempData["SeguridadMensaje"] =
+                "Cerramos la sesión en todos tus dispositivos. Inicia sesión nuevamente para continuar.";
+            return RedirectToAction("Acceso", "Accounts");
+        }
+
         private bool PuedeDeshabilitar(AppUsuario usuario) =>
             !usuario.IsPlatformSuperAdmin || !_securityOptions.CurrentValue.Mfa.SuperAdminEnforcement;
 

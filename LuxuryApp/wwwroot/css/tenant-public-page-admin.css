@@ -544,6 +544,36 @@
     cursor: pointer;
 }
 
+.tppa-crop-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.tppa-crop-preset {
+    padding: 6px 10px;
+    border: 1px solid var(--private-surface-border, #d8d8d8);
+    border-radius: 999px;
+    background: var(--private-surface-bg, #fff);
+    color: var(--private-surface-text, #171717);
+    font: inherit;
+    font-size: .82rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.tppa-crop-preset.is-active {
+    border-color: var(--private-chart-accent, #047857);
+    background: color-mix(in srgb, var(--private-surface-bg, #fff) 84%, var(--private-chart-accent, #047857) 16%);
+    color: var(--private-chart-accent, #047857);
+}
+
+.tppa-crop-help {
+    margin: 2px 0 0;
+    color: var(--private-muted-text, #626262);
+    font-size: .8rem;
+}
+
 .tppa-crop-stage {
     display: grid;
     place-items: center;

@@ -65,9 +65,26 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.KnownProxies.Clear();
 });
 
-builder.Services.AddDataProtection()
-    .PersistKeysToFileSystem(new DirectoryInfo("/var/lib/luxury/dataprotection-keys"))
-    .SetApplicationName("Luxury");
+// Data Protection: las llaves cifran/firman las cookies de autenticación. Deben vivir en
+// una ruta ESTABLE fuera de /var/www/luxury para que reiniciar el servicio o publicar una
+// nueva versión no cierre todas las sesiones. La ruta es configurable
+// (DataProtection:KeysPath / env var DataProtection__KeysPath); en producción tiene un
+// valor por defecto Linux estable y en desarrollo (Windows) se conserva el almacén por
+// defecto de la plataforma para no forzar rutas Linux absolutas.
+var dataProtectionBuilder = builder.Services.AddDataProtection()
+    .SetApplicationName(LuxuryApp.Services.Identity.AuthCookiePolicy.DataProtectionApplicationName);
+
+var dataProtectionKeysPath = LuxuryApp.Services.Identity.AuthCookiePolicy.ResolveDataProtectionKeysPath(
+    builder.Configuration["DataProtection:KeysPath"],
+    builder.Environment.IsDevelopment());
+
+if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath))
+{
+    // Falla de forma clara y temprana si la ruta no puede crearse/usarse (permisos),
+    // en lugar de arrancar con un almacén efímero que cerraría sesiones silenciosamente.
+    var keysDirectory = Directory.CreateDirectory(dataProtectionKeysPath);
+    dataProtectionBuilder.PersistKeysToFileSystem(keysDirectory);
+}
 //Fin builders para host en linux nginx
 
 builder.Services.AddScoped<TenantSessionConnectionInterceptor>();
@@ -102,38 +119,17 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddScoped<TenantSessionSecurityValidator>();
 builder.Services.AddScoped<LegacyUserStateRepairService>();
 
+// Reloj abstraído para probar de forma determinista el tope absoluto de sesión (90 días).
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<AbsoluteSessionLifetimeEnforcer>();
+
 builder.Services.ConfigureApplicationCookie(options =>
 {
-    options.LoginPath = new PathString("/Accounts/Acceso");
-    options.AccessDeniedPath = new PathString("/Accounts/Bloqueado");
-    options.Cookie.HttpOnly = true;
-    options.Cookie.SameSite = SameSiteMode.Lax;
-    options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
-        ? CookieSecurePolicy.SameAsRequest
-        : CookieSecurePolicy.Always;
-    options.ExpireTimeSpan = TimeSpan.FromHours(8);
-    options.SlidingExpiration = true;
-    options.Events.OnValidatePrincipal = async context =>
-    {
-        // El validator debe correr ANTES que el security stamp validator: con
-        // ValidationInterval = Zero el stamp validator regenera el principal desde la BD
-        // en cada request, y los checks de claims obsoletos (tenant desalineado,
-        // platform_super_admin revocado) nunca verían la cookie original.
-        if (context.Principal?.Identity?.IsAuthenticated == true)
-        {
-            var validator = context.HttpContext.RequestServices.GetRequiredService<TenantSessionSecurityValidator>();
-            var isValid = await validator.ValidateAsync(context.Principal, context.HttpContext.RequestAborted);
+    AuthCookiePolicy.ConfigureApplicationCookie(options, builder.Environment.IsDevelopment());
 
-            if (!isValid)
-            {
-                context.RejectPrincipal();
-                await context.HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
-                return;
-            }
-        }
-
-        await SecurityStampValidator.ValidatePrincipalAsync(context);
-    };
+    // Compone: tope absoluto 90d -> TenantSessionSecurityValidator -> SecurityStampValidator.
+    // Extraído a LuxuryCookieValidation para poder ejercitar el pipeline HTTP real en pruebas.
+    options.Events.OnValidatePrincipal = LuxuryCookieValidation.ValidatePrincipalAsync;
 });
 
 builder.Services.Configure<IdentityOptions>(options =>

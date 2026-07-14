@@ -121,6 +121,7 @@
         <div class="tppa-media-grid">
             <div class="tppa-media-box" data-public-image-slot="logo">
                 <h3>Logo</h3>
+                <small class="tppa-hint">PNG/JPG cuadrado o rectangular; se ajusta sin recortar.</small>
                 <div class="tppa-preview-area" data-preview-area>
                     @if (Model.LogoAsset is not null)
                     {
@@ -136,7 +137,7 @@
                         <div class="tppa-preview tppa-preview-empty" data-empty-preview>Sin logo</div>
                     }
                 </div>
-                <form asp-action="UploadLogo" method="post" enctype="multipart/form-data" class="tppa-upload-form" data-public-image-upload data-upload-kind="singleton" data-crop-aspect="1" data-preview-class="tppa-preview-logo" data-preview-alt="Logo actual">
+                <form asp-action="UploadLogo" method="post" enctype="multipart/form-data" class="tppa-upload-form" data-public-image-upload data-upload-kind="singleton" data-crop-aspect="1" data-crop-presets="contain:1:1,1:1" data-crop-default="contain:1:1" data-preview-class="tppa-preview-logo" data-preview-alt="Logo actual">
                     @Html.AntiForgeryToken()
                     <label class="tppa-file-button">
                         <span>Cambiar logo</span>
@@ -148,6 +149,7 @@
 
             <div class="tppa-media-box" data-public-image-slot="cover">
                 <h3>Portada</h3>
+                <small class="tppa-hint">Horizontal recomendado (16:9/2:1), pero puedes usar foto vertical con fondo adaptado.</small>
                 <div class="tppa-preview-area" data-preview-area>
                     @if (Model.CoverAsset is not null)
                     {
@@ -163,7 +165,7 @@
                         <div class="tppa-preview tppa-preview-cover tppa-preview-empty" data-empty-preview>Sin portada</div>
                     }
                 </div>
-                <form asp-action="UploadCover" method="post" enctype="multipart/form-data" class="tppa-upload-form" data-public-image-upload data-upload-kind="singleton" data-crop-aspect="1.7777777778" data-preview-class="tppa-preview-cover" data-preview-alt="Portada actual">
+                <form asp-action="UploadCover" method="post" enctype="multipart/form-data" class="tppa-upload-form" data-public-image-upload data-upload-kind="singleton" data-crop-aspect="1.7777777778" data-crop-presets="16:9,2:1,padded:16:9,original" data-crop-default="16:9" data-crop-default-vertical="padded:16:9" data-preview-class="tppa-preview-cover" data-preview-alt="Portada actual">
                     @Html.AntiForgeryToken()
                     <label class="tppa-file-button">
                         <span>Cambiar portada</span>
@@ -175,6 +177,7 @@
 
             <div class="tppa-media-box" data-public-image-slot="location">
                 <h3>Imagen de ubicacion</h3>
+                <small class="tppa-hint">Vertical u horizontal; se adapta sin recorte agresivo.</small>
                 <div class="tppa-preview-area" data-preview-area>
                     @if (Model.LocationAsset is not null)
                     {
@@ -190,7 +193,7 @@
                         <div class="tppa-preview tppa-preview-cover tppa-preview-empty" data-empty-preview>Sin imagen de ubicacion</div>
                     }
                 </div>
-                <form asp-action="UploadLocationImage" method="post" enctype="multipart/form-data" class="tppa-upload-form" data-public-image-upload data-upload-kind="singleton" data-crop-aspect="1.3333333333" data-preview-class="tppa-preview-cover" data-preview-alt="Imagen de ubicacion actual">
+                <form asp-action="UploadLocationImage" method="post" enctype="multipart/form-data" class="tppa-upload-form" data-public-image-upload data-upload-kind="singleton" data-crop-aspect="1.3333333333" data-crop-presets="original,4:5,3:4,4:3,16:9" data-crop-default="original" data-crop-default-vertical="4:5" data-preview-class="tppa-preview-cover" data-preview-alt="Imagen de ubicacion actual">
                     @Html.AntiForgeryToken()
                     <label class="tppa-file-button">
                         <span>Cambiar imagen</span>
@@ -205,6 +208,7 @@
         <div class="tppa-gallery-admin">
             <div class="tppa-gallery-head">
                 <h3>Galeria del negocio</h3>
+                <small class="tppa-hint">Acepta verticales y horizontales; se muestran con su formato natural.</small>
                 <small data-gallery-counter data-gallery-max="@Model.MaxBusinessGalleryImages">@Model.BusinessGallery.Count de @Model.MaxBusinessGalleryImages imagenes</small>
             </div>
             <div class="tppa-thumb-grid" data-gallery-list="business" @(Model.BusinessGallery.Count == 0 ? "hidden" : null)>
@@ -226,7 +230,7 @@
             </div>
             @if (Model.BusinessGallery.Count < Model.MaxBusinessGalleryImages)
             {
-                <form asp-action="UploadBusinessGalleryImage" method="post" enctype="multipart/form-data" class="tppa-upload-form tppa-upload-inline" data-public-image-upload data-upload-kind="gallery" data-gallery-list-target="business" data-crop-aspect="0.8" data-preview-alt="Imagen de galeria">
+                <form asp-action="UploadBusinessGalleryImage" method="post" enctype="multipart/form-data" class="tppa-upload-form tppa-upload-inline" data-public-image-upload data-upload-kind="gallery" data-gallery-list-target="business" data-crop-aspect="0.8" data-crop-presets="original,4:5,1:1,4:3,16:9" data-crop-default="original" data-preview-alt="Imagen de galeria">
                     @Html.AntiForgeryToken()
                     <label class="tppa-file-button">
                         <span>Agregar imagen</span>
@@ -242,7 +246,7 @@
     {
         <section class="tppa-card">
             <h2><i class="bi bi-scissors"></i> Imagen por servicio</h2>
-            <p class="tppa-card-sub">Cada servicio muestra una sola imagen principal en la landing.</p>
+            <p class="tppa-card-sub">Cada servicio muestra una sola imagen principal en la landing. Fotos verticales de celular funcionan bien; recomendado 4:5 o 3:4.</p>
             <div class="tppa-service-media-list">
                 @foreach (var service in Model.ServiceAssets)
                 {
@@ -266,7 +270,7 @@
                                 <div class="tppa-preview tppa-preview-service-main tppa-preview-empty" data-empty-preview>Sin imagen</div>
                             }
                         </div>
-                        <form asp-action="UploadServiceMainImage" method="post" enctype="multipart/form-data" class="tppa-upload-form" data-public-image-upload data-upload-kind="singleton" data-crop-aspect="1.3333333333" data-preview-class="tppa-preview-service-main" data-preview-alt="Imagen de @service.ServiceName">
+                        <form asp-action="UploadServiceMainImage" method="post" enctype="multipart/form-data" class="tppa-upload-form" data-public-image-upload data-upload-kind="singleton" data-crop-aspect="1.3333333333" data-crop-presets="4:5,3:4,1:1,4:3,16:9,original" data-crop-default="4:5" data-preview-class="tppa-preview-service-main" data-preview-alt="Imagen de @service.ServiceName">
                             @Html.AntiForgeryToken()
                             <input type="hidden" name="serviceId" value="@service.ServiceId" />
                             <label class="tppa-file-button">

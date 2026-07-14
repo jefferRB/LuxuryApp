@@ -46,12 +46,14 @@
             '    </div>',
             '    <button type="button" class="tppa-crop-close" data-crop-cancel aria-label="Cerrar">x</button>',
             '  </div>',
+            '  <div class="tppa-crop-presets" data-crop-presets role="group" aria-label="Formato de imagen"></div>',
+            '  <p class="tppa-crop-help">Para fotos tomadas con celular recomendamos Vertical 4:5 u Original.</p>',
             '  <div class="tppa-crop-stage">',
             '    <div class="tppa-crop-frame" data-crop-frame>',
             '      <img alt="" data-crop-image draggable="false" />',
             '    </div>',
             '  </div>',
-            '  <label class="tppa-crop-zoom">Zoom',
+            '  <label class="tppa-crop-zoom" data-crop-zoom-wrap>Zoom',
             '    <input type="range" min="1" max="3" step="0.01" value="1" data-crop-zoom />',
             '  </label>',
             '  <div class="tppa-crop-error" data-crop-error hidden></div>',
@@ -69,6 +71,8 @@
             frame: wrapper.querySelector('[data-crop-frame]'),
             image: wrapper.querySelector('[data-crop-image]'),
             zoom: wrapper.querySelector('[data-crop-zoom]'),
+            zoomWrap: wrapper.querySelector('[data-crop-zoom-wrap]'),
+            presets: wrapper.querySelector('[data-crop-presets]'),
             submit: wrapper.querySelector('[data-crop-submit]'),
             error: wrapper.querySelector('[data-crop-error]'),
             cancelButtons: Array.from(wrapper.querySelectorAll('[data-crop-cancel]'))
@@ -119,45 +123,173 @@
         revokeObjectUrl();
         objectUrl = URL.createObjectURL(file);
 
-        const aspect = parseFloat(form.dataset.cropAspect || '1') || 1;
-        ui.frame.style.aspectRatio = String(aspect);
-        ui.zoom.value = '1';
+        const fallbackAspect = parseFloat(form.dataset.cropAspect || '1') || 1;
+        const presets = parsePresets(form.dataset.cropPresets, fallbackAspect);
+
         ui.error.hidden = true;
         ui.submit.disabled = false;
         ui.submit.textContent = 'Subir imagen';
-        ui.image.src = objectUrl;
 
         active = {
             form,
             input,
             file,
-            aspect,
+            presets,
+            preset: presets[0],
+            aspect: presets[0].aspect || fallbackAspect,
             zoom: 1,
             offsetX: 0,
             offsetY: 0,
             baseScale: 1,
+            containScale: 1,
+            coverScale: 1,
             drag: null,
             naturalWidth: 0,
             naturalHeight: 0
         };
 
+        buildPresetButtons(ui, presets);
+
         ui.image.onload = () => {
             if (!active) return;
             active.naturalWidth = ui.image.naturalWidth;
             active.naturalHeight = ui.image.naturalHeight;
-            centerImage();
+            applyPreset(pickDefaultPreset(form, presets, active.naturalWidth, active.naturalHeight));
         };
+        ui.image.src = objectUrl;
 
         ui.wrapper.hidden = false;
         document.body.classList.add('tppa-crop-open');
     }
 
+    // Tokens: "original" | "W:H" (Cover) | "padded:W:H" | "contain:W:H" | "cover:W:H".
+    function parsePresets(raw, fallbackAspect) {
+        const tokens = (raw || '4:5,original').split(',').map(t => t.trim()).filter(Boolean);
+        const list = [];
+        const seen = {};
+        tokens.forEach(token => {
+            const preset = parsePresetToken(token, fallbackAspect);
+            if (preset && !seen[preset.key]) {
+                seen[preset.key] = true;
+                list.push(preset);
+            }
+        });
+        if (list.length === 0) {
+            list.push({ key: 'cover:' + fallbackAspect, label: 'Recorte', aspect: fallbackAspect, fitMode: 'Cover' });
+        }
+        return list;
+    }
+
+    function parsePresetToken(token, fallbackAspect) {
+        const lower = token.toLowerCase();
+        if (lower === 'original') {
+            return { key: 'original', label: 'Original', aspect: null, fitMode: 'Original' };
+        }
+
+        let fitMode = 'Cover';
+        let aspectPart = lower;
+        if (lower.indexOf('padded:') === 0) { fitMode = 'Padded'; aspectPart = lower.slice(7); }
+        else if (lower.indexOf('contain:') === 0) { fitMode = 'Contain'; aspectPart = lower.slice(8); }
+        else if (lower.indexOf('cover:') === 0) { fitMode = 'Cover'; aspectPart = lower.slice(6); }
+
+        const aspect = parseAspect(aspectPart) || fallbackAspect;
+        return {
+            key: fitMode.toLowerCase() + ':' + aspectPart,
+            label: presetLabel(fitMode, aspectPart),
+            aspect: aspect,
+            fitMode: fitMode
+        };
+    }
+
+    function parseAspect(text) {
+        const parts = String(text).split(':');
+        if (parts.length === 2) {
+            const w = parseFloat(parts[0]);
+            const h = parseFloat(parts[1]);
+            if (w > 0 && h > 0) return w / h;
+        }
+        const single = parseFloat(text);
+        return single > 0 ? single : 0;
+    }
+
+    function presetLabel(fitMode, aspectPart) {
+        if (fitMode === 'Padded') return 'Completa con fondo';
+        if (fitMode === 'Contain') return 'Contener';
+        const names = {
+            '4:5': 'Vertical 4:5',
+            '3:4': 'Vertical 3:4',
+            '1:1': 'Cuadrado 1:1',
+            '4:3': 'Horizontal 4:3',
+            '16:9': 'Portada 16:9',
+            '2:1': 'Portada amplia 2:1'
+        };
+        return names[aspectPart] || ('Formato ' + aspectPart);
+    }
+
+    function pickDefaultPreset(form, presets, naturalWidth, naturalHeight) {
+        const isVertical = naturalHeight > naturalWidth;
+        const wanted = (isVertical && form.dataset.cropDefaultVertical)
+            ? form.dataset.cropDefaultVertical
+            : (form.dataset.cropDefault || '');
+        const match = presets.filter(p => p.key === wanted.toLowerCase() ||
+            p.key.indexOf(wanted.toLowerCase()) === 0 ||
+            p.label.toLowerCase() === wanted.toLowerCase());
+        return match[0] || presets[0];
+    }
+
+    function buildPresetButtons(ui, presets) {
+        ui.presets.innerHTML = '';
+        presets.forEach(preset => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'tppa-crop-preset';
+            button.dataset.presetKey = preset.key;
+            button.textContent = preset.label;
+            button.addEventListener('click', () => applyPreset(preset));
+            ui.presets.appendChild(button);
+        });
+    }
+
+    function applyPreset(preset) {
+        if (!active || !modal || !preset) return;
+        active.preset = preset;
+        active.aspect = preset.aspect || (active.naturalWidth / active.naturalHeight) || 1;
+
+        // Boton activo.
+        Array.from(modal.presets.children).forEach(btn => {
+            btn.classList.toggle('is-active', btn.dataset.presetKey === preset.key);
+        });
+
+        // El zoom (recorte manual) solo aplica en modo Cover.
+        const isCover = preset.fitMode === 'Cover';
+        modal.zoomWrap.style.display = isCover ? '' : 'none';
+
+        // En Original el marco toma el aspecto real de la foto (se ve completa sin letterbox).
+        const frameAspect = preset.fitMode === 'Original'
+            ? (active.naturalWidth / active.naturalHeight) || 1
+            : active.aspect;
+        modal.frame.style.aspectRatio = String(frameAspect);
+
+        modal.zoom.value = '1';
+        active.zoom = 1;
+        centerImage();
+    }
+
     function centerImage() {
         if (!active || !modal) return;
         const frame = modal.frame.getBoundingClientRect();
-        active.baseScale = Math.max(
+        active.coverScale = Math.max(
             frame.width / active.naturalWidth,
             frame.height / active.naturalHeight);
+        active.containScale = Math.min(
+            frame.width / active.naturalWidth,
+            frame.height / active.naturalHeight);
+
+        // Cover: la foto llena el marco (recorte). Otros modos: la foto entra completa (contain).
+        active.baseScale = (active.preset && active.preset.fitMode === 'Cover')
+            ? active.coverScale
+            : active.containScale;
+
         active.offsetX = 0;
         active.offsetY = 0;
         renderImage();
@@ -203,13 +335,24 @@
     async function submitCrop() {
         if (!active || !modal) return;
 
-        const crop = calculateCrop();
+        const preset = active.preset || { fitMode: 'Cover' };
         const formData = new FormData(active.form);
         formData.set('file', active.file);
-        formData.set('CropX', String(crop.cropX));
-        formData.set('CropY', String(crop.cropY));
-        formData.set('CropWidth', String(crop.cropWidth));
-        formData.set('CropHeight', String(crop.cropHeight));
+        formData.set('FitMode', preset.fitMode);
+
+        if (preset.fitMode !== 'Original' && preset.aspect) {
+            formData.set('TargetAspectRatio', String(preset.aspect));
+        }
+
+        // El recorte manual (CropX/Y/W/H) solo aplica en modo Cover; en los demas el
+        // backend contiene/rellena la imagen completa sin recortar.
+        if (preset.fitMode === 'Cover') {
+            const crop = calculateCrop();
+            formData.set('CropX', String(crop.cropX));
+            formData.set('CropY', String(crop.cropY));
+            formData.set('CropWidth', String(crop.cropWidth));
+            formData.set('CropHeight', String(crop.cropHeight));
+        }
 
         modal.submit.disabled = true;
         modal.submit.textContent = 'Subiendo...';

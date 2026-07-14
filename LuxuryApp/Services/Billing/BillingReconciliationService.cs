@@ -72,14 +72,21 @@ namespace LuxuryApp.Services.Billing
             var nowUtc = GetUtcNow();
             var report = new BillingReconciliationReport { StartedUtc = nowUtc };
 
-            await ReconcileOrphanConfirmedPaymentsAsync(report, nowUtc, cancellationToken);
-            await AlertOverdueRenewalsAsync(report, nowUtc, cancellationToken);
-            await ExpireStalePendingAttemptsAsync(report, nowUtc, cancellationToken);
-            await AlertStaleManualReviewsAsync(report, nowUtc, cancellationToken);
-            await AlertStuckEventsAsync(report, nowUtc, cancellationToken);
-            await BackfillMissingSubscriberIdsAsync(report, nowUtc, cancellationToken);
+            // Cada fase se ejecuta AISLADA: un fallo en una (p.ej. expiración de stale de un tenant)
+            // no impide que corran las demás (en particular, el backfill de id_suscriptor). Cada
+            // fase empieza con el ChangeTracker limpio para no arrastrar entidades de otro tenant.
+            await RunPhaseAsync("OrphanConfirmedPayments", () => ReconcileOrphanConfirmedPaymentsAsync(report, nowUtc, cancellationToken), cancellationToken);
+            await RunPhaseAsync("OverdueRenewals", () => AlertOverdueRenewalsAsync(report, nowUtc, cancellationToken), cancellationToken);
+            await RunPhaseAsync("ExpireStalePendings", () => ExpireStalePendingAttemptsAsync(report, nowUtc, cancellationToken), cancellationToken);
+            await RunPhaseAsync("StaleManualReviews", () => AlertStaleManualReviewsAsync(report, nowUtc, cancellationToken), cancellationToken);
+            await RunPhaseAsync("StuckEvents", () => AlertStuckEventsAsync(report, nowUtc, cancellationToken), cancellationToken);
+            await RunPhaseAsync("SubscriberBackfill", () => BackfillMissingSubscriberIdsAsync(report, nowUtc, cancellationToken), cancellationToken);
 
             report.FinishedUtc = GetUtcNow();
+
+            // El resumen del pase es un PlatformAuditLog (cross-tenant, NO ITenantEntity): se guarda
+            // con el ChangeTracker ya limpio para que no arrastre entidades tenant-scoped colgadas.
+            DetachAllTracked();
 
             // Cierre del pase: SIEMPRE se registra (sin cooldown) para que el health check
             // pueda mostrar "última reconciliación" y su resumen sin consultar logs de texto.
@@ -114,6 +121,93 @@ namespace LuxuryApp.Services.Billing
             return report;
         }
 
+        // ── Aislamiento de fases y multi-tenant ──────────────────────────────────────
+
+        /// <summary>
+        /// Ejecuta una fase con el ChangeTracker limpio y aislada de fallos: si lanza, se registra,
+        /// se audita y el pase CONTINÚA con las demás fases. Nunca deja entidades tenant-scoped
+        /// colgadas que puedan mezclar tenants en un SaveChanges posterior.
+        /// </summary>
+        private async Task RunPhaseAsync(string phase, Func<Task> body, CancellationToken cancellationToken)
+        {
+            DetachAllTracked();
+
+            try
+            {
+                await body();
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Descartar cualquier cambio parcial para poder auditar el fallo sin re-lanzar.
+                DetachAllTracked();
+
+                _logger.LogError(ex, "Fase de reconciliación aislada por fallo. Phase {Phase}.", phase);
+
+                try
+                {
+                    _db.PlatformAuditLogs.Add(new PlatformAuditLog
+                    {
+                        Id = Guid.NewGuid(),
+                        ActorUserId = "system",
+                        ActorEmail = "system",
+                        Action = PlatformAuditActions.BillingReconciliationAlert,
+                        EntityType = PlatformAuditEntityTypes.Billing,
+                        Reason = Trim($"La fase '{phase}' de la reconciliación falló y se aisló; el resto del pase continuó. Detalle: {ex.Message}", 500),
+                        CreatedAtUtc = GetUtcNow()
+                    });
+
+                    await _db.SaveChangesAsync(CancellationToken.None);
+                }
+                catch (Exception auditEx)
+                {
+                    _logger.LogError(auditEx, "No fue posible auditar el fallo de la fase {Phase}.", phase);
+                    DetachAllTracked();
+                }
+            }
+        }
+
+        private static string Trim(string value, int maxLength) =>
+            value.Length <= maxLength ? value : value[..maxLength];
+
+        /// <summary>Deja el ChangeTracker vacío para que ninguna fase arrastre entidades de otra.</summary>
+        private void DetachAllTracked()
+        {
+            foreach (var entry in _db.ChangeTracker.Entries().ToList())
+            {
+                entry.State = EntityState.Detached;
+            }
+        }
+
+        /// <summary>
+        /// Registra que se encontraron registros sin TenantId donde debería existir: no se mezclan
+        /// con entidades tenant-scoped; se auditan y se saltan (task 6).
+        /// </summary>
+        private async Task AuditMissingTenantSkipAsync(string phase, int count, CancellationToken cancellationToken)
+        {
+            _db.PlatformAuditLogs.Add(new PlatformAuditLog
+            {
+                Id = Guid.NewGuid(),
+                ActorUserId = "system",
+                ActorEmail = "system",
+                Action = PlatformAuditActions.BillingReconciliationAlert,
+                EntityType = PlatformAuditEntityTypes.Billing,
+                Reason = $"La fase '{phase}' encontró {count} registro(s) sin TenantId resuelto. Se auditan y se saltan para no mezclar tenants.",
+                CreatedAtUtc = GetUtcNow()
+            });
+
+            await _db.SaveChangesAsync(cancellationToken);
+            DetachAllTracked();
+
+            _logger.LogWarning(
+                "Reconciliación: {Count} registro(s) sin TenantId en la fase {Phase}; saltados.",
+                count,
+                phase);
+        }
+
         // ── 6. Backfill de id_suscriptor faltante (subscriber resolution) ─────────────
 
         private async Task BackfillMissingSubscriberIdsAsync(
@@ -129,57 +223,45 @@ namespace LuxuryApp.Services.Billing
 
             // Pass A (local, sin API): suscripción base con ProviderSubscriptionId NULL cuando ya
             // existe un pago confirmado del mismo tenant con ProviderSubscriberId conocido → copiar.
+            // Escaneo cross-tenant SOLO lectura; la escritura va por tenant bajo su propio scope.
             var subscriptionsMissingId = await _db.Suscripciones
                 .IgnoreQueryFilters()
+                .AsNoTracking()
                 .Where(subscription =>
                     subscription.Proveedor == PaymentProviderType.Tilopay &&
                     subscription.TilopayRecurringPlanId != null &&
                     subscription.ProviderSubscriptionId == null &&
                     (subscription.Estado == EstadoSuscripcion.Activa ||
                      subscription.Estado == EstadoSuscripcion.Morosa))
+                .Select(subscription => new { subscription.Id, subscription.TenantId })
                 .ToListAsync(cancellationToken);
 
-            foreach (var subscription in subscriptionsMissingId)
+            foreach (var group in subscriptionsMissingId.GroupBy(subscription => subscription.TenantId))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var knownSubscriberId = await _db.PagosSuscripcion
-                    .IgnoreQueryFilters()
-                    .AsNoTracking()
-                    .Where(payment =>
-                        payment.TenantId == subscription.TenantId &&
-                        payment.Proveedor == PaymentProviderType.Tilopay &&
-                        payment.Estado == EstadoPagoProveedor.Confirmado &&
-                        payment.ProviderSubscriberId != null)
-                    .OrderByDescending(payment => payment.FechaConfirmacionUtc)
-                    .Select(payment => payment.ProviderSubscriberId)
-                    .FirstOrDefaultAsync(cancellationToken);
-
-                if (!string.IsNullOrWhiteSpace(knownSubscriberId))
+                if (group.Key == Guid.Empty)
                 {
-                    subscription.ProviderSubscriptionId = knownSubscriberId;
-                    subscription.FechaUltimaActualizacionUtc = nowUtc;
-
-                    _db.PlatformAuditLogs.Add(new PlatformAuditLog
-                    {
-                        Id = Guid.NewGuid(),
-                        ActorUserId = "system",
-                        ActorEmail = "system",
-                        Action = PlatformAuditActions.ProviderSubscriberResolved,
-                        EntityType = PlatformAuditEntityTypes.Subscription,
-                        EntityId = subscription.Id.ToString(),
-                        TenantId = subscription.TenantId,
-                        Reason = "id_suscriptor copiado localmente desde un pago confirmado del mismo tenant (reconciliación).",
-                        CreatedAtUtc = nowUtc
-                    });
-
-                    report.SubscriberIdsBackfilledLocally++;
+                    await AuditMissingTenantSkipAsync("SubscriberBackfillLocal", group.Count(), cancellationToken);
+                    continue;
                 }
-            }
 
-            if (report.SubscriberIdsBackfilledLocally > 0)
-            {
-                await _db.SaveChangesAsync(cancellationToken);
+                try
+                {
+                    await BackfillSubscriberIdsLocallyForTenantAsync(group.Key, report, nowUtc, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    DetachAllTracked();
+                    _logger.LogError(
+                        ex,
+                        "Backfill local de id_suscriptor falló para el tenant {TenantId}; se continúa con los demás.",
+                        group.Key);
+                }
             }
 
             // Pass B (API): pagos recurrentes CONFIRMADOS sin ProviderSubscriberId y con email.
@@ -253,6 +335,77 @@ namespace LuxuryApp.Services.Billing
                         break;
                 }
             }
+        }
+
+        /// <summary>
+        /// Copia el id_suscriptor conocido (de un pago confirmado) a las suscripciones del tenant
+        /// que lo tienen NULL. Todo bajo el scope del tenant y un único SaveChanges por tenant.
+        /// </summary>
+        private async Task BackfillSubscriberIdsLocallyForTenantAsync(
+            Guid tenantId,
+            BillingReconciliationReport report,
+            DateTime nowUtc,
+            CancellationToken cancellationToken)
+        {
+            using var tenantScope = _tenantExecutionContextAccessor.BeginScope(tenantId);
+
+            // Filtros EXPLÍCITOS por tenant: no dependemos del query filter ambiente.
+            var knownSubscriberId = await _db.PagosSuscripcion
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(payment =>
+                    payment.TenantId == tenantId &&
+                    payment.Proveedor == PaymentProviderType.Tilopay &&
+                    payment.Estado == EstadoPagoProveedor.Confirmado &&
+                    payment.ProviderSubscriberId != null)
+                .OrderByDescending(payment => payment.FechaConfirmacionUtc)
+                .Select(payment => payment.ProviderSubscriberId)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (string.IsNullOrWhiteSpace(knownSubscriberId))
+            {
+                return;
+            }
+
+            var subscriptions = await _db.Suscripciones
+                .IgnoreQueryFilters()
+                .Where(subscription =>
+                    subscription.TenantId == tenantId &&
+                    subscription.Proveedor == PaymentProviderType.Tilopay &&
+                    subscription.TilopayRecurringPlanId != null &&
+                    subscription.ProviderSubscriptionId == null &&
+                    (subscription.Estado == EstadoSuscripcion.Activa ||
+                     subscription.Estado == EstadoSuscripcion.Morosa))
+                .ToListAsync(cancellationToken);
+
+            if (subscriptions.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var subscription in subscriptions)
+            {
+                subscription.ProviderSubscriptionId = knownSubscriberId;
+                subscription.FechaUltimaActualizacionUtc = nowUtc;
+
+                _db.PlatformAuditLogs.Add(new PlatformAuditLog
+                {
+                    Id = Guid.NewGuid(),
+                    ActorUserId = "system",
+                    ActorEmail = "system",
+                    Action = PlatformAuditActions.ProviderSubscriberResolved,
+                    EntityType = PlatformAuditEntityTypes.Subscription,
+                    EntityId = subscription.Id.ToString(),
+                    TenantId = subscription.TenantId,
+                    Reason = "id_suscriptor copiado localmente desde un pago confirmado del mismo tenant (reconciliación).",
+                    CreatedAtUtc = nowUtc
+                });
+
+                report.SubscriberIdsBackfilledLocally++;
+            }
+
+            await _db.SaveChangesAsync(cancellationToken);
+            DetachAllTracked();
         }
 
         // ── 1. Pagos confirmados sin activación ──────────────────────────────────────
@@ -522,12 +675,16 @@ namespace LuxuryApp.Services.Billing
         {
             var staleCutoffUtc = nowUtc.AddDays(-Math.Max(1, _options.StalePendingDays));
 
+            // Escaneo cross-tenant SOLO lectura (id + tenant). La escritura se hace por tenant,
+            // cada uno bajo su propio scope y SaveChanges, para no mezclar tenants (guard RLS).
             var stalePendings = await _db.PagosSuscripcion
                 .IgnoreQueryFilters()
+                .AsNoTracking()
                 .Where(payment =>
                     payment.Proveedor == PaymentProviderType.Tilopay &&
                     payment.Estado == EstadoPagoProveedor.Pendiente &&
                     payment.FechaCreacionUtc < staleCutoffUtc)
+                .Select(payment => new { payment.Id, payment.TenantId })
                 .ToListAsync(cancellationToken);
 
             if (stalePendings.Count == 0)
@@ -535,7 +692,66 @@ namespace LuxuryApp.Services.Billing
                 return;
             }
 
-            foreach (var payment in stalePendings)
+            foreach (var group in stalePendings.GroupBy(payment => payment.TenantId))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (group.Key == Guid.Empty)
+                {
+                    // Task 6: registros sin TenantId no se mezclan; se auditan y se saltan.
+                    await AuditMissingTenantSkipAsync("ExpireStalePendings", group.Count(), cancellationToken);
+                    continue;
+                }
+
+                try
+                {
+                    await ExpireStalePendingsForTenantAsync(
+                        group.Key,
+                        group.Select(payment => payment.Id).ToList(),
+                        report,
+                        nowUtc,
+                        cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // Aislar por tenant: un tenant que falle no detiene la expiración de los demás.
+                    DetachAllTracked();
+                    _logger.LogError(
+                        ex,
+                        "No fue posible expirar pendientes stale del tenant {TenantId}; se continúa con los demás.",
+                        group.Key);
+                }
+            }
+        }
+
+        private async Task ExpireStalePendingsForTenantAsync(
+            Guid tenantId,
+            IReadOnlyList<Guid> paymentIds,
+            BillingReconciliationReport report,
+            DateTime nowUtc,
+            CancellationToken cancellationToken)
+        {
+            using var tenantScope = _tenantExecutionContextAccessor.BeginScope(tenantId);
+
+            // Filtro EXPLÍCITO por tenant (no depende del query filter ambiente): recargamos tracked
+            // solo las filas de ESTE tenant. El scope sirve para que el guard use la ruta tenant.
+            var payments = await _db.PagosSuscripcion
+                .IgnoreQueryFilters()
+                .Where(payment => payment.TenantId == tenantId &&
+                                  paymentIds.Contains(payment.Id) &&
+                                  payment.Estado == EstadoPagoProveedor.Pendiente)
+                .ToListAsync(cancellationToken);
+
+            if (payments.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var payment in payments)
             {
                 payment.Estado = EstadoPagoProveedor.Expirado;
                 payment.ProviderResultCode = "EXPIRED_STALE";
@@ -559,7 +775,9 @@ namespace LuxuryApp.Services.Billing
                 report.StalePendingsExpired++;
             }
 
+            // Changeset de un solo tenant: el guard usa la ruta tenant y no lanza "mezclar tenants".
             await _db.SaveChangesAsync(cancellationToken);
+            DetachAllTracked();
         }
 
         // ── 4. ManualReview viejos (solo alerta, nunca se tocan) ─────────────────────
@@ -671,6 +889,11 @@ namespace LuxuryApp.Services.Billing
                 Reason = reason.Length <= 500 ? reason : reason[..500],
                 CreatedAtUtc = GetUtcNow()
             });
+
+            // Persistir la alerta de INMEDIATO: es un PlatformAuditLog (NO ITenantEntity), así que
+            // guardarlo solo nunca mezcla tenants; y así el aislamiento de fases (DetachAllTracked)
+            // no puede descartar alertas aún no guardadas.
+            await _db.SaveChangesAsync(cancellationToken);
 
             _logger.LogWarning(
                 "Alerta de reconciliación Billing. EntityType {EntityType}. EntityId {EntityId}. TenantId {TenantId}. Reason {Reason}.",

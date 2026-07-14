@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using ProyectoIdentity.Datos;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Webp;
+using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 
 namespace LuxuryApp.Services.PublicImages
@@ -327,7 +328,7 @@ namespace LuxuryApp.Services.PublicImages
                 cancellationToken);
 
             raw.Position = 0;
-            using var image = await Image.LoadAsync(raw, cancellationToken);
+            using var image = await Image.LoadAsync<Rgba32>(raw, cancellationToken);
             var decodedPixels = (long)image.Width * image.Height;
             if (decodedPixels <= 0 || decodedPixels > _options.MaxDecodedPixels)
             {
@@ -339,12 +340,50 @@ namespace LuxuryApp.Services.PublicImages
             image.Metadata.IptcProfile = null;
             image.Metadata.XmpProfile = null;
 
-            if (crop?.HasCrop == true)
+            var fitMode = crop?.ResolveFitMode() ?? PublicImageFitMode.Cover;
+            var targetAspect = ResolveTargetAspect(assetType, crop);
+
+            MemoryStream output;
+            int outputWidth;
+            int outputHeight;
+
+            switch (fitMode)
             {
-                var cropRectangle = ResolveCropRectangle(image.Width, image.Height, assetType, crop);
-                image.Mutate(context => context.Crop(cropRectangle));
+                case PublicImageFitMode.Original:
+                    ResizeToMax(image, maxWidth, maxHeight);
+                    (output, outputWidth, outputHeight) = await EncodeWebpAsync(image, assetType, cancellationToken);
+                    break;
+
+                case PublicImageFitMode.Contain:
+                    // Fondo neutro/transparente (util para logos: no se recorta ni se difumina).
+                    (output, outputWidth, outputHeight) = await ComposePaddedWebpAsync(
+                        image, targetAspect, maxWidth, maxHeight, assetType, blurBackground: false, cancellationToken);
+                    break;
+
+                case PublicImageFitMode.Padded:
+                    // Fondo blur de la misma foto (portada/fotos verticales).
+                    (output, outputWidth, outputHeight) = await ComposePaddedWebpAsync(
+                        image, targetAspect, maxWidth, maxHeight, assetType, blurBackground: true, cancellationToken);
+                    break;
+
+                default: // Cover (compatibilidad con el comportamiento historico)
+                    var cropRectangle = ResolveCropRectangle(image.Width, image.Height, crop, targetAspect);
+                    image.Mutate(context => context.Crop(cropRectangle));
+                    ResizeToMax(image, maxWidth, maxHeight);
+                    (output, outputWidth, outputHeight) = await EncodeWebpAsync(image, assetType, cancellationToken);
+                    break;
             }
 
+            return new ProcessedPublicImage(
+                output,
+                output.Length,
+                outputWidth,
+                outputHeight,
+                SanitizeOriginalFileName(file.FileName));
+        }
+
+        private static void ResizeToMax(Image image, int maxWidth, int maxHeight)
+        {
             if (image.Width > maxWidth || image.Height > maxHeight)
             {
                 image.Mutate(context => context.Resize(new ResizeOptions
@@ -353,29 +392,120 @@ namespace LuxuryApp.Services.PublicImages
                     Mode = ResizeMode.Max
                 }));
             }
+        }
 
+        private async Task<(MemoryStream Output, int Width, int Height)> EncodeWebpAsync(
+            Image image,
+            TenantPublicAssetType assetType,
+            CancellationToken cancellationToken)
+        {
             var output = new MemoryStream();
             await image.SaveAsWebpAsync(
                 output,
                 new WebpEncoder { Quality = ResolveQuality(assetType) },
                 cancellationToken);
             output.Position = 0;
-
-            return new ProcessedPublicImage(
-                output,
-                output.Length,
-                image.Width,
-                image.Height,
-                SanitizeOriginalFileName(file.FileName));
+            return (output, image.Width, image.Height);
         }
+
+        /// <summary>
+        /// Compone la imagen COMPLETA (sin recortar) centrada sobre un canvas del aspecto objetivo,
+        /// rellenando los margenes con una copia ampliada y desenfocada de la misma imagen (blur).
+        /// </summary>
+        private async Task<(MemoryStream Output, int Width, int Height)> ComposePaddedWebpAsync(
+            Image<Rgba32> image,
+            double targetAspect,
+            int maxWidth,
+            int maxHeight,
+            TenantPublicAssetType assetType,
+            bool blurBackground,
+            CancellationToken cancellationToken)
+        {
+            var (canvasWidth, canvasHeight) = ResolveCanvasSize(targetAspect, maxWidth, maxHeight);
+
+            // Primer plano: imagen completa contenida dentro del canvas (sin recorte).
+            using var foreground = image.Clone(context => context
+                .Resize(new ResizeOptions
+                {
+                    Size = new Size(canvasWidth, canvasHeight),
+                    Mode = ResizeMode.Max
+                }));
+
+            var offsetX = Math.Max(0, (canvasWidth - foreground.Width) / 2);
+            var offsetY = Math.Max(0, (canvasHeight - foreground.Height) / 2);
+
+            // Canvas transparente por defecto (Contain: bueno para logos, sin recorte ni blur).
+            using var canvas = new Image<Rgba32>(canvasWidth, canvasHeight);
+
+            if (blurBackground)
+            {
+                // Fondo blur: copia que cubre todo el canvas (recorta) + desenfoque + leve oscurecido.
+                using var background = image.Clone(context => context
+                    .Resize(new ResizeOptions
+                    {
+                        Size = new Size(canvasWidth, canvasHeight),
+                        Mode = ResizeMode.Crop,
+                        Position = AnchorPositionMode.Center
+                    })
+                    .GaussianBlur(Math.Max(8f, canvasWidth / 40f))
+                    .Brightness(0.9f));
+
+                canvas.Mutate(context => context
+                    .DrawImage(background, new Point(0, 0), 1f)
+                    .DrawImage(foreground, new Point(offsetX, offsetY), 1f));
+            }
+            else
+            {
+                canvas.Mutate(context => context
+                    .DrawImage(foreground, new Point(offsetX, offsetY), 1f));
+            }
+
+            return await EncodeWebpAsync(canvas, assetType, cancellationToken);
+        }
+
+        /// <summary>Canvas del aspecto objetivo, maximizado dentro de la caja (maxWidth x maxHeight).</summary>
+        private static (int Width, int Height) ResolveCanvasSize(double targetAspect, int maxWidth, int maxHeight)
+        {
+            var boxAspect = (double)maxWidth / maxHeight;
+            if (targetAspect >= boxAspect)
+            {
+                var height = Math.Max(1, (int)Math.Round(maxWidth / targetAspect));
+                return (maxWidth, Math.Min(height, maxHeight));
+            }
+
+            var width = Math.Max(1, (int)Math.Round(maxHeight * targetAspect));
+            return (Math.Min(width, maxWidth), maxHeight);
+        }
+
+        /// <summary>
+        /// Resuelve el aspecto objetivo. Usa el del request si es sano; si viene un valor absurdo lo
+        /// rechaza; si no viene, cae al default del tipo.
+        /// </summary>
+        private static double ResolveTargetAspect(TenantPublicAssetType assetType, PublicImageCropRequest? crop)
+        {
+            if (crop?.TargetAspectRatio is double requested)
+            {
+                if (!IsSaneAspect(requested))
+                {
+                    throw new PublicImageUploadException("El formato de imagen solicitado no es valido.");
+                }
+
+                return requested;
+            }
+
+            return ResolveTargetAspectRatio(assetType);
+        }
+
+        private static bool IsSaneAspect(double aspect) =>
+            !double.IsNaN(aspect) && !double.IsInfinity(aspect) && aspect >= 0.4 && aspect <= 3.0;
 
         private static Rectangle ResolveCropRectangle(
             int imageWidth,
             int imageHeight,
-            TenantPublicAssetType assetType,
-            PublicImageCropRequest crop)
+            PublicImageCropRequest? crop,
+            double targetAspect)
         {
-            if (IsValidCrop(imageWidth, imageHeight, crop))
+            if (crop is not null && IsValidCrop(imageWidth, imageHeight, crop))
             {
                 return new Rectangle(
                     crop.CropX!.Value,
@@ -384,7 +514,7 @@ namespace LuxuryApp.Services.PublicImages
                     crop.CropHeight!.Value);
             }
 
-            return BuildCenteredCrop(imageWidth, imageHeight, ResolveTargetAspectRatio(assetType));
+            return BuildCenteredCrop(imageWidth, imageHeight, targetAspect);
         }
 
         private static bool IsValidCrop(
@@ -609,7 +739,7 @@ namespace LuxuryApp.Services.PublicImages
             {
                 TenantPublicAssetType.Logo => (_options.LogoMaxWidth, _options.LogoMaxHeight),
                 TenantPublicAssetType.Cover => (_options.CoverMaxWidth, _options.CoverMaxHeight),
-                TenantPublicAssetType.Location => (_options.CoverMaxWidth, _options.CoverMaxHeight),
+                TenantPublicAssetType.Location => (_options.LocationMaxWidth, _options.LocationMaxHeight),
                 TenantPublicAssetType.ServiceMain => (_options.ServiceImageMaxWidth, _options.ServiceImageMaxHeight),
                 TenantPublicAssetType.ServiceGallery => (_options.ServiceImageMaxWidth, _options.ServiceImageMaxHeight),
                 _ => (_options.GalleryMaxWidth, _options.GalleryMaxHeight)

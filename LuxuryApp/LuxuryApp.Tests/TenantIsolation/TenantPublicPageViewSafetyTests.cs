@@ -31,15 +31,16 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             Assert.Contains("grid-template-columns: repeat(2, minmax(0, 1fr))", css);
             Assert.Contains("aspect-ratio: 4 / 5", css);
-            Assert.Contains("aspect-ratio: 4 / 3", css);
-            Assert.Contains("max-height: 420px", css);
             Assert.Contains("object-fit: cover", css);
             Assert.Contains("object-position: center", css);
             Assert.Contains(".public-service-image img", css);
-            Assert.Contains("max-height: 250px", css);
             Assert.Contains(".tpp-site-nav", css);
             Assert.Contains(".tpp-floating-whatsapp", css);
             Assert.Contains("scroll-behavior: smooth", css);
+
+            // Formatos flexibles: servicios verticales (4/5), logo contenido y galeria con aspecto natural.
+            Assert.Contains("object-fit: contain", css);
+            Assert.Contains("aspect-ratio:{image.Width}/{image.Height}", view);
         }
 
         [Fact]

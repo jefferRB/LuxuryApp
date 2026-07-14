@@ -220,7 +220,9 @@ namespace LuxuryApp.Controllers.Identity
         public IActionResult Acceso(string? returnurl = null)
         {
             ViewData["ReturnUrl"] = returnurl;
-            return View();
+            // El checkbox aparece marcado por defecto: en un dispositivo de confianza la
+            // sesión persiste. El usuario puede desmarcarlo para una cookie de sesión.
+            return View(new AccesoViewModel { RememberMe = true });
         }
 
         [HttpPost]

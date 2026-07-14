@@ -228,10 +228,16 @@
                 <div class="tpp-gallery-grid public-gallery-grid" data-count="@Model.BusinessGallery.Count">
                     @foreach (var image in Model.BusinessGallery)
                     {
+                        // Aspecto natural por foto (usando dimensiones ya guardadas): verticales altas,
+                        // horizontales anchas. Valores numericos seguros (no HTML arbitrario).
+                        var galleryStyle = image.Width > 0 && image.Height > 0
+                            ? $"aspect-ratio:{image.Width}/{image.Height}"
+                            : null;
                         <a class="tpp-gallery-item"
                            href="@image.Url"
                            target="_blank"
-                           rel="noopener noreferrer">
+                           rel="noopener noreferrer"
+                           style="@galleryStyle">
                             <img src="@image.Url"
                                  width="@image.Width"
                                  height="@image.Height"
@@ -372,7 +378,10 @@
                     </div>
                     @if (Model.LocationImage is not null)
                     {
-                        <div class="tpp-location-media">
+                        var locationStyle = Model.LocationImage.Width > 0 && Model.LocationImage.Height > 0
+                            ? $"aspect-ratio:{Model.LocationImage.Width}/{Model.LocationImage.Height}"
+                            : null;
+                        <div class="tpp-location-media" style="@locationStyle">
                             <img src="@Model.LocationImage.Url"
                                  width="@Model.LocationImage.Width"
                                  height="@Model.LocationImage.Height"
