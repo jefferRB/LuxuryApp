@@ -71,11 +71,21 @@ namespace LuxuryApp.Services.Tilopay
         /// <summary>Mensaje seguro para logs/UI (sin secretos).</summary>
         public string? Message { get; init; }
 
+        /// <summary>
+        /// True cuando TiloPay respondió éxito HTTP pero la verificación posterior
+        /// (getSuscriptorRepeat) mostró al suscriptor todavía Activo o no pudo confirmarse.
+        /// Un 200 sin verificación NUNCA cuenta como cancelación real.
+        /// </summary>
+        public bool VerificationFailed { get; init; }
+
         public static TilopayAdminOperationResult Ok(string? message = null, string? url = null) =>
             new() { Succeeded = true, Message = message, Url = url };
 
         public static TilopayAdminOperationResult Fail(string message) =>
             new() { Succeeded = false, Message = message };
+
+        public static TilopayAdminOperationResult FailVerification(string message) =>
+            new() { Succeeded = false, Message = message, VerificationFailed = true };
     }
 
     /// <summary>Estados admitidos por editSuscriptorRepeat.</summary>

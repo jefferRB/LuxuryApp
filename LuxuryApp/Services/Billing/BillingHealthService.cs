@@ -57,6 +57,11 @@ namespace LuxuryApp.Services.Billing
         public int CheckoutsBlockedByDuplicateLast7d { get; init; }
         public int ProviderCancellationsFailedLast7d { get; init; }
         public DateTime? LastSuccessfulSubscriberResolutionUtc { get; init; }
+
+        // Cambio de plan base (estrategia B).
+        public int PlanChangePendingCount { get; init; }
+        public int PlanChangeManualReviewCount { get; init; }
+        public DateTime? LastSuccessfulPlanChangeUtc { get; init; }
     }
 
     public interface IBillingHealthService
@@ -228,12 +233,28 @@ namespace LuxuryApp.Services.Billing
             var providerCancellationsFailed7d = await _db.PlatformAuditLogs
                 .CountAsync(log =>
                     (log.Action == PlatformAuditActions.UpgradeOldProviderSubscriptionCancellationFailed ||
+                     log.Action == PlatformAuditActions.PlanChangeOldSubscriberCancellationVerificationFailed ||
                      log.Action == PlatformAuditActions.ProviderSubscriptionDeleteFailed) &&
                     log.CreatedAtUtc >= last7dUtc, cancellationToken);
 
             var lastResolutionUtc = await _db.PlatformAuditLogs
                 .Where(log => log.Action == PlatformAuditActions.ProviderSubscriberResolved)
                 .MaxAsync(log => (DateTime?)log.CreatedAtUtc, cancellationToken);
+
+            // ── Cambio de plan base (estrategia B) ──
+            var planChangePending = await _db.PlanChangeIntents.IgnoreQueryFilters()
+                .CountAsync(intent => intent.Estado == PlanChangeIntentState.Pending, cancellationToken);
+
+            // Cambio aplicado cuyo suscriptor viejo AÚN no se canceló en el proveedor: riesgo de doble cobro.
+            var planChangeManualReview = await _db.PlanChangeIntents.IgnoreQueryFilters()
+                .CountAsync(intent =>
+                    intent.Estado == PlanChangeIntentState.Applied &&
+                    intent.OldProviderCancellation == ProviderCancellationState.PendingManualCancellation,
+                    cancellationToken);
+
+            var lastPlanChangeUtc = await _db.PlanChangeIntents.IgnoreQueryFilters()
+                .Where(intent => intent.Estado == PlanChangeIntentState.Applied)
+                .MaxAsync(intent => (DateTime?)intent.AppliedAtUtc, cancellationToken);
 
             return new BillingHealthSnapshot
             {
@@ -269,7 +290,10 @@ namespace LuxuryApp.Services.Billing
                 SubscriberResolvedLast7d = resolved7d,
                 CheckoutsBlockedByDuplicateLast7d = checkoutsBlocked7d,
                 ProviderCancellationsFailedLast7d = providerCancellationsFailed7d,
-                LastSuccessfulSubscriberResolutionUtc = lastResolutionUtc
+                LastSuccessfulSubscriberResolutionUtc = lastResolutionUtc,
+                PlanChangePendingCount = planChangePending,
+                PlanChangeManualReviewCount = planChangeManualReview,
+                LastSuccessfulPlanChangeUtc = lastPlanChangeUtc
             };
         }
     }

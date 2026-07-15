@@ -36,6 +36,7 @@ namespace LuxuryApp.Controllers
         private readonly ISubscriptionSummaryService _subscriptionSummaryService;
         private readonly ISubscriptionPricingCatalog _pricingCatalog;
         private readonly IPlanChangeService _planChangeService;
+        private readonly IPlanChangeDecisionService _planChangeDecisionService;
         private readonly IWebHostEnvironment _environment;
         private readonly OpcionesTilopay _tilopayOptions;
         private readonly OpcionesPago _paymentOptions;
@@ -56,6 +57,7 @@ namespace LuxuryApp.Controllers
             ISubscriptionSummaryService subscriptionSummaryService,
             ISubscriptionPricingCatalog pricingCatalog,
             IPlanChangeService planChangeService,
+            IPlanChangeDecisionService planChangeDecisionService,
             IWebHostEnvironment environment,
             IOptions<OpcionesTilopay> tilopayOptions,
             IOptions<OpcionesPago> paymentOptions,
@@ -75,6 +77,7 @@ namespace LuxuryApp.Controllers
             _subscriptionSummaryService = subscriptionSummaryService;
             _pricingCatalog = pricingCatalog;
             _planChangeService = planChangeService;
+            _planChangeDecisionService = planChangeDecisionService;
             _environment = environment;
             _tilopayOptions = tilopayOptions.Value;
             _paymentOptions = paymentOptions.Value;
@@ -283,14 +286,8 @@ namespace LuxuryApp.Controllers
                 return RedirectToAction(nameof(Suscripcion));
             }
 
-            // Piso de funcionarios: no permitir bajar por debajo de los funcionarios activos existentes.
             // Funcionarios es tenant-scoped por el query filter del contexto del request autenticado.
             var activeFuncionarios = await _context.Funcionarios.CountAsync(f => f.Activo, cancellationToken);
-            if (option.WorkerCount < activeFuncionarios)
-            {
-                TempData["BillingError"] = $"Tu negocio tiene {activeFuncionarios} funcionarios activos. Elegi un plan para al menos {activeFuncionarios}.";
-                return RedirectToAction(nameof(Suscripcion));
-            }
 
             // Resolver la fila Plan por Codigo (server-side). El monto a cobrar lo define el hosted link.
             var plan = await _context.Planes
@@ -307,27 +304,58 @@ namespace LuxuryApp.Controllers
                 return RedirectToAction(nameof(Suscripcion));
             }
 
-            // Si el tenant ya tiene una suscripcion recurrente ACTIVA con OTRO plan, esto es un
-            // cambio/upgrade: registrar el intento (anti doble-cambio) y dejar trazada la
-            // suscripcion proveedor anterior para alertar su cancelacion manual al confirmarse.
-            var currentSubscription = await _context.Suscripciones
-                .IgnoreQueryFilters()
-                .AsNoTracking()
-                .Where(s => s.TenantId == user.TenantId)
-                .OrderByDescending(s => s.FechaUltimaActualizacionUtc ?? s.FechaInicio)
-                .FirstOrDefaultAsync(cancellationToken);
+            // Decisión determinística y testeable: compra normal / mismo plan / cambio / bloqueo.
+            // Centraliza las guardas de dinero recurrente (downgrade, ProviderSubscriptionId ausente,
+            // cancelación vieja pendiente). Fail-closed para cambios de plan.
+            var evaluation = await _planChangeDecisionService.EvaluateAsync(
+                user.TenantId,
+                option.TilopayRecurringPlanId,
+                option.WorkerCount,
+                activeFuncionarios,
+                cancellationToken);
 
-            var isPlanChange = currentSubscription is not null &&
-                               currentSubscription.TilopayRecurringPlanId.HasValue &&
-                               currentSubscription.TilopayRecurringPlanId.Value != option.TilopayRecurringPlanId &&
-                               _suscripcionService.CanAccessApp(currentSubscription);
-
-            if (isPlanChange)
+            switch (evaluation.Decision)
             {
+                case PlanChangeDecision.SamePlan:
+                    TempData["BillingError"] = evaluation.Message ?? "Ese ya es tu plan actual.";
+                    return RedirectToAction(nameof(Suscripcion));
+
+                case PlanChangeDecision.BlockedFuncionarioLimit:
+                    await AuditPlanChangeBlockAsync(
+                        user,
+                        Models.Platform.PlatformAuditActions.PlanChangeBlockedDowngradeFuncionarioLimit,
+                        $"Cambio a {option.Code} bloqueado por límite de funcionarios ({activeFuncionarios} activos > {option.WorkerCount}).",
+                        cancellationToken);
+                    TempData["BillingError"] = evaluation.Message;
+                    return RedirectToAction(nameof(Suscripcion));
+
+                case PlanChangeDecision.BlockedMissingProviderSubscription:
+                    await AuditPlanChangeBlockAsync(
+                        user,
+                        Models.Platform.PlatformAuditActions.PlanChangeBlockedMissingCurrentProviderSubscription,
+                        $"Cambio a {option.Code} bloqueado: la suscripción activa no tiene id_suscriptor del proveedor; no se puede cancelar el plan anterior con seguridad.",
+                        cancellationToken);
+                    TempData["BillingError"] = evaluation.Message;
+                    return RedirectToAction(nameof(Suscripcion));
+
+                case PlanChangeDecision.BlockedPendingOldCancellation:
+                    await AuditPlanChangeBlockAsync(
+                        user,
+                        Models.Platform.PlatformAuditActions.PlanChangeBlockedPendingOldCancellation,
+                        $"Cambio a {option.Code} bloqueado: existe un cambio previo aplicado cuyo suscriptor viejo aún no se canceló (riesgo de múltiples rebajos).",
+                        cancellationToken);
+                    TempData["BillingError"] = evaluation.Message;
+                    return RedirectToAction(nameof(Suscripcion));
+            }
+
+            PlanChangeIntent? planChangeIntent = null;
+            if (evaluation.Decision == PlanChangeDecision.ProceedPlanChange)
+            {
+                var currentSubscription = evaluation.CurrentSubscription!;
                 var change = await _planChangeService.CreateOrReuseAsync(new PlanChangeRequest
                 {
                     TenantId = user.TenantId,
-                    FromPlanId = currentSubscription!.PlanId,
+                    FromPlanId = currentSubscription.PlanId,
                     FromPlanCode = currentSubscription.CodigoPlan,
                     FromWorkerCount = currentSubscription.MaxFuncionarios,
                     FromTilopayRecurringPlanId = currentSubscription.TilopayRecurringPlanId,
@@ -344,6 +372,8 @@ namespace LuxuryApp.Controllers
                     TempData["BillingError"] = change.Error ?? "No fue posible iniciar el cambio de plan.";
                     return RedirectToAction(nameof(Suscripcion));
                 }
+
+                planChangeIntent = change.Intent;
             }
 
             try
@@ -364,12 +394,26 @@ namespace LuxuryApp.Controllers
                     user.Email,
                     cancellationToken);
 
+                // Correlación explícita intent ↔ pago: el checkout emite un lc_ref (CorrelationId)
+                // que queda en el PagoSuscripcion; enlazamos ese pago al PlanChangeIntent para que
+                // el webhook y la reconciliación tengan una cadena inequívoca sin depender de heurística.
+                if (planChangeIntent is not null)
+                {
+                    await LinkPlanChangeIntentToPaymentAsync(
+                        planChangeIntent.Id,
+                        user.TenantId,
+                        checkout.CorrelationId ?? checkout.ProviderReference,
+                        option.TilopayRecurringPlanId,
+                        cancellationToken);
+                }
+
                 _logger.LogInformation(
-                    "Checkout calculadora iniciado. TenantId {TenantId}. Code {Code}. Workers {Workers}. Cycle {Cycle}.",
+                    "Checkout calculadora iniciado. TenantId {TenantId}. Code {Code}. Workers {Workers}. Cycle {Cycle}. PlanChange {IsPlanChange}.",
                     user.TenantId,
                     option.Code,
                     option.WorkerCount,
-                    billingCycle);
+                    billingCycle,
+                    planChangeIntent is not null);
 
                 return Redirect(checkout.RedirectUrl);
             }
@@ -389,6 +433,81 @@ namespace LuxuryApp.Controllers
                 TempData["BillingError"] = "No fue posible iniciar el checkout. Revisa la configuracion y vuelve a intentarlo.";
                 return RedirectToAction(nameof(Suscripcion));
             }
+        }
+
+        /// <summary>
+        /// Enlaza el PlanChangeIntent con el PagoSuscripcion recién creado por el checkout, usando
+        /// el lc_ref/correlation token como puente. Idempotente: solo enlaza si aún no lo estaba.
+        /// </summary>
+        private async Task LinkPlanChangeIntentToPaymentAsync(
+            Guid intentId,
+            Guid tenantId,
+            string? correlationToken,
+            int targetRecurringPlanId,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var payment = await _context.PagosSuscripcion
+                    .IgnoreQueryFilters()
+                    .Where(p =>
+                        p.TenantId == tenantId &&
+                        p.Proveedor == PaymentProviderType.Tilopay &&
+                        p.TilopayRecurringPlanId == targetRecurringPlanId &&
+                        (p.Estado == EstadoPagoProveedor.Pendiente || p.Estado == EstadoPagoProveedor.ManualReview) &&
+                        (correlationToken == null || p.CorrelationToken == correlationToken))
+                    .OrderByDescending(p => p.FechaCreacionUtc)
+                    .Select(p => new { p.Id })
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (payment is null)
+                {
+                    return;
+                }
+
+                var intent = await _context.PlanChangeIntents
+                    .IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(i => i.Id == intentId, cancellationToken);
+
+                if (intent is not null && intent.PagoSuscripcionId != payment.Id)
+                {
+                    intent.PagoSuscripcionId = payment.Id;
+                    intent.UpdatedAtUtc = DateTime.UtcNow;
+                    await _context.SaveChangesAsync(cancellationToken);
+                }
+            }
+            catch (Exception ex)
+            {
+                // El enlace es defensa en profundidad; si falla, la correlación por tenant+plan+Pending
+                // (índice único de intents) sigue siendo determinística. No romper el checkout.
+                _logger.LogWarning(ex, "No fue posible enlazar PlanChangeIntent {IntentId} con su pago.", intentId);
+            }
+        }
+
+        /// <summary>Audita (append-only) un bloqueo de cambio de plan con el contexto del actor.</summary>
+        private async Task AuditPlanChangeBlockAsync(
+            AppUsuario user,
+            string action,
+            string reason,
+            CancellationToken cancellationToken)
+        {
+            _context.PlatformAuditLogs.Add(new Models.Platform.PlatformAuditLog
+            {
+                Id = Guid.NewGuid(),
+                ActorUserId = user.Id,
+                ActorEmail = user.Email,
+                Action = action,
+                EntityType = Models.Platform.PlatformAuditEntityTypes.Subscription,
+                TenantId = user.TenantId,
+                Reason = reason.Length <= 500 ? reason : reason[..500],
+                CreatedAtUtc = DateTime.UtcNow
+            });
+            await _context.SaveChangesAsync(cancellationToken);
+
+            _logger.LogWarning(
+                "Cambio de plan bloqueado. Action {Action}. TenantId {TenantId}.",
+                action,
+                user.TenantId);
         }
 
         private static BillingCycle ParseBillingCycle(string? cycle)

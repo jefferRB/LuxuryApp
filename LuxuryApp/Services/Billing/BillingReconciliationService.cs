@@ -17,6 +17,13 @@ namespace LuxuryApp.Services.Billing
         /// limpia lo abandonado. Nunca modifica datos ambiguos. Todo queda auditado.
         /// </summary>
         Task<BillingReconciliationReport> RunAsync(CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Ejecuta SOLO la fase de reintento de cancelación del suscriptor viejo (cambios de plan).
+        /// Pensado para un worker de alta frecuencia: el riesgo de doble cobro no debe esperar 24h.
+        /// Aislado por tenant y con tope de reintentos automáticos para no golpear a TiloPay en loop.
+        /// </summary>
+        Task<BillingReconciliationReport> RunOldSubscriberCancellationRetryAsync(CancellationToken cancellationToken = default);
     }
 
     /// <summary>
@@ -42,6 +49,7 @@ namespace LuxuryApp.Services.Billing
         private readonly TilopayRepeatOptions _repeatOptions;
         private readonly BillingReconciliationOptions _options;
         private readonly ISubscriberResolutionService? _subscriberResolutionService;
+        private readonly IProviderSubscriptionManager? _providerSubscriptionManager;
         private readonly int _adminMaxAttempts;
         private readonly ILogger<BillingReconciliationService> _logger;
 
@@ -54,7 +62,8 @@ namespace LuxuryApp.Services.Billing
             IOptions<BillingReconciliationOptions> options,
             ILogger<BillingReconciliationService> logger,
             ISubscriberResolutionService? subscriberResolutionService = null,
-            IOptions<OpcionesTilopayRepeatAdmin>? adminOptions = null)
+            IOptions<OpcionesTilopayRepeatAdmin>? adminOptions = null,
+            IProviderSubscriptionManager? providerSubscriptionManager = null)
         {
             _db = db;
             _suscripcionService = suscripcionService;
@@ -63,6 +72,7 @@ namespace LuxuryApp.Services.Billing
             _repeatOptions = repeatOptions.Value;
             _options = options.Value;
             _subscriberResolutionService = subscriberResolutionService;
+            _providerSubscriptionManager = providerSubscriptionManager;
             _adminMaxAttempts = adminOptions?.Value.MaxReconciliationResolveAttempts ?? 6;
             _logger = logger;
         }
@@ -81,6 +91,7 @@ namespace LuxuryApp.Services.Billing
             await RunPhaseAsync("StaleManualReviews", () => AlertStaleManualReviewsAsync(report, nowUtc, cancellationToken), cancellationToken);
             await RunPhaseAsync("StuckEvents", () => AlertStuckEventsAsync(report, nowUtc, cancellationToken), cancellationToken);
             await RunPhaseAsync("SubscriberBackfill", () => BackfillMissingSubscriberIdsAsync(report, nowUtc, cancellationToken), cancellationToken);
+            await RunPhaseAsync("RetryOldSubscriberCancellations", () => RetryPendingPlanChangeCancellationsAsync(report, cancellationToken), cancellationToken);
 
             report.FinishedUtc = GetUtcNow();
 
@@ -119,6 +130,109 @@ namespace LuxuryApp.Services.Billing
                 report.AlertsSuppressedByCooldown);
 
             return report;
+        }
+
+        public async Task<BillingReconciliationReport> RunOldSubscriberCancellationRetryAsync(
+            CancellationToken cancellationToken = default)
+        {
+            var report = new BillingReconciliationReport { StartedUtc = GetUtcNow() };
+            await RunPhaseAsync(
+                "RetryOldSubscriberCancellations",
+                () => RetryPendingPlanChangeCancellationsAsync(report, cancellationToken),
+                cancellationToken);
+            report.FinishedUtc = GetUtcNow();
+            return report;
+        }
+
+        // ── 7. Reintento de cancelación del suscriptor viejo en cambios de plan ───────
+
+        /// <summary>
+        /// Un cambio de plan aplicado cuya cancelación del suscriptor viejo quedó pendiente
+        /// (falló en el momento del webhook) haría que TiloPay siga rebajando el plan anterior.
+        /// Aquí se reintenta de forma controlada, POR TENANT (scope aislado) e idempotente:
+        /// si el viejo ya quedó cancelado, el intent deja de estar pendiente y no se reintenta.
+        /// </summary>
+        private async Task RetryPendingPlanChangeCancellationsAsync(
+            BillingReconciliationReport report,
+            CancellationToken cancellationToken)
+        {
+            if (_providerSubscriptionManager is null || !_providerSubscriptionManager.IsEnabled)
+            {
+                return;
+            }
+
+            var tenantIds = await _db.PlanChangeIntents
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(intent =>
+                    intent.Estado == PlanChangeIntentState.Applied &&
+                    intent.OldProviderCancellation == ProviderCancellationState.PendingManualCancellation &&
+                    intent.FromProviderSubscriptionId != null)
+                .Select(intent => intent.TenantId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            // Tope de reintentos automáticos por tenant en las últimas 24h: evita golpear a TiloPay
+            // en loop cuando la baja sigue fallando. Superado el tope, queda SOLO para revisión
+            // manual (health lo sigue mostrando); no se abandona el dato, solo se deja de reintentar.
+            var retryWindowUtc = GetUtcNow().AddHours(-24);
+            const int maxAutoRetriesPerTenantPerDay = 12;
+
+            foreach (var tenantId in tenantIds)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (tenantId == Guid.Empty)
+                {
+                    continue;
+                }
+
+                var recentRetries = await _db.PlatformAuditLogs.CountAsync(
+                    log =>
+                        log.Action == PlatformAuditActions.PlanChangeOldSubscriberCancellationRetried &&
+                        log.TenantId == tenantId &&
+                        log.CreatedAtUtc >= retryWindowUtc,
+                    cancellationToken);
+
+                if (recentRetries >= maxAutoRetriesPerTenantPerDay)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    // Idempotente y per-tenant (BeginScope dentro del manager). Audita
+                    // Completed/Failed; aquí solo dejamos rastro del reintento y contamos.
+                    await _providerSubscriptionManager.TryCancelOldSubscriberForUpgradeAsync(tenantId, cancellationToken);
+
+                    _db.PlatformAuditLogs.Add(new PlatformAuditLog
+                    {
+                        Id = Guid.NewGuid(),
+                        ActorUserId = "system",
+                        ActorEmail = "system",
+                        Action = PlatformAuditActions.PlanChangeOldSubscriberCancellationRetried,
+                        EntityType = PlatformAuditEntityTypes.Subscription,
+                        TenantId = tenantId,
+                        Reason = "Reintento controlado de cancelación del suscriptor viejo tras cambio de plan aplicado.",
+                        CreatedAtUtc = GetUtcNow()
+                    });
+                    await _db.SaveChangesAsync(cancellationToken);
+
+                    report.OldSubscriberCancellationsRetried++;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    DetachAllTracked();
+                    _logger.LogError(
+                        ex,
+                        "Reintento de cancelación de suscriptor viejo falló para el tenant {TenantId}; se continúa.",
+                        tenantId);
+                }
+            }
         }
 
         // ── Aislamiento de fases y multi-tenant ──────────────────────────────────────

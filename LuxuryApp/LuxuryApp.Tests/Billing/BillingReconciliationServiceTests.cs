@@ -451,6 +451,17 @@ namespace LuxuryApp.Tests.Billing
                                  log.Reason != null && log.Reason.Contains("SubscriberBackfill")));
         }
 
+        // ── Config del worker de reintento rápido (smoke) ──
+        [Fact]
+        public void Options_Defaults_FastRetryEnabledWithSaneInterval()
+        {
+            var options = new BillingReconciliationOptions();
+
+            Assert.True(options.Enabled);                         // kill-switch maestro ON por defecto
+            Assert.True(options.OldCancellationRetryEnabled);     // reintento rápido ON por defecto
+            Assert.Equal(20, options.OldCancellationRetryMinutes); // cada 20 min (clamp 5..720 en el worker)
+        }
+
         // Nota: la rama defensiva de TenantId vacío (AuditMissingTenantSkip) queda cubierta por
         // inspección de código; NO es exercitable en prueba porque la FK PagoSuscripcion→Tenants
         // impide físicamente una fila con TenantId inexistente (misma protección que en producción).

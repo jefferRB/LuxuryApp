@@ -42,6 +42,9 @@ namespace LuxuryApp.Services.Billing
         /// <summary>id_suscriptor copiado localmente desde un pago confirmado (sin llamar al API).</summary>
         public int SubscriberIdsBackfilledLocally { get; set; }
 
+        /// <summary>Reintentos de cancelación del suscriptor viejo (cambios de plan aplicados) ejecutados.</summary>
+        public int OldSubscriberCancellationsRetried { get; set; }
+
         public double DurationMs => (FinishedUtc - StartedUtc).TotalMilliseconds;
 
         public bool HasFindings =>
@@ -51,6 +54,9 @@ namespace LuxuryApp.Services.Billing
             OverdueAddonsAlerted > 0 ||
             StalePendingsExpired > 0 ||
             StaleManualReviewsAlerted > 0 ||
-            StuckEventsAlerted > 0;
+            StuckEventsAlerted > 0 ||
+            SubscriberIdsResolved > 0 ||
+            SubscriberIdsBackfilledLocally > 0 ||
+            OldSubscriberCancellationsRetried > 0;
     }
 }

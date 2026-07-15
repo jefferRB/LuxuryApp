@@ -612,6 +612,9 @@ namespace LuxuryApp.Tests.TenantIsolation
                 // Cambio de plan: lee/escribe el intento filtrando por TenantId explicito (corre
                 // tambien desde el webhook, sin contexto de tenant del request).
                 Path.Combine("Services", "SaaS", "PlanChangeService.cs"),
+                // Decisión de cambio de plan: SOLO lectura, filtra suscripción/intents por TenantId
+                // explícito recibido del caller autenticado.
+                Path.Combine("Services", "SaaS", "PlanChangeDecisionService.cs"),
                 // Modulo WhatsApp: filtra por user.TenantId del usuario autenticado.
                 Path.Combine("Controllers", "WhatsApp", "WhatsAppController.cs"),
                 // Comprobante publico: acceso por token secreto (capability), ruta sin contexto de tenant.

@@ -114,6 +114,26 @@ namespace LuxuryApp.Models.Platform
         public const string UpgradeOldProviderSubscriptionCancellationRequired = "UpgradeOldProviderSubscriptionCancellationRequired";
         public const string UpgradeOldProviderSubscriptionCancellationCompleted = "UpgradeOldProviderSubscriptionCancellationCompleted";
         public const string UpgradeOldProviderSubscriptionCancellationFailed = "UpgradeOldProviderSubscriptionCancellationFailed";
+
+        // ── Cambio de plan base (estrategia B) ──
+        /// <summary>Cambio de plan bloqueado: la suscripción activa no tiene id_suscriptor del proveedor, imposible cancelar el viejo con seguridad.</summary>
+        public const string PlanChangeBlockedMissingCurrentProviderSubscription = "PlanChangeBlockedMissingCurrentProviderSubscription";
+
+        /// <summary>Reintento del reconciliador para cancelar el suscriptor viejo de un cambio aplicado que quedó pendiente.</summary>
+        public const string PlanChangeOldSubscriberCancellationRetried = "PlanChangeOldSubscriberCancellationRetried";
+
+        /// <summary>Cambio de plan bloqueado: hay un cambio previo aplicado cuyo suscriptor viejo aún no se canceló (riesgo de múltiples rebajos).</summary>
+        public const string PlanChangeBlockedPendingOldCancellation = "PlanChangeBlockedPendingOldCancellation";
+
+        /// <summary>Cambio de plan bloqueado: el destino tiene menos cupo que los funcionarios activos.</summary>
+        public const string PlanChangeBlockedDowngradeFuncionarioLimit = "PlanChangeBlockedDowngradeFuncionarioLimit";
+
+        /// <summary>
+        /// CRÍTICO: TiloPay respondió éxito a la baja del suscriptor viejo, pero la verificación
+        /// posterior (getSuscriptorRepeat) lo muestra todavía Activo o no pudo confirmarse.
+        /// El viejo podría seguir rebajando; queda pendiente y se reintenta con backoff.
+        /// </summary>
+        public const string PlanChangeOldSubscriberCancellationVerificationFailed = "PlanChangeOldSubscriberCancellationVerificationFailed";
     }
 
     public static class PlatformAuditEntityTypes

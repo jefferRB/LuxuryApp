@@ -1626,6 +1626,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 null!,
                 pricingCatalog ?? new LuxuryApp.Services.SaaS.SubscriptionPricingCatalog(Options.Create(new TilopayRepeatOptions())),
                 new LuxuryApp.Services.SaaS.PlanChangeService(context, NullLogger<LuxuryApp.Services.SaaS.PlanChangeService>.Instance),
+                new LuxuryApp.Services.SaaS.PlanChangeDecisionService(context, CreateSubscriptionService(context)),
                 new LuxuryApp.Tests.Support.TestWebHostEnvironment(),
                 Options.Create(new OpcionesTilopay()),
                 Options.Create(new OpcionesPago()),

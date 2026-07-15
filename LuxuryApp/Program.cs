@@ -333,6 +333,7 @@ builder.Services.AddScoped<SuscripcionService>();
 builder.Services.AddScoped<LuxuryApp.Services.SaaS.ISubscriptionSummaryService, LuxuryApp.Services.SaaS.SubscriptionSummaryService>();
 builder.Services.AddSingleton<LuxuryApp.Services.SaaS.ISubscriptionPricingCatalog, LuxuryApp.Services.SaaS.SubscriptionPricingCatalog>();
 builder.Services.AddScoped<LuxuryApp.Services.SaaS.IPlanChangeService, LuxuryApp.Services.SaaS.PlanChangeService>();
+builder.Services.AddScoped<LuxuryApp.Services.SaaS.IPlanChangeDecisionService, LuxuryApp.Services.SaaS.PlanChangeDecisionService>();
 builder.Services.AddSingleton<ITenantCommercialAccessCache, TenantCommercialAccessCache>();
 builder.Services.AddScoped<ITenantCommercialAccessResolver, TenantCommercialAccessResolver>();
 builder.Services.AddScoped<IPromotionalCodeService, PromotionalCodeService>();
@@ -362,6 +363,8 @@ builder.Services.Configure<LuxuryApp.Services.Billing.BillingReconciliationOptio
 builder.Services.AddScoped<LuxuryApp.Services.Billing.IBillingReconciliationService, LuxuryApp.Services.Billing.BillingReconciliationService>();
 builder.Services.AddScoped<LuxuryApp.Services.Billing.IBillingHealthService, LuxuryApp.Services.Billing.BillingHealthService>();
 builder.Services.AddHostedService<LuxuryApp.Workers.BillingReconciliationWorker>();
+// Worker de alta frecuencia: reintenta la cancelación del suscriptor viejo tras un cambio de plan.
+builder.Services.AddHostedService<LuxuryApp.Workers.PlanChangeCancellationRetryWorker>();
 
 // Cliente admin de TiloPay Repeat: resuelve id_suscriptor y gestiona el suscriptor del proveedor.
 // Deshabilitado por defecto (TilopayRepeatAdmin:Enabled=false): el flujo de compra actual no cambia.

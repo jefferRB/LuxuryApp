@@ -42,5 +42,14 @@ namespace LuxuryApp.Services.Billing
 
         /// <summary>Horas de silencio antes de repetir la MISMA alerta sobre la misma entidad.</summary>
         public int AlertCooldownHours { get; set; } = 20;
+
+        /// <summary>
+        /// Habilita el worker de ALTA frecuencia que reintenta la cancelación del suscriptor viejo
+        /// tras un cambio de plan. El riesgo de doble cobro no debe esperar al pase diario.
+        /// </summary>
+        public bool OldCancellationRetryEnabled { get; set; } = true;
+
+        /// <summary>Intervalo (minutos) del worker de reintento de cancelación vieja. Clamp [5, 720].</summary>
+        public int OldCancellationRetryMinutes { get; set; } = 20;
     }
 }
