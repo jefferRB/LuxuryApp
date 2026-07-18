@@ -42,6 +42,8 @@ namespace LuxuryApp.Controllers
         private readonly OpcionesPago _paymentOptions;
         private readonly TilopayRepeatOptions _tilopayRepeatOptions;
         private readonly LuxuryApp.Services.Tilopay.ITilopayRepeatAdminService _tilopayRepeatAdminService;
+        private readonly LuxuryApp.Services.Billing.IProviderSubscriptionManager _providerSubscriptionManager;
+        private readonly LuxuryApp.Services.Billing.IPaymentMethodUpdateService _paymentMethodUpdateService;
 
         public BillingController(
             ILogger<BillingController> logger,
@@ -62,7 +64,9 @@ namespace LuxuryApp.Controllers
             IOptions<OpcionesTilopay> tilopayOptions,
             IOptions<OpcionesPago> paymentOptions,
             IOptions<TilopayRepeatOptions> tilopayRepeatOptions,
-            LuxuryApp.Services.Tilopay.ITilopayRepeatAdminService tilopayRepeatAdminService)
+            LuxuryApp.Services.Tilopay.ITilopayRepeatAdminService tilopayRepeatAdminService,
+            LuxuryApp.Services.Billing.IProviderSubscriptionManager providerSubscriptionManager,
+            LuxuryApp.Services.Billing.IPaymentMethodUpdateService paymentMethodUpdateService)
         {
             _logger = logger;
             _context = context;
@@ -83,6 +87,8 @@ namespace LuxuryApp.Controllers
             _paymentOptions = paymentOptions.Value;
             _tilopayRepeatOptions = tilopayRepeatOptions.Value;
             _tilopayRepeatAdminService = tilopayRepeatAdminService;
+            _providerSubscriptionManager = providerSubscriptionManager;
+            _paymentMethodUpdateService = paymentMethodUpdateService;
         }
 
         /// <summary>
@@ -105,55 +111,122 @@ namespace LuxuryApp.Controllers
                 return RedirectToAction(nameof(Suscripcion));
             }
 
+            // El servicio valida ownership/estado, genera la recurrentUrl on-demand y valida que sea
+            // HTTPS del dominio de TiloPay (anti open-redirect). El controller NO llama a TiloPay.
+            var result = await _paymentMethodUpdateService.GenerateUpdateUrlAsync(
+                user.TenantId, user.Email, user.Id, user.Email, cancellationToken);
+
+            if (result.Succeeded && !string.IsNullOrWhiteSpace(result.Url))
+            {
+                return Redirect(result.Url);
+            }
+
+            TempData["BillingError"] = result.Message ?? "No pudimos generar el enlace de actualización. Contactá soporte.";
+            return RedirectToAction(nameof(Suscripcion));
+        }
+
+        /// <summary>
+        /// Cancelación de la RENOVACIÓN por el cliente (admin del tenant): no corta el acceso ya
+        /// pagado. Delega TODA la lógica y la verificación contra TiloPay en
+        /// <see cref="LuxuryApp.Services.Billing.IProviderSubscriptionManager"/>; el controller nunca
+        /// llama al proveedor directamente. Idempotente ante doble click (lo garantiza el servicio).
+        /// </summary>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> CancelarRenovacion(CancellationToken cancellationToken)
+        {
+            var user = await _userManager.GetUserAsync(User);
+            if (user is null)
+            {
+                return Challenge();
+            }
+
+            if (user.TenantId == Guid.Empty)
+            {
+                TempData["BillingError"] = "Tu cuenta no tiene un tenant asociado.";
+                return RedirectToAction(nameof(Suscripcion));
+            }
+
             if (!_tilopayRepeatAdminService.IsEnabled)
             {
-                TempData["BillingError"] = "La actualización de tarjeta en línea no está disponible en este momento. Contacta soporte.";
+                TempData["BillingError"] = "La cancelación en línea no está disponible en este momento. Contactá soporte.";
                 return RedirectToAction(nameof(Suscripcion));
             }
 
-            var subscription = await _context.Suscripciones
-                .IgnoreQueryFilters()
-                .AsNoTracking()
-                .Where(s => s.TenantId == user.TenantId && s.TilopayRecurringPlanId != null)
-                .OrderByDescending(s => s.FechaUltimaActualizacionUtc ?? s.FechaInicio)
-                .Select(s => new { s.TilopayRecurringPlanId })
-                .FirstOrDefaultAsync(cancellationToken);
-
-            if (subscription?.TilopayRecurringPlanId is not { } recurringPlanId)
-            {
-                TempData["BillingError"] = "No encontramos una suscripción recurrente para actualizar. Elegí un plan para continuar.";
-                return RedirectToAction(nameof(Suscripcion));
-            }
-
-            var result = await _tilopayRepeatAdminService.GetRecurrentUrlAsync(
-                recurringPlanId,
-                user.Email,
+            var result = await _providerSubscriptionManager.RequestCancellationAtPeriodEndAsync(
+                user.TenantId,
+                user.Id,
+                user.Email ?? user.Id,
+                "Cancelación de renovación solicitada por el cliente desde /Billing/Suscripcion.",
                 cancellationToken);
 
-            if (!result.Succeeded || string.IsNullOrWhiteSpace(result.Url))
+            if (result.Succeeded)
+            {
+                // Mensaje con la fecha efectiva Tica reutilizando el mismo summary de la vista.
+                var summary = await _subscriptionSummaryService.BuildAsync(user.TenantId, cancellationToken);
+                var fecha = summary?.CurrentPeriodEndDisplay;
+                TempData["BillingSuccess"] = string.IsNullOrEmpty(fecha)
+                    ? "Listo. No se harán nuevos cobros. Tu acceso seguirá activo hasta el fin del período."
+                    : $"Listo. No se harán nuevos cobros. Tu acceso seguirá activo hasta {fecha}.";
+            }
+            else
             {
                 _logger.LogWarning(
-                    "recurrentUrl no disponible para actualizar tarjeta. TenantId {TenantId}. PlanId {PlanId}.",
-                    user.TenantId,
-                    recurringPlanId);
-                TempData["BillingError"] = "No pudimos abrir la página para actualizar tu pago. Intentá de nuevo o contactá soporte.";
+                    "CancelarRenovacion no se pudo completar automáticamente. TenantId {TenantId}.",
+                    user.TenantId);
+                TempData["BillingError"] = "No pudimos completar la solicitud automáticamente. Soporte fue notificado.";
+            }
+
+            return RedirectToAction(nameof(Suscripcion));
+        }
+
+        /// <summary>
+        /// Reactivación de una RENOVACIÓN cancelada AÚN vigente (Caso B) por el cliente. Distinta de
+        /// la "reactivación de suscripción suspendida" de plataforma. NO crea checkout: reactiva el
+        /// mismo suscriptor vía el servicio (el controller nunca llama a TiloPay). El servicio valida
+        /// que sea CancelAtPeriodEnd y que el período no haya vencido.
+        /// </summary>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ReactivarRenovacion(CancellationToken cancellationToken)
+        {
+            var user = await _userManager.GetUserAsync(User);
+            if (user is null)
+            {
+                return Challenge();
+            }
+
+            if (user.TenantId == Guid.Empty)
+            {
+                TempData["BillingError"] = "Tu cuenta no tiene un tenant asociado.";
                 return RedirectToAction(nameof(Suscripcion));
             }
 
-            _context.PlatformAuditLogs.Add(new LuxuryApp.Models.Platform.PlatformAuditLog
+            if (!_tilopayRepeatAdminService.IsEnabled)
             {
-                Id = Guid.NewGuid(),
-                ActorUserId = user.Id,
-                ActorEmail = user.Email,
-                Action = LuxuryApp.Models.Platform.PlatformAuditActions.RecurrentUrlGenerated,
-                EntityType = LuxuryApp.Models.Platform.PlatformAuditEntityTypes.Subscription,
-                TenantId = user.TenantId,
-                Reason = $"recurrentUrl generado por el usuario para actualizar tarjeta/reintentar. Plan {recurringPlanId}.",
-                CreatedAtUtc = DateTime.UtcNow
-            });
-            await _context.SaveChangesAsync(cancellationToken);
+                TempData["BillingError"] = "La reactivación en línea no está disponible en este momento. Contactá soporte.";
+                return RedirectToAction(nameof(Suscripcion));
+            }
 
-            return Redirect(result.Url);
+            var result = await _providerSubscriptionManager.ReactivateRenewalAsync(
+                user.TenantId,
+                user.Id,
+                user.Email ?? user.Id,
+                cancellationToken);
+
+            if (result.Succeeded)
+            {
+                TempData["BillingSuccess"] = result.Message ?? "Tu renovación fue reactivada. Tu suscripción continuará normalmente.";
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "ReactivarRenovacion no se pudo completar automáticamente. TenantId {TenantId}.",
+                    user.TenantId);
+                TempData["BillingError"] = result.Message ?? "No pudimos completar la reactivación automáticamente. Soporte fue notificado.";
+            }
+
+            return RedirectToAction(nameof(Suscripcion));
         }
 
         [AllowAnonymous]
@@ -270,6 +343,31 @@ namespace LuxuryApp.Controllers
                 return BadRequest("El usuario autenticado no tiene correo asociado.");
             }
 
+            // Renovación cancelada pero AÚN vigente (Caso B): NO se abre checkout de cambio de plan;
+            // primero hay que reactivar la renovación. Si ya venció (Caso C), sí se permite
+            // suscribirse de nuevo. Defensa server-side; la UI también ajusta la calculadora.
+            var summaryForGuard = await _subscriptionSummaryService.BuildAsync(user.TenantId, cancellationToken);
+            if (summaryForGuard?.IsRenewalPaused == true)
+            {
+                // Pausada por soporte/plataforma: no se abre checkout de cambio (mezcla estados).
+                // Solo lectura del estado; el corte/reactivación de la pausa es acción Platform.
+                TempData["BillingError"] = "Tu suscripción está pausada. Contactá soporte para reactivarla antes de cambiar de plan.";
+                return RedirectToAction(nameof(Suscripcion));
+            }
+
+            if (summaryForGuard?.PaymentSuspended == true)
+            {
+                // Suspendida por impago: el camino es actualizar el método de pago, no cambiar de plan.
+                TempData["BillingError"] = "Tu cuenta está suspendida por pago pendiente. Actualizá tu método de pago para reactivarla antes de cambiar de plan.";
+                return RedirectToAction(nameof(Suscripcion));
+            }
+
+            if (summaryForGuard?.CanReactivateRenewal == true)
+            {
+                TempData["BillingError"] = "Para cambiar de plan, primero reactivá tu renovación.";
+                return RedirectToAction(nameof(Suscripcion));
+            }
+
             var billingCycle = ParseBillingCycle(cycle);
 
             // Resolucion autoritativa server-side. Cualquier monto/codigo del cliente se ignora.
@@ -343,6 +441,15 @@ namespace LuxuryApp.Controllers
                         user,
                         Models.Platform.PlatformAuditActions.PlanChangeBlockedPendingOldCancellation,
                         $"Cambio a {option.Code} bloqueado: existe un cambio previo aplicado cuyo suscriptor viejo aún no se canceló (riesgo de múltiples rebajos).",
+                        cancellationToken);
+                    TempData["BillingError"] = evaluation.Message;
+                    return RedirectToAction(nameof(Suscripcion));
+
+                case PlanChangeDecision.BlockedAutoCancellationDisabled:
+                    await AuditPlanChangeBlockAsync(
+                        user,
+                        Models.Platform.PlatformAuditActions.PlanChangeBlockedAutoCancellationDisabled,
+                        $"Cambio a {option.Code} bloqueado: la cancelación automática del suscriptor viejo está deshabilitada; permitir el pago dejaría dos suscriptores cobrando.",
                         cancellationToken);
                     TempData["BillingError"] = evaluation.Message;
                     return RedirectToAction(nameof(Suscripcion));
@@ -420,6 +527,10 @@ namespace LuxuryApp.Controllers
             catch (RecurringCheckoutBlockedException ex)
             {
                 // Bloqueo de negocio (pago en revision manual): el mensaje es seguro para el usuario.
+                // El intent se creó antes del pre-check del proveedor y quedó sin checkout: cerrarlo
+                // para que no trabe el próximo intento (el índice único deja un solo Pending/tenant).
+                await ExpirePlanChangeIntentAfterBlockedCheckoutAsync(planChangeIntent, user.TenantId, ex.Message, cancellationToken);
+
                 TempData["BillingError"] = ex.Message;
                 return RedirectToAction(nameof(Suscripcion));
             }
@@ -430,8 +541,45 @@ namespace LuxuryApp.Controllers
                     "Error iniciando checkout calculadora. TenantId {TenantId}. Code {Code}.",
                     user.TenantId,
                     option.Code);
+
+                await ExpirePlanChangeIntentAfterBlockedCheckoutAsync(planChangeIntent, user.TenantId, "error al iniciar el checkout", cancellationToken);
+
                 TempData["BillingError"] = "No fue posible iniciar el checkout. Revisa la configuracion y vuelve a intentarlo.";
                 return RedirectToAction(nameof(Suscripcion));
+            }
+        }
+
+        /// <summary>
+        /// Cierra el intent que este request acaba de crear cuando el checkout no llegó a abrirse.
+        /// Best-effort: si falla, no puede convertir un bloqueo (que ya tiene su mensaje) en un 500.
+        /// El servicio solo cierra Pending SIN pago, así que nunca toca dinero real.
+        /// </summary>
+        private async Task ExpirePlanChangeIntentAfterBlockedCheckoutAsync(
+            PlanChangeIntent? planChangeIntent,
+            Guid tenantId,
+            string reason,
+            CancellationToken cancellationToken)
+        {
+            if (planChangeIntent is null)
+            {
+                return;
+            }
+
+            try
+            {
+                await _planChangeService.ExpirePendingAfterBlockedCheckoutAsync(
+                    tenantId,
+                    planChangeIntent.Id,
+                    reason,
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "No fue posible cerrar el PlanChangeIntent tras un checkout bloqueado. TenantId {TenantId}. IntentId {IntentId}.",
+                    tenantId,
+                    planChangeIntent.Id);
             }
         }
 
@@ -610,7 +758,9 @@ namespace LuxuryApp.Controllers
                 HasActiveSubscription = summary?.CanAccessApp == true && currentWorkers.HasValue,
                 CurrentWorkers = currentWorkers,
                 CurrentCycle = currentCycle,
-                CurrentPlanCode = currentCode
+                CurrentPlanCode = currentCode,
+                // Fecha efectiva ya resuelta por el summary (incluye el expire del proveedor).
+                CurrentPlanRenewalDisplay = summary?.NextBillingDateDisplay
             };
         }
 

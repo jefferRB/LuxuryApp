@@ -360,11 +360,24 @@ builder.Services.AddScoped<PaymentProviderResolver>();
 // El worker queda inerte con BillingReconciliation:Enabled=false.
 builder.Services.Configure<LuxuryApp.Services.Billing.BillingReconciliationOptions>(
     builder.Configuration.GetSection("BillingReconciliation"));
+// Recuperación de pago (pago fallido → gracia → notificación → suspensión). AutoSuspend=false
+// por defecto: en producción inicial se observan incidentes/alertas sin cortar acceso.
+builder.Services.Configure<LuxuryApp.Services.Billing.BillingPaymentRecoveryOptions>(
+    builder.Configuration.GetSection(LuxuryApp.Services.Billing.BillingPaymentRecoveryOptions.SectionName));
 builder.Services.AddScoped<LuxuryApp.Services.Billing.IBillingReconciliationService, LuxuryApp.Services.Billing.BillingReconciliationService>();
 builder.Services.AddScoped<LuxuryApp.Services.Billing.IBillingHealthService, LuxuryApp.Services.Billing.BillingHealthService>();
+builder.Services.AddScoped<LuxuryApp.Services.Billing.IPaymentRecoveryService, LuxuryApp.Services.Billing.PaymentRecoveryService>();
+builder.Services.AddScoped<LuxuryApp.Services.Billing.IPaymentMethodUpdateService, LuxuryApp.Services.Billing.PaymentMethodUpdateService>();
+// Correo real de recuperación (Resend) + servicio de notificación que respeta SendEmailNotifications.
+builder.Services.AddScoped<LuxuryApp.Services.Billing.IPaymentRecoveryEmailSender, LuxuryApp.Services.Billing.PaymentRecoveryEmailSender>();
+builder.Services.AddScoped<LuxuryApp.Services.Billing.IPaymentRecoveryNotificationService, LuxuryApp.Services.Billing.PaymentRecoveryNotificationService>();
 builder.Services.AddHostedService<LuxuryApp.Workers.BillingReconciliationWorker>();
 // Worker de alta frecuencia: reintenta la cancelación del suscriptor viejo tras un cambio de plan.
 builder.Services.AddHostedService<LuxuryApp.Workers.PlanChangeCancellationRetryWorker>();
+// Worker liviano de ciclo de vida: cierra localmente las cancelaciones vencidas (arranque + cada N min).
+builder.Services.AddHostedService<LuxuryApp.Workers.SubscriptionLifecycleWorker>();
+// Worker de recuperación de pago: cierra gracias vencidas (dry-run salvo AutoSuspendAfterGrace=true).
+builder.Services.AddHostedService<LuxuryApp.Workers.PaymentRecoveryWorker>();
 
 // Cliente admin de TiloPay Repeat: resuelve id_suscriptor y gestiona el suscriptor del proveedor.
 // Deshabilitado por defecto (TilopayRepeatAdmin:Enabled=false): el flujo de compra actual no cambia.
@@ -378,6 +391,12 @@ builder.Services.AddHttpClient<LuxuryApp.Services.Tilopay.ITilopayRepeatAdminSer
     });
 builder.Services.AddScoped<LuxuryApp.Services.Billing.ISubscriberResolutionService, LuxuryApp.Services.Billing.SubscriberResolutionService>();
 builder.Services.AddScoped<LuxuryApp.Services.Billing.IProviderSubscriptionManager, LuxuryApp.Services.Billing.ProviderSubscriptionManager>();
+// Aplica un cambio de plan cuyo pago ya está confirmado pero cuyo id_suscriptor nuevo llegó tarde
+// (TiloPay no lo manda en el webhook). Lo usan el webhook y la reconciliación.
+builder.Services.AddScoped<LuxuryApp.Services.Billing.IPlanChangeLateApplicationService, LuxuryApp.Services.Billing.PlanChangeLateApplicationService>();
+// Sincroniza el expire real de TiloPay (getSuscriptorRepeat) con la vigencia local: extiende si el
+// proveedor cobra más tarde, alerta si cobra más temprano. Corre en la reconciliación (diaria + rápida).
+builder.Services.AddScoped<LuxuryApp.Services.Billing.IProviderExpirySyncService, LuxuryApp.Services.Billing.ProviderExpirySyncService>();
 builder.Services.AddHttpClient<PublicCallbackHealthService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(10);

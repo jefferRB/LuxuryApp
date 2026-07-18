@@ -59,6 +59,31 @@ namespace LuxuryApp.Models.SaaS
 
         [MaxLength(300)]
         public string? Notes { get; set; }
+
+        // ── Presupuesto de reintentos de la cancelación del suscriptor viejo ──
+        // El estado del reintento vive AQUÍ, en el intent, y no se deduce contando filas de
+        // auditoría por tenant. Contar auditorías demostró ser incorrecto en producción: un
+        // tenant quedaba bloqueado 24h por intentos de OTRO intent, o por "intentos" que en
+        // realidad nunca llamaron a TiloPay (AutoCancel apagado, IDs sin reparar). Solo los
+        // intentos REALES contra el proveedor mueven estos campos.
+
+        /// <summary>
+        /// Intentos REALES contra TiloPay desde el último reinicio de presupuesto. Nunca lo
+        /// mueven los skips. Es lo que escala el backoff (inmediato → 5m → 15m → 30m → 1h → 6h → diario).
+        /// </summary>
+        public int OldCancellationAttemptCount { get; set; }
+
+        public DateTime? OldCancellationLastAttemptUtc { get; set; }
+
+        /// <summary>Momento a partir del cual se permite el próximo intento real. NULL = elegible ya.</summary>
+        public DateTime? OldCancellationNextRetryUtc { get; set; }
+
+        /// <summary>
+        /// Marca del último reinicio del presupuesto (reparación de estado inconsistente o retry
+        /// forzado por soporte). Los intentos anteriores a esta marca no cuentan contra el tope
+        /// diario: se hicieron sobre datos que aún estaban rotos, así que no prueban nada.
+        /// </summary>
+        public DateTime? OldCancellationAttemptsResetAtUtc { get; set; }
     }
 
     public enum PlanChangeIntentState
@@ -67,7 +92,15 @@ namespace LuxuryApp.Models.SaaS
         Applied = 1,
         Failed = 2,
         Cancelled = 3,
-        Superseded = 4
+        Superseded = 4,
+
+        /// <summary>
+        /// El cliente abrió el checkout y nunca pagó. Distinto de Cancelled (alguien lo cerró) y de
+        /// Superseded (otro cambio lo reemplazó): aquí simplemente no pasó nada. Valor aditivo — la
+        /// columna es int y el índice único filtra por Estado = 0, así que expirar libera el cupo
+        /// del tenant sin migración.
+        /// </summary>
+        Expired = 5
     }
 
     public enum ProviderCancellationState

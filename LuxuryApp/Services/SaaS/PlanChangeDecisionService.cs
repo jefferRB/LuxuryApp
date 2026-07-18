@@ -23,7 +23,13 @@ namespace LuxuryApp.Services.SaaS
         BlockedMissingProviderSubscription,
 
         /// <summary>Bloqueado: hay un cambio previo aplicado cuyo suscriptor viejo aún no se canceló (riesgo triple cobro).</summary>
-        BlockedPendingOldCancellation
+        BlockedPendingOldCancellation,
+
+        /// <summary>
+        /// Bloqueado: la cancelación automática del suscriptor viejo está deshabilitada, así que un
+        /// cambio pagado dejaría DOS suscriptores cobrando. Sin auto-cancelación no hay cambio automático.
+        /// </summary>
+        BlockedAutoCancellationDisabled
     }
 
     public sealed record PlanChangeEvaluation
@@ -39,7 +45,8 @@ namespace LuxuryApp.Services.SaaS
         public bool IsBlocked =>
             Decision is PlanChangeDecision.BlockedFuncionarioLimit
                 or PlanChangeDecision.BlockedMissingProviderSubscription
-                or PlanChangeDecision.BlockedPendingOldCancellation;
+                or PlanChangeDecision.BlockedPendingOldCancellation
+                or PlanChangeDecision.BlockedAutoCancellationDisabled;
     }
 
     public interface IPlanChangeDecisionService
@@ -61,11 +68,16 @@ namespace LuxuryApp.Services.SaaS
     {
         private readonly ApplicationDbContext _db;
         private readonly SuscripcionService _suscripcionService;
+        private readonly OpcionesTilopayRepeatAdmin _adminOptions;
 
-        public PlanChangeDecisionService(ApplicationDbContext db, SuscripcionService suscripcionService)
+        public PlanChangeDecisionService(
+            ApplicationDbContext db,
+            SuscripcionService suscripcionService,
+            Microsoft.Extensions.Options.IOptions<OpcionesTilopayRepeatAdmin>? adminOptions = null)
         {
             _db = db;
             _suscripcionService = suscripcionService;
+            _adminOptions = adminOptions?.Value ?? new OpcionesTilopayRepeatAdmin();
         }
 
         public async Task<PlanChangeEvaluation> EvaluateAsync(
@@ -113,6 +125,18 @@ namespace LuxuryApp.Services.SaaS
                     Decision = PlanChangeDecision.SamePlan,
                     CurrentSubscription = currentSubscription,
                     Message = "Ese ya es tu plan actual."
+                };
+            }
+
+            // Sin cancelación automática NO hay cambio automático: si dejáramos pagar el plan nuevo,
+            // el viejo seguiría cobrando y el cliente quedaría con dos rebajos. Fail-closed.
+            if (!_adminOptions.Enabled || !_adminOptions.AutoCancelOldSubscriberOnUpgrade)
+            {
+                return new PlanChangeEvaluation
+                {
+                    Decision = PlanChangeDecision.BlockedAutoCancellationDisabled,
+                    CurrentSubscription = currentSubscription,
+                    Message = "Para cambiar de plan, contactá soporte. El cambio automático estará disponible pronto."
                 };
             }
 

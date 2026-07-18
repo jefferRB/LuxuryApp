@@ -11,6 +11,15 @@
         "info" => "sub-state--info",
         _ => "sub-state--muted"
     };
+
+    // Botón reutilizable "Actualizar método de pago" (POST con CSRF a la ruta existente
+    // ActualizarTarjeta, que delega en PaymentMethodUpdateService y redirige a la recurrentUrl).
+    Func<object?, Microsoft.AspNetCore.Html.IHtmlContent> updatePaymentButton = @<form asp-action="ActualizarTarjeta" method="post" class="d-inline">
+        @Html.AntiForgeryToken()
+        <button type="submit" class="sub-btn sub-btn--primary">
+            <i class="bi bi-credit-card"></i> Actualizar método de pago
+        </button>
+    </form>;
 }
 
 @section Styles {
@@ -38,6 +47,70 @@
         <div class="sub-alert sub-alert--ok"><i class="bi bi-check2-circle"></i> @billingSuccess</div>
     }
 
+    @* ── Renovación cancelada, aún vigente (Caso B) ── *@
+    @if (sub?.CanReactivateRenewal == true)
+    {
+        <div class="sub-alert sub-alert--warn">
+            <i class="bi bi-info-circle"></i>
+            Suscripción cancelada. Tu acceso seguirá activo hasta
+            <strong>@(sub.CurrentPeriodEndDisplay ?? "el fin del período")</strong>. No se harán nuevos cobros.
+        </div>
+    }
+
+    @* ── Renovación pausada por soporte (acción Platform, no del cliente) ── *@
+    @if (sub?.IsRenewalPaused == true)
+    {
+        <div class="sub-alert sub-alert--warn">
+            <i class="bi bi-pause-circle"></i>
+            Tu renovación está pausada por soporte. Tu acceso seguirá activo hasta
+            <strong>@(sub.CurrentPeriodEndDisplay ?? "el fin del período")</strong>.
+            No se harán nuevos cobros mientras esté pausada. Contactá soporte para reactivarla.
+        </div>
+    }
+
+    @* ── Recuperación de pago: gracia / gracia vencida / suspensión (no se mezcla con pausa) ── *@
+    @if (sub?.PaymentInGrace == true)
+    {
+        <div class="sub-alert sub-alert--warn">
+            <div>
+                <i class="bi bi-exclamation-triangle"></i>
+                No pudimos procesar tu pago. Tu acceso seguirá activo hasta
+                <strong>@(sub.GracePeriodEndsDisplay ?? sub.CurrentPeriodEndDisplay ?? "el fin del período de gracia")</strong>.
+                Actualizá tu método de pago para evitar la suspensión.
+            </div>
+            @if (Model.RecurrentUpdateAvailable)
+            {
+                <div class="mt-2">@updatePaymentButton(null)</div>
+            }
+        </div>
+    }
+    else if (sub?.PaymentGraceExpired == true)
+    {
+        <div class="sub-alert sub-alert--error">
+            <div>
+                <i class="bi bi-exclamation-octagon"></i>
+                Tu pago sigue pendiente. Actualizá tu método de pago para evitar la suspensión.
+            </div>
+            @if (Model.RecurrentUpdateAvailable)
+            {
+                <div class="mt-2">@updatePaymentButton(null)</div>
+            }
+        </div>
+    }
+    else if (sub?.PaymentSuspended == true)
+    {
+        <div class="sub-alert sub-alert--error">
+            <div>
+                <i class="bi bi-lock"></i>
+                Tu cuenta está suspendida por pago pendiente. Actualizá tu método de pago para reactivarla.
+            </div>
+            @if (Model.RecurrentUpdateAvailable)
+            {
+                <div class="mt-2">@updatePaymentButton(null)</div>
+            }
+        </div>
+    }
+
     @* ── Estado actual ── *@
     <section class="sub-card sub-state-card">
         <div class="sub-state-main">
@@ -46,18 +119,38 @@
             {
                 <h2 class="sub-state-plan">@(sub.PlanName ?? "Sin plan base")</h2>
                 <span class="sub-state-badge @toneClass">@sub.StatusLabel</span>
+                @if (sub.IsRenewalPaused)
+                {
+                    <span class="sub-state-badge sub-state--warn ms-1"><i class="bi bi-pause-circle"></i> Renovación pausada</span>
+                }
+                @if (sub.PaymentInGrace)
+                {
+                    <span class="sub-state-badge sub-state--warn ms-1"><i class="bi bi-hourglass-split"></i> En período de gracia</span>
+                }
+                else if (sub.PaymentGraceExpired)
+                {
+                    <span class="sub-state-badge sub-state--danger ms-1"><i class="bi bi-exclamation-octagon"></i> Pago pendiente</span>
+                }
+                else if (sub.PaymentSuspended)
+                {
+                    <span class="sub-state-badge sub-state--danger ms-1"><i class="bi bi-lock"></i> Suspendida por pago</span>
+                }
                 <div class="sub-state-meta">
-                    @if (sub.CurrentPeriodEndUtc.HasValue)
+                    @if (!string.IsNullOrEmpty(sub.CurrentPeriodEndDisplay))
                     {
-                        <span><i class="bi bi-calendar-event"></i> Vigente hasta <strong>@sub.CurrentPeriodEndUtc.Value.ToString("dd/MM/yyyy")</strong></span>
+                        <span><i class="bi bi-calendar-event"></i> Vigente hasta <strong>@sub.CurrentPeriodEndDisplay</strong></span>
                     }
-                    @if (sub.NextBillingDateUtc.HasValue)
+                    @if (sub.IsRenewalPaused)
                     {
-                        <span><i class="bi bi-arrow-repeat"></i> Próximo cobro <strong>@sub.NextBillingDateUtc.Value.ToString("dd/MM/yyyy")</strong></span>
+                        <span><i class="bi bi-arrow-repeat"></i> Próximo cobro <strong>Pausado</strong></span>
                     }
-                    @if (sub.IsInGracePeriod && sub.GracePeriodEndsUtc.HasValue)
+                    else if (!string.IsNullOrEmpty(sub.NextBillingDateDisplay))
                     {
-                        <span class="sub-state--warn"><i class="bi bi-hourglass-split"></i> Gracia hasta <strong>@sub.GracePeriodEndsUtc.Value.ToString("dd/MM/yyyy")</strong></span>
+                        <span><i class="bi bi-arrow-repeat"></i> Próximo cobro <strong>@sub.NextBillingDateDisplay</strong></span>
+                    }
+                    @if (sub.IsInGracePeriod && !string.IsNullOrEmpty(sub.GracePeriodEndsDisplay))
+                    {
+                        <span class="sub-state--warn"><i class="bi bi-hourglass-split"></i> Gracia hasta <strong>@sub.GracePeriodEndsDisplay</strong></span>
                     }
                 </div>
             }
@@ -68,26 +161,30 @@
             }
         </div>
         <div class="sub-state-action">
-            @{
-                var needsPaymentUpdate = sub is not null &&
-                    (sub.IsInGracePeriod ||
-                     sub.Status == LuxuryApp.Models.SaaS.EstadoSuscripcion.Morosa ||
-                     sub.Status == LuxuryApp.Models.SaaS.EstadoSuscripcion.Fallida ||
-                     sub.Status == LuxuryApp.Models.SaaS.EstadoSuscripcion.Vencida ||
-                     sub.Status == LuxuryApp.Models.SaaS.EstadoSuscripcion.Suspendida);
-            }
-            @if (needsPaymentUpdate && Model.RecurrentUpdateAvailable)
+            @* En estado de recuperación, el botón vive en el banner (arriba) para no duplicarlo.
+               En estado normal (recurrente activa/morosa) se ofrece igual la actualización de pago. *@
+            @if (sub?.CanUpdatePaymentMethod == true && sub.HasPaymentRecoveryBanner == false && Model.RecurrentUpdateAvailable)
             {
-                <form asp-action="ActualizarTarjeta" method="post" class="d-inline">
-                    @Html.AntiForgeryToken()
-                    <button type="submit" class="sub-btn sub-btn--primary">
-                        <i class="bi bi-credit-card"></i> Actualizar tarjeta / Reintentar pago
-                    </button>
-                </form>
+                @updatePaymentButton(null)
             }
-            <a href="#planes" class="sub-btn sub-btn--primary">
-                @(hasBaseAccess ? "Cambiar plan" : "Ver planes")
-            </a>
+            @if (!(sub?.CanReactivateRenewal == true) && !(sub?.IsRenewalPaused == true) && !(sub?.PaymentSuspended == true))
+            {
+                <a href="#planes" class="sub-btn sub-btn--primary">
+                    @(hasBaseAccess ? "Cambiar plan" : "Ver planes")
+                </a>
+            }
+            @if (sub?.CanReactivateRenewal == true && Model.RecurrentUpdateAvailable)
+            {
+                <button type="button" class="sub-btn sub-btn--primary" data-bs-toggle="modal" data-bs-target="#reactivarRenovacionModal">
+                    <i class="bi bi-arrow-clockwise"></i> Reactivar renovación
+                </button>
+            }
+            @if (sub?.CanRequestCancellation == true && Model.RecurrentUpdateAvailable)
+            {
+                <button type="button" class="sub-btn sub-btn--soft" data-bs-toggle="modal" data-bs-target="#cancelRenovacionModal">
+                    <i class="bi bi-x-circle"></i> Cancelar suscripción
+                </button>
+            }
         </div>
     </section>
 
@@ -123,15 +220,44 @@
         <div class="sub-card sub-summary-card">
             <span class="sub-summary-icon"><i class="bi bi-calendar-check"></i></span>
             <span class="sub-summary-label">Próxima renovación</span>
-            <strong class="sub-summary-value">@(sub?.NextBillingDateUtc?.ToString("dd/MM/yyyy") ?? "—")</strong>
-            <span class="sub-summary-foot">Plan base</span>
+            @if (sub?.IsRenewalPaused == true)
+            {
+                <strong class="sub-summary-value">Pausada</strong>
+                <span class="sub-summary-foot">Sin nuevos cobros</span>
+            }
+            else
+            {
+                <strong class="sub-summary-value">@(sub?.NextBillingDateDisplay ?? "—")</strong>
+                <span class="sub-summary-foot">Plan base</span>
+            }
         </div>
     </section>
 
     @* ── Calculadora de plan ── *@
     <h3 class="sub-section-title" id="planes">Elegí tu plan</h3>
     <p class="sub-section-sub">Ajustá la cantidad de funcionarios y el ciclo de facturación; el precio se actualiza al instante.</p>
-    @if (Model.Calculator is not null)
+    @if (sub?.IsRenewalPaused == true)
+    {
+        <div class="sub-alert sub-alert--warn">
+            <i class="bi bi-lock"></i>
+            Tu suscripción está pausada. Contactá soporte para reactivarla antes de cambiar de plan.
+        </div>
+    }
+    else if (sub?.PaymentSuspended == true)
+    {
+        <div class="sub-alert sub-alert--error">
+            <i class="bi bi-lock"></i>
+            Tu cuenta está suspendida por pago pendiente. Actualizá tu método de pago para reactivarla antes de cambiar de plan.
+        </div>
+    }
+    else if (sub?.CanReactivateRenewal == true)
+    {
+        <div class="sub-alert sub-alert--warn">
+            <i class="bi bi-lock"></i>
+            Para cambiar de plan, primero reactivá tu renovación.
+        </div>
+    }
+    else if (Model.Calculator is not null)
     {
         <partial name="_SubscriptionCalculator" model="Model.Calculator" />
     }
@@ -161,3 +287,77 @@
         </form>
     </section>
 </div>
+
+@if (sub?.CanRequestCancellation == true && Model.RecurrentUpdateAvailable)
+{
+    @* Modal declarativo (data-bs-*): sin new bootstrap.Modal para evitar overlays duplicados. *@
+    <div class="modal fade" id="cancelRenovacionModal" tabindex="-1" aria-labelledby="cancelRenovacionTitle" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="cancelRenovacionTitle">Cancelar renovación</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2">
+                        No se harán nuevos cobros. Tu acceso seguirá activo hasta
+                        <strong>@(sub.CurrentPeriodEndDisplay ?? "el fin del período")</strong>.
+                        Después de esa fecha, tu cuenta quedará sin acceso al plan.
+                    </p>
+                    <ul class="list-unstyled small text-muted mb-2">
+                        <li><i class="bi bi-credit-card-2-front"></i> Plan actual: <strong>@(sub.PlanName ?? "Plan base")</strong></li>
+                        <li><i class="bi bi-calendar-event"></i> Fecha efectiva: <strong>@(sub.CurrentPeriodEndDisplay ?? "—")</strong></li>
+                    </ul>
+                    <p class="small mb-0"><i class="bi bi-info-circle"></i> No perderás acceso inmediatamente.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="sub-btn sub-btn--soft" data-bs-dismiss="modal">Volver</button>
+                    <form asp-action="CancelarRenovacion" method="post" class="d-inline" data-disable-on-submit>
+                        @Html.AntiForgeryToken()
+                        <button type="submit" class="sub-btn sub-btn--primary">Sí, cancelar renovación</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (sub?.CanReactivateRenewal == true && Model.RecurrentUpdateAvailable)
+{
+    <div class="modal fade" id="reactivarRenovacionModal" tabindex="-1" aria-labelledby="reactivarRenovacionTitle" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="reactivarRenovacionTitle">Reactivar renovación</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2">
+                        Tu suscripción volverá a renovarse normalmente. Se reactivará el mismo plan
+                        (<strong>@(sub.PlanName ?? "Plan base")</strong>) sin iniciar un pago nuevo.
+                    </p>
+                    <p class="small mb-0"><i class="bi bi-info-circle"></i> Solo disponible mientras tu período pagado siga vigente (hasta @(sub.CurrentPeriodEndDisplay ?? "el fin del período")).</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="sub-btn sub-btn--soft" data-bs-dismiss="modal">Volver</button>
+                    <form asp-action="ReactivarRenovacion" method="post" class="d-inline" data-disable-on-submit>
+                        @Html.AntiForgeryToken()
+                        <button type="submit" class="sub-btn sub-btn--primary">Sí, reactivar renovación</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@section Scripts {
+    <script>
+        // Anti doble-click: al enviar, se deshabilita el botón (el backend además es idempotente).
+        document.querySelectorAll('form[data-disable-on-submit]').forEach(function (form) {
+            form.addEventListener('submit', function () {
+                var btn = form.querySelector('button[type="submit"]');
+                if (btn) { btn.disabled = true; btn.textContent = 'Procesando…'; }
+            });
+        });
+    </script>
+}

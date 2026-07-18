@@ -3,13 +3,45 @@ using LuxuryApp.Models.Platform;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.SaaS;
+using LuxuryApp.Services.Security;
 using LuxuryApp.Services.Tenant;
+using LuxuryApp.Services.Tilopay;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Services.Billing
 {
+    /// <summary>Desenlace de un reintento de cancelación del suscriptor viejo, por intent.</summary>
+    public enum PlanChangeCancellationRetryStatus
+    {
+        /// <summary>Baja VERIFICADA en TiloPay: el viejo ya no puede cobrar.</summary>
+        Cancelled,
+
+        /// <summary>Se llamó a TiloPay pero el viejo sigue pendiente: se reintentará con backoff.</summary>
+        AttemptedStillPending,
+
+        /// <summary>No se llamó: la cancelación automática está apagada. No consume presupuesto.</summary>
+        SkippedAutoCancelDisabled,
+
+        /// <summary>No se llamó: el intent está en cooldown de backoff.</summary>
+        SkippedBackoff,
+
+        /// <summary>No se llamó: faltan datos para un intento verificable.</summary>
+        SkippedNotEligible,
+
+        /// <summary>Nada que hacer: el intent no existe o ya no tiene cancelación pendiente.</summary>
+        NotPending
+    }
+
+    public sealed record PlanChangeCancellationRetryOutcome
+    {
+        public required PlanChangeCancellationRetryStatus Status { get; init; }
+        public required string Message { get; init; }
+        public int AttemptCount { get; init; }
+        public DateTime? NextEligibleUtc { get; init; }
+    }
+
     public interface IBillingReconciliationService
     {
         /// <summary>
@@ -21,9 +53,27 @@ namespace LuxuryApp.Services.Billing
         /// <summary>
         /// Ejecuta SOLO la fase de reintento de cancelación del suscriptor viejo (cambios de plan).
         /// Pensado para un worker de alta frecuencia: el riesgo de doble cobro no debe esperar 24h.
-        /// Aislado por tenant y con tope de reintentos automáticos para no golpear a TiloPay en loop.
+        /// Aislado por tenant y con backoff POR INTENT para no golpear a TiloPay en loop.
         /// </summary>
         Task<BillingReconciliationReport> RunOldSubscriberCancellationRetryAsync(CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Ejecuta SOLO el cierre local de cancelaciones vencidas (CancelAtPeriodEnd cuyo período ya
+        /// terminó → Estado Cancelada). Local y barato (cero HTTP a TiloPay): pensado para un worker
+        /// liviano de alta frecuencia + arranque, para no depender del pase diario de 24 h.
+        /// </summary>
+        Task<BillingReconciliationReport> RunLifecycleFinalizationAsync(CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Reintento forzado por soporte (SuperAdmin) de un intent concreto. Misma lógica que el
+        /// worker e igual de idempotente; solo ignora el backoff y reinicia el presupuesto, nunca
+        /// las guardas de elegibilidad. Sirve para destrabar un caso sin tocar la BD ni TiloPay a mano.
+        /// </summary>
+        Task<PlanChangeCancellationRetryOutcome> ForceOldSubscriberCancellationRetryAsync(
+            Guid intentId,
+            string actorUserId,
+            string actorEmail,
+            CancellationToken cancellationToken = default);
     }
 
     /// <summary>
@@ -50,6 +100,13 @@ namespace LuxuryApp.Services.Billing
         private readonly BillingReconciliationOptions _options;
         private readonly ISubscriberResolutionService? _subscriberResolutionService;
         private readonly IProviderSubscriptionManager? _providerSubscriptionManager;
+        private readonly IPlanChangeLateApplicationService? _planChangeLateApplicationService;
+        private readonly IProviderExpirySyncService? _providerExpirySyncService;
+        // Opcionales (patrón del módulo): DI los inyecta en producción; en tests con el ctor mínimo
+        // quedan null y las fases de ciclo de vida que dependen de HTTP/cache simplemente se saltan.
+        private readonly ITilopayRepeatAdminService? _adminService;
+        private readonly ITenantCommercialAccessCache? _accessCache;
+        private readonly OpcionesTilopayRepeatAdmin _adminOptions;
         private readonly int _adminMaxAttempts;
         private readonly ILogger<BillingReconciliationService> _logger;
 
@@ -63,7 +120,11 @@ namespace LuxuryApp.Services.Billing
             ILogger<BillingReconciliationService> logger,
             ISubscriberResolutionService? subscriberResolutionService = null,
             IOptions<OpcionesTilopayRepeatAdmin>? adminOptions = null,
-            IProviderSubscriptionManager? providerSubscriptionManager = null)
+            IProviderSubscriptionManager? providerSubscriptionManager = null,
+            IPlanChangeLateApplicationService? planChangeLateApplicationService = null,
+            IProviderExpirySyncService? providerExpirySyncService = null,
+            ITilopayRepeatAdminService? adminService = null,
+            ITenantCommercialAccessCache? accessCache = null)
         {
             _db = db;
             _suscripcionService = suscripcionService;
@@ -73,7 +134,12 @@ namespace LuxuryApp.Services.Billing
             _options = options.Value;
             _subscriberResolutionService = subscriberResolutionService;
             _providerSubscriptionManager = providerSubscriptionManager;
-            _adminMaxAttempts = adminOptions?.Value.MaxReconciliationResolveAttempts ?? 6;
+            _planChangeLateApplicationService = planChangeLateApplicationService;
+            _providerExpirySyncService = providerExpirySyncService;
+            _adminService = adminService;
+            _accessCache = accessCache;
+            _adminOptions = adminOptions?.Value ?? new OpcionesTilopayRepeatAdmin();
+            _adminMaxAttempts = _adminOptions.MaxReconciliationResolveAttempts;
             _logger = logger;
         }
 
@@ -86,11 +152,30 @@ namespace LuxuryApp.Services.Billing
             // no impide que corran las demás (en particular, el backfill de id_suscriptor). Cada
             // fase empieza con el ChangeTracker limpio para no arrastrar entidades de otro tenant.
             await RunPhaseAsync("OrphanConfirmedPayments", () => ReconcileOrphanConfirmedPaymentsAsync(report, nowUtc, cancellationToken), cancellationToken);
+            // ANTES de alertar renovaciones vencidas: sincronizar el expire real del proveedor, para
+            // que la alerta use la fecha efectiva y no dispare un falso positivo cuando TiloPay cobra
+            // más tarde de lo que calculamos localmente.
+            await RunPhaseAsync("SyncProviderExpiry", () => SyncProviderExpiryAsync(report, cancellationToken), cancellationToken);
+            // Ciclo de vida: cerrar localmente los períodos ya pagados de suscripciones con
+            // CancelAtPeriodEnd (sin HTTP: el proveedor ya quedó dado de baja al pedir la cancelación),
+            // y detectar drift entre el estado local y el del proveedor (con HTTP, fuera de tx).
+            await RunPhaseAsync("FinalizeCancelAtPeriodEnd", () => FinalizeCancelAtPeriodEndAsync(report, nowUtc, cancellationToken), cancellationToken);
+            await RunPhaseAsync("SyncProviderLifecycleStatus", () => SyncProviderLifecycleStatusAsync(report, nowUtc, cancellationToken), cancellationToken);
             await RunPhaseAsync("OverdueRenewals", () => AlertOverdueRenewalsAsync(report, nowUtc, cancellationToken), cancellationToken);
             await RunPhaseAsync("ExpireStalePendings", () => ExpireStalePendingAttemptsAsync(report, nowUtc, cancellationToken), cancellationToken);
             await RunPhaseAsync("StaleManualReviews", () => AlertStaleManualReviewsAsync(report, nowUtc, cancellationToken), cancellationToken);
             await RunPhaseAsync("StuckEvents", () => AlertStuckEventsAsync(report, nowUtc, cancellationToken), cancellationToken);
             await RunPhaseAsync("SubscriberBackfill", () => BackfillMissingSubscriberIdsAsync(report, nowUtc, cancellationToken), cancellationToken);
+            // Antes de reparar: terminar de APLICAR los cambios cuyo pago ya está confirmado y cuyo
+            // suscriptor nuevo se conoció tarde. Si no, el intent sigue Pending y las fases de abajo
+            // (que solo miran Applied) no lo ven nunca.
+            await RunPhaseAsync("ApplyLatePlanChanges", () => ApplyPendingPlanChangesWithConfirmedPaymentAsync(report, cancellationToken), cancellationToken);
+            // Después de aplicar lo pagado: lo que sigue Pending y NO tiene dinero detrás es un
+            // checkout abandonado. Este orden evita cualquier carrera entre aplicar y expirar.
+            await RunPhaseAsync("ExpireAbandonedPlanChangeCheckouts", () => ExpireAbandonedPlanChangeCheckoutsAsync(report, nowUtc, cancellationToken), cancellationToken);
+            // La reparación va ANTES del reintento: rellena NewProviderSubscriptionId y corrige la
+            // suscripción, para que la cancelación del viejo trabaje sobre datos ya consistentes.
+            await RunPhaseAsync("RepairInconsistentPlanChanges", () => RepairInconsistentPlanChangesAsync(report, cancellationToken), cancellationToken);
             await RunPhaseAsync("RetryOldSubscriberCancellations", () => RetryPendingPlanChangeCancellationsAsync(report, cancellationToken), cancellationToken);
 
             report.FinishedUtc = GetUtcNow();
@@ -136,6 +221,38 @@ namespace LuxuryApp.Services.Billing
             CancellationToken cancellationToken = default)
         {
             var report = new BillingReconciliationReport { StartedUtc = GetUtcNow() };
+            // Sincronizar el expire real del proveedor también en el pase rápido: si TiloPay
+            // extendió el vencimiento, no hay que esperar al pase diario para dejar de considerar
+            // la suscripción "por vencer" y evitar una morosidad falsa.
+            await RunPhaseAsync(
+                "SyncProviderExpiry",
+                () => SyncProviderExpiryAsync(report, cancellationToken),
+                cancellationToken);
+            // Cierre local del período de las cancelaciones programadas: barato (sin HTTP) y no debe
+            // esperar al pase diario para que el acceso termine cuando el período pagado se acaba.
+            await RunPhaseAsync(
+                "FinalizeCancelAtPeriodEnd",
+                () => FinalizeCancelAtPeriodEndAsync(report, GetUtcNow(), cancellationToken),
+                cancellationToken);
+            // Aplicar los cambios pagados que quedaron sin aplicar por resolución tardía del
+            // suscriptor. Va en el worker RÁPIDO a propósito: mientras el cambio no se aplica hay
+            // dos suscriptores activos en TiloPay, y eso no puede esperar al pase diario.
+            await RunPhaseAsync(
+                "ApplyLatePlanChanges",
+                () => ApplyPendingPlanChangesWithConfirmedPaymentAsync(report, cancellationToken),
+                cancellationToken);
+            // Limpieza local y barata (sin TiloPay): el cupo de "un cambio abierto por tenant" no
+            // puede quedar tomado 7 días por un checkout que nadie pagó.
+            await RunPhaseAsync(
+                "ExpireAbandonedPlanChangeCheckouts",
+                () => ExpireAbandonedPlanChangeCheckoutsAsync(report, GetUtcNow(), cancellationToken),
+                cancellationToken);
+            // Reparar (backfill de NewProviderSubscriptionId desde el pago) y luego reintentar:
+            // el worker rápido no depende de que alguien rellene los IDs a mano.
+            await RunPhaseAsync(
+                "RepairInconsistentPlanChanges",
+                () => RepairInconsistentPlanChangesAsync(report, cancellationToken),
+                cancellationToken);
             await RunPhaseAsync(
                 "RetryOldSubscriberCancellations",
                 () => RetryPendingPlanChangeCancellationsAsync(report, cancellationToken),
@@ -144,81 +261,436 @@ namespace LuxuryApp.Services.Billing
             return report;
         }
 
-        // ── 7. Reintento de cancelación del suscriptor viejo en cambios de plan ───────
+        public async Task<BillingReconciliationReport> RunLifecycleFinalizationAsync(CancellationToken cancellationToken = default)
+        {
+            // Solo el cierre local de cancelaciones vencidas. Sin HTTP: si el proveedor ya está
+            // Delete, finalizar el Estado local no requiere volver a llamar a TiloPay. Idempotente
+            // (re-correrlo no encuentra nada por finalizar).
+            var report = new BillingReconciliationReport { StartedUtc = GetUtcNow() };
+            await RunPhaseAsync(
+                "FinalizeCancelAtPeriodEnd",
+                () => FinalizeCancelAtPeriodEndAsync(report, GetUtcNow(), cancellationToken),
+                cancellationToken);
+            report.FinishedUtc = GetUtcNow();
+            return report;
+        }
+
+        // ── 11. Sincronización del expire real del proveedor ─────────────────────────
 
         /// <summary>
-        /// Un cambio de plan aplicado cuya cancelación del suscriptor viejo quedó pendiente
-        /// (falló en el momento del webhook) haría que TiloPay siga rebajando el plan anterior.
-        /// Aquí se reintenta de forma controlada, POR TENANT (scope aislado) e idempotente:
-        /// si el viejo ya quedó cancelado, el intent deja de estar pendiente y no se reintenta.
+        /// Lee el expire de cada suscriptor Active en TiloPay y concilia la vigencia local: extiende
+        /// si el proveedor cobra más tarde (evita morosidad falsa), alerta si cobra más temprano
+        /// (nunca acorta). Delega en <see cref="IProviderExpirySyncService"/>. No toca cancelación,
+        /// late repair, retry ni target Delete: solo fechas.
         /// </summary>
-        private async Task RetryPendingPlanChangeCancellationsAsync(
+        private async Task SyncProviderExpiryAsync(
             BillingReconciliationReport report,
             CancellationToken cancellationToken)
         {
-            if (_providerSubscriptionManager is null || !_providerSubscriptionManager.IsEnabled)
+            if (_providerExpirySyncService is null || !_providerExpirySyncService.IsEnabled)
             {
                 return;
             }
 
-            var tenantIds = await _db.PlanChangeIntents
+            await _providerExpirySyncService.SyncActiveSubscriptionsAsync(report, cancellationToken);
+        }
+
+        // ── 12. Ciclo de vida: cierre local del período de cancelaciones programadas ──
+
+        /// <summary>
+        /// Cierra localmente el acceso de las suscripciones con CancelAtPeriodEnd cuando su período
+        /// EFECTIVO ya pagado terminó. NO llama a TiloPay: el suscriptor ya quedó dado de baja al
+        /// solicitar la cancelación (ProviderCancelledAtUtc). Nunca corta antes de la fecha efectiva
+        /// (máximo entre local, expire del proveedor y CancellationEffectiveAtUtc): no quita servicio
+        /// ya pagado. Barato y sin HTTP, así que corre también en el worker rápido.
+        /// </summary>
+        private async Task FinalizeCancelAtPeriodEndAsync(
+            BillingReconciliationReport report,
+            DateTime nowUtc,
+            CancellationToken cancellationToken)
+        {
+            if (!_options.CancelAtPeriodEndFinalizationEnabled)
+            {
+                return;
+            }
+
+            var candidates = await _db.Suscripciones
                 .IgnoreQueryFilters()
                 .AsNoTracking()
-                .Where(intent =>
-                    intent.Estado == PlanChangeIntentState.Applied &&
-                    intent.OldProviderCancellation == ProviderCancellationState.PendingManualCancellation &&
-                    intent.FromProviderSubscriptionId != null)
-                .Select(intent => intent.TenantId)
-                .Distinct()
+                .Where(s =>
+                    s.CancelAtPeriodEnd &&
+                    (s.Estado == EstadoSuscripcion.Activa || s.Estado == EstadoSuscripcion.Morosa))
+                .Select(s => new
+                {
+                    s.Id,
+                    s.TenantId,
+                    s.FechaFin,
+                    s.ProviderExpiresAtUtc,
+                    s.CancellationEffectiveAtUtc
+                })
                 .ToListAsync(cancellationToken);
 
-            // Tope de reintentos automáticos por tenant en las últimas 24h: evita golpear a TiloPay
-            // en loop cuando la baja sigue fallando. Superado el tope, queda SOLO para revisión
-            // manual (health lo sigue mostrando); no se abandona el dato, solo se deja de reintentar.
-            var retryWindowUtc = GetUtcNow().AddHours(-24);
-            const int maxAutoRetriesPerTenantPerDay = 12;
-
-            foreach (var tenantId in tenantIds)
+            foreach (var candidate in candidates)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                if (tenantId == Guid.Empty)
+                if (candidate.TenantId == Guid.Empty)
                 {
                     continue;
                 }
 
-                var recentRetries = await _db.PlatformAuditLogs.CountAsync(
-                    log =>
-                        log.Action == PlatformAuditActions.PlanChangeOldSubscriberCancellationRetried &&
-                        log.TenantId == tenantId &&
-                        log.CreatedAtUtc >= retryWindowUtc,
-                    cancellationToken);
+                // Fin EFECTIVO: máximo entre local y el expire del proveedor, y nunca antes de la
+                // fecha efectiva calculada al pedir la cancelación.
+                var effectiveEndUtc = SubscriptionEffectiveDates.GetEffectiveEndUtc(
+                    candidate.FechaFin,
+                    candidate.ProviderExpiresAtUtc);
+                var cutoffUtc = LatestOf(effectiveEndUtc, candidate.CancellationEffectiveAtUtc);
 
-                if (recentRetries >= maxAutoRetriesPerTenantPerDay)
+                if (cutoffUtc is null || cutoffUtc.Value > nowUtc)
                 {
-                    continue;
+                    continue; // Aún dentro del período pagado: NO se corta el acceso.
                 }
 
                 try
                 {
-                    // Idempotente y per-tenant (BeginScope dentro del manager). Audita
-                    // Completed/Failed; aquí solo dejamos rastro del reintento y contamos.
-                    await _providerSubscriptionManager.TryCancelOldSubscriberForUpgradeAsync(tenantId, cancellationToken);
+                    _db.ChangeTracker.Clear();
+                    await FinalizeOneCancelAtPeriodEndAsync(candidate.Id, candidate.TenantId, cutoffUtc.Value, report, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _db.ChangeTracker.Clear();
+                    _logger.LogError(
+                        ex,
+                        "No se pudo finalizar la cancelación de período para la suscripción {SubscriptionId} del tenant {TenantId}; se continúa.",
+                        candidate.Id,
+                        candidate.TenantId);
+                }
+            }
+        }
 
-                    _db.PlatformAuditLogs.Add(new PlatformAuditLog
+        private async Task FinalizeOneCancelAtPeriodEndAsync(
+            Guid subscriptionId,
+            Guid tenantId,
+            DateTime cutoffUtc,
+            BillingReconciliationReport report,
+            CancellationToken cancellationToken)
+        {
+            using var tenantScope = _tenantExecutionContextAccessor.BeginScope(tenantId);
+
+            var subscription = await _db.Suscripciones
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(s => s.Id == subscriptionId && s.TenantId == tenantId, cancellationToken);
+
+            // Re-verificación bajo el registro tracked: pudo reactivarse o cambiar entre la lectura y ahora.
+            if (subscription is null ||
+                !subscription.CancelAtPeriodEnd ||
+                subscription.Estado is not (EstadoSuscripcion.Activa or EstadoSuscripcion.Morosa))
+            {
+                return;
+            }
+
+            var nowUtc = GetUtcNow();
+            var estadoAnterior = subscription.Estado;
+
+            subscription.Estado = EstadoSuscripcion.Cancelada;
+            subscription.FechaCancelacionUtc ??= cutoffUtc;
+            subscription.CancellationEffectiveAtUtc ??= cutoffUtc;
+            subscription.FechaUltimaActualizacionUtc = nowUtc;
+            subscription.MotivoEstado = "Cancelación de renovación: período pagado finalizado, acceso cerrado.";
+
+            _db.PlatformAuditLogs.Add(new PlatformAuditLog
+            {
+                Id = Guid.NewGuid(),
+                ActorUserId = "system",
+                ActorEmail = "system",
+                Action = PlatformAuditActions.SubscriptionCancellationAtPeriodEndFinalized,
+                EntityType = PlatformAuditEntityTypes.Subscription,
+                EntityId = subscription.Id.ToString(),
+                TenantId = tenantId,
+                BeforeJson = JsonSerializer.Serialize(new { estado = estadoAnterior.ToString() }),
+                AfterJson = JsonSerializer.Serialize(new { estado = EstadoSuscripcion.Cancelada.ToString() }),
+                Reason = Trim(
+                    $"Período pagado terminó ({cutoffUtc:yyyy-MM-dd HH:mm} UTC): suscripción con CancelAtPeriodEnd pasada a Cancelada localmente. Sin llamada a TiloPay (ya dado de baja).",
+                    500),
+                CreatedAtUtc = nowUtc
+            });
+
+            await _db.SaveChangesAsync(cancellationToken);
+            _db.ChangeTracker.Clear();
+
+            _accessCache?.Invalidate(tenantId);
+            report.CancelAtPeriodEndFinalized++;
+
+            _logger.LogInformation(
+                "Cancelación de período finalizada localmente. TenantId {TenantId}. SubscriptionId {SubscriptionId}. Cutoff {Cutoff}.",
+                tenantId,
+                subscription.Id,
+                cutoffUtc);
+        }
+
+        // ── 13. Ciclo de vida: drift entre estado local y estado del proveedor ────────
+
+        /// <summary>
+        /// Detecta desajustes entre lo local y TiloPay para suscripciones con acceso vigente
+        /// (Activa/Morosa): (1) CRÍTICO — CancelAtPeriodEnd local pero suscriptor ACTIVO en el
+        /// proveedor (podría seguir cobrando); (2) suscriptor INACTIVO en el proveedor sin
+        /// cancelación pedida; (3) suscriptor PAUSADO en el proveedor que lo local no refleja.
+        /// Solo alerta (idempotente por cooldown) y guarda el status observado; NUNCA suspende ni
+        /// cancela por su cuenta. HTTP por plan (getSuscriptorRepeat), siempre FUERA de transacción.
+        /// </summary>
+        private async Task SyncProviderLifecycleStatusAsync(
+            BillingReconciliationReport report,
+            DateTime nowUtc,
+            CancellationToken cancellationToken)
+        {
+            if (_adminService is null ||
+                !_adminService.IsEnabled ||
+                !_options.LifecycleProviderStatusSyncEnabled)
+            {
+                return;
+            }
+
+            var subscriptions = await _db.Suscripciones
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(s =>
+                    s.Proveedor == PaymentProviderType.Tilopay &&
+                    s.TilopayRecurringPlanId != null &&
+                    s.ProviderSubscriptionId != null &&
+                    (s.Estado == EstadoSuscripcion.Activa || s.Estado == EstadoSuscripcion.Morosa))
+                .Select(s => new
+                {
+                    s.Id,
+                    s.TenantId,
+                    s.TilopayRecurringPlanId,
+                    s.ProviderSubscriptionId,
+                    s.CodigoPlan,
+                    s.CancelAtPeriodEnd,
+                    s.ProviderPausedAtUtc
+                })
+                .ToListAsync(cancellationToken);
+
+            if (subscriptions.Count == 0)
+            {
+                return;
+            }
+
+            // Una llamada por PLAN (devuelve todos sus suscriptores): evita el N+1 contra el API.
+            foreach (var planGroup in subscriptions.GroupBy(s => s.TilopayRecurringPlanId!.Value))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                IReadOnlyList<TilopaySubscriber> providerSubscribers;
+                try
+                {
+                    providerSubscribers = await _adminService.GetSuscriptorRepeatAsync(planGroup.Key, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "No se pudo consultar getSuscriptorRepeat para el drift de ciclo de vida. PlanId {PlanId}.",
+                        planGroup.Key);
+                    continue;
+                }
+
+                foreach (var subscription in planGroup)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (subscription.TenantId == Guid.Empty)
                     {
-                        Id = Guid.NewGuid(),
-                        ActorUserId = "system",
-                        ActorEmail = "system",
-                        Action = PlatformAuditActions.PlanChangeOldSubscriberCancellationRetried,
-                        EntityType = PlatformAuditEntityTypes.Subscription,
-                        TenantId = tenantId,
-                        Reason = "Reintento controlado de cancelación del suscriptor viejo tras cambio de plan aplicado.",
-                        CreatedAtUtc = GetUtcNow()
-                    });
-                    await _db.SaveChangesAsync(cancellationToken);
+                        continue;
+                    }
 
-                    report.OldSubscriberCancellationsRetried++;
+                    var match = providerSubscribers.FirstOrDefault(p =>
+                        string.Equals(p.SubscriberId, subscription.ProviderSubscriptionId, StringComparison.OrdinalIgnoreCase));
+                    var state = match is null
+                        ? ProviderSubscriberState.Inactive
+                        : ProviderSubscriberStatusRules.Classify(match.Status);
+
+                    string? mismatch = null;
+                    if (subscription.CancelAtPeriodEnd && state == ProviderSubscriberState.Active)
+                    {
+                        mismatch = "CRÍTICO: la suscripción pidió cancelar la renovación pero el suscriptor sigue ACTIVO en TiloPay: podría seguir cobrando. Cancelar en el proveedor.";
+                    }
+                    else if (!subscription.CancelAtPeriodEnd && state == ProviderSubscriberState.Inactive)
+                    {
+                        mismatch = "El suscriptor está INACTIVO/eliminado en TiloPay pero la suscripción local sigue activa sin cancelación pedida. Revisar (cancelación externa o baja no registrada).";
+                    }
+                    else if (state == ProviderSubscriberState.Paused && subscription.ProviderPausedAtUtc is null)
+                    {
+                        mismatch = "El suscriptor está PAUSADO en TiloPay pero la suscripción local no lo refleja. Revisar el estado.";
+                    }
+
+                    if (mismatch is null)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        _db.ChangeTracker.Clear();
+                        if (await TryAlertProviderStatusMismatchAsync(
+                                subscription.Id,
+                                subscription.TenantId,
+                                match?.Status,
+                                subscription.CodigoPlan,
+                                subscription.ProviderSubscriptionId,
+                                mismatch,
+                                nowUtc,
+                                cancellationToken))
+                        {
+                            report.ProviderStatusMismatchesAlerted++;
+                        }
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _db.ChangeTracker.Clear();
+                        _logger.LogError(
+                            ex,
+                            "El drift de ciclo de vida falló para la suscripción {SubscriptionId} del tenant {TenantId}; se continúa.",
+                            subscription.Id,
+                            subscription.TenantId);
+                    }
+                }
+            }
+        }
+
+        private async Task<bool> TryAlertProviderStatusMismatchAsync(
+            Guid subscriptionId,
+            Guid tenantId,
+            string? providerStatusRaw,
+            string? planCode,
+            string? subscriberId,
+            string reason,
+            DateTime nowUtc,
+            CancellationToken cancellationToken)
+        {
+            using var tenantScope = _tenantExecutionContextAccessor.BeginScope(tenantId);
+
+            var entityId = subscriptionId.ToString();
+            var cooldownCutoffUtc = nowUtc.AddHours(-Math.Max(1, _options.AlertCooldownHours));
+
+            var alreadyAlerted = await _db.PlatformAuditLogs.AnyAsync(
+                log =>
+                    log.Action == PlatformAuditActions.SubscriptionProviderStatusMismatch &&
+                    log.EntityId == entityId &&
+                    log.CreatedAtUtc >= cooldownCutoffUtc,
+                cancellationToken);
+
+            // El status observado se guarda SIEMPRE (telemetría), aunque la alerta esté en cooldown.
+            var subscription = await _db.Suscripciones
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(s => s.Id == subscriptionId && s.TenantId == tenantId, cancellationToken);
+            if (subscription is not null)
+            {
+                subscription.ProviderStatusRaw = Trim(ProviderSubscriberStatusRules.Sanitize(providerStatusRaw), 40);
+                subscription.ProviderStatusLastSyncedUtc = nowUtc;
+            }
+
+            if (!alreadyAlerted)
+            {
+                _db.PlatformAuditLogs.Add(new PlatformAuditLog
+                {
+                    Id = Guid.NewGuid(),
+                    ActorUserId = "system",
+                    ActorEmail = "system",
+                    Action = PlatformAuditActions.SubscriptionProviderStatusMismatch,
+                    EntityType = PlatformAuditEntityTypes.Subscription,
+                    EntityId = entityId,
+                    TenantId = tenantId,
+                    Reason = Trim(
+                        $"{reason} SuscriptorSuffix {SensitiveDataMasker.MaskReference(subscriberId)}. Plan {planCode}. Estado provider {ProviderSubscriberStatusRules.Sanitize(providerStatusRaw)}.",
+                        500),
+                    CreatedAtUtc = nowUtc
+                });
+            }
+
+            await _db.SaveChangesAsync(cancellationToken);
+            _db.ChangeTracker.Clear();
+
+            return !alreadyAlerted;
+        }
+
+        /// <summary>Fecha más tardía de las dos (para no cortar acceso antes de tiempo). Null si ambas nulas.</summary>
+        private static DateTime? LatestOf(DateTime? a, DateTime? b)
+        {
+            if (a is null)
+            {
+                return b;
+            }
+
+            if (b is null)
+            {
+                return a;
+            }
+
+            return a.Value >= b.Value ? a : b;
+        }
+
+        // ── 10. Checkouts de cambio de plan abandonados (limpieza sin dinero) ─────────
+
+        /// <summary>
+        /// El cliente abrió un checkout de cambio de plan y nunca pagó. No hay riesgo de dinero
+        /// (sin transacción, sin suscriptor, sin confirmación), pero el intento Pending consume el
+        /// cupo de "un cambio abierto por tenant" y aparece en el health como si fuera un hallazgo.
+        ///
+        /// Se expira el pago y el intento juntos. La expiración genérica de pendientes
+        /// (<see cref="ExpireStalePendingAttemptsAsync"/>, 7 días) NO sirve para este caso: expira
+        /// el pago pero deja el intent Pending para siempre, que es exactamente lo que ensuciaba
+        /// el contador.
+        ///
+        /// NUNCA toca Suscripciones, NUNCA llama a TiloPay, NUNCA cancela nada en el proveedor y
+        /// NUNCA crea pagos: es limpieza puramente local de algo que no llegó a existir.
+        /// </summary>
+        private async Task ExpireAbandonedPlanChangeCheckoutsAsync(
+            BillingReconciliationReport report,
+            DateTime nowUtc,
+            CancellationToken cancellationToken)
+        {
+            var expirationHours = Math.Max(1, _options.PlanChangePendingCheckoutExpirationHours);
+            var cutoffUtc = nowUtc.AddHours(-expirationHours);
+
+            // Prefiltro barato en SQL por antigüedad; las señales de dinero se evalúan en memoria
+            // con la regla compartida (una sola definición de "hay dinero detrás").
+            var candidates = await _db.PlanChangeIntents
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(intent =>
+                    intent.Estado == PlanChangeIntentState.Pending &&
+                    intent.CreatedAtUtc <= cutoffUtc)
+                .Select(intent => new { intent.Id, intent.TenantId })
+                .ToListAsync(cancellationToken);
+
+            foreach (var candidate in candidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (candidate.TenantId == Guid.Empty)
+                {
+                    continue;
+                }
+
+                DetachAllTracked();
+
+                try
+                {
+                    await ExpireAbandonedCheckoutForTenantAsync(
+                        candidate.TenantId,
+                        candidate.Id,
+                        expirationHours,
+                        report,
+                        nowUtc,
+                        cancellationToken);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -229,11 +701,979 @@ namespace LuxuryApp.Services.Billing
                     DetachAllTracked();
                     _logger.LogError(
                         ex,
-                        "Reintento de cancelación de suscriptor viejo falló para el tenant {TenantId}; se continúa.",
+                        "Expiración de checkout de cambio abandonado falló. TenantId {TenantId}. IntentId {IntentId}. Se continúa.",
+                        candidate.TenantId,
+                        candidate.Id);
+                }
+            }
+        }
+
+        private async Task ExpireAbandonedCheckoutForTenantAsync(
+            Guid tenantId,
+            Guid intentId,
+            int expirationHours,
+            BillingReconciliationReport report,
+            DateTime nowUtc,
+            CancellationToken cancellationToken)
+        {
+            using var tenantScope = _tenantExecutionContextAccessor.BeginScope(tenantId);
+
+            var intent = await _db.PlanChangeIntents
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(
+                    i => i.Id == intentId &&
+                         i.TenantId == tenantId &&
+                         i.Estado == PlanChangeIntentState.Pending,
+                    cancellationToken);
+
+            if (intent is null)
+            {
+                return;
+            }
+
+            PagoSuscripcion? payment = null;
+            var hasProviderEvent = false;
+
+            if (intent.PagoSuscripcionId is { } paymentId)
+            {
+                payment = await _db.PagosSuscripcion
+                    .IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(p => p.Id == paymentId && p.TenantId == tenantId, cancellationToken);
+
+                // Un webhook asociado significa que TiloPay tocó este intento: no se descarta.
+                hasProviderEvent = await _db.EventosPago
+                    .IgnoreQueryFilters()
+                    .AnyAsync(e => e.PagoSuscripcionId == paymentId, cancellationToken);
+            }
+
+            if (!PlanChangeCheckoutAbandonmentRules.IsAbandonedCheckout(
+                    payment,
+                    intent.CreatedAtUtc,
+                    nowUtc,
+                    expirationHours,
+                    hasProviderEvent))
+            {
+                return;
+            }
+
+            // Solo el pago del propio checkout, y solo si sigue Pendiente. Un pago ya cerrado por
+            // otra vía se deja como está: su historia ya la contó quien lo cerró.
+            if (payment is not null && payment.Estado == EstadoPagoProveedor.Pendiente)
+            {
+                payment.Estado = EstadoPagoProveedor.Expirado;
+                payment.ProviderResultCode = "EXPIRED_PLAN_CHANGE_CHECKOUT";
+                payment.ProviderResultMessage = Trim(
+                    $"Checkout de cambio de plan hacia {intent.ToPlanCode} abandonado: {expirationHours}h sin pago, sin transacción y sin suscriptor.",
+                    300);
+                payment.FechaActualizacionUtc = nowUtc;
+            }
+
+            intent.Estado = PlanChangeIntentState.Expired;
+            intent.UpdatedAtUtc = nowUtc;
+            intent.Notes = Trim(
+                $"Checkout abandonado: {expirationHours}h sin pagar. No hubo cobro (sin transacción, sin suscriptor, sin confirmación). La suscripción {intent.FromPlanCode} sigue intacta.",
+                300);
+
+            _db.PlatformAuditLogs.Add(new PlatformAuditLog
+            {
+                Id = Guid.NewGuid(),
+                ActorUserId = "system",
+                ActorEmail = "system",
+                Action = PlatformAuditActions.PlanChangePendingCheckoutExpired,
+                EntityType = PlatformAuditEntityTypes.Subscription,
+                EntityId = intent.Id.ToString(),
+                TenantId = tenantId,
+                Reason = Trim(
+                    $"Cambio {intent.FromPlanCode} → {intent.ToPlanCode} expirado por abandono ({expirationHours}h sin pagar). " +
+                    $"Sin riesgo de dinero: el pago quedó Expirado y ni la suscripción ni TiloPay se tocaron. " +
+                    $"Creado {intent.CreatedAtUtc:yyyy-MM-dd HH:mm} UTC.",
+                    500),
+                CreatedAtUtc = nowUtc
+            });
+
+            await _db.SaveChangesAsync(cancellationToken);
+            DetachAllTracked();
+
+            report.PlanChangeCheckoutsExpired++;
+
+            _logger.LogInformation(
+                "Checkout de cambio de plan abandonado expirado. TenantId {TenantId}. IntentId {IntentId}. {From} → {To}. Creado {CreatedAtUtc}.",
+                tenantId,
+                intent.Id,
+                intent.FromPlanCode,
+                intent.ToPlanCode,
+                intent.CreatedAtUtc);
+        }
+
+        // ── 9. Cambios pagados sin aplicar por resolución tardía del suscriptor ───────
+
+        /// <summary>
+        /// El cliente PAGÓ, el pago está Confirmado y ya sabemos el id_suscriptor nuevo, pero el
+        /// cambio quedó sin aplicar: cuando corrió la transacción de aprobación, el suscriptor
+        /// todavía no estaba resuelto (TiloPay no lo manda en el webhook) y el guard anti
+        /// doble-cobro se negó a aplicar. Correcto entonces; pendiente ahora.
+        ///
+        /// Mientras esto no se aplica el cliente paga un plan y ve otro, y hay DOS suscriptores
+        /// activos en el proveedor. Por eso la fase corre también en el worker rápido.
+        ///
+        /// Distinto de <see cref="RepairInconsistentPlanChangesAsync"/>: aquella repara intents ya
+        /// APLICADOS con datos torcidos; esta aplica intents que siguen PENDING.
+        /// Nunca crea pagos ni checkouts: solo termina lo que el webhook dejó a medias.
+        /// </summary>
+        private async Task ApplyPendingPlanChangesWithConfirmedPaymentAsync(
+            BillingReconciliationReport report,
+            CancellationToken cancellationToken)
+        {
+            if (_planChangeLateApplicationService is null)
+            {
+                return;
+            }
+
+            // Escaneo cross-tenant SOLO lectura. El servicio abre el scope del tenant al aplicar.
+            var candidates = await _db.PlanChangeIntents
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(intent =>
+                    intent.Estado == PlanChangeIntentState.Pending &&
+                    intent.PagoSuscripcionId != null &&
+                    intent.NewProviderSubscriptionId == null)
+                .Join(
+                    _db.PagosSuscripcion.IgnoreQueryFilters().AsNoTracking()
+                        .Where(payment =>
+                            payment.Estado == EstadoPagoProveedor.Confirmado &&
+                            payment.ProviderSubscriberId != null),
+                    intent => intent.PagoSuscripcionId,
+                    payment => payment.Id,
+                    (intent, payment) => new { IntentId = intent.Id, PaymentId = payment.Id, intent.TenantId })
+                .ToListAsync(cancellationToken);
+
+            foreach (var candidate in candidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (candidate.TenantId == Guid.Empty)
+                {
+                    continue;
+                }
+
+                DetachAllTracked();
+
+                try
+                {
+                    var result = await _planChangeLateApplicationService
+                        .ApplyPendingPlanChangeAfterSubscriberResolvedAsync(
+                            candidate.PaymentId,
+                            "reconciliation",
+                            cancellationToken);
+
+                    switch (result.Status)
+                    {
+                        case LatePlanChangeApplicationStatus.Applied:
+                            report.LatePlanChangesApplied++;
+                            break;
+                        case LatePlanChangeApplicationStatus.ManualReview:
+                            report.LatePlanChangesManualReview++;
+                            break;
+                        case LatePlanChangeApplicationStatus.LeftPendingNoActiveSubscriber:
+                        case LatePlanChangeApplicationStatus.ProviderUnavailable:
+                            report.LatePlanChangesLeftPending++;
+                            break;
+                    }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    DetachAllTracked();
+                    _logger.LogError(
+                        ex,
+                        "Aplicación tardía de cambio de plan falló. TenantId {TenantId}. IntentId {IntentId}. Se continúa.",
+                        candidate.TenantId,
+                        candidate.IntentId);
+                }
+            }
+        }
+
+        // ── 8. Reparación de cambios de plan en estado inconsistente ──────────────────
+
+        /// <summary>
+        /// Repara el estado exacto que dejó el bug de producción: el pago nuevo quedó confirmado con
+        /// su ProviderSubscriberId, pero el intent quedó sin NewProviderSubscriptionId y la suscripción
+        /// quedó en el plan DESTINO apuntando todavía al suscriptor VIEJO y con el ciclo encadenado al
+        /// vencimiento anterior. Rellena el subscriber nuevo, corrige la suscripción y recalcula el
+        /// ciclo desde la confirmación del pago. NUNCA crea pagos ni checkouts. Aislado por tenant.
+        /// </summary>
+        private async Task RepairInconsistentPlanChangesAsync(
+            BillingReconciliationReport report,
+            CancellationToken cancellationToken)
+        {
+            var tenantIds = await _db.PlanChangeIntents
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(intent =>
+                    intent.Estado == PlanChangeIntentState.Applied &&
+                    intent.PagoSuscripcionId != null &&
+                    (intent.NewProviderSubscriptionId == null ||
+                     intent.OldProviderCancellation == ProviderCancellationState.PendingManualCancellation))
+                .Select(intent => intent.TenantId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            foreach (var tenantId in tenantIds)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (tenantId == Guid.Empty)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    await RepairPlanChangeForTenantAsync(tenantId, report, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    DetachAllTracked();
+                    _logger.LogError(
+                        ex,
+                        "Reparación de cambio de plan falló para el tenant {TenantId}; se continúa.",
                         tenantId);
                 }
             }
         }
+
+        private async Task RepairPlanChangeForTenantAsync(
+            Guid tenantId,
+            BillingReconciliationReport report,
+            CancellationToken cancellationToken)
+        {
+            using var tenantScope = _tenantExecutionContextAccessor.BeginScope(tenantId);
+
+            var intent = await _db.PlanChangeIntents
+                .IgnoreQueryFilters()
+                .Where(i =>
+                    i.TenantId == tenantId &&
+                    i.Estado == PlanChangeIntentState.Applied &&
+                    i.PagoSuscripcionId != null)
+                .OrderByDescending(i => i.AppliedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (intent?.PagoSuscripcionId is not { } paymentId)
+            {
+                return;
+            }
+
+            // El suscriptor nuevo REAL vive en el pago confirmado (lo dejó la resolución por
+            // getSuscriptorRepeat). Es la fuente de verdad para reparar el intent y la suscripción.
+            var payment = await _db.PagosSuscripcion
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    p => p.Id == paymentId &&
+                         p.TenantId == tenantId &&
+                         p.Estado == EstadoPagoProveedor.Confirmado,
+                    cancellationToken);
+
+            var newSubscriberId = payment?.ProviderSubscriberId;
+            if (payment is null || string.IsNullOrWhiteSpace(newSubscriberId))
+            {
+                return; // Sin subscriber nuevo conocido no hay reparación segura posible.
+            }
+
+            var nowUtc = GetUtcNow();
+            var repairs = new List<string>();
+
+            if (string.IsNullOrWhiteSpace(intent.NewProviderSubscriptionId))
+            {
+                intent.NewProviderSubscriptionId = newSubscriberId;
+                intent.UpdatedAtUtc = nowUtc;
+                repairs.Add("NewProviderSubscriptionId rellenado desde el pago confirmado");
+            }
+
+            var subscription = await _db.Suscripciones
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(s => s.TenantId == tenantId, cancellationToken);
+
+            // Solo reparamos si la suscripción YA está en el plan destino (el cambio se aplicó) pero
+            // quedó con el suscriptor equivocado (el viejo) — la firma exacta del bug.
+            if (subscription is not null &&
+                subscription.TilopayRecurringPlanId == intent.ToTilopayRecurringPlanId &&
+                !string.Equals(subscription.ProviderSubscriptionId, newSubscriberId, StringComparison.OrdinalIgnoreCase))
+            {
+                repairs.Add($"ProviderSubscriptionId {SensitiveDataMasker.MaskReference(subscription.ProviderSubscriptionId)} → {SensitiveDataMasker.MaskReference(newSubscriberId)}");
+                subscription.ProviderSubscriptionId = newSubscriberId;
+                subscription.ProviderTransactionId = payment.ProviderTransactionId ?? subscription.ProviderTransactionId;
+                subscription.FechaUltimaActualizacionUtc = nowUtc;
+
+                // Ciclo: el cambio de plan inicia ciclo NUEVO desde la confirmación del pago; si el
+                // ciclo actual arranca DESPUÉS de esa confirmación, quedó encadenado al plan viejo.
+                if (payment.FechaConfirmacionUtc is { } confirmedAtUtc && subscription.FechaInicio > confirmedAtUtc)
+                {
+                    var targetPlan = await _db.Planes
+                        .IgnoreQueryFilters()
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(p => p.Id == intent.ToPlanId, cancellationToken);
+                    var cycle = targetPlan?.BillingCycle ?? BillingCycle.Monthly;
+                    var periodEndUtc = cycle == BillingCycle.Annual
+                        ? confirmedAtUtc.AddYears(1)
+                        : confirmedAtUtc.AddMonths(1);
+
+                    repairs.Add($"ciclo recalculado desde la confirmación del pago ({confirmedAtUtc:yyyy-MM-dd}) en vez de encadenar el vencimiento anterior");
+                    subscription.FechaInicio = confirmedAtUtc;
+                    subscription.FechaFin = periodEndUtc;
+                    subscription.FechaProximoCobroUtc = periodEndUtc;
+                }
+            }
+
+            if (repairs.Count == 0)
+            {
+                DetachAllTracked();
+                return;
+            }
+
+            // El estado cambió bajo los pies del reintento: los intentos anteriores se hicieron
+            // contra datos rotos (sin suscriptor nuevo, apuntando al viejo) y no prueban nada.
+            // Reiniciar el presupuesto garantiza un intento real INMEDIATO sobre datos ya sanos,
+            // en vez de esperar al backoff que se ganó fallando por una razón ya corregida.
+            if (intent.OldProviderCancellation == ProviderCancellationState.PendingManualCancellation)
+            {
+                repairs.Add($"presupuesto de reintentos reiniciado (llevaba {intent.OldCancellationAttemptCount} intento(s) reales)");
+                ResetOldCancellationBudget(intent, nowUtc);
+            }
+
+            _db.PlatformAuditLogs.Add(new PlatformAuditLog
+            {
+                Id = Guid.NewGuid(),
+                ActorUserId = "system",
+                ActorEmail = "system",
+                Action = PlatformAuditActions.PlanChangeInconsistentStateRepaired,
+                EntityType = PlatformAuditEntityTypes.Subscription,
+                EntityId = intent.Id.ToString(),
+                TenantId = tenantId,
+                Reason = Trim($"Cambio a {intent.ToPlanCode} reparado: {string.Join("; ", repairs)}.", 500),
+                CreatedAtUtc = nowUtc
+            });
+
+            await _db.SaveChangesAsync(cancellationToken);
+            DetachAllTracked();
+
+            report.PlanChangesRepaired++;
+
+            _logger.LogWarning(
+                "Cambio de plan inconsistente reparado. TenantId {TenantId}. IntentId {IntentId}. Reparaciones {Repairs}.",
+                tenantId,
+                intent.Id,
+                repairs.Count);
+        }
+
+        // ── 7. Reintento de cancelación del suscriptor viejo en cambios de plan ───────
+
+        /// <summary>
+        /// Un cambio de plan aplicado cuya cancelación del suscriptor viejo quedó pendiente
+        /// (falló en el momento del webhook) haría que TiloPay siga rebajando el plan anterior.
+        /// Aquí se reintenta POR INTENT, con scope de tenant aislado e idempotente: si el viejo
+        /// ya quedó cancelado, el intent deja de estar pendiente y no se reintenta.
+        ///
+        /// El ritmo lo marca el backoff guardado en el propio intent, NO un conteo de auditorías
+        /// por tenant. Contar auditorías por tenant fue un bug de producción: mezclaba intents,
+        /// y contaba como "intentos" los pases que ni siquiera llamaron a TiloPay, dejando un
+        /// suscriptor viejo cobrando durante 24h sin un solo intento real.
+        /// </summary>
+        private async Task RetryPendingPlanChangeCancellationsAsync(
+            BillingReconciliationReport report,
+            CancellationToken cancellationToken)
+        {
+            // Sin integración admin no hay TiloPay que llamar: no hay nada que auditar tampoco.
+            // OJO: AutoCancelOldSubscriberOnUpgrade=false NO se filtra aquí a propósito — ese caso
+            // debe entrar y registrarse como skip explícito (sin gastar presupuesto).
+            if (_providerSubscriptionManager is null || !_providerSubscriptionManager.IsEnabled)
+            {
+                return;
+            }
+
+            // Escaneo cross-tenant SOLO lectura; cada intent se procesa bajo el scope de SU tenant.
+            var candidates = await _db.PlanChangeIntents
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(intent =>
+                    intent.Estado == PlanChangeIntentState.Applied &&
+                    intent.OldProviderCancellation == ProviderCancellationState.PendingManualCancellation &&
+                    intent.FromProviderSubscriptionId != null)
+                .OrderBy(intent => intent.AppliedAtUtc)
+                .Select(intent => new { intent.Id, intent.TenantId })
+                .ToListAsync(cancellationToken);
+
+            foreach (var candidate in candidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (candidate.TenantId == Guid.Empty)
+                {
+                    continue;
+                }
+
+                // ChangeTracker limpio ANTES de cada intent: ninguna entidad de un tenant puede
+                // quedar colgada y viajar al SaveChanges del siguiente (guard cross-tenant).
+                DetachAllTracked();
+
+                try
+                {
+                    await TryRetryIntentAsync(
+                        candidate.TenantId,
+                        candidate.Id,
+                        ignoreBackoff: false,
+                        report,
+                        cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // Aislar por intent: un tenant que falle no puede impedir que los demás
+                    // intenten cancelar su suscriptor viejo (cada uno es un riesgo de doble cobro).
+                    DetachAllTracked();
+                    _logger.LogError(
+                        ex,
+                        "Reintento de cancelación de suscriptor viejo falló. TenantId {TenantId}. IntentId {IntentId}. Se continúa.",
+                        candidate.TenantId,
+                        candidate.Id);
+                }
+            }
+        }
+
+        public async Task<PlanChangeCancellationRetryOutcome> ForceOldSubscriberCancellationRetryAsync(
+            Guid intentId,
+            string actorUserId,
+            string actorEmail,
+            CancellationToken cancellationToken = default)
+        {
+            var target = await _db.PlanChangeIntents
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(intent => intent.Id == intentId)
+                .Select(intent => new { intent.Id, intent.TenantId })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (target is null || target.TenantId == Guid.Empty)
+            {
+                return new PlanChangeCancellationRetryOutcome
+                {
+                    Status = PlanChangeCancellationRetryStatus.NotPending,
+                    Message = "El cambio de plan indicado no existe."
+                };
+            }
+
+            using (var tenantScope = _tenantExecutionContextAccessor.BeginScope(target.TenantId))
+            {
+                // Soporte toma el control: se reinicia el presupuesto para que el reintento sea
+                // inmediato y los siguientes pases automáticos tampoco arrastren el backoff viejo.
+                var intent = await _db.PlanChangeIntents
+                    .IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(i => i.Id == intentId && i.TenantId == target.TenantId, cancellationToken);
+
+                if (intent is not null)
+                {
+                    var nowUtc = GetUtcNow();
+                    ResetOldCancellationBudget(intent, nowUtc);
+
+                    _db.PlatformAuditLogs.Add(new PlatformAuditLog
+                    {
+                        Id = Guid.NewGuid(),
+                        ActorUserId = string.IsNullOrWhiteSpace(actorUserId) ? "system" : actorUserId,
+                        ActorEmail = string.IsNullOrWhiteSpace(actorEmail) ? "system" : actorEmail,
+                        Action = PlatformAuditActions.PlanChangeOldSubscriberCancellationForcedRetry,
+                        EntityType = PlatformAuditEntityTypes.Subscription,
+                        EntityId = intent.Id.ToString(),
+                        TenantId = target.TenantId,
+                        Reason = Trim(
+                            $"Retry forzado desde plataforma para el cambio a {intent.ToPlanCode}. " +
+                            $"Presupuesto de reintentos reiniciado (llevaba {intent.OldCancellationAttemptCount} intento(s) reales). " +
+                            $"ViejoSuffix {SensitiveDataMasker.MaskReference(intent.FromProviderSubscriptionId)}. " +
+                            $"NuevoSuffix {SensitiveDataMasker.MaskReference(intent.NewProviderSubscriptionId)}.",
+                            500),
+                        CreatedAtUtc = nowUtc
+                    });
+
+                    await _db.SaveChangesAsync(cancellationToken);
+                    DetachAllTracked();
+                }
+            }
+
+            return await TryRetryIntentAsync(
+                target.TenantId,
+                intentId,
+                ignoreBackoff: true,
+                report: null,
+                cancellationToken);
+        }
+
+        /// <summary>
+        /// Núcleo del reintento, compartido por el worker y por el retry forzado de soporte.
+        /// Orden deliberado de las guardas: primero lo que NO debe gastar presupuesto (estado,
+        /// AutoCancel, datos faltantes) y solo al final el backoff. Así, encender AutoCancel o
+        /// reparar el estado siempre habilita un intento real inmediato.
+        /// </summary>
+        private async Task<PlanChangeCancellationRetryOutcome> TryRetryIntentAsync(
+            Guid tenantId,
+            Guid intentId,
+            bool ignoreBackoff,
+            BillingReconciliationReport? report,
+            CancellationToken cancellationToken)
+        {
+            using var tenantScope = _tenantExecutionContextAccessor.BeginScope(tenantId);
+            var nowUtc = GetUtcNow();
+
+            var intent = await _db.PlanChangeIntents
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(i => i.Id == intentId && i.TenantId == tenantId, cancellationToken);
+
+            if (intent is null ||
+                intent.Estado != PlanChangeIntentState.Applied ||
+                intent.OldProviderCancellation != ProviderCancellationState.PendingManualCancellation)
+            {
+                return Outcome(PlanChangeCancellationRetryStatus.NotPending, "El cambio de plan no tiene una cancelación del suscriptor viejo pendiente.");
+            }
+
+            var oldSubscriberId = intent.FromProviderSubscriptionId;
+
+            // ── Guarda 1: la cancelación automática está apagada (requisito: skip ≠ intento) ──
+            var autoCancelEnabled =
+                _providerSubscriptionManager is { IsEnabled: true } &&
+                _adminOptions.AutoCancelOldSubscriberOnUpgrade;
+
+            if (!autoCancelEnabled)
+            {
+                await TryAuditIntentSkipAsync(
+                    PlatformAuditActions.PlanChangeOldSubscriberCancellationSkippedAutoCancelDisabled,
+                    intent,
+                    tenantId,
+                    "AutoCancelOldSubscriberOnUpgrade está apagado: no se llamó a TiloPay y NO se consume presupuesto de reintentos. Al encenderlo, el próximo pase intentará de inmediato.",
+                    autoCancelEnabled,
+                    nowUtc,
+                    cancellationToken);
+
+                if (report is not null)
+                {
+                    report.OldCancellationSkippedAutoCancelDisabled++;
+                }
+
+                _logger.LogWarning(
+                    "Cancelación de suscriptor viejo SALTADA (AutoCancel apagado). IntentId {IntentId}. TenantId {TenantId}. AttemptCount {AttemptCount}. OldProviderCancellation {State}. ViejoSuffix {OldSuffix}. NuevoSuffix {NewSuffix}.",
+                    intent.Id,
+                    tenantId,
+                    intent.OldCancellationAttemptCount,
+                    intent.OldProviderCancellation,
+                    SensitiveDataMasker.MaskReference(oldSubscriberId),
+                    SensitiveDataMasker.MaskReference(intent.NewProviderSubscriptionId));
+
+                return Outcome(
+                    PlanChangeCancellationRetryStatus.SkippedAutoCancelDisabled,
+                    "La cancelación automática del suscriptor viejo está deshabilitada.",
+                    intent);
+            }
+
+            // ── Guarda 2: datos mínimos para un intento VERIFICABLE ──
+            // Sin plan viejo no hay getSuscriptorRepeat que confirme la baja, y en este módulo un
+            // HTTP 200 sin verificar nunca basta: preferimos no llamar y dejarlo visible en health.
+            if (intent.FromTilopayRecurringPlanId is null)
+            {
+                return await SkipNotEligibleAsync(
+                    intent,
+                    tenantId,
+                    "Falta FromTilopayRecurringPlanId: la baja no se podría verificar con getSuscriptorRepeat. Requiere revisión manual.",
+                    autoCancelEnabled,
+                    nowUtc,
+                    report,
+                    cancellationToken);
+            }
+
+            // El suscriptor NUEVO es imprescindible: sin él no se puede descartar que viejo y nuevo
+            // sean el mismo id, y cancelar "el viejo" podría matar la suscripción que está pagando.
+            if (string.IsNullOrWhiteSpace(intent.NewProviderSubscriptionId))
+            {
+                var recovered = await RecoverNewSubscriberFromPaymentAsync(intent, tenantId, cancellationToken);
+
+                if (string.IsNullOrWhiteSpace(recovered))
+                {
+                    return await SkipNotEligibleAsync(
+                        intent,
+                        tenantId,
+                        "Falta NewProviderSubscriptionId y no se pudo recuperar desde el pago confirmado: sin el suscriptor nuevo no es seguro cancelar el viejo.",
+                        autoCancelEnabled,
+                        nowUtc,
+                        report,
+                        cancellationToken);
+                }
+
+                intent.NewProviderSubscriptionId = recovered;
+                intent.UpdatedAtUtc = nowUtc;
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+
+            // ── Guarda 3: backoff (solo ahora que sabemos que el intento SERÍA real) ──
+            if (!ignoreBackoff &&
+                intent.OldCancellationNextRetryUtc is { } nextRetryUtc &&
+                nextRetryUtc > nowUtc)
+            {
+                return await SkipBackoffAsync(
+                    intent,
+                    tenantId,
+                    $"En backoff tras {intent.OldCancellationAttemptCount} intento(s) real(es). Próximo intento elegible {nextRetryUtc:yyyy-MM-dd HH:mm} UTC.",
+                    nextRetryUtc,
+                    autoCancelEnabled,
+                    nowUtc,
+                    report,
+                    cancellationToken);
+            }
+
+            // ── Guarda 4: tope diario por intent (cinturón de seguridad, no el regulador) ──
+            if (!ignoreBackoff)
+            {
+                var maxPerDay = Math.Max(1, _options.OldCancellationRetryMaxAttemptsPerIntentPerDay);
+                var attemptsInWindow = await CountRealAttemptsInWindowAsync(intent, nowUtc, cancellationToken);
+
+                if (attemptsInWindow >= maxPerDay)
+                {
+                    var resumeUtc = nowUtc.AddHours(24);
+                    return await SkipBackoffAsync(
+                        intent,
+                        tenantId,
+                        $"Tope diario alcanzado: {attemptsInWindow} intento(s) REALES contra TiloPay en las últimas 24h (máximo {maxPerDay}). Requiere revisión de soporte; el reintento continúa mañana.",
+                        resumeUtc,
+                        autoCancelEnabled,
+                        nowUtc,
+                        report,
+                        cancellationToken);
+                }
+            }
+
+            // ── Intento REAL ──
+            // El presupuesto se consume ANTES de llamar al proveedor: si el proceso muere a mitad,
+            // el intento igual cuenta y el backoff aplica. Lo contrario permitiría un loop de
+            // llamadas a TiloPay ante fallos repetidos.
+            intent.OldCancellationAttemptCount++;
+            intent.OldCancellationLastAttemptUtc = nowUtc;
+            intent.OldCancellationNextRetryUtc =
+                PlanChangeCancellationBackoff.NextRetryUtc(nowUtc, intent.OldCancellationAttemptCount);
+            intent.UpdatedAtUtc = nowUtc;
+            await _db.SaveChangesAsync(cancellationToken);
+
+            var attemptNumber = intent.OldCancellationAttemptCount;
+
+            var result = await _providerSubscriptionManager!.TryCancelOldSubscriberForUpgradeAsync(
+                tenantId,
+                intent.Id,
+                cancellationToken);
+
+            if (!result.ProviderCalled)
+            {
+                // Una guarda interna del manager frenó la llamada (p. ej. viejo == nuevo). No fue
+                // un intento real: se devuelve el presupuesto para no castigar al intent.
+                intent.OldCancellationAttemptCount = attemptNumber - 1;
+                intent.OldCancellationNextRetryUtc = null;
+                await _db.SaveChangesAsync(cancellationToken);
+
+                return await SkipNotEligibleAsync(
+                    intent,
+                    tenantId,
+                    $"No se llamó a TiloPay: {result.Message}",
+                    autoCancelEnabled,
+                    nowUtc,
+                    report,
+                    cancellationToken);
+            }
+
+            // El manager ya movió OldProviderCancellation y auditó Completed/Failed sobre la MISMA
+            // instancia rastreada; aquí solo cerramos el presupuesto y dejamos el rastro del intento.
+            var cancelled = intent.OldProviderCancellation == ProviderCancellationState.Cancelled;
+            if (cancelled)
+            {
+                intent.OldCancellationNextRetryUtc = null; // Ya no hay nada que reintentar.
+            }
+
+            _db.PlatformAuditLogs.Add(new PlatformAuditLog
+            {
+                Id = Guid.NewGuid(),
+                ActorUserId = "system",
+                ActorEmail = "system",
+                Action = PlatformAuditActions.PlanChangeOldSubscriberCancellationRetried,
+                EntityType = PlatformAuditEntityTypes.Subscription,
+                // EntityId = el INTENT: es la clave con la que se cuenta el presupuesto por intent.
+                EntityId = intent.Id.ToString(),
+                TenantId = tenantId,
+                Reason = Trim(
+                    $"Intento REAL #{attemptNumber} de cancelación del suscriptor viejo (cambio a {intent.ToPlanCode}). " +
+                    $"Resultado {(cancelled ? "baja VERIFICADA" : "sigue pendiente")}. " +
+                    $"ViejoSuffix {SensitiveDataMasker.MaskReference(intent.FromProviderSubscriptionId)}. " +
+                    $"NuevoSuffix {SensitiveDataMasker.MaskReference(intent.NewProviderSubscriptionId)}. " +
+                    $"PlanViejo {intent.FromTilopayRecurringPlanId}. " +
+                    $"Próximo elegible {(cancelled ? "n/a" : $"{intent.OldCancellationNextRetryUtc:yyyy-MM-dd HH:mm} UTC")}. " +
+                    $"Detalle: {result.Message}",
+                    500),
+                CreatedAtUtc = nowUtc
+            });
+
+            await _db.SaveChangesAsync(cancellationToken);
+            DetachAllTracked();
+
+            if (report is not null)
+            {
+                report.OldSubscriberCancellationsRetried++;
+                if (cancelled)
+                {
+                    report.OldSubscriberCancellationsCompleted++;
+                }
+            }
+
+            _logger.LogInformation(
+                "Intento real de cancelación del suscriptor viejo. IntentId {IntentId}. TenantId {TenantId}. Attempt {Attempt}. Cancelled {Cancelled}. VerificationFailed {VerificationFailed}. NextEligibleUtc {NextEligibleUtc}.",
+                intent.Id,
+                tenantId,
+                attemptNumber,
+                cancelled,
+                result.VerificationFailed,
+                intent.OldCancellationNextRetryUtc);
+
+            return new PlanChangeCancellationRetryOutcome
+            {
+                Status = cancelled
+                    ? PlanChangeCancellationRetryStatus.Cancelled
+                    : PlanChangeCancellationRetryStatus.AttemptedStillPending,
+                Message = cancelled
+                    ? "Suscriptor viejo cancelado y verificado en TiloPay."
+                    : $"Se intentó cancelar pero el suscriptor viejo sigue pendiente. Detalle: {result.Message}",
+                AttemptCount = attemptNumber,
+                NextEligibleUtc = intent.OldCancellationNextRetryUtc
+            };
+        }
+
+        /// <summary>
+        /// Recupera el id_suscriptor NUEVO desde el pago confirmado del cambio. El pago es la
+        /// fuente de verdad: lo dejó la resolución por getSuscriptorRepeat al confirmarse.
+        /// </summary>
+        private async Task<string?> RecoverNewSubscriberFromPaymentAsync(
+            PlanChangeIntent intent,
+            Guid tenantId,
+            CancellationToken cancellationToken)
+        {
+            if (intent.PagoSuscripcionId is not { } paymentId)
+            {
+                return null;
+            }
+
+            return await _db.PagosSuscripcion
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(p =>
+                    p.Id == paymentId &&
+                    p.TenantId == tenantId &&
+                    p.Estado == EstadoPagoProveedor.Confirmado &&
+                    p.ProviderSubscriberId != null)
+                .Select(p => p.ProviderSubscriberId)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        /// <summary>
+        /// Intentos REALES del intent dentro de la ventana de 24h, contados desde el último
+        /// reinicio de presupuesto: los intentos previos a una reparación se hicieron sobre datos
+        /// rotos y no deben bloquear el primer intento sobre datos ya sanos.
+        /// </summary>
+        private async Task<int> CountRealAttemptsInWindowAsync(
+            PlanChangeIntent intent,
+            DateTime nowUtc,
+            CancellationToken cancellationToken)
+        {
+            var windowStartUtc = nowUtc.AddHours(-24);
+
+            if (intent.OldCancellationAttemptsResetAtUtc is { } resetAtUtc && resetAtUtc > windowStartUtc)
+            {
+                windowStartUtc = resetAtUtc;
+            }
+
+            var intentKey = intent.Id.ToString();
+
+            return await _db.PlatformAuditLogs.CountAsync(
+                log =>
+                    log.Action == PlatformAuditActions.PlanChangeOldSubscriberCancellationRetried &&
+                    log.EntityId == intentKey &&
+                    log.CreatedAtUtc >= windowStartUtc,
+                cancellationToken);
+        }
+
+        private async Task<PlanChangeCancellationRetryOutcome> SkipNotEligibleAsync(
+            PlanChangeIntent intent,
+            Guid tenantId,
+            string reason,
+            bool autoCancelEnabled,
+            DateTime nowUtc,
+            BillingReconciliationReport? report,
+            CancellationToken cancellationToken)
+        {
+            await TryAuditIntentSkipAsync(
+                PlatformAuditActions.PlanChangeOldSubscriberCancellationSkippedNotEligible,
+                intent,
+                tenantId,
+                reason,
+                autoCancelEnabled,
+                nowUtc,
+                cancellationToken);
+
+            if (report is not null)
+            {
+                report.OldCancellationSkippedNotEligible++;
+            }
+
+            _logger.LogWarning(
+                "Cancelación de suscriptor viejo SALTADA (no elegible). IntentId {IntentId}. TenantId {TenantId}. Reason {Reason}. ViejoSuffix {OldSuffix}. NuevoSuffix {NewSuffix}.",
+                intent.Id,
+                tenantId,
+                reason,
+                SensitiveDataMasker.MaskReference(intent.FromProviderSubscriptionId),
+                SensitiveDataMasker.MaskReference(intent.NewProviderSubscriptionId));
+
+            return Outcome(PlanChangeCancellationRetryStatus.SkippedNotEligible, reason, intent);
+        }
+
+        private async Task<PlanChangeCancellationRetryOutcome> SkipBackoffAsync(
+            PlanChangeIntent intent,
+            Guid tenantId,
+            string reason,
+            DateTime nextEligibleUtc,
+            bool autoCancelEnabled,
+            DateTime nowUtc,
+            BillingReconciliationReport? report,
+            CancellationToken cancellationToken)
+        {
+            await TryAuditIntentSkipAsync(
+                PlatformAuditActions.PlanChangeOldSubscriberCancellationSkippedBackoff,
+                intent,
+                tenantId,
+                reason,
+                autoCancelEnabled,
+                nowUtc,
+                cancellationToken);
+
+            if (report is not null)
+            {
+                report.OldCancellationSkippedBackoff++;
+            }
+
+            // Siempre se loguea (aunque la auditoría esté en cooldown): es la traza que permite
+            // ver por qué un suscriptor viejo sigue vivo sin tener que abrir la BD.
+            _logger.LogInformation(
+                "Cancelación de suscriptor viejo SALTADA por backoff. IntentId {IntentId}. TenantId {TenantId}. AttemptCount {AttemptCount}. NextEligibleUtc {NextEligibleUtc}. Reason {Reason}. AutoCancel {AutoCancel}. OldProviderCancellation {State}. ViejoSuffix {OldSuffix}. NuevoSuffix {NewSuffix}.",
+                intent.Id,
+                tenantId,
+                intent.OldCancellationAttemptCount,
+                nextEligibleUtc,
+                reason,
+                autoCancelEnabled,
+                intent.OldProviderCancellation,
+                SensitiveDataMasker.MaskReference(intent.FromProviderSubscriptionId),
+                SensitiveDataMasker.MaskReference(intent.NewProviderSubscriptionId));
+
+            return new PlanChangeCancellationRetryOutcome
+            {
+                Status = PlanChangeCancellationRetryStatus.SkippedBackoff,
+                Message = reason,
+                AttemptCount = intent.OldCancellationAttemptCount,
+                NextEligibleUtc = nextEligibleUtc
+            };
+        }
+
+        /// <summary>
+        /// Auditoría de skip con cooldown POR INTENT y POR ACCIÓN: el worker corre cada 20 min, así
+        /// que auditar cada pase inundaría una bitácora append-only con la misma noticia. El log
+        /// sí sale siempre; la auditoría es el registro duradero para soporte.
+        /// </summary>
+        private async Task<bool> TryAuditIntentSkipAsync(
+            string action,
+            PlanChangeIntent intent,
+            Guid tenantId,
+            string reason,
+            bool autoCancelEnabled,
+            DateTime nowUtc,
+            CancellationToken cancellationToken)
+        {
+            var cooldownCutoffUtc = nowUtc.AddHours(-Math.Max(1, _options.AlertCooldownHours));
+            var intentKey = intent.Id.ToString();
+
+            var alreadyAudited = await _db.PlatformAuditLogs.AnyAsync(
+                log =>
+                    log.Action == action &&
+                    log.EntityId == intentKey &&
+                    log.CreatedAtUtc >= cooldownCutoffUtc,
+                cancellationToken);
+
+            if (alreadyAudited)
+            {
+                return false;
+            }
+
+            // Contexto completo para soporte: nunca el id_suscriptor entero, solo el sufijo.
+            var diagnostics = JsonSerializer.Serialize(new
+            {
+                intentId = intent.Id,
+                tenantId,
+                attemptCount = intent.OldCancellationAttemptCount,
+                lastAttemptUtc = intent.OldCancellationLastAttemptUtc,
+                nextEligibleUtc = intent.OldCancellationNextRetryUtc,
+                autoCancelOldSubscriberOnUpgrade = autoCancelEnabled,
+                oldProviderCancellation = intent.OldProviderCancellation.ToString(),
+                fromProviderSubscriptionIdSuffix = SensitiveDataMasker.MaskReference(intent.FromProviderSubscriptionId),
+                newProviderSubscriptionIdSuffix = SensitiveDataMasker.MaskReference(intent.NewProviderSubscriptionId),
+                fromTilopayRecurringPlanId = intent.FromTilopayRecurringPlanId,
+                toPlanCode = intent.ToPlanCode,
+                reason
+            });
+
+            _db.PlatformAuditLogs.Add(new PlatformAuditLog
+            {
+                Id = Guid.NewGuid(),
+                ActorUserId = "system",
+                ActorEmail = "system",
+                Action = action,
+                EntityType = PlatformAuditEntityTypes.Subscription,
+                EntityId = intentKey,
+                TenantId = tenantId,
+                Reason = Trim(reason, 500),
+                AfterJson = diagnostics,
+                CreatedAtUtc = nowUtc
+            });
+
+            await _db.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+
+        /// <summary>Presupuesto de reintentos a cero: el estado cambió, los intentos viejos ya no prueban nada.</summary>
+        private static void ResetOldCancellationBudget(PlanChangeIntent intent, DateTime nowUtc)
+        {
+            intent.OldCancellationAttemptCount = 0;
+            intent.OldCancellationNextRetryUtc = null;
+            intent.OldCancellationAttemptsResetAtUtc = nowUtc;
+            intent.UpdatedAtUtc = nowUtc;
+        }
+
+        private static PlanChangeCancellationRetryOutcome Outcome(
+            PlanChangeCancellationRetryStatus status,
+            string message,
+            PlanChangeIntent? intent = null) =>
+            new()
+            {
+                Status = status,
+                Message = message,
+                AttemptCount = intent?.OldCancellationAttemptCount ?? 0,
+                NextEligibleUtc = intent?.OldCancellationNextRetryUtc
+            };
 
         // ── Aislamiento de fases y multi-tenant ──────────────────────────────────────
 
@@ -730,7 +2170,12 @@ namespace LuxuryApp.Services.Billing
                     subscription.Estado == EstadoSuscripcion.Activa &&
                     !subscription.CancelAtPeriodEnd &&
                     subscription.FechaProximoCobroUtc != null &&
-                    subscription.FechaProximoCobroUtc < overdueCutoffUtc)
+                    subscription.FechaProximoCobroUtc < overdueCutoffUtc &&
+                    // Solo vencida si TiloPay TAMPOCO va a cobrar más tarde: si el proveedor tiene un
+                    // expire posterior (reactivó/extendió), no es una renovación vencida, es que
+                    // nuestra fecha local va por detrás. Evita la alerta falsa del caso compra3.
+                    (subscription.ProviderExpiresAtUtc == null ||
+                     subscription.ProviderExpiresAtUtc < overdueCutoffUtc))
                 .Select(subscription => new
                 {
                     subscription.Id,

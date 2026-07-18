@@ -20,6 +20,9 @@ namespace LuxuryApp.Tests
         public Task<TilopayAdminOperationResult> GetRecurrentUrlAsync(int tilopayPlanId, string? email, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("TiloPay Repeat Admin deshabilitado.");
 
+        public Task<TargetSubscriberAssessment> AssessTargetSubscribersAsync(int tilopayPlanId, string? email, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("TiloPay Repeat Admin deshabilitado.");
+
         public Task<TilopayAdminOperationResult> PauseSubscriberAsync(string subscriberId, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("TiloPay Repeat Admin deshabilitado.");
 

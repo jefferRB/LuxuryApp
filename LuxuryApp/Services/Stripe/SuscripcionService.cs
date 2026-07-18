@@ -1,5 +1,6 @@
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Models.WhatsApp;
+using LuxuryApp.Services.Billing;
 using LuxuryApp.Services.BusinessTime;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -15,6 +16,7 @@ namespace LuxuryApp.Services.SaaS
         private readonly ITenantCommercialAccessCache _accessCache;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly TilopayRepeatOptions _tilopayRepeatOptions;
+        private readonly Billing.BillingPaymentRecoveryOptions? _recoveryOptions;
         private readonly ILogger<SuscripcionService> _logger;
 
         public SuscripcionService(
@@ -23,13 +25,15 @@ namespace LuxuryApp.Services.SaaS
             ITenantCommercialAccessCache accessCache,
             IBusinessDateTimeProvider businessDateTimeProvider,
             IOptions<TilopayRepeatOptions> tilopayRepeatOptions,
-            ILogger<SuscripcionService> logger)
+            ILogger<SuscripcionService> logger,
+            IOptions<Billing.BillingPaymentRecoveryOptions>? recoveryOptions = null)
         {
             _db = db;
             _cache = cache;
             _accessCache = accessCache;
             _businessDateTimeProvider = businessDateTimeProvider;
             _tilopayRepeatOptions = tilopayRepeatOptions.Value;
+            _recoveryOptions = recoveryOptions?.Value;
             _logger = logger;
         }
 
@@ -397,10 +401,16 @@ namespace LuxuryApp.Services.SaaS
             var nowUtc = GetUtcNow();
             var previousPlanId = suscripcion?.PlanId;
             var previousState = suscripcion?.Estado;
-            // Solo se extiende el periodo vigente cuando es el MISMO plan; un cambio de plan
-            // (p.ej. upgrade de funcionarios o mensual<->anual) reinicia el periodo segun el
+            // Solo se extiende el periodo vigente cuando es el MISMO plan (renovacion); un cambio de
+            // plan (p.ej. upgrade de funcionarios o mensual<->anual) reinicia el periodo segun el
             // ciclo del plan nuevo para no arrastrar vigencia de un ciclo distinto.
-            var isSamePlan = suscripcion is not null && suscripcion.PlanId == plan.Id;
+            // Se exige que coincidan AMBOS: la fila Plan y el plan recurrente del proveedor. Si el
+            // suscriptor recurrente cambio, es un plan distinto aunque PlanId ya hubiera sido
+            // mutado por un webhook previo -> nunca encadenar el ciclo del plan anterior.
+            var isSamePlan = suscripcion is not null &&
+                             suscripcion.PlanId == plan.Id &&
+                             (!suscripcion.TilopayRecurringPlanId.HasValue ||
+                              suscripcion.TilopayRecurringPlanId.Value == tilopayRecurringPlanId);
             var (periodStartUtc, periodEndUtc) = ResolveNextBillingPeriod(
                 nowUtc,
                 suscripcion?.FechaFin,
@@ -798,12 +808,43 @@ namespace LuxuryApp.Services.SaaS
         {
             ArgumentNullException.ThrowIfNull(suscripcion);
 
-            return GetEffectiveStatusInternal(
-                suscripcion.Estado,
+            // Fin de período EFECTIVO: el más tardío entre lo que calculó LuxuryCloud y lo que
+            // TiloPay realmente va a cobrar. Solo puede EXTENDER la vigencia (el máximo nunca
+            // acorta), así que un suscriptor con expire posterior en el proveedor no se marca moroso
+            // antes de tiempo, y uno con expire anterior tampoco pierde acceso ya pagado.
+            var effectiveEndUtc = SubscriptionEffectiveDates.GetEffectiveEndUtc(
                 suscripcion.FechaFin,
+                suscripcion.ProviderExpiresAtUtc);
+
+            // Renovación cancelada: el acceso NO puede exceder la fecha efectiva de cancelación,
+            // aunque el Estado local siga Activa. El cierre del Estado lo hace un worker que puede
+            // correr después; el control de acceso NO debe esperarlo (fail-closed al vencer).
+            if (suscripcion.CancelAtPeriodEnd && suscripcion.CancellationEffectiveAtUtc is { } cancelEndUtc)
+            {
+                effectiveEndUtc = effectiveEndUtc is { } end && end < cancelEndUtc ? end : cancelEndUtc;
+            }
+
+            var effectiveStatus = GetEffectiveStatusInternal(
+                suscripcion.Estado,
+                effectiveEndUtc,
                 suscripcion.FechaTrialFin,
                 suscripcion.FechaFinGraciaUtc,
                 GetUtcNow());
+
+            // Gate de recuperación de pago: una suscripción Morosa (impago en gracia) cuya gracia
+            // venció NO se suspende automáticamente salvo que AutoSuspendAfterGrace lo habilite. El
+            // gate solo aplica con la recuperación Enabled (en producción); si el módulo no está
+            // configurado (p.ej. tests que no lo usan), se conserva el comportamiento anterior. NO
+            // aplica a cancelaciones de renovación (ese corte manda). El worker registra el dry-run.
+            if (effectiveStatus == EstadoSuscripcion.Suspendida &&
+                suscripcion.Estado == EstadoSuscripcion.Morosa &&
+                !suscripcion.CancelAtPeriodEnd &&
+                _recoveryOptions is { Enabled: true, AutoSuspendAfterGrace: false })
+            {
+                return EstadoSuscripcion.Morosa;
+            }
+
+            return effectiveStatus;
         }
 
         public EstadoSuscripcion GetEffectiveStatus(TenantSubscriptionAddon addon)

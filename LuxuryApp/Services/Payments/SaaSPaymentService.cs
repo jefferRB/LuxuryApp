@@ -31,6 +31,8 @@ namespace LuxuryApp.Services.Payments
         private readonly Billing.ISubscriberResolutionService? _subscriberResolutionService;
         private readonly Tilopay.ITilopayRepeatAdminService? _tilopayRepeatAdminService;
         private readonly Billing.IProviderSubscriptionManager? _providerSubscriptionManager;
+        private readonly Billing.IPlanChangeLateApplicationService? _planChangeLateApplicationService;
+        private readonly Billing.IPaymentRecoveryService? _paymentRecovery;
         private readonly OpcionesTilopayRepeatAdmin _tilopayRepeatAdminOptions;
 
         public SaaSPaymentService(
@@ -47,7 +49,9 @@ namespace LuxuryApp.Services.Payments
             Billing.ISubscriberResolutionService? subscriberResolutionService = null,
             Tilopay.ITilopayRepeatAdminService? tilopayRepeatAdminService = null,
             IOptions<OpcionesTilopayRepeatAdmin>? tilopayRepeatAdminOptions = null,
-            Billing.IProviderSubscriptionManager? providerSubscriptionManager = null)
+            Billing.IProviderSubscriptionManager? providerSubscriptionManager = null,
+            Billing.IPlanChangeLateApplicationService? planChangeLateApplicationService = null,
+            Billing.IPaymentRecoveryService? paymentRecovery = null)
         {
             _db = db;
             _providerResolver = providerResolver;
@@ -62,6 +66,8 @@ namespace LuxuryApp.Services.Payments
             _subscriberResolutionService = subscriberResolutionService;
             _tilopayRepeatAdminService = tilopayRepeatAdminService;
             _providerSubscriptionManager = providerSubscriptionManager;
+            _planChangeLateApplicationService = planChangeLateApplicationService;
+            _paymentRecovery = paymentRecovery;
             _tilopayRepeatAdminOptions = tilopayRepeatAdminOptions?.Value ?? new OpcionesTilopayRepeatAdmin();
         }
 
@@ -560,6 +566,12 @@ namespace LuxuryApp.Services.Payments
             intento.TilopayRecurringPlanId = repeatRegistration.Plan.TilopayPlanId;
             intento.ProviderTransactionId = providerTransactionId;
             intento.ProviderSubscriberId = FirstNonEmpty(request.ProviderSubscriberId, intento.ProviderSubscriberId);
+
+            // Suscriptor EFECTIVO: los webhooks de TiloPay NO traen id_suscriptor, así que casi
+            // siempre viene null en la request y el valor real lo dejó la resolución previa
+            // (repeat_registration → getSuscriptorRepeat) en el propio pago. Usar la request a
+            // secas dejaba la suscripción con el suscriptor VIEJO y el intent sin NewProviderSubscriptionId.
+            var effectiveSubscriberId = intento.ProviderSubscriberId;
             intento.ProviderReference = providerReference;
             intento.ProviderAuthorizationCode = FirstNonEmpty(request.ProviderAuthorizationCode, intento.ProviderAuthorizationCode);
             intento.Estado = EstadoPagoProveedor.Confirmado;
@@ -581,32 +593,69 @@ namespace LuxuryApp.Services.Payments
                     intento.TenantId,
                     plan,
                     repeatRegistration.Plan.TilopayPlanId,
-                    request.ProviderSubscriberId,
+                    effectiveSubscriberId,
                     providerTransactionId,
                     motivo: BuildRecurringApprovalReason(request.Source, request.Observation),
                     cancellationToken: cancellationToken);
             }
             else
             {
-                await _suscripcionService.ActivarSuscripcionRecurrenteAsync(
-                    intento.TenantId,
-                    plan,
-                    repeatRegistration.Plan.TilopayPlanId,
-                    request.ProviderSubscriberId,
-                    providerTransactionId,
-                    providerReference,
-                    motivo: BuildRecurringApprovalReason(request.Source, request.Observation),
-                    cancellationToken: cancellationToken);
+                // GUARD anti estado inconsistente: si esto es un CAMBIO de plan y todavía no
+                // conocemos el suscriptor NUEVO, no se aplica el plan local. Aplicarlo dejaría la
+                // suscripción apuntando al suscriptor VIEJO (doble cobro invisible) y el intent sin
+                // NewProviderSubscriptionId. El pago queda Confirmado y la reconciliación resuelve
+                // el suscriptor y termina de aplicar; el cliente conserva su plan viejo mientras tanto.
+                var openIntent = _planChangeService is null
+                    ? null
+                    : await _planChangeService.GetOpenIntentAsync(intento.TenantId, cancellationToken);
+                var isPlanChange = openIntent is not null &&
+                                   openIntent.ToTilopayRecurringPlanId == repeatRegistration.Plan.TilopayPlanId;
 
-                // Si esta activacion corresponde a un cambio de plan en curso, marcarlo aplicado
-                // y, si la suscripcion proveedor anterior difiere, alertar para cancelarla manual.
-                if (_planChangeService is not null)
+                if (isPlanChange && string.IsNullOrWhiteSpace(effectiveSubscriberId))
                 {
-                    await _planChangeService.ApplyAppliedAsync(
+                    _db.PlatformAuditLogs.Add(new Models.Platform.PlatformAuditLog
+                    {
+                        Id = Guid.NewGuid(),
+                        ActorUserId = "system",
+                        ActorEmail = "system",
+                        Action = Models.Platform.PlatformAuditActions.PlanChangeBlockedMissingNewProviderSubscription,
+                        EntityType = Models.Platform.PlatformAuditEntityTypes.Subscription,
+                        EntityId = intento.Id.ToString(),
+                        TenantId = intento.TenantId,
+                        Reason = $"Pago {providerTransactionId} confirmado para {plan.Codigo ?? plan.Nombre}, pero el id_suscriptor nuevo aún no estaba resuelto DENTRO de la transacción de aprobación. No se aplica el plan local aquí (evita quedar con el suscriptor viejo). Se resuelve y aplica al salir de la transacción, en este mismo webhook; si tampoco ahí, lo repara la reconciliación.",
+                        CreatedAtUtc = approvedAtUtc
+                    });
+
+                    // Nivel Warning y no Error: dejó de ser un estado terminal. La aplicación tardía
+                    // corre a continuación en el mismo request; si ESA falla, ahí sí hay hallazgo.
+                    _logger.LogWarning(
+                        "Cambio de plan no aplicado dentro de la transacción: falta el suscriptor nuevo. Se intentará al resolverlo. TenantId {TenantId}. PaymentId {PaymentId}. ToPlan {ToPlan}.",
                         intento.TenantId,
+                        intento.Id,
+                        plan.Codigo ?? plan.Nombre);
+                }
+                else
+                {
+                    await _suscripcionService.ActivarSuscripcionRecurrenteAsync(
+                        intento.TenantId,
+                        plan,
                         repeatRegistration.Plan.TilopayPlanId,
-                        request.ProviderSubscriberId,
-                        cancellationToken);
+                        effectiveSubscriberId,
+                        providerTransactionId,
+                        providerReference,
+                        motivo: BuildRecurringApprovalReason(request.Source, request.Observation),
+                        cancellationToken: cancellationToken);
+
+                    // Si esta activacion corresponde a un cambio de plan en curso, marcarlo aplicado
+                    // y, si la suscripcion proveedor anterior difiere, alertar para cancelarla manual.
+                    if (_planChangeService is not null)
+                    {
+                        await _planChangeService.ApplyAppliedAsync(
+                            intento.TenantId,
+                            repeatRegistration.Plan.TilopayPlanId,
+                            effectiveSubscriberId,
+                            cancellationToken);
+                    }
                 }
             }
 
@@ -1609,6 +1658,17 @@ namespace LuxuryApp.Services.Payments
                     intento,
                     cancellationToken);
 
+                // El suscriptor nuevo pudo resolverse RECIÉN AHORA (TiloPay no lo manda en el
+                // webhook). Si es así, el cambio de plan quedó sin aplicar unos milisegundos antes,
+                // dentro de la transacción de aprobación. Aplicarlo aquí cierra el hueco en el mismo
+                // request, sin meter una llamada HTTP dentro de la transacción financiera.
+                await TryApplyPlanChangeAfterLateSubscriberAsync(
+                    resolvedPlan.IsAddon,
+                    webhook,
+                    tenantId,
+                    intento,
+                    cancellationToken);
+
                 // Si este pago exitoso aplicó un cambio de plan, cancelar el suscriptor ANTERIOR en
                 // TiloPay para no arrastrar doble cobro. Post-commit, best-effort, HTTP fuera de tx.
                 if (!resolvedPlan.IsAddon &&
@@ -1618,7 +1678,9 @@ namespace LuxuryApp.Services.Payments
                 {
                     try
                     {
-                        await _providerSubscriptionManager.TryCancelOldSubscriberForUpgradeAsync(tenantId, cancellationToken);
+                        await _providerSubscriptionManager.TryCancelOldSubscriberForUpgradeAsync(
+                            tenantId,
+                            cancellationToken: cancellationToken);
                     }
                     catch (Exception ex)
                     {
@@ -1628,6 +1690,12 @@ namespace LuxuryApp.Services.Payments
                             tenantId);
                     }
                 }
+
+                // Recuperación de pago (post-commit, best-effort, local, sin HTTP): abre/actualiza el
+                // incidente en un fallo recurrente del plan base, o lo resuelve tras un pago exitoso.
+                // Gateado por BillingPaymentRecovery:Enabled dentro del servicio. Nunca rompe el webhook.
+                await TryTrackPaymentRecoveryAsync(
+                    tenantId, resolvedPlan.IsAddon, resolvedRecurringPlanId, webhook, cancellationToken);
 
                 return new PaymentWebhookProcessingResult
                 {
@@ -1869,6 +1937,24 @@ namespace LuxuryApp.Services.Payments
 
             if (subscription is null)
             {
+                return;
+            }
+
+            // CAMBIO DE PLAN EN VUELO: el registro recurrente ocurre ANTES de que el pago nuevo se
+            // confirme. Si el tenant ya tiene una suscripción vigente en OTRO plan, NO tocamos su
+            // plan aquí: hacerlo (a) le daría el cupo del plan nuevo sin haber pagado, y (b) haría
+            // que la activación posterior creyera que es una renovación del mismo plan y ENCADENARA
+            // el ciclo al vencimiento viejo en vez de iniciar uno nuevo. El plan se aplica solo al
+            // confirmarse el pago (estrategia B).
+            if (subscription.TilopayRecurringPlanId.HasValue &&
+                subscription.TilopayRecurringPlanId.Value != resolvedPlan.TilopayPlanId &&
+                _suscripcionService.CanAccessApp(subscription))
+            {
+                _logger.LogInformation(
+                    "Registro recurrente de un plan distinto al vigente: no se muta la suscripción hasta confirmar el pago. TenantId {TenantId}. Actual {CurrentPlanId}. Registrado {RegisteredPlanId}.",
+                    tenantId,
+                    subscription.TilopayRecurringPlanId,
+                    resolvedPlan.TilopayPlanId);
                 return;
             }
 
@@ -2465,15 +2551,20 @@ namespace LuxuryApp.Services.Payments
         }
 
         /// <summary>
-        /// Decide cómo abrir el checkout recurrente frente al riesgo de duplicar el suscriptor:
+        /// Decide cómo abrir el checkout recurrente frente al riesgo de duplicar el suscriptor.
+        /// La pregunta es una sola: <b>¿hay alguien COBRANDO hoy en el plan destino?</b>
         /// <list type="bullet">
-        /// <item>API dice 0 suscriptores → null (crear hosted link es seguro).</item>
-        /// <item>API dice 1 → persiste el id_suscriptor y enruta a recurrentUrl (no crea hosted link).</item>
-        /// <item>API dice &gt;1 → bloquea + ManualReview + alerta crítica.</item>
-        /// <item>API caído/erróneo → falla-CERRADO SOLO si hay señal local de suscripción previa
-        /// (suscripción activa/morosa, ProviderSubscriptionId, o pagos pendiente/fallido/confirmado/
-        /// revisión del mismo plan). Si el tenant no tiene NINGUNA señal, es una primera compra
-        /// limpia y se permite el hosted link.</item>
+        /// <item>Nadie activo (cero suscriptores, o solo eliminados/cancelados) → null: hosted link
+        /// seguro. Un suscriptor Delete NO es una suscripción viva: es exactamente el rastro que
+        /// deja volver a un plan que ya se tuvo, y bloquear ahí impedía downgrades legítimos.</item>
+        /// <item>Exactamente 1 activo y es el MISMO plan que el tenant ya tiene → recurrentUrl
+        /// (actualizar tarjeta / reintentar), sin crear un segundo suscriptor.</item>
+        /// <item>Exactamente 1 activo pero el destino es OTRO plan (cambio de plan) → bloquea: pagar
+        /// dejaría dos suscriptores cobrando ese mismo plan.</item>
+        /// <item>&gt;1 activo → bloquea + revisión manual (ya hay riesgo sin que toquemos nada).</item>
+        /// <item>Status desconocido → bloquea: no se asume libre.</item>
+        /// <item>API caído/erróneo → falla-CERRADO SOLO si hay señal local de suscripción previa.
+        /// Sin ninguna señal es una primera compra limpia y se permite el hosted link.</item>
         /// </list>
         /// Nunca marca la suscripción como perdida ni cancela nada.
         /// </summary>
@@ -2493,10 +2584,10 @@ namespace LuxuryApp.Services.Payments
                 return null;
             }
 
-            Tilopay.SubscriberResolutionResult resolution;
+            Tilopay.TargetSubscriberAssessment assessment;
             try
             {
-                resolution = await _tilopayRepeatAdminService.ResolveSubscriberAsync(
+                assessment = await _tilopayRepeatAdminService.AssessTargetSubscribersAsync(
                     tilopayRecurringPlanId,
                     customerEmail,
                     cancellationToken);
@@ -2513,45 +2604,84 @@ namespace LuxuryApp.Services.Payments
                 return null;
             }
 
-            if (resolution.Status == Tilopay.SubscriberResolutionStatus.Error)
+            if (assessment.Verdict == Tilopay.TargetSubscriberVerdict.ProviderError)
             {
                 // Consulta NO concluyente (API caído/erróneo): falla-cerrado si hay señal local.
                 await GuardInconclusiveVerificationAsync(
                     tenantId,
                     tilopayRecurringPlanId,
                     isAddon,
-                    resolution.Detail ?? "respuesta no concluyente de TiloPay",
+                    assessment.Detail ?? "respuesta no concluyente de TiloPay",
                     cancellationToken);
                 return null;
             }
 
-            if (resolution.Status == Tilopay.SubscriberResolutionStatus.NotFound)
+            if (assessment.Verdict == Tilopay.TargetSubscriberVerdict.UnknownStatus)
             {
-                // 0 suscriptores confirmado por el API: seguro/necesario crear checkout nuevo.
-                return null;
+                await AuditCheckoutAsync(
+                    tenantId,
+                    Models.Platform.PlatformAuditActions.CheckoutBlockedUnknownTargetSubscriberStatus,
+                    $"Checkout bloqueado: el plan {tilopayRecurringPlanId} tiene {assessment.Unknown.Count} suscriptor(es) con status que no sabemos clasificar ({DescribeStatuses(assessment.Unknown)}). No se asume que el plan esté libre. {assessment.Detail}",
+                    cancellationToken);
+
+                throw new RecurringCheckoutBlockedException(
+                    "No pudimos confirmar el estado de tu suscripción con el proveedor de pagos. Para evitar un cobro doble, contactá soporte y lo resolvemos enseguida.");
             }
 
-            if (resolution.Status == Tilopay.SubscriberResolutionStatus.Ambiguous)
+            if (assessment.Verdict == Tilopay.TargetSubscriberVerdict.MultipleActive)
             {
-                _db.PlatformAuditLogs.Add(new Models.Platform.PlatformAuditLog
-                {
-                    Id = Guid.NewGuid(),
-                    ActorUserId = "system",
-                    ActorEmail = "system",
-                    Action = Models.Platform.PlatformAuditActions.CheckoutBlockedExistingProviderSubscriber,
-                    EntityType = Models.Platform.PlatformAuditEntityTypes.Subscription,
-                    TenantId = tenantId,
-                    Reason = $"Checkout bloqueado: {resolution.MatchCount} suscriptores TiloPay coinciden por email para el plan {tilopayRecurringPlanId}. Requiere revisión manual antes de cobrar.",
-                    CreatedAtUtc = DateTime.UtcNow
-                });
-                await _db.SaveChangesAsync(cancellationToken);
+                await AuditCheckoutAsync(
+                    tenantId,
+                    Models.Platform.PlatformAuditActions.CheckoutBlockedExistingProviderSubscriber,
+                    $"Checkout bloqueado: {assessment.Active.Count} suscriptores TiloPay ACTIVOS coinciden por email para el plan {tilopayRecurringPlanId}. Requiere revisión manual antes de cobrar.",
+                    cancellationToken);
 
                 throw new RecurringCheckoutBlockedException(
                     "Encontramos más de una suscripción asociada a tu correo. Para evitar un cobro doble, contactá soporte y lo resolvemos enseguida.");
             }
 
-            // Found: existe exactamente un suscriptor. Persistir su id si falta y enrutar a recurrentUrl.
-            var subscriber = resolution.Subscriber!;
+            if (assessment.Verdict == Tilopay.TargetSubscriberVerdict.Free)
+            {
+                // Nadie cobrando. Si quedaron suscriptores eliminados, dejamos rastro de que se
+                // ignoraron a propósito: es la diferencia entre "volver a un plan" y "duplicar".
+                if (assessment.Inactive.Count > 0)
+                {
+                    await AuditCheckoutAsync(
+                        tenantId,
+                        Models.Platform.PlatformAuditActions.PlanChangeIgnoredInactiveTargetProviderSubscriber,
+                        $"Plan destino {tilopayRecurringPlanId}: {assessment.Inactive.Count} suscriptor(es) previo(s) INACTIVO(s) ({DescribeSubscribers(assessment.Inactive)}). No cobran, así que no bloquean: se abre checkout nuevo sin usar recurrentUrl.",
+                        cancellationToken);
+
+                    _logger.LogInformation(
+                        "Plan destino con suscriptor inactivo: se permite checkout nuevo. TenantId {TenantId}. PlanId {PlanId}. RecurringPlanId {RecurringPlanId}. Inactivos {Inactivos}.",
+                        tenantId,
+                        planId,
+                        tilopayRecurringPlanId,
+                        assessment.Inactive.Count);
+                }
+
+                return null;
+            }
+
+            // SingleActive: hay exactamente un suscriptor cobrando el plan destino.
+            var subscriber = assessment.Active[0];
+
+            // Si el destino NO es el plan que el tenant ya tiene, esto es un cambio de plan hacia un
+            // plan donde ya hay algo vivo. recurrentUrl aquí no sirve (renueva el viejo, no cambia
+            // nada) y un hosted link nuevo duplicaría: lo correcto es parar y que soporte mire.
+            if (await IsPlanChangeAwayFromCurrentAsync(tenantId, tilopayRecurringPlanId, isAddon, cancellationToken))
+            {
+                await AuditCheckoutAsync(
+                    tenantId,
+                    Models.Platform.PlatformAuditActions.PlanChangeBlockedExistingActiveTargetSubscriber,
+                    $"Cambio de plan bloqueado: el plan destino {tilopayRecurringPlanId} ya tiene un suscriptor ACTIVO (suffix {SensitiveDataMasker.MaskReference(subscriber.SubscriberId)}, status {Tilopay.ProviderSubscriberStatusRules.Sanitize(subscriber.Status)}) del mismo correo. Pagar dejaría dos suscriptores cobrando ese plan.",
+                    cancellationToken);
+
+                throw new RecurringCheckoutBlockedException(
+                    "Encontramos una suscripción activa previa en el plan destino. Soporte debe revisarlo para evitar doble cobro.");
+            }
+
+            // Mismo plan: persistir su id si falta y enrutar a recurrentUrl (actualizar tarjeta).
             await PersistExistingSubscriberAsync(tenantId, isAddon, subscriber.SubscriberId, cancellationToken);
 
             var recurrentUrl = await _tilopayRepeatAdminService.GetRecurrentUrlAsync(
@@ -2595,6 +2725,65 @@ namespace LuxuryApp.Services.Payments
                 CorrelationId = subscriber.SubscriberId
             };
         }
+
+        /// <summary>
+        /// True si el checkout apunta a un plan DISTINTO del que el tenant tiene hoy (cambio de
+        /// plan). Los add-ons se excluyen: viven en su propia suscripción y no cambian el plan base.
+        /// Sin suscripción previa no hay cambio: es una compra normal.
+        /// </summary>
+        private async Task<bool> IsPlanChangeAwayFromCurrentAsync(
+            Guid tenantId,
+            int targetRecurringPlanId,
+            bool isAddon,
+            CancellationToken cancellationToken)
+        {
+            if (isAddon)
+            {
+                return false;
+            }
+
+            var currentRecurringPlanId = await _db.Suscripciones
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(subscription =>
+                    subscription.TenantId == tenantId &&
+                    subscription.TilopayRecurringPlanId != null)
+                .OrderByDescending(subscription => subscription.FechaUltimaActualizacionUtc ?? subscription.FechaInicio)
+                .Select(subscription => subscription.TilopayRecurringPlanId)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            return currentRecurringPlanId is not null && currentRecurringPlanId != targetRecurringPlanId;
+        }
+
+        private async Task AuditCheckoutAsync(
+            Guid tenantId,
+            string action,
+            string reason,
+            CancellationToken cancellationToken)
+        {
+            _db.PlatformAuditLogs.Add(new Models.Platform.PlatformAuditLog
+            {
+                Id = Guid.NewGuid(),
+                ActorUserId = "system",
+                ActorEmail = "system",
+                Action = action,
+                EntityType = Models.Platform.PlatformAuditEntityTypes.Subscription,
+                TenantId = tenantId,
+                Reason = reason.Length <= 500 ? reason : reason[..500],
+                CreatedAtUtc = DateTime.UtcNow
+            });
+
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        /// <summary>Sufijos + status saneados para auditoría: nunca el id_suscriptor completo.</summary>
+        private static string DescribeSubscribers(IReadOnlyList<Tilopay.TilopaySubscriber> subscribers) =>
+            string.Join(", ", subscribers.Take(5).Select(subscriber =>
+                $"{SensitiveDataMasker.MaskReference(subscriber.SubscriberId)}:{Tilopay.ProviderSubscriberStatusRules.Sanitize(subscriber.Status)}"));
+
+        private static string DescribeStatuses(IReadOnlyList<Tilopay.TilopaySubscriber> subscribers) =>
+            string.Join(", ", subscribers.Take(5).Select(subscriber =>
+                Tilopay.ProviderSubscriberStatusRules.Sanitize(subscriber.Status)));
 
         private async Task PersistExistingSubscriberAsync(
             Guid tenantId,
@@ -3131,6 +3320,50 @@ namespace LuxuryApp.Services.Payments
         /// (plan, email) y lo persiste. Best-effort y aislado: nunca lanza hacia el flujo del webhook.
         /// La llamada HTTP y la transacción corta viven dentro del propio servicio de resolución.
         /// </summary>
+        /// <summary>
+        /// Termina de aplicar un cambio de plan cuyo pago ya quedó Confirmado pero cuyo suscriptor
+        /// nuevo solo se conoció al resolverlo (paso anterior). Idempotente y best-effort: si no
+        /// aplica, el pase de reconciliación lo repara. Nunca rompe el procesamiento del webhook.
+        /// </summary>
+        private async Task TryApplyPlanChangeAfterLateSubscriberAsync(
+            bool isAddon,
+            PaymentProviderWebhookData webhook,
+            Guid tenantId,
+            PagoSuscripcion? intento,
+            CancellationToken cancellationToken)
+        {
+            if (isAddon ||
+                intento is null ||
+                _planChangeLateApplicationService is null ||
+                !(IsRecurringPaymentSuccessEvent(webhook.EventType) || IsRecurringApproved(webhook)))
+            {
+                return;
+            }
+
+            try
+            {
+                var result = await _planChangeLateApplicationService
+                    .ApplyPendingPlanChangeAfterSubscriberResolvedAsync(intento.Id, "webhook_payment", cancellationToken);
+
+                if (result.Status == Billing.LatePlanChangeApplicationStatus.Applied)
+                {
+                    _logger.LogInformation(
+                        "Cambio de plan aplicado en el mismo webhook tras resolver el suscriptor nuevo. TenantId {TenantId}. PaymentId {PaymentId}. IntentId {IntentId}.",
+                        tenantId,
+                        intento.Id,
+                        result.IntentId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Aplicación tardía del cambio de plan no se completó tras el webhook. TenantId {TenantId}. PaymentId {PaymentId}.",
+                    tenantId,
+                    intento.Id);
+            }
+        }
+
         private async Task TryResolveSubscriberAfterRecurringWebhookAsync(
             PaymentProviderWebhookData webhook,
             Guid tenantId,
@@ -3516,6 +3749,46 @@ namespace LuxuryApp.Services.Payments
             string.IsNullOrWhiteSpace(eventType)
                 ? null
                 : eventType.Trim().Replace('.', '_').Replace('-', '_').ToLowerInvariant();
+
+        /// <summary>
+        /// Engancha la recuperación de pago tras procesar (y commitear) un webhook recurrente del
+        /// plan base: éxito ⇒ resuelve el incidente; fallo ⇒ abre/actualiza incidente + gracia.
+        /// Best-effort: cualquier error se registra y NO afecta el resultado del webhook.
+        /// </summary>
+        private async Task TryTrackPaymentRecoveryAsync(
+            Guid tenantId,
+            bool isAddon,
+            int? recurringPlanId,
+            PaymentProviderWebhookData webhook,
+            CancellationToken cancellationToken)
+        {
+            if (_paymentRecovery is null || isAddon)
+            {
+                return;
+            }
+
+            try
+            {
+                if (IsRecurringPaymentSuccessEvent(webhook.EventType) || IsRecurringApproved(webhook))
+                {
+                    await _paymentRecovery.ResolveOnSuccessAsync(tenantId, recurringPlanId, cancellationToken);
+                }
+                else if (IsRecurringPaymentFailedEvent(webhook.EventType))
+                {
+                    await _paymentRecovery.RegisterFailedPaymentAsync(
+                        tenantId,
+                        recurringPlanId,
+                        webhook.ProviderSubscriberId,
+                        webhook.StatusCode,
+                        webhook.StatusDescription,
+                        cancellationToken);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Tracking de recuperación de pago no se completó. TenantId {TenantId}.", tenantId);
+            }
+        }
 
         private static bool IsRecurringRegistrationEvent(string? eventType) =>
             string.Equals(NormalizeRecurringEventType(eventType), "repeat_registration", StringComparison.Ordinal);

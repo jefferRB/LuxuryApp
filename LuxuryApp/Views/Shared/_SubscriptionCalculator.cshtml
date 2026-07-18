@@ -23,7 +23,8 @@
         hasActive = Model.HasActiveSubscription,
         currentWorkers = Model.CurrentWorkers,
         currentCycle = Model.CurrentCycle == null ? null : (Model.CurrentCycle == LuxuryApp.Models.SaaS.BillingCycle.Annual ? "Annual" : "Monthly"),
-        currentCode = Model.CurrentPlanCode
+        currentCode = Model.CurrentPlanCode,
+        currentRenewal = Model.CurrentPlanRenewalDisplay
     });
 }
 

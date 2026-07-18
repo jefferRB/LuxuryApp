@@ -2914,6 +2914,18 @@ namespace LuxuryApp.Migrations
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)");
 
+                    b.Property<int>("OldCancellationAttemptCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("OldCancellationAttemptsResetAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("OldCancellationLastAttemptUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("OldCancellationNextRetryUtc")
+                        .HasColumnType("datetime2");
+
                     b.Property<int>("OldProviderCancellation")
                         .HasColumnType("int");
 
@@ -3057,6 +3069,82 @@ namespace LuxuryApp.Migrations
                     b.ToTable("PromotionalCodeRedemptions");
                 });
 
+            modelBuilder.Entity("LuxuryApp.Models.SaaS.SubscriptionPaymentIncident", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ClienteEmail")
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("FailureCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("FailureDetectedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("GraceEndsAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LastNotificationAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LastReminderAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("NotificationCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PlanCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("ProviderEventKey")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("ProviderResultCode")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("ProviderResultMessage")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("ProviderSubscriptionId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime?>("ResolvedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("SuscripcionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("TilopayRecurringPlanId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("SubscriptionPaymentIncidents");
+                });
+
             modelBuilder.Entity("LuxuryApp.Models.SaaS.Suscripcion", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3065,6 +3153,20 @@ namespace LuxuryApp.Migrations
 
                     b.Property<bool>("CancelAtPeriodEnd")
                         .HasColumnType("bit");
+
+                    b.Property<DateTime?>("CancellationEffectiveAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CancellationReason")
+                        .HasMaxLength(250)
+                        .HasColumnType("nvarchar(250)");
+
+                    b.Property<DateTime?>("CancellationRequestedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CancellationRequestedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("CodigoPlan")
                         .HasMaxLength(50)
@@ -3097,6 +3199,12 @@ namespace LuxuryApp.Migrations
                     b.Property<DateTime?>("FechaUltimoPagoUtc")
                         .HasColumnType("datetime2");
 
+                    b.Property<DateTime?>("LastPaymentFailedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LastPaymentRecoveryNotificationAtUtc")
+                        .HasColumnType("datetime2");
+
                     b.Property<int?>("MaxFuncionarios")
                         .HasColumnType("int");
 
@@ -3108,6 +3216,10 @@ namespace LuxuryApp.Migrations
                         .HasMaxLength(250)
                         .HasColumnType("nvarchar(250)");
 
+                    b.Property<string>("PaymentRecoveryStatus")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
                     b.Property<Guid>("PlanId")
                         .HasColumnType("uniqueidentifier");
 
@@ -3117,9 +3229,25 @@ namespace LuxuryApp.Migrations
                     b.Property<int>("Proveedor")
                         .HasColumnType("int");
 
+                    b.Property<DateTime?>("ProviderCancelledAtUtc")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("ProviderCustomerId")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime?>("ProviderExpiresAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("ProviderExpiryLastSyncedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ProviderExpiryRaw")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime?>("ProviderPausedAtUtc")
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("ProviderPaymentLinkId")
                         .HasMaxLength(100)
@@ -3128,6 +3256,13 @@ namespace LuxuryApp.Migrations
                     b.Property<string>("ProviderReference")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime?>("ProviderStatusLastSyncedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ProviderStatusRaw")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
 
                     b.Property<string>("ProviderSubscriptionId")
                         .HasMaxLength(100)
@@ -4285,6 +4420,17 @@ namespace LuxuryApp.Migrations
                     b.Navigation("AccessGrant");
 
                     b.Navigation("PromotionalCode");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.SaaS.SubscriptionPaymentIncident", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.SaaS.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Tenant");
                 });
 
             modelBuilder.Entity("LuxuryApp.Models.SaaS.Suscripcion", b =>

@@ -21,6 +21,13 @@ namespace LuxuryApp.Models.SaaS
         public BillingCycle? CurrentCycle { get; init; }
         public string? CurrentPlanCode { get; init; }
 
+        /// <summary>
+        /// Próxima renovación EFECTIVA del plan actual (dd/MM/yyyy, fecha Tica). La calculadora la
+        /// muestra cuando el plan elegido coincide con el actual, en vez de calcular "hoy + 1 ciclo":
+        /// para el plan vigente hay que mostrar la fecha real, no un estimado.
+        /// </summary>
+        public string? CurrentPlanRenewalDisplay { get; init; }
+
         /// <summary>Hay al menos una opcion comprable configurada.</summary>
         public bool IsEnabled => Options.Any(option => option.IsAvailable);
 

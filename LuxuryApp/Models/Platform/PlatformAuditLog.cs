@@ -119,8 +119,30 @@ namespace LuxuryApp.Models.Platform
         /// <summary>Cambio de plan bloqueado: la suscripción activa no tiene id_suscriptor del proveedor, imposible cancelar el viejo con seguridad.</summary>
         public const string PlanChangeBlockedMissingCurrentProviderSubscription = "PlanChangeBlockedMissingCurrentProviderSubscription";
 
-        /// <summary>Reintento del reconciliador para cancelar el suscriptor viejo de un cambio aplicado que quedó pendiente.</summary>
+        /// <summary>
+        /// Intento REAL contra TiloPay para cancelar el suscriptor viejo de un cambio aplicado.
+        /// Solo se registra cuando efectivamente se llamó al proveedor: es la única acción que
+        /// consume presupuesto de reintentos. Los skips tienen sus propias acciones.
+        /// </summary>
         public const string PlanChangeOldSubscriberCancellationRetried = "PlanChangeOldSubscriberCancellationRetried";
+
+        /// <summary>
+        /// Skip: la cancelación automática está apagada, así que NO se llamó a TiloPay. No consume
+        /// presupuesto: cuando se encienda AutoCancel, el intent debe poder intentar de inmediato.
+        /// </summary>
+        public const string PlanChangeOldSubscriberCancellationSkippedAutoCancelDisabled = "PlanChangeOldSubscriberCancellationSkippedAutoCancelDisabled";
+
+        /// <summary>Skip: el intent es elegible pero está en cooldown de backoff. Incluye nextEligibleUtc y el detalle del estado.</summary>
+        public const string PlanChangeOldSubscriberCancellationSkippedBackoff = "PlanChangeOldSubscriberCancellationSkippedBackoff";
+
+        /// <summary>
+        /// Skip: faltan datos para un intento verificable (plan viejo o suscriptor nuevo). No se
+        /// llama a TiloPay porque no se podría verificar la baja, y un 200 sin verificar no basta.
+        /// </summary>
+        public const string PlanChangeOldSubscriberCancellationSkippedNotEligible = "PlanChangeOldSubscriberCancellationSkippedNotEligible";
+
+        /// <summary>Retry forzado por soporte desde la consola de plataforma: ignora el backoff, nunca la elegibilidad.</summary>
+        public const string PlanChangeOldSubscriberCancellationForcedRetry = "PlanChangeOldSubscriberCancellationForcedRetry";
 
         /// <summary>Cambio de plan bloqueado: hay un cambio previo aplicado cuyo suscriptor viejo aún no se canceló (riesgo de múltiples rebajos).</summary>
         public const string PlanChangeBlockedPendingOldCancellation = "PlanChangeBlockedPendingOldCancellation";
@@ -134,6 +156,205 @@ namespace LuxuryApp.Models.Platform
         /// El viejo podría seguir rebajando; queda pendiente y se reintenta con backoff.
         /// </summary>
         public const string PlanChangeOldSubscriberCancellationVerificationFailed = "PlanChangeOldSubscriberCancellationVerificationFailed";
+
+        /// <summary>Cambio de plan bloqueado en el checkout porque la cancelación automática del viejo está deshabilitada.</summary>
+        public const string PlanChangeBlockedAutoCancellationDisabled = "PlanChangeBlockedAutoCancellationDisabled";
+
+        /// <summary>Pago nuevo confirmado pero sin id_suscriptor nuevo resuelto: NO se aplica el plan local.</summary>
+        public const string PlanChangeBlockedMissingNewProviderSubscription = "PlanChangeBlockedMissingNewProviderSubscription";
+
+        /// <summary>
+        /// El id_suscriptor nuevo llegó DESPUÉS de confirmar el pago (TiloPay no lo manda en el
+        /// webhook) y el cambio de plan se aplicó al resolverse. Cierra el hueco entre "pago
+        /// confirmado" y "plan aplicado" sin esperar a la reconciliación.
+        /// </summary>
+        public const string PlanChangeAppliedAfterLateSubscriberResolution = "PlanChangeAppliedAfterLateSubscriberResolution";
+
+        /// <summary>Lo mismo, pero reparado por el pase de reconciliación (el webhook no llegó a aplicarlo).</summary>
+        public const string PlanChangeConfirmedPaymentWithLateSubscriberRepaired = "PlanChangeConfirmedPaymentWithLateSubscriberRepaired";
+
+        /// <summary>
+        /// Pago confirmado pero el plan destino no permite decidir con seguridad quién es el
+        /// suscriptor nuevo (varios activos, status desconocido, o el activo no coincide con el
+        /// del pago). NO se aplica el cambio: decide soporte.
+        /// </summary>
+        public const string PlanChangeLateSubscriberRequiresManualReview = "PlanChangeLateSubscriberRequiresManualReview";
+
+        /// <summary>Reparación de un cambio de plan que quedó en estado inconsistente (suscriptor viejo/fechas/IDs).</summary>
+        public const string PlanChangeInconsistentStateRepaired = "PlanChangeInconsistentStateRepaired";
+
+        /// <summary>
+        /// El plan destino tiene un suscriptor viejo pero INACTIVO (Delete/Cancelado): no bloquea.
+        /// Es el rastro de que se ignoró a propósito y se abrió un checkout nuevo, no un duplicado.
+        /// </summary>
+        public const string PlanChangeIgnoredInactiveTargetProviderSubscriber = "PlanChangeIgnoredInactiveTargetProviderSubscriber";
+
+        /// <summary>
+        /// Cambio de plan bloqueado: el plan DESTINO ya tiene un suscriptor ACTIVO del mismo email.
+        /// Pagar crearía un segundo suscriptor cobrando el mismo plan.
+        /// </summary>
+        public const string PlanChangeBlockedExistingActiveTargetSubscriber = "PlanChangeBlockedExistingActiveTargetSubscriber";
+
+        /// <summary>
+        /// Checkout bloqueado: algún suscriptor del plan destino trae un status que no sabemos
+        /// clasificar. No se asume libre; decide soporte.
+        /// </summary>
+        public const string CheckoutBlockedUnknownTargetSubscriberStatus = "CheckoutBlockedUnknownTargetSubscriberStatus";
+
+        /// <summary>
+        /// Un PlanChangeIntent Pending que quedó huérfano porque el checkout no llegó a abrirse
+        /// (bloqueo del proveedor) se cerró para no trabar el siguiente intento. Nunca toca Applied.
+        /// </summary>
+        public const string PlanChangePendingIntentExpiredAfterBlockedCheckout = "PlanChangePendingIntentExpiredAfterBlockedCheckout";
+
+        /// <summary>
+        /// Checkout de cambio de plan abandonado (abierto y nunca pagado) expirado por antigüedad.
+        /// Sin dinero de por medio: no toca la suscripción ni al proveedor, solo libera el cupo.
+        /// </summary>
+        public const string PlanChangePendingCheckoutExpired = "PlanChangePendingCheckoutExpired";
+
+        /// <summary>Un checkout de cambio abandonado fue reemplazado porque el cliente inició otro cambio.</summary>
+        public const string PlanChangePendingCheckoutSuperseded = "PlanChangePendingCheckoutSuperseded";
+
+        // ── Sincronización de la fecha real de cobro del proveedor ──
+
+        /// <summary>
+        /// El expire real de TiloPay es POSTERIOR a la fecha local: se extendió FechaFin/próximo
+        /// cobro para no marcar moroso antes de tiempo. Incluye fecha local, expire del proveedor,
+        /// sufijo del suscriptor y plan.
+        /// </summary>
+        public const string BillingProviderExpiryReconciled = "BillingProviderExpiryReconciled";
+
+        /// <summary>
+        /// El expire real de TiloPay es ANTERIOR a la fecha local. NO se acorta el acceso
+        /// automáticamente (podría quitar servicio ya pagado): solo se alerta para revisión.
+        /// </summary>
+        public const string BillingProviderExpiryEarlierThanLocal = "BillingProviderExpiryEarlierThanLocal";
+
+        // ── Ciclo de vida de la suscripción: cancelar / pausar / reactivar ──
+        // Toda operación money-critical: cada acción del proveedor se VERIFICA contra
+        // getSuscriptorRepeat (un HTTP 200 nunca basta) y queda auditada con datos sanitizados.
+
+        /// <summary>El cliente/soporte solicitó cancelar la renovación (cancel-at-period-end). Aún no verificado.</summary>
+        public const string SubscriptionCancellationRequested = "SubscriptionCancellationRequested";
+
+        /// <summary>VERIFICADO contra TiloPay: el suscriptor quedó inactivo (Delete/Eliminado). No habrá nuevos cobros.</summary>
+        public const string SubscriptionProviderCancellationVerified = "SubscriptionProviderCancellationVerified";
+
+        /// <summary>
+        /// (Obsoleta) Se emitía al solicitar Y al finalizar; se dividió en Scheduled + Finalized.
+        /// Se conserva para no romper auditorías históricas ya persistidas.
+        /// </summary>
+        public const string SubscriptionCancellationAtPeriodEndApplied = "SubscriptionCancellationAtPeriodEndApplied";
+
+        /// <summary>Al SOLICITAR: la cancelación de renovación quedó programada; el acceso sigue hasta la fecha efectiva.</summary>
+        public const string SubscriptionCancellationScheduledAtPeriodEnd = "SubscriptionCancellationScheduledAtPeriodEnd";
+
+        /// <summary>Al VENCER el período: la cancelación programada se cerró localmente (Estado no activo). Sin HTTP a TiloPay.</summary>
+        public const string SubscriptionCancellationAtPeriodEndFinalized = "SubscriptionCancellationAtPeriodEndFinalized";
+
+        /// <summary>El cliente/soporte pidió reactivar una RENOVACIÓN cancelada aún vigente (distinto de reactivar pausa).</summary>
+        public const string SubscriptionRenewalReactivationRequested = "SubscriptionRenewalReactivationRequested";
+
+        /// <summary>VERIFICADO: la renovación cancelada volvió a Active en TiloPay; se limpió CancelAtPeriodEnd.</summary>
+        public const string SubscriptionRenewalReactivationVerified = "SubscriptionRenewalReactivationVerified";
+
+        /// <summary>No se pudo reactivar la renovación de forma segura: NO se limpió la cancelación. Revisión manual.</summary>
+        public const string SubscriptionRenewalReactivationFailedManualReview = "SubscriptionRenewalReactivationFailedManualReview";
+
+        // ── Recuperación de pago: pago fallido / gracia / notificación / suspensión / tarjeta ──
+        // Toda operación local (sin HTTP en transacción); suspensión SOLO si AutoSuspendAfterGrace.
+
+        /// <summary>Pago recurrente fallido: se abrió incidente y período de gracia (acceso se mantiene).</summary>
+        public const string SubscriptionPaymentFailedGraceStarted = "SubscriptionPaymentFailedGraceStarted";
+
+        /// <summary>Pago recurrente exitoso posterior: el incidente abierto se resolvió y se limpió la gracia.</summary>
+        public const string SubscriptionPaymentRecoveryResolved = "SubscriptionPaymentRecoveryResolved";
+
+        /// <summary>La gracia venció sin pago. Con AutoSuspend=true se suspende; con false solo se marca.</summary>
+        public const string SubscriptionPaymentGraceExpired = "SubscriptionPaymentGraceExpired";
+
+        /// <summary>Gracia vencida con AutoSuspendAfterGrace=FALSE: NO se cortó acceso, solo alerta (dry-run).</summary>
+        public const string SubscriptionPaymentGraceExpiredDryRun = "SubscriptionPaymentGraceExpiredDryRun";
+
+        /// <summary>Suspensión por impago aplicada tras vencer la gracia (solo con AutoSuspendAfterGrace=true).</summary>
+        public const string SubscriptionSuspendedForNonPayment = "SubscriptionSuspendedForNonPayment";
+
+        /// <summary>Se generó una URL de actualización de método de pago (recurrentUrl). NUNCA se loguea la URL.</summary>
+        public const string PaymentMethodUpdateUrlGenerated = "PaymentMethodUpdateUrlGenerated";
+
+        /// <summary>No se pudo generar la URL de actualización de método de pago (o falló la validación de dominio).</summary>
+        public const string PaymentMethodUpdateUrlFailed = "PaymentMethodUpdateUrlFailed";
+
+        /// <summary>Notificación de recuperación de pago enviada al cliente (inicio de gracia o recordatorio).</summary>
+        public const string PaymentRecoveryNotificationSent = "PaymentRecoveryNotificationSent";
+
+        /// <summary>Falló el envío de una notificación de recuperación de pago.</summary>
+        public const string PaymentRecoveryNotificationFailed = "PaymentRecoveryNotificationFailed";
+
+        /// <summary>
+        /// Dry-run de notificación de recuperación: con SendEmailNotifications=false NO se envía correo,
+        /// solo se deja rastro de que la etapa (inicio/recordatorio/suspensión) se habría notificado.
+        /// </summary>
+        public const string PaymentRecoveryNotificationDryRun = "PaymentRecoveryNotificationDryRun";
+
+        /// <summary>Pago fallido que no se pudo correlacionar de forma segura (email/plan ambiguo): revisión manual.</summary>
+        public const string PaymentRecoveryManualReview = "PaymentRecoveryManualReview";
+
+        /// <summary>SuperAdmin cerró manualmente un incidente de recuperación de pago (con confirmación).</summary>
+        public const string PaymentRecoveryManuallyResolved = "PaymentRecoveryManuallyResolved";
+
+        /// <summary>SuperAdmin marcó un incidente de recuperación como ignorado/no accionable (con motivo).</summary>
+        public const string PaymentRecoveryIgnored = "PaymentRecoveryIgnored";
+
+        /// <summary>Idempotente: el suscriptor ya estaba inactivo en el proveedor al pedir cancelar.</summary>
+        public const string SubscriptionCancellationAlreadyProviderInactive = "SubscriptionCancellationAlreadyProviderInactive";
+
+        /// <summary>CRÍTICO: TiloPay respondió 200 pero la verificación mostró el suscriptor aún Activo (o no se pudo verificar). NO se marcó cancelada.</summary>
+        public const string SubscriptionCancellationFailedManualReview = "SubscriptionCancellationFailedManualReview";
+
+        /// <summary>Cancelación INMEDIATA (solo SuperAdmin): corta acceso de una vez tras verificar la baja.</summary>
+        public const string SubscriptionImmediateCancellationRequested = "SubscriptionImmediateCancellationRequested";
+
+        /// <summary>Soporte/SuperAdmin solicitó pausar la suscripción en el proveedor. Aún no verificado.</summary>
+        public const string SubscriptionPauseRequested = "SubscriptionPauseRequested";
+
+        /// <summary>VERIFICADO contra TiloPay: el suscriptor quedó Pausado (status 3).</summary>
+        public const string SubscriptionProviderPauseVerified = "SubscriptionProviderPauseVerified";
+
+        /// <summary>Idempotente: el suscriptor ya estaba pausado en el proveedor al pedir pausar.</summary>
+        public const string SubscriptionPauseAlreadyProviderPaused = "SubscriptionPauseAlreadyProviderPaused";
+
+        /// <summary>CRÍTICO: TiloPay respondió 200 pero la verificación no confirmó Pausado. NO se marcó pausada.</summary>
+        public const string SubscriptionPauseFailedManualReview = "SubscriptionPauseFailedManualReview";
+
+        /// <summary>Soporte/SuperAdmin solicitó reactivar la suscripción. Aún no verificado.</summary>
+        public const string SubscriptionReactivateRequested = "SubscriptionReactivateRequested";
+
+        /// <summary>VERIFICADO contra TiloPay: el suscriptor volvió a Activo (status 1).</summary>
+        public const string SubscriptionProviderReactivateVerified = "SubscriptionProviderReactivateVerified";
+
+        /// <summary>Idempotente: el suscriptor ya estaba Activo en el proveedor al pedir reactivar.</summary>
+        public const string SubscriptionReactivateAlreadyProviderActive = "SubscriptionReactivateAlreadyProviderActive";
+
+        /// <summary>
+        /// Reactivación NO segura: el suscriptor está Eliminado (no reactivable) o no se pudo
+        /// verificar el resultado. Se deja a revisión manual; preferir hosted checkout nuevo.
+        /// </summary>
+        public const string SubscriptionReactivateFailedManualReview = "SubscriptionReactivateFailedManualReview";
+
+        /// <summary>
+        /// Drift detectado por la reconciliación entre el estado local y el del proveedor
+        /// (p.ej. local CancelAtPeriodEnd pero proveedor Activo = riesgo de seguir cobrando).
+        /// </summary>
+        public const string SubscriptionProviderStatusMismatch = "SubscriptionProviderStatusMismatch";
+
+        /// <summary>
+        /// Sincronización manual (SuperAdmin) del estado del proveedor vía getSuscriptorRepeat.
+        /// Solo lectura contra TiloPay: refresca ProviderStatusRaw/LastSynced y las banderas de
+        /// pausa/baja, sin cambiar el acceso ni el estado local de la suscripción.
+        /// </summary>
+        public const string SubscriptionProviderStatusSynced = "SubscriptionProviderStatusSynced";
     }
 
     public static class PlatformAuditEntityTypes

@@ -1,6 +1,7 @@
 using LuxuryApp.Models.Platform;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.SaaS;
+using LuxuryApp.Services.Security;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
@@ -59,9 +60,172 @@ namespace LuxuryApp.Services.Billing
         public DateTime? LastSuccessfulSubscriberResolutionUtc { get; init; }
 
         // Cambio de plan base (estrategia B).
+
+        /// <summary>
+        /// Todos los cambios abiertos. OJO: no todo pending es riesgo. Se conserva por compatibilidad;
+        /// para saber si hay que preocuparse, mirar <see cref="PlanChangeMoneyRiskCount"/>.
+        /// </summary>
         public int PlanChangePendingCount { get; init; }
+
         public int PlanChangeManualReviewCount { get; init; }
         public DateTime? LastSuccessfulPlanChangeUtc { get; init; }
+
+        /// <summary>
+        /// Checkouts de cambio abiertos SIN dinero detrás: el cliente abrió el link y no pagó.
+        /// Es ruido esperado, no un hallazgo; se expiran solos por antigüedad.
+        /// </summary>
+        public int PlanChangePendingCheckoutCount { get; init; }
+
+        /// <summary>
+        /// Lo que SÍ es riesgo de dinero: pagos confirmados esperando aplicarse + suscriptores
+        /// viejos sin cancelar. Este es el número que importa: si es 0, no hay nada que revisar.
+        /// </summary>
+        public int PlanChangeMoneyRiskCount { get; init; }
+
+        /// <summary>Checkout abandonado más antiguo: si envejece más que la ventana, la expiración no está corriendo.</summary>
+        public DateTime? OldestPendingCheckoutUtc { get; init; }
+
+        public double? OldestPendingCheckoutAgeHours { get; init; }
+
+        // ── Fecha del proveedor vs fecha local (riesgo de morosidad/fecha incorrecta) ──
+        // Señal DISTINTA del doble cobro: aquí el riesgo es marcar moroso o cortar acceso a
+        // destiempo, no cobrar dos veces.
+
+        /// <summary>Suscripciones activas donde local y proveedor difieren de forma significativa (cualquier dirección).</summary>
+        public int ProviderExpiryMismatchCount { get; init; }
+
+        /// <summary>Suscripciones donde el proveedor cobra MÁS TARDE que lo local (vigencia a extender / ya extendida).</summary>
+        public int ActiveSubscriptionsProviderExpiryAheadCount { get; init; }
+
+        /// <summary>Suscripciones donde el proveedor cobra MÁS TEMPRANO que lo local (posible corte injusto).</summary>
+        public int ActiveSubscriptionsProviderExpiryEarlierCount { get; init; }
+
+        /// <summary>Extensiones de vigencia a la fecha del proveedor aplicadas en los últimos 7 días.</summary>
+        public int ProviderExpiryReconciledLast7d { get; init; }
+
+        // ── Ciclo de vida: cancelación programada, pausa y reactivación ──
+
+        /// <summary>Suscripciones con la renovación cancelada (CancelAtPeriodEnd) aún con acceso vigente.</summary>
+        public int SubscriptionsCancelAtPeriodEnd { get; init; }
+
+        /// <summary>CancelAtPeriodEnd cuya baja en el proveedor NO quedó verificada (riesgo de seguir cobrando).</summary>
+        public int ProviderCancellationsPendingVerification { get; init; }
+
+        /// <summary>Suscripciones marcadas como pausadas en el proveedor (ProviderPausedAtUtc no nulo).</summary>
+        public int ProviderPausedSubscriptions { get; init; }
+
+        /// <summary>Cancelaciones que quedaron en revisión manual (baja no verificada) en los últimos 7 días.</summary>
+        public int ProviderCancellationFailedLast7d { get; init; }
+
+        /// <summary>Pausas que quedaron en revisión manual (no verificadas) en los últimos 7 días.</summary>
+        public int PauseFailedLast7d { get; init; }
+
+        /// <summary>Reactivaciones que quedaron en revisión manual (no verificadas/bloqueadas) en los últimos 7 días.</summary>
+        public int ReactivationFailedLast7d { get; init; }
+
+        /// <summary>Desajustes local↔proveedor de ciclo de vida detectados por la reconciliación en los últimos 7 días.</summary>
+        public int ProviderStatusMismatchCount { get; init; }
+
+        // ── Recuperación de pago (pago fallido / gracia / suspensión / tarjeta) ──
+
+        /// <summary>Incidentes de recuperación de pago abiertos (pago fallido en curso).</summary>
+        public int OpenPaymentRecoveryIncidents { get; init; }
+
+        /// <summary>Incidentes abiertos con la gracia todavía vigente (acceso preservado).</summary>
+        public int ActiveGracePeriods { get; init; }
+
+        /// <summary>Gracias vencidas SIN suspensión (dry-run, AutoSuspendAfterGrace=false): requieren atención.</summary>
+        public int GraceExpiredNotSuspended { get; init; }
+
+        /// <summary>Suscripciones suspendidas por impago (AutoSuspendAfterGrace=true).</summary>
+        public int SuspendedForNonPayment { get; init; }
+
+        /// <summary>Incidentes que no se pudieron correlacionar/decidir y quedaron en revisión manual.</summary>
+        public int PaymentRecoveryManualReviewCount { get; init; }
+
+        /// <summary>Notificaciones de recuperación de pago que fallaron en los últimos 7 días.</summary>
+        public int PaymentRecoveryNotificationsFailedLast7d { get; init; }
+
+        /// <summary>Fallos al generar la URL de actualización de método de pago en los últimos 7 días.</summary>
+        public int PaymentMethodUpdateUrlFailuresLast7d { get; init; }
+
+        /// <summary>Detalle (acotado) de suscripciones con local ≠ proveedor, para que soporte lo vea.</summary>
+        public IReadOnlyList<ProviderExpiryMismatchItem> ProviderExpiryMismatches { get; init; } =
+            Array.Empty<ProviderExpiryMismatchItem>();
+
+        // ── Cancelación del suscriptor viejo tras cambio de plan (riesgo de DOBLE COBRO) ──
+        // Cada intent aquí es un cliente que puede estar pagando dos suscripciones a la vez.
+
+        /// <summary>Cambios aplicados cuyo suscriptor viejo sigue sin cancelarse. Mismo conjunto que PlanChangeManualReviewCount, con el nombre de la operación.</summary>
+        public int OldCancellationPendingCount { get; init; }
+
+        /// <summary>El próximo intento real más cercano entre los pendientes. NULL = hay al menos uno elegible YA.</summary>
+        public DateTime? OldCancellationNextRetryUtc { get; init; }
+
+        /// <summary>Pendientes que ahora mismo están esperando su ventana de backoff.</summary>
+        public int OldCancellationBackoffBlockedCount { get; init; }
+
+        /// <summary>Skips por AutoCancel apagado en las últimas 24h: nadie está cancelando esos viejos.</summary>
+        public int OldCancellationSkippedAutoCancelDisabledCount { get; init; }
+
+        /// <summary>Pendientes saltados por datos incompletos en 24h: no se pueden intentar sin intervención.</summary>
+        public int OldCancellationSkippedNotEligibleCount { get; init; }
+
+        /// <summary>
+        /// CRÍTICO: pendientes en los que la verificación contra TiloPay mostró el viejo TODAVÍA
+        /// Activo en las últimas 24h. Se deriva de la auditoría de verificación (evidencia real
+        /// de getSuscriptorRepeat) y no de una llamada en vivo: este health lo abre un humano y no
+        /// debe golpear el API del proveedor una vez por intent en cada carga de página.
+        /// </summary>
+        public int OldCancellationVerifiedStillActiveCount { get; init; }
+
+        /// <summary>Intentos reales acumulados del pendiente más castigado: si crece, la baja automática no está funcionando.</summary>
+        public int OldCancellationMaxAttemptCount { get; init; }
+
+        /// <summary>Detalle de los pendientes (acotado) para que soporte pueda actuar por intent.</summary>
+        public IReadOnlyList<OldCancellationPendingItem> OldCancellationPendingItems { get; init; } =
+            Array.Empty<OldCancellationPendingItem>();
+    }
+
+    /// <summary>
+    /// Un cambio de plan aplicado cuyo suscriptor viejo sigue vivo en TiloPay. Cada fila es un
+    /// riesgo de doble cobro concreto. Los id_suscriptor van enmascarados: esta vista la abre un
+    /// humano y no necesita el id completo para identificar el caso.
+    /// </summary>
+    public sealed record OldCancellationPendingItem
+    {
+        public required Guid IntentId { get; init; }
+        public required Guid TenantId { get; init; }
+        public string? TenantName { get; init; }
+        public string? ToPlanCode { get; init; }
+        public int AttemptCount { get; init; }
+        public DateTime? NextRetryUtc { get; init; }
+        public DateTime? AppliedAtUtc { get; init; }
+        public string? OldSubscriberSuffix { get; init; }
+        public string? NewSubscriberSuffix { get; init; }
+        public int? OldRecurringPlanId { get; init; }
+
+        /// <summary>La verificación contra TiloPay mostró el viejo todavía Activo en las últimas 24h.</summary>
+        public bool VerifiedStillActive { get; init; }
+    }
+
+    /// <summary>Una suscripción activa cuya fecha local difiere de la real del proveedor.</summary>
+    public sealed record ProviderExpiryMismatchItem
+    {
+        public required Guid TenantId { get; init; }
+        public string? TenantName { get; init; }
+        public string? PlanCode { get; init; }
+        public DateTime? LocalEndUtc { get; init; }
+        public DateTime? ProviderExpiresAtUtc { get; init; }
+
+        /// <summary>Fechas de calendario Tica para mostrar (no el UTC crudo, que corre un día).</summary>
+        public string? LocalEndDisplay { get; init; }
+        public string? ProviderExpiryDisplay { get; init; }
+
+        /// <summary>True si el proveedor va por delante (extiende), false si va por detrás (posible corte).</summary>
+        public bool ProviderIsAhead { get; init; }
+
+        public DateTime? LastSyncedUtc { get; init; }
     }
 
     public interface IBillingHealthService
@@ -71,6 +235,13 @@ namespace LuxuryApp.Services.Billing
 
     public sealed class BillingHealthService : IBillingHealthService
     {
+        /// <summary>
+        /// Tolerancia para contar un desajuste local↔proveedor. Constante (no opción inyectada)
+        /// porque es un contador de diagnóstico: alinearlo con el default de conciliación (12h)
+        /// basta y evita romper todas las construcciones de este servicio en tests.
+        /// </summary>
+        private const int ProviderExpiryMismatchToleranceHours = 12;
+
         private readonly ApplicationDbContext _db;
         private readonly SuscripcionService _suscripcionService;
 
@@ -143,7 +314,9 @@ namespace LuxuryApp.Services.Billing
                     s.Estado == EstadoSuscripcion.Activa &&
                     !s.CancelAtPeriodEnd &&
                     s.FechaProximoCobroUtc != null &&
-                    s.FechaProximoCobroUtc < nowUtc, cancellationToken);
+                    s.FechaProximoCobroUtc < nowUtc &&
+                    // Vencida solo si el proveedor tampoco cobra más tarde (fecha efectiva pasada).
+                    (s.ProviderExpiresAtUtc == null || s.ProviderExpiresAtUtc < nowUtc), cancellationToken);
 
             var unprocessedEvents = await _db.EventosPago.IgnoreQueryFilters()
                 .CountAsync(e => !e.Procesado &&
@@ -242,19 +415,249 @@ namespace LuxuryApp.Services.Billing
                 .MaxAsync(log => (DateTime?)log.CreatedAtUtc, cancellationToken);
 
             // ── Cambio de plan base (estrategia B) ──
-            var planChangePending = await _db.PlanChangeIntents.IgnoreQueryFilters()
-                .CountAsync(intent => intent.Estado == PlanChangeIntentState.Pending, cancellationToken);
+            // Los cambios abiertos se proyectan con su pago para separar el ruido (checkout que
+            // nadie pagó) del riesgo real (dinero cobrado esperando aplicarse). Contarlos juntos
+            // hacía que un cliente arrepentido se viera igual que un doble cobro inminente.
+            var openIntents = await _db.PlanChangeIntents.IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(intent => intent.Estado == PlanChangeIntentState.Pending)
+                .Select(intent => new
+                {
+                    intent.Id,
+                    intent.CreatedAtUtc,
+                    Payment = _db.PagosSuscripcion.IgnoreQueryFilters()
+                        .FirstOrDefault(payment => payment.Id == intent.PagoSuscripcionId)
+                })
+                .ToListAsync(cancellationToken);
+
+            var planChangePending = openIntents.Count;
+
+            var moneyRiskIntents = openIntents
+                .Where(intent => PlanChangeCheckoutAbandonmentRules.HasMoneySignals(intent.Payment))
+                .ToList();
+
+            var pendingCheckouts = openIntents
+                .Where(intent => !PlanChangeCheckoutAbandonmentRules.HasMoneySignals(intent.Payment))
+                .ToList();
+
+            var oldestPendingCheckoutUtc = pendingCheckouts.Count == 0
+                ? (DateTime?)null
+                : pendingCheckouts.Min(intent => intent.CreatedAtUtc);
 
             // Cambio aplicado cuyo suscriptor viejo AÚN no se canceló en el proveedor: riesgo de doble cobro.
-            var planChangeManualReview = await _db.PlanChangeIntents.IgnoreQueryFilters()
-                .CountAsync(intent =>
+            // Se proyectan (son pocos: uno por cambio de plan sin cerrar) para derivar en memoria
+            // el estado del backoff sin repetir consultas sobre la misma tabla.
+            var pendingOldCancellations = await _db.PlanChangeIntents.IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(intent =>
                     intent.Estado == PlanChangeIntentState.Applied &&
-                    intent.OldProviderCancellation == ProviderCancellationState.PendingManualCancellation,
-                    cancellationToken);
+                    intent.OldProviderCancellation == ProviderCancellationState.PendingManualCancellation)
+                .OrderBy(intent => intent.AppliedAtUtc)
+                .Select(intent => new
+                {
+                    intent.Id,
+                    intent.TenantId,
+                    intent.ToPlanCode,
+                    intent.AppliedAtUtc,
+                    intent.OldCancellationAttemptCount,
+                    intent.OldCancellationNextRetryUtc,
+                    intent.FromProviderSubscriptionId,
+                    intent.NewProviderSubscriptionId,
+                    intent.FromTilopayRecurringPlanId
+                })
+                .ToListAsync(cancellationToken);
+
+            var planChangeManualReview = pendingOldCancellations.Count;
+
+            // El mínimo NextRetry: null en algún pendiente significa "elegible ya", y eso es más
+            // urgente que cualquier fecha, así que gana sobre el mínimo de los que sí tienen fecha.
+            DateTime? oldCancellationNextRetryUtc = pendingOldCancellations.Count == 0
+                ? null
+                : pendingOldCancellations.Any(intent => intent.OldCancellationNextRetryUtc is null)
+                    ? null
+                    : pendingOldCancellations.Min(intent => intent.OldCancellationNextRetryUtc);
+
+            var oldCancellationBackoffBlocked = pendingOldCancellations
+                .Count(intent => intent.OldCancellationNextRetryUtc is { } next && next > nowUtc);
+
+            var oldCancellationMaxAttempts = pendingOldCancellations.Count == 0
+                ? 0
+                : pendingOldCancellations.Max(intent => intent.OldCancellationAttemptCount);
+
+            var skippedAutoCancelDisabled24h = await _db.PlatformAuditLogs
+                .CountAsync(log =>
+                    log.Action == PlatformAuditActions.PlanChangeOldSubscriberCancellationSkippedAutoCancelDisabled &&
+                    log.CreatedAtUtc >= last24hUtc, cancellationToken);
+
+            var skippedNotEligible24h = await _db.PlatformAuditLogs
+                .CountAsync(log =>
+                    log.Action == PlatformAuditActions.PlanChangeOldSubscriberCancellationSkippedNotEligible &&
+                    log.CreatedAtUtc >= last24hUtc, cancellationToken);
+
+            // Viejo verificado como TODAVÍA Activo: la auditoría de verificación fallida es la
+            // única evidencia real (viene de getSuscriptorRepeat) sin llamar al proveedor aquí.
+            var pendingIntentKeys = pendingOldCancellations.Select(intent => intent.Id.ToString()).ToList();
+
+            var verifiedStillActiveKeys = pendingIntentKeys.Count == 0
+                ? new List<string>()
+                : await _db.PlatformAuditLogs
+                    .Where(log =>
+                        log.Action == PlatformAuditActions.PlanChangeOldSubscriberCancellationVerificationFailed &&
+                        log.EntityId != null &&
+                        pendingIntentKeys.Contains(log.EntityId) &&
+                        log.CreatedAtUtc >= last24hUtc)
+                    .Select(log => log.EntityId!)
+                    .Distinct()
+                    .ToListAsync(cancellationToken);
+
+            var tenantNames = pendingOldCancellations.Count == 0
+                ? new Dictionary<Guid, string>()
+                : await _db.Tenants
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .Where(tenant => pendingOldCancellations.Select(p => p.TenantId).Contains(tenant.Id))
+                    .ToDictionaryAsync(tenant => tenant.Id, tenant => tenant.Nombre, cancellationToken);
+
+            // Detalle acotado: la lista es para que un humano actúe, no para volcar la tabla.
+            var pendingItems = pendingOldCancellations
+                .Take(50)
+                .Select(intent => new OldCancellationPendingItem
+                {
+                    IntentId = intent.Id,
+                    TenantId = intent.TenantId,
+                    TenantName = tenantNames.TryGetValue(intent.TenantId, out var name) ? name : null,
+                    ToPlanCode = intent.ToPlanCode,
+                    AttemptCount = intent.OldCancellationAttemptCount,
+                    NextRetryUtc = intent.OldCancellationNextRetryUtc,
+                    AppliedAtUtc = intent.AppliedAtUtc,
+                    OldSubscriberSuffix = SensitiveDataMasker.MaskReference(intent.FromProviderSubscriptionId),
+                    NewSubscriberSuffix = SensitiveDataMasker.MaskReference(intent.NewProviderSubscriptionId),
+                    OldRecurringPlanId = intent.FromTilopayRecurringPlanId,
+                    VerifiedStillActive = verifiedStillActiveKeys.Contains(intent.Id.ToString())
+                })
+                .ToList();
 
             var lastPlanChangeUtc = await _db.PlanChangeIntents.IgnoreQueryFilters()
                 .Where(intent => intent.Estado == PlanChangeIntentState.Applied)
                 .MaxAsync(intent => (DateTime?)intent.AppliedAtUtc, cancellationToken);
+
+            // ── Fecha del proveedor vs local ──
+            // Solo suscripciones activas ya sincronizadas (ProviderExpiresAtUtc no nulo). El
+            // desajuste se juzga con la MISMA tolerancia de conciliación (constante local: es un
+            // contador de diagnóstico, no una decisión de dinero).
+            var providerExpiryTolerance = TimeSpan.FromHours(ProviderExpiryMismatchToleranceHours);
+            var syncedSubscriptions = await _db.Suscripciones.IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(s =>
+                    s.Proveedor == PaymentProviderType.Tilopay &&
+                    s.ProviderExpiresAtUtc != null &&
+                    (s.Estado == EstadoSuscripcion.Activa || s.Estado == EstadoSuscripcion.Morosa))
+                .Select(s => new
+                {
+                    s.TenantId,
+                    s.CodigoPlan,
+                    s.FechaFin,
+                    s.ProviderExpiresAtUtc,
+                    s.ProviderExpiryRaw,
+                    s.ProviderExpiryLastSyncedUtc
+                })
+                .ToListAsync(cancellationToken);
+
+            var aheadSubs = syncedSubscriptions
+                .Where(s => SubscriptionEffectiveDates.ProviderIsAhead(s.FechaFin, s.ProviderExpiresAtUtc, providerExpiryTolerance))
+                .ToList();
+            var earlierSubs = syncedSubscriptions
+                .Where(s => SubscriptionEffectiveDates.ProviderIsEarlier(s.FechaFin, s.ProviderExpiresAtUtc, providerExpiryTolerance))
+                .ToList();
+
+            var mismatchTenantIds = aheadSubs.Concat(earlierSubs).Select(s => s.TenantId).Distinct().ToList();
+            var mismatchTenantNames = mismatchTenantIds.Count == 0
+                ? new Dictionary<Guid, string>()
+                : await _db.Tenants.IgnoreQueryFilters().AsNoTracking()
+                    .Where(t => mismatchTenantIds.Contains(t.Id))
+                    .ToDictionaryAsync(t => t.Id, t => t.Nombre, cancellationToken);
+
+            var providerExpiryMismatches = aheadSubs.Select(s => (Sub: s, Ahead: true))
+                .Concat(earlierSubs.Select(s => (Sub: s, Ahead: false)))
+                .Take(50)
+                .Select(x => new ProviderExpiryMismatchItem
+                {
+                    TenantId = x.Sub.TenantId,
+                    TenantName = mismatchTenantNames.TryGetValue(x.Sub.TenantId, out var name) ? name : null,
+                    PlanCode = x.Sub.CodigoPlan,
+                    LocalEndUtc = x.Sub.FechaFin,
+                    ProviderExpiresAtUtc = x.Sub.ProviderExpiresAtUtc,
+                    // Fechas de calendario Tica para mostrar. La del proveedor prefiere su raw exacto.
+                    LocalEndDisplay = SubscriptionDisplayDates.Format(
+                        x.Sub.FechaFin is { } f ? DateOnly.FromDateTime(f) : null),
+                    ProviderExpiryDisplay = SubscriptionDisplayDates.FormatEffective(
+                        null, x.Sub.ProviderExpiresAtUtc, x.Sub.ProviderExpiryRaw),
+                    ProviderIsAhead = x.Ahead,
+                    LastSyncedUtc = x.Sub.ProviderExpiryLastSyncedUtc
+                })
+                .ToList();
+
+            var providerExpiryReconciled7d = await _db.PlatformAuditLogs
+                .CountAsync(log =>
+                    log.Action == PlatformAuditActions.BillingProviderExpiryReconciled &&
+                    log.CreatedAtUtc >= last7dUtc, cancellationToken);
+
+            // ── Ciclo de vida: cancelación programada, pausa y reactivación ──
+            var subscriptionsCancelAtPeriodEnd = await _db.Suscripciones.IgnoreQueryFilters()
+                .CountAsync(s =>
+                    s.CancelAtPeriodEnd &&
+                    (s.Estado == EstadoSuscripcion.Activa || s.Estado == EstadoSuscripcion.Morosa),
+                    cancellationToken);
+
+            // Renovación cancelada pero SIN baja verificada en el proveedor: podría seguir cobrando.
+            var providerCancellationsPendingVerification = await _db.Suscripciones.IgnoreQueryFilters()
+                .CountAsync(s => s.CancelAtPeriodEnd && s.ProviderCancelledAtUtc == null, cancellationToken);
+
+            var providerPausedSubscriptions = await _db.Suscripciones.IgnoreQueryFilters()
+                .CountAsync(s => s.ProviderPausedAtUtc != null, cancellationToken);
+
+            var cancellationFailed7d = await _db.PlatformAuditLogs
+                .CountAsync(log =>
+                    log.Action == PlatformAuditActions.SubscriptionCancellationFailedManualReview &&
+                    log.CreatedAtUtc >= last7dUtc, cancellationToken);
+
+            var pauseFailed7d = await _db.PlatformAuditLogs
+                .CountAsync(log =>
+                    log.Action == PlatformAuditActions.SubscriptionPauseFailedManualReview &&
+                    log.CreatedAtUtc >= last7dUtc, cancellationToken);
+
+            var reactivationFailed7d = await _db.PlatformAuditLogs
+                .CountAsync(log =>
+                    log.Action == PlatformAuditActions.SubscriptionReactivateFailedManualReview &&
+                    log.CreatedAtUtc >= last7dUtc, cancellationToken);
+
+            var providerStatusMismatch7d = await _db.PlatformAuditLogs
+                .CountAsync(log =>
+                    log.Action == PlatformAuditActions.SubscriptionProviderStatusMismatch &&
+                    log.CreatedAtUtc >= last7dUtc, cancellationToken);
+
+            // ── Recuperación de pago ──
+            var openPaymentIncidents = await _db.SubscriptionPaymentIncidents.IgnoreQueryFilters()
+                .CountAsync(i => i.Status == PaymentIncidentStatus.Open, cancellationToken);
+            var activeGracePeriods = await _db.SubscriptionPaymentIncidents.IgnoreQueryFilters()
+                .CountAsync(i =>
+                    i.Status == PaymentIncidentStatus.Open &&
+                    i.GraceEndsAtUtc != null &&
+                    i.GraceEndsAtUtc > nowUtc, cancellationToken);
+            var graceExpiredNotSuspended = await _db.SubscriptionPaymentIncidents.IgnoreQueryFilters()
+                .CountAsync(i => i.Status == PaymentIncidentStatus.GraceExpired, cancellationToken);
+            var suspendedForNonPayment = await _db.Suscripciones.IgnoreQueryFilters()
+                .CountAsync(s => s.PaymentRecoveryStatus == "Suspended", cancellationToken);
+            var paymentRecoveryManualReview = await _db.SubscriptionPaymentIncidents.IgnoreQueryFilters()
+                .CountAsync(i => i.Status == PaymentIncidentStatus.ManualReview, cancellationToken);
+            var notificationsFailed7d = await _db.PlatformAuditLogs
+                .CountAsync(log =>
+                    log.Action == PlatformAuditActions.PaymentRecoveryNotificationFailed &&
+                    log.CreatedAtUtc >= last7dUtc, cancellationToken);
+            var updateUrlFailures7d = await _db.PlatformAuditLogs
+                .CountAsync(log =>
+                    log.Action == PlatformAuditActions.PaymentMethodUpdateUrlFailed &&
+                    log.CreatedAtUtc >= last7dUtc, cancellationToken);
 
             return new BillingHealthSnapshot
             {
@@ -293,7 +696,42 @@ namespace LuxuryApp.Services.Billing
                 LastSuccessfulSubscriberResolutionUtc = lastResolutionUtc,
                 PlanChangePendingCount = planChangePending,
                 PlanChangeManualReviewCount = planChangeManualReview,
-                LastSuccessfulPlanChangeUtc = lastPlanChangeUtc
+                LastSuccessfulPlanChangeUtc = lastPlanChangeUtc,
+                PlanChangePendingCheckoutCount = pendingCheckouts.Count,
+                // Riesgo = pago confirmado sin aplicar + viejo sin cancelar. Son conjuntos
+                // distintos (uno sigue Pending, el otro ya está Applied), así que suman.
+                PlanChangeMoneyRiskCount = moneyRiskIntents.Count + planChangeManualReview,
+                OldestPendingCheckoutUtc = oldestPendingCheckoutUtc,
+                OldestPendingCheckoutAgeHours = oldestPendingCheckoutUtc is { } oldestUtc
+                    ? Math.Round((nowUtc - oldestUtc).TotalHours, 1)
+                    : null,
+                ProviderExpiryMismatchCount = aheadSubs.Count + earlierSubs.Count,
+                ActiveSubscriptionsProviderExpiryAheadCount = aheadSubs.Count,
+                ActiveSubscriptionsProviderExpiryEarlierCount = earlierSubs.Count,
+                ProviderExpiryReconciledLast7d = providerExpiryReconciled7d,
+                SubscriptionsCancelAtPeriodEnd = subscriptionsCancelAtPeriodEnd,
+                ProviderCancellationsPendingVerification = providerCancellationsPendingVerification,
+                ProviderPausedSubscriptions = providerPausedSubscriptions,
+                ProviderCancellationFailedLast7d = cancellationFailed7d,
+                PauseFailedLast7d = pauseFailed7d,
+                ReactivationFailedLast7d = reactivationFailed7d,
+                ProviderStatusMismatchCount = providerStatusMismatch7d,
+                OpenPaymentRecoveryIncidents = openPaymentIncidents,
+                ActiveGracePeriods = activeGracePeriods,
+                GraceExpiredNotSuspended = graceExpiredNotSuspended,
+                SuspendedForNonPayment = suspendedForNonPayment,
+                PaymentRecoveryManualReviewCount = paymentRecoveryManualReview,
+                PaymentRecoveryNotificationsFailedLast7d = notificationsFailed7d,
+                PaymentMethodUpdateUrlFailuresLast7d = updateUrlFailures7d,
+                ProviderExpiryMismatches = providerExpiryMismatches,
+                OldCancellationPendingCount = planChangeManualReview,
+                OldCancellationNextRetryUtc = oldCancellationNextRetryUtc,
+                OldCancellationBackoffBlockedCount = oldCancellationBackoffBlocked,
+                OldCancellationSkippedAutoCancelDisabledCount = skippedAutoCancelDisabled24h,
+                OldCancellationSkippedNotEligibleCount = skippedNotEligible24h,
+                OldCancellationVerifiedStillActiveCount = verifiedStillActiveKeys.Count,
+                OldCancellationMaxAttemptCount = oldCancellationMaxAttempts,
+                OldCancellationPendingItems = pendingItems
             };
         }
     }

@@ -1514,6 +1514,62 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.True(controller.TempData.ContainsKey("BillingError"));
         }
 
+        [Fact]
+        public async Task CheckoutCalculadora_WhenCancelAtPeriodEnd_ShouldBlockWithoutCharging()
+        {
+            var tenantProvider = new TestTenantProvider();
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            using var userManager = CreateUserManager(context);
+
+            var tenantId = Guid.NewGuid();
+            tenantProvider.TenantId = tenantId;
+
+            var user = await SeedAuthenticatedUserAsync(context, userManager, tenantId, "cancel-block@test.local");
+
+            // Suscripción con la renovación ya cancelada: NO debe abrirse un checkout de cambio de plan.
+            var plan = new Plan
+            {
+                Id = Guid.NewGuid(),
+                Codigo = "LC_M_02",
+                Nombre = "LC_M_02",
+                PrecioMensual = 15000m,
+                BillingCycle = BillingCycle.Monthly,
+                Moneda = "CRC",
+                MaxFuncionarios = 2,
+                Activo = true
+            };
+            context.Planes.Add(plan);
+            context.Suscripciones.Add(new Suscripcion
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                PlanId = plan.Id,
+                Estado = EstadoSuscripcion.Activa,
+                Proveedor = PaymentProviderType.Tilopay,
+                TilopayRecurringPlanId = 6126,
+                ProviderSubscriptionId = "sub-x",
+                CancelAtPeriodEnd = true,
+                FechaInicio = DateTime.UtcNow.AddMonths(-1),
+                FechaFin = DateTime.UtcNow.AddDays(20)
+            });
+            await context.SaveChangesAsync();
+
+            var controller = CreateBillingController(context, userManager, CreateCalculatorCatalog());
+            controller.ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext { User = BuildPrincipal(user.Id, tenantId) }
+            };
+            controller.TempData = new TempDataDictionary(controller.HttpContext, Mock_TempDataProvider());
+
+            var result = await controller.CheckoutCalculadora(2, "Monthly", CancellationToken.None);
+
+            var redirect = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal(nameof(BillingController.Suscripcion), redirect.ActionName);
+            Assert.True(controller.TempData.ContainsKey("BillingError"));
+        }
+
         private static async Task<AppUsuario> SeedAuthenticatedUserAsync(
             ProyectoIdentity.Datos.ApplicationDbContext context,
             UserManager<AppUsuario> userManager,
@@ -1623,7 +1679,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 null!,
                 userManager,
                 null!,
-                null!,
+                new LuxuryApp.Services.SaaS.SubscriptionSummaryService(context, CreateSubscriptionService(context), null!),
                 pricingCatalog ?? new LuxuryApp.Services.SaaS.SubscriptionPricingCatalog(Options.Create(new TilopayRepeatOptions())),
                 new LuxuryApp.Services.SaaS.PlanChangeService(context, NullLogger<LuxuryApp.Services.SaaS.PlanChangeService>.Instance),
                 new LuxuryApp.Services.SaaS.PlanChangeDecisionService(context, CreateSubscriptionService(context)),
@@ -1631,7 +1687,13 @@ namespace LuxuryApp.Tests.TenantIsolation
                 Options.Create(new OpcionesTilopay()),
                 Options.Create(new OpcionesPago()),
                 Options.Create(new TilopayRepeatOptions()),
-                new DisabledTilopayRepeatAdminService());
+                new DisabledTilopayRepeatAdminService(),
+                new LuxuryApp.Tests.Support.NoOpProviderSubscriptionManager(),
+                new LuxuryApp.Services.Billing.PaymentMethodUpdateService(
+                    context,
+                    new DisabledTilopayRepeatAdminService(),
+                    new FixedBusinessDateTimeProvider(),
+                    NullLogger<LuxuryApp.Services.Billing.PaymentMethodUpdateService>.Instance));
 
         private static LuxuryApp.Services.SaaS.ISubscriptionPricingCatalog CreateCalculatorCatalog()
         {

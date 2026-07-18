@@ -171,6 +171,128 @@ namespace LuxuryApp.Tests.Billing
             Assert.False(root.TryGetProperty("plan_id", out _));                  // NO plan_id
         }
 
+        // ── recurrentUrl: contrato del body ──
+        // Producción devolvía 402 {"type":"402","message":"The id plan parameter is required"}
+        // aunque el campo iba: se mandaba como int y el validador de TiloPay espera STRING, igual
+        // que getSuscriptorRepeat. El nombre "id_plan" sí es correcto (lo dice su propio error).
+        [Fact]
+        public async Task GetRecurrentUrl_SendsIdPlanAsString()
+        {
+            var handler = new StubHandler(RealSuscriptorResponse);
+            handler.SetResponse(
+                "recurrentUrl",
+                HttpStatusCode.OK,
+                """{ "type": "success", "url_register": "https://tp.cr/l/reg", "url_renew": "https://tp.cr/l/renew" }""");
+            var service = CreateService(handler);
+
+            var result = await service.GetRecurrentUrlAsync(6126, "compra3usuarios@gmail.com");
+
+            Assert.True(result.Succeeded);
+            Assert.Equal("https://tp.cr/l/renew", result.Url); // url_renew, no url_register
+
+            var request = handler.LastByPath("recurrentUrl");
+            Assert.NotNull(request);
+
+            using var doc = JsonDocument.Parse(request!.Body!);
+            var root = doc.RootElement;
+            Assert.Equal("k", root.GetProperty("key").GetString());
+            Assert.Equal(JsonValueKind.String, root.GetProperty("id_plan").ValueKind);  // STRING, no int
+            Assert.Equal("6126", root.GetProperty("id_plan").GetString());
+            Assert.Equal("compra3usuarios@gmail.com", root.GetProperty("email").GetString());
+        }
+
+        [Fact]
+        public async Task GetRecurrentUrl_OnlyRegisterUrlAvailable_FailsInsteadOfCreatingDuplicate()
+        {
+            var handler = new StubHandler(RealSuscriptorResponse);
+            // Sin url_renew: registrar sería crear un suscriptor NUEVO (doble cobro), no renovar.
+            handler.SetResponse(
+                "recurrentUrl",
+                HttpStatusCode.OK,
+                """{ "type": "success", "url_register": "https://tp.cr/l/reg", "url_renew": "" }""");
+            var service = CreateService(handler);
+
+            var result = await service.GetRecurrentUrlAsync(6126, "compra3usuarios@gmail.com");
+
+            Assert.False(result.Succeeded);
+            Assert.Null(result.Url);
+        }
+
+        [Fact]
+        public async Task GetRecurrentUrl_WhenProviderRejects_FailsWithoutThrowing()
+        {
+            var handler = new StubHandler(RealSuscriptorResponse);
+            handler.SetResponse(
+                "recurrentUrl",
+                HttpStatusCode.OK,
+                """{ "type": "402", "message": "The id plan parameter is required", "url_register": "", "url_renew": "" }""");
+            var service = CreateService(handler);
+
+            var result = await service.GetRecurrentUrlAsync(6126, "compra3usuarios@gmail.com");
+
+            // Sin URL utilizable no se inventa una: el checkout decide qué hacer con el fallo.
+            Assert.False(result.Succeeded);
+        }
+
+        // ── Estado del suscriptor: la respuesta REAL de TiloPay usa "Delete" (singular) ──
+        [Fact]
+        public async Task Resolve_SubscriberWithRealDeleteStatus_IsNotReusedAsExisting()
+        {
+            var service = CreateService(DeletedSuscriptorResponse);
+
+            var resolution = await service.ResolveSubscriberAsync(6126, "compra3usuarios@gmail.com");
+
+            // Un suscriptor eliminado NO es un match reutilizable: el plan está libre.
+            Assert.Equal(SubscriberResolutionStatus.NotFound, resolution.Status);
+        }
+
+        [Fact]
+        public async Task AssessTargetSubscribers_RealDeleteStatus_IsFreeAndReportsInactive()
+        {
+            var service = CreateService(DeletedSuscriptorResponse);
+
+            var assessment = await service.AssessTargetSubscribersAsync(6126, "compra3usuarios@gmail.com");
+
+            Assert.Equal(TargetSubscriberVerdict.Free, assessment.Verdict);
+            Assert.Empty(assessment.Active);
+            Assert.Single(assessment.Inactive);
+            Assert.Equal("386117", assessment.Inactive[0].SubscriberId);
+        }
+
+        [Fact]
+        public async Task AssessTargetSubscribers_OtherEmail_IsIgnored()
+        {
+            var service = CreateService(DeletedSuscriptorResponse);
+
+            var assessment = await service.AssessTargetSubscribersAsync(6126, "otro@gmail.com");
+
+            Assert.Equal(TargetSubscriberVerdict.Free, assessment.Verdict);
+            Assert.Empty(assessment.Inactive); // No es de este cliente: ni siquiera se reporta.
+        }
+
+        /// <summary>Respuesta REAL de getSuscriptorRepeat para el plan 6126 tras el upgrade de compra3.</summary>
+        private const string DeletedSuscriptorResponse =
+            """
+            {
+              "type": "success",
+              "message": "ok",
+              "suscriptor": [
+                {
+                  "id": 386117,
+                  "name": "Jefferson",
+                  "lastname": "Rojas",
+                  "email": "compra3usuarios@gmail.com",
+                  "modality": "LC_M_02",
+                  "amount": "15000.00",
+                  "expire": "2026-08-15",
+                  "coupon": "",
+                  "status": "Delete",
+                  "create": "2026-07-15 20:55:00"
+                }
+              ]
+            }
+            """;
+
         [Fact]
         public async Task GetSuscriptorRepeat_ParsesRealSuscriptorArray()
         {

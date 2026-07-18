@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using LuxuryApp.Models.SaaS;
+using LuxuryApp.Services.Billing;
 using LuxuryApp.Services.Security;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
@@ -33,6 +34,18 @@ namespace LuxuryApp.Services.Tilopay
 
         /// <summary>URL para renovar/actualizar tarjeta sin crear un suscriptor nuevo.</summary>
         Task<TilopayAdminOperationResult> GetRecurrentUrlAsync(
+            int tilopayPlanId,
+            string? email,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Clasifica por estado los suscriptores del plan DESTINO que coinciden por email, para que
+        /// el checkout decida si puede crear un suscriptor nuevo. A diferencia de
+        /// <see cref="ResolveSubscriberAsync"/> (que busca UN suscriptor reutilizable y descarta los
+        /// eliminados), aquí importan también los inactivos: son la prueba de que volver a ese plan
+        /// es legítimo y no un duplicado.
+        /// </summary>
+        Task<TargetSubscriberAssessment> AssessTargetSubscribersAsync(
             int tilopayPlanId,
             string? email,
             CancellationToken cancellationToken = default);
@@ -220,6 +233,78 @@ namespace LuxuryApp.Services.Tilopay
             return lastResult;
         }
 
+        public async Task<TargetSubscriberAssessment> AssessTargetSubscribersAsync(
+            int tilopayPlanId,
+            string? email,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureEnabled();
+
+            var normalizedEmail = NormalizeEmail(email);
+            if (string.IsNullOrWhiteSpace(normalizedEmail))
+            {
+                return TargetSubscriberAssessment.Error("email vacío para evaluar el plan destino.");
+            }
+
+            // Mismo reintento que ResolveSubscriberAsync: si el plan sale VACÍO puede ser
+            // consistencia eventual del proveedor, y dar por libre un plan que ya tiene suscriptor
+            // es justo el duplicado que este blindaje evita. Un plan con filas no se reintenta.
+            var retryCount = Math.Clamp(_adminOptions.ResolveRetryCount, 0, 5);
+            var baseDelay = Math.Clamp(_adminOptions.ResolveRetryBaseDelayMs, 100, 5000);
+
+            List<TilopaySubscriber> matches = new();
+            TargetSubscriberAssessment? lastError = null;
+
+            for (var attempt = 0; attempt <= retryCount; attempt++)
+            {
+                try
+                {
+                    var subscribers = await GetSuscriptorRepeatAsync(tilopayPlanId, cancellationToken);
+                    matches = subscribers
+                        .Where(subscriber => string.Equals(
+                            NormalizeEmail(subscriber.Email),
+                            normalizedEmail,
+                            StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+
+                    lastError = null;
+
+                    if (matches.Count > 0)
+                    {
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Fallo evaluando suscriptores del plan destino. PlanId {PlanId}. Intento {Attempt}.",
+                        tilopayPlanId,
+                        attempt + 1);
+                    lastError = TargetSubscriberAssessment.Error(Trim(ex.Message, 200));
+                }
+
+                if (attempt < retryCount)
+                {
+                    try
+                    {
+                        await Task.Delay(baseDelay * (attempt + 1), cancellationToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (lastError is not null)
+            {
+                return lastError;
+            }
+
+            return TargetSubscriberAssessment.FromMatches(matches, tilopayPlanId);
+        }
+
         public async Task<TilopayAdminOperationResult> GetRecurrentUrlAsync(
             int tilopayPlanId,
             string? email,
@@ -236,12 +321,16 @@ namespace LuxuryApp.Services.Tilopay
 
             try
             {
+                // TiloPay rechazaba esto con 402 "The id plan parameter is required" aunque el
+                // campo iba: lo mandábamos como int y su validador espera STRING, igual que en
+                // getSuscriptorRepeat (contrato ya verificado en prod). El nombre del campo sí es
+                // "id_plan" — lo dice el propio mensaje de error.
                 var raw = await PostAsync(
                     "api/v1/recurrentUrl",
                     new Dictionary<string, object?>
                     {
                         ["key"] = _tilopayOptions.ApiKey,
-                        ["id_plan"] = tilopayPlanId,
+                        ["id_plan"] = tilopayPlanId.ToString(CultureInfo.InvariantCulture),
                         ["email"] = normalizedEmail
                     },
                     cancellationToken);
@@ -481,6 +570,8 @@ namespace LuxuryApp.Services.Tilopay
                         continue;
                     }
 
+                    var expiresRaw = ReadFirstString(element, "expire", "expires", "expiry", "vence", "vencimiento", "next_billing", "nextBilling");
+
                     result.Add(new TilopaySubscriber
                     {
                         SubscriberId = subscriberId,
@@ -488,6 +579,9 @@ namespace LuxuryApp.Services.Tilopay
                         Status = ReadFirstString(element, "status", "estado", "state"),
                         // "create" (con la hora del alta) es el campo real del contrato TiloPay.
                         CreatedAtUtc = ReadFirstDateUtc(element, "create", "created_at", "createdAt", "fecha", "fecha_creacion", "date"),
+                        // "expire" es fecha SIN hora ("2026-09-15"): fin del día Costa Rica → UTC.
+                        ExpiresAtUtc = ProviderExpiryDate.ParseCostaRicaEndOfDayUtc(expiresRaw),
+                        ExpiresRaw = expiresRaw,
                         TilopayPlanId = ReadFirstInt(element, "id_plan", "idPlan", "planId", "plan_id") ?? expectedPlanId
                     });
                 }
@@ -551,12 +645,22 @@ namespace LuxuryApp.Services.Tilopay
             }
         }
 
+        /// <summary>
+        /// URL utilizable de la respuesta de recurrentUrl. El contrato real de TiloPay devuelve
+        /// "url_renew" y "url_register" (visto en su propio payload de error en producción), y
+        /// ninguno de los dos estaba en esta lista: aunque el request fuera correcto, la URL nunca
+        /// se encontraba y el checkout terminaba bloqueado.
+        ///
+        /// "url_register" queda FUERA a propósito: registra un suscriptor NUEVO, que es justo el
+        /// duplicado que este flujo evita. Este endpoint solo sirve para renovar/actualizar la
+        /// tarjeta de uno que ya existe; si TiloPay no manda url_renew, preferimos fallar.
+        /// </summary>
         private static string? ExtractUrl(string raw)
         {
             try
             {
                 using var document = JsonDocument.Parse(raw);
-                return ReadFirstString(document.RootElement, "url", "recurrentUrl", "recurrent_url", "link", "payment_url", "paymentUrl");
+                return ReadFirstString(document.RootElement, "url_renew", "url", "recurrentUrl", "recurrent_url", "link", "payment_url", "paymentUrl");
             }
             catch (JsonException)
             {
@@ -639,13 +743,14 @@ namespace LuxuryApp.Services.Tilopay
             statusCode == HttpStatusCode.GatewayTimeout ||
             (int)statusCode >= 500;
 
+        // Fuente única: ProviderSubscriberStatusRules. Estas listas vivían aquí y no reconocían
+        // "Delete" (singular), el valor real de TiloPay, así que un suscriptor eliminado se
+        // reutilizaba como si estuviera vivo.
         private static bool IsDeletedStatus(string? status) =>
-            NormalizeStatus(status) is "4" or "eliminado" or "deleted" or "removed";
+            ProviderSubscriberStatusRules.IsProviderSubscriberInactive(status);
 
         private static bool IsActiveStatus(string? status) =>
-            NormalizeStatus(status) is "1" or "activo" or "active";
-
-        private static string? NormalizeStatus(string? status) => status?.Trim().ToLowerInvariant();
+            ProviderSubscriberStatusRules.IsProviderSubscriberActive(status);
 
         private static string? NormalizeEmail(string? email) =>
             string.IsNullOrWhiteSpace(email) ? null : email.Trim().ToLowerInvariant();

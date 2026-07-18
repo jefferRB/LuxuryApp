@@ -1682,6 +1682,7 @@ namespace ProyectoIdentity.Datos
         public DbSet<PlatformWorkerHeartbeat> PlatformWorkerHeartbeats { get; set; }
         public DbSet<PlatformCommercialSnapshot> PlatformCommercialSnapshots { get; set; }
         public DbSet<PlanChangeIntent> PlanChangeIntents { get; set; }
+        public DbSet<SubscriptionPaymentIncident> SubscriptionPaymentIncidents { get; set; }
 
 
 

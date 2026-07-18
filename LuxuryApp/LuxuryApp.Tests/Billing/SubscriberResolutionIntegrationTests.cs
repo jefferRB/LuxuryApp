@@ -268,8 +268,9 @@ namespace LuxuryApp.Tests.Billing
         public async Task Checkout_WithExistingSubscriber_RoutesToRecurrentUrlWithoutNewHostedLink()
         {
             using var h = await Harness.CreateAsync(workers: 1);
+            // Status explícito: recurrentUrl solo aplica a un suscriptor realmente ACTIVO.
             h.Admin.ResolutionResult = SubscriberResolutionResult.Found(
-                new TilopaySubscriber { SubscriberId = "374830", Email = Email }, 1);
+                new TilopaySubscriber { SubscriberId = "374830", Email = Email, Status = "Active" }, 1);
             h.Admin.RecurrentUrl = TilopayAdminOperationResult.Ok("ok", "https://tp.cr/l/recurrent-link");
 
             var checkout = await h.Payments.CreateRecurringCheckoutAsync(h.TenantId, h.PlanId, "Owner", Email);
@@ -396,6 +397,224 @@ namespace LuxuryApp.Tests.Billing
             Assert.Equal(1, await h.CountAuditAsync(PlatformAuditActions.CheckoutBlockedProviderVerificationUnavailable));
         }
 
+        // ══ Plan destino con suscriptor viejo ELIMINADO: volver a ese plan es legítimo ══
+        // Caso real (tenant compra3, 2026-07-15): LC_M_03 → LC_M_02 se bloqueó con "Ya tenés una
+        // suscripción activa" porque el 386117 del plan viejo estaba en status "Delete" y el filtro
+        // solo reconocía "deleted". Un suscriptor eliminado no cobra: no puede bloquear nada.
+
+        [Fact]
+        public async Task Checkout_TargetSubscriberDeleted_AllowsHostedCheckoutAndNeverCallsRecurrentUrl()
+        {
+            using var h = await Harness.CreateAsync(workers: 1);
+
+            // El tenant está hoy en OTRO plan (cambio de plan hacia el destino).
+            SeedCurrentSubscriptionOnOtherPlan(h, otherRecurringPlanId: 6127);
+
+            // En el plan destino solo queda el suscriptor viejo, ya eliminado.
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>
+            {
+                new() { SubscriberId = "386117", Email = Email, Status = "Delete" }
+            };
+
+            var checkout = await h.Payments.CreateRecurringCheckoutAsync(h.TenantId, h.PlanId, "Owner", Email);
+
+            // Hosted checkout nuevo, no la URL de renovación del suscriptor muerto.
+            Assert.Equal(0, h.Admin.RecurrentUrlCalls);
+            Assert.NotEqual("https://tp.cr/l/recurrent-link", checkout.RedirectUrl);
+            Assert.Equal(1, await h.Db.PagosSuscripcion.IgnoreQueryFilters().CountAsync());
+
+            Assert.Equal(0, await h.CountAuditAsync(PlatformAuditActions.CheckoutBlockedExistingProviderSubscriber));
+            Assert.Equal(1, await h.CountAuditAsync(PlatformAuditActions.PlanChangeIgnoredInactiveTargetProviderSubscriber));
+        }
+
+        [Theory]
+        [InlineData("Delete")]
+        [InlineData("deleted")]
+        [InlineData("Eliminado")]
+        [InlineData("Cancelled")]
+        [InlineData("inactivo")]
+        [InlineData("4")]
+        public async Task Checkout_TargetSubscriberInactiveVariants_AllowHostedCheckout(string status)
+        {
+            using var h = await Harness.CreateAsync(workers: 1);
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>
+            {
+                new() { SubscriberId = "386117", Email = Email, Status = status }
+            };
+
+            await h.Payments.CreateRecurringCheckoutAsync(h.TenantId, h.PlanId, "Owner", Email);
+
+            Assert.Equal(0, h.Admin.RecurrentUrlCalls);
+            Assert.Equal(1, await h.Db.PagosSuscripcion.IgnoreQueryFilters().CountAsync());
+        }
+
+        [Fact]
+        public async Task Checkout_TargetHasMultipleDeletedSubscribers_AllowsHostedCheckout()
+        {
+            using var h = await Harness.CreateAsync(workers: 1);
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>
+            {
+                new() { SubscriberId = "386117", Email = Email, Status = "Delete" },
+                new() { SubscriberId = "380001", Email = Email, Status = "Deleted" },
+                new() { SubscriberId = "370002", Email = Email, Status = "4" }
+            };
+
+            await h.Payments.CreateRecurringCheckoutAsync(h.TenantId, h.PlanId, "Owner", Email);
+
+            Assert.Equal(0, h.Admin.RecurrentUrlCalls);
+            Assert.Equal(1, await h.Db.PagosSuscripcion.IgnoreQueryFilters().CountAsync());
+            Assert.Equal(1, await h.CountAuditAsync(PlatformAuditActions.PlanChangeIgnoredInactiveTargetProviderSubscriber));
+        }
+
+        [Fact]
+        public async Task Checkout_PlanChangeTargetHasActiveSubscriber_BlocksForManualReview()
+        {
+            using var h = await Harness.CreateAsync(workers: 1);
+            SeedCurrentSubscriptionOnOtherPlan(h, otherRecurringPlanId: 6127);
+
+            // El destino YA tiene alguien cobrando: pagar dejaría dos suscriptores en ese plan.
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>
+            {
+                new() { SubscriberId = "386117", Email = Email, Status = "Active" }
+            };
+
+            var ex = await Assert.ThrowsAsync<RecurringCheckoutBlockedException>(() =>
+                h.Payments.CreateRecurringCheckoutAsync(h.TenantId, h.PlanId, "Owner", Email));
+
+            Assert.Contains("suscripción activa previa en el plan destino", ex.Message);
+            Assert.Equal(0, h.Admin.RecurrentUrlCalls); // recurrentUrl no arregla un cambio de plan.
+            Assert.Equal(0, await h.Db.PagosSuscripcion.IgnoreQueryFilters().CountAsync());
+            Assert.Equal(1, await h.CountAuditAsync(PlatformAuditActions.PlanChangeBlockedExistingActiveTargetSubscriber));
+        }
+
+        [Fact]
+        public async Task Checkout_TargetHasMultipleActiveSubscribers_BlocksManualReview()
+        {
+            using var h = await Harness.CreateAsync(workers: 1);
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>
+            {
+                new() { SubscriberId = "386117", Email = Email, Status = "Active" },
+                new() { SubscriberId = "386130", Email = Email, Status = "Active" }
+            };
+
+            await Assert.ThrowsAsync<RecurringCheckoutBlockedException>(() =>
+                h.Payments.CreateRecurringCheckoutAsync(h.TenantId, h.PlanId, "Owner", Email));
+
+            Assert.Equal(0, await h.Db.PagosSuscripcion.IgnoreQueryFilters().CountAsync());
+            Assert.Equal(1, await h.CountAuditAsync(PlatformAuditActions.CheckoutBlockedExistingProviderSubscriber));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("Paused")]
+        [InlineData("3")]
+        [InlineData("algo-que-tilopay-invente")]
+        public async Task Checkout_TargetSubscriberWithUnknownStatus_BlocksInsteadOfAssumingFree(string? status)
+        {
+            using var h = await Harness.CreateAsync(workers: 1);
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>
+            {
+                new() { SubscriberId = "386117", Email = Email, Status = status }
+            };
+
+            await Assert.ThrowsAsync<RecurringCheckoutBlockedException>(() =>
+                h.Payments.CreateRecurringCheckoutAsync(h.TenantId, h.PlanId, "Owner", Email));
+
+            Assert.Equal(0, h.Admin.RecurrentUrlCalls);
+            Assert.Equal(0, await h.Db.PagosSuscripcion.IgnoreQueryFilters().CountAsync());
+            Assert.Equal(1, await h.CountAuditAsync(PlatformAuditActions.CheckoutBlockedUnknownTargetSubscriberStatus));
+        }
+
+        [Fact]
+        public async Task Checkout_UnknownStatusAudit_DoesNotLeakRawSubscriberId()
+        {
+            using var h = await Harness.CreateAsync(workers: 1);
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>
+            {
+                new() { SubscriberId = "386117", Email = Email, Status = "raro" }
+            };
+
+            await Assert.ThrowsAsync<RecurringCheckoutBlockedException>(() =>
+                h.Payments.CreateRecurringCheckoutAsync(h.TenantId, h.PlanId, "Owner", Email));
+
+            foreach (var audit in await h.Db.PlatformAuditLogs.ToListAsync())
+            {
+                Assert.DoesNotContain("386117", $"{audit.Reason} {audit.AfterJson} {audit.EntityId}");
+                Assert.DoesNotContain(Email, $"{audit.Reason} {audit.AfterJson} {audit.EntityId}");
+            }
+        }
+
+        // ── Actualizar tarjeta / reintentar pago del MISMO plan: ahí recurrentUrl sí es lo correcto ──
+        // Es el único caso que justifica recurrentUrl: el suscriptor existe, está ACTIVO y no
+        // estamos cambiando de plan, así que se renueva en vez de crear un segundo suscriptor.
+        [Fact]
+        public async Task Checkout_SamePlanWithActiveSubscriber_RoutesToRecurrentUrlForCardUpdate()
+        {
+            using var h = await Harness.CreateAsync(workers: 1);
+
+            // El tenant YA está en este mismo plan recurrente.
+            SeedCurrentSubscriptionOnOtherPlan(h, otherRecurringPlanId: h.Data.RecurringPlanId);
+
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>
+            {
+                new() { SubscriberId = "374830", Email = Email, Status = "Active" }
+            };
+            h.Admin.RecurrentUrl = TilopayAdminOperationResult.Ok("ok", "https://tp.cr/l/recurrent-link");
+
+            var checkout = await h.Payments.CreateRecurringCheckoutAsync(h.TenantId, h.PlanId, "Owner", Email);
+
+            Assert.Equal("https://tp.cr/l/recurrent-link", checkout.RedirectUrl);
+            Assert.Equal(1, h.Admin.RecurrentUrlCalls);
+            Assert.Equal(0, await h.Db.PagosSuscripcion.IgnoreQueryFilters().CountAsync());
+            // No es un cambio de plan: no aplica el bloqueo del plan destino.
+            Assert.Equal(0, await h.CountAuditAsync(PlatformAuditActions.PlanChangeBlockedExistingActiveTargetSubscriber));
+        }
+
+        // ══ El flujo que YA funciona no se puede romper ══
+        // LC_M_02 → LC_M_03 (upgrade real de compra3): el tenant tiene un suscriptor ACTIVO, pero
+        // en su plan ACTUAL. El plan DESTINO está vacío, así que el checkout debe abrirse igual.
+        // Si el pre-check mirara "¿tiene el cliente algo activo?" en vez de "¿hay alguien cobrando
+        // el plan destino?", este upgrade se bloquearía. Es el error opuesto al del downgrade.
+        [Fact]
+        public async Task Checkout_PlanChangeToEmptyTargetPlan_StillOpensHostedCheckout()
+        {
+            using var h = await Harness.CreateAsync(workers: 1);
+
+            // Suscriptor vivo en el plan actual (6126), como LC_M_02 antes del upgrade.
+            SeedCurrentSubscriptionOnOtherPlan(h, otherRecurringPlanId: 6126);
+
+            // El plan destino no tiene suscriptores todavía.
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>();
+
+            var checkout = await h.Payments.CreateRecurringCheckoutAsync(h.TenantId, h.PlanId, "Owner", Email);
+
+            Assert.NotNull(checkout.RedirectUrl);
+            Assert.Equal(0, h.Admin.RecurrentUrlCalls);
+            Assert.Equal(1, await h.Db.PagosSuscripcion.IgnoreQueryFilters().CountAsync());
+            Assert.Equal(0, await h.CountAuditAsync(PlatformAuditActions.PlanChangeBlockedExistingActiveTargetSubscriber));
+            Assert.Equal(0, await h.CountAuditAsync(PlatformAuditActions.CheckoutBlockedExistingProviderSubscriber));
+        }
+
+        /// <summary>Pone al tenant en un plan recurrente distinto del que se va a comprar.</summary>
+        private static void SeedCurrentSubscriptionOnOtherPlan(Harness h, int otherRecurringPlanId)
+        {
+            h.Db.Suscripciones.Add(new Suscripcion
+            {
+                Id = Guid.NewGuid(),
+                TenantId = h.TenantId,
+                PlanId = h.PlanId,
+                Estado = EstadoSuscripcion.Activa,
+                Proveedor = PaymentProviderType.Tilopay,
+                TilopayRecurringPlanId = otherRecurringPlanId,
+                ProviderSubscriptionId = "386130",
+                FechaInicio = DateTime.UtcNow.AddDays(-2),
+                FechaFin = DateTime.UtcNow.AddDays(28),
+                FechaUltimaActualizacionUtc = DateTime.UtcNow.AddDays(-2)
+            });
+            h.Db.SaveChanges();
+        }
+
         [Fact]
         public async Task Checkout_AmbiguousSubscribers_Blocks()
         {
@@ -449,6 +668,200 @@ namespace LuxuryApp.Tests.Billing
 
             var health = await h.Health.BuildAsync();
             Assert.True(health.ProviderCancellationsFailedLast7d >= 1);
+        }
+
+        // ── Regresión de la evidencia real LC_M_02 → LC_M_03 (prod 2026-07-15) ──
+
+        /// <summary>
+        /// El webhook de TiloPay NO trae id_suscriptor: el nuevo (384370) solo vive en el pago,
+        /// resuelto antes por getSuscriptorRepeat. La suscripción DEBE quedar con 384370, jamás
+        /// con el viejo 382770, y el intent debe registrar NewProviderSubscriptionId.
+        /// </summary>
+        [Fact]
+        public async Task PlanChange_PaymentSuccessWithoutSubscriberInWebhook_UsesResolvedSubscriberFromPayment()
+        {
+            using var h = await Harness.CreateAsync(workers: 1);
+
+            // Suscripción vigente LC_M_02 con el suscriptor viejo 382770.
+            var oldSubscription = SeedActiveOldSubscription(h, oldSubscriberId: "382770", oldRecurringPlanId: 6126);
+            // Intent de cambio Pending hacia el plan del harness (destino).
+            SeedPendingPlanChangeIntent(h, oldSubscriberId: "382770", oldRecurringPlanId: 6126);
+            await h.Db.SaveChangesAsync();
+
+            // Checkout del destino; el registro resuelve el suscriptor NUEVO 384370.
+            h.Admin.ResolutionResult = SubscriberResolutionResult.NotFound();
+            await h.StartCheckoutAsync();
+            h.Admin.ResolutionResult = SubscriberResolutionResult.Found(
+                new TilopaySubscriber { SubscriberId = "384370", Email = Email }, 1);
+            await h.ProcessWebhookAsync("repeat_registration", amount: null, transactionId: "TX-REG-384370");
+
+            // El pago ya tiene 384370 (resuelto), pero el webhook de pago NO trae subscriber.
+            h.Admin.DeleteResult = TilopayAdminOperationResult.Ok("ok");   // baja del viejo OK
+            // getSuscriptorRepeat del plan viejo: 382770 ya no aparece → verificación confirma baja.
+            await h.ProcessWebhookAsync("repeat_payment_success", amount: h.Data.Charge, transactionId: "5389381");
+
+            var subscription = await h.Db.Suscripciones.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(EstadoSuscripcion.Activa, subscription.Estado);
+            Assert.Equal("384370", subscription.ProviderSubscriptionId);        // NO 382770
+            Assert.NotEqual("382770", subscription.ProviderSubscriptionId);
+            Assert.Equal(h.Data.RecurringPlanId, subscription.TilopayRecurringPlanId);
+
+            var intent = await h.Db.PlanChangeIntents.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(PlanChangeIntentState.Applied, intent.Estado);
+            Assert.Equal("384370", intent.NewProviderSubscriptionId);          // ya no NULL
+        }
+
+        /// <summary>
+        /// El ciclo del plan nuevo arranca en la confirmación del pago, NO encadenado al
+        /// vencimiento del plan viejo (bug: FechaInicio quedaba en el expire anterior).
+        /// </summary>
+        [Fact]
+        public async Task PlanChange_NewCycleStartsAtPaymentConfirmation_NotChainedToOldExpiry()
+        {
+            using var h = await Harness.CreateAsync(workers: 1);
+
+            var oldExpiry = DateTime.UtcNow.AddDays(30); // el plan viejo vence en 30 días
+            SeedActiveOldSubscription(h, oldSubscriberId: "382770", oldRecurringPlanId: 6126, fechaFin: oldExpiry);
+            SeedPendingPlanChangeIntent(h, oldSubscriberId: "382770", oldRecurringPlanId: 6126);
+            await h.Db.SaveChangesAsync();
+
+            h.Admin.ResolutionResult = SubscriberResolutionResult.NotFound();
+            await h.StartCheckoutAsync();
+            h.Admin.ResolutionResult = SubscriberResolutionResult.Found(
+                new TilopaySubscriber { SubscriberId = "384370", Email = Email }, 1);
+            await h.ProcessWebhookAsync("repeat_registration", amount: null, transactionId: "TX-REG-CYCLE");
+            await h.ProcessWebhookAsync("repeat_payment_success", amount: h.Data.Charge, transactionId: "TX-PAY-CYCLE");
+
+            var subscription = await h.Db.Suscripciones.IgnoreQueryFilters().SingleAsync();
+
+            // El ciclo NO arranca en el vencimiento viejo; arranca ahora (±1 día de tolerancia).
+            Assert.True(subscription.FechaInicio < oldExpiry.AddDays(-1),
+                $"FechaInicio {subscription.FechaInicio:O} quedó encadenada al vencimiento viejo {oldExpiry:O}");
+            Assert.NotNull(subscription.FechaFin);
+            // Mensual: fin ≈ inicio + 1 mes.
+            Assert.Equal(subscription.FechaInicio.AddMonths(1), subscription.FechaFin);
+            Assert.Equal(subscription.FechaFin, subscription.FechaProximoCobroUtc);
+        }
+
+        /// <summary>
+        /// Si el suscriptor nuevo no se pudo resolver, el plan local NO se aplica: aplicarlo dejaría
+        /// la suscripción en el plan nuevo apuntando al suscriptor viejo (doble cobro invisible).
+        /// </summary>
+        [Fact]
+        public async Task PlanChange_PaymentSuccessWithoutResolvedSubscriber_DoesNotApplyPlan_AndAudits()
+        {
+            using var h = await Harness.CreateAsync(workers: 1);
+
+            SeedActiveOldSubscription(h, oldSubscriberId: "382770", oldRecurringPlanId: 6126);
+            SeedPendingPlanChangeIntent(h, oldSubscriberId: "382770", oldRecurringPlanId: 6126);
+            await h.Db.SaveChangesAsync();
+
+            // La resolución NUNCA encuentra el suscriptor nuevo (API caída o aún no propagado).
+            h.Admin.ResolutionResult = SubscriberResolutionResult.NotFound();
+            await h.StartCheckoutAsync();
+            await h.ProcessWebhookAsync("repeat_payment_success", amount: h.Data.Charge, transactionId: "TX-NO-SUB");
+
+            // El plan NO se aplicó: la suscripción sigue en el viejo, con su suscriptor viejo.
+            var subscription = await h.Db.Suscripciones.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(6126, subscription.TilopayRecurringPlanId);
+            Assert.Equal("382770", subscription.ProviderSubscriptionId);
+
+            var intent = await h.Db.PlanChangeIntents.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(PlanChangeIntentState.Pending, intent.Estado);   // no Applied
+            Assert.Equal(1, await h.CountAuditAsync(PlatformAuditActions.PlanChangeBlockedMissingNewProviderSubscription));
+
+            // El pago sí quedó confirmado (el dinero entró); la reconciliación terminará el cambio.
+            Assert.Equal(1, await h.Db.PagosSuscripcion.IgnoreQueryFilters()
+                .CountAsync(p => p.Estado == EstadoPagoProveedor.Confirmado));
+        }
+
+        /// <summary>
+        /// Reparación del estado EXACTO que quedó en producción: intent Applied sin
+        /// NewProviderSubscriptionId y suscripción en el plan destino con el suscriptor viejo
+        /// y el ciclo encadenado. La reconciliación lo repara sin crear pagos nuevos.
+        /// </summary>
+        [Fact]
+        public async Task Reconciliation_RepairsProductionInconsistentState_WithoutCreatingPayments()
+        {
+            using var h = await Harness.CreateAsync(workers: 1);
+
+            var confirmedAtUtc = DateTime.UtcNow.AddHours(-2);
+            var chainedStart = DateTime.UtcNow.AddDays(30);   // ciclo encadenado (bug)
+
+            var paymentId = Guid.NewGuid();
+            h.Db.PagosSuscripcion.Add(new PagoSuscripcion
+            {
+                Id = paymentId,
+                TenantId = h.TenantId,
+                PlanId = h.PlanId,
+                Proveedor = PaymentProviderType.Tilopay,
+                Estado = EstadoPagoProveedor.Confirmado,
+                TilopayRecurringPlanId = h.Data.RecurringPlanId,
+                ReferenciaInterna = "LXA-PROD-REPAIR",
+                ProviderTransactionId = "5389381",
+                ProviderSubscriberId = "384370",             // el subscriber NUEVO sí está aquí
+                ClienteEmail = Email,
+                Monto = h.Data.Charge,
+                Moneda = "CRC",
+                FechaCreacionUtc = confirmedAtUtc,
+                FechaConfirmacionUtc = confirmedAtUtc
+            });
+            // Suscripción en el plan DESTINO pero con el suscriptor VIEJO y ciclo encadenado.
+            h.Db.Suscripciones.Add(new Suscripcion
+            {
+                Id = Guid.NewGuid(),
+                TenantId = h.TenantId,
+                PlanId = h.PlanId,
+                CodigoPlan = h.Data.Code,
+                Estado = EstadoSuscripcion.Activa,
+                Proveedor = PaymentProviderType.Tilopay,
+                TilopayRecurringPlanId = h.Data.RecurringPlanId,
+                ProviderSubscriptionId = "382770",           // ← viejo (bug)
+                FechaInicio = chainedStart,                  // ← encadenado (bug)
+                FechaFin = chainedStart.AddMonths(1),
+                FechaProximoCobroUtc = chainedStart.AddMonths(1)
+            });
+            h.Db.PlanChangeIntents.Add(new PlanChangeIntent
+            {
+                Id = Guid.NewGuid(),
+                TenantId = h.TenantId,
+                FromPlanCode = "LC_M_02",
+                FromTilopayRecurringPlanId = 6126,
+                FromProviderSubscriptionId = "382770",
+                ToPlanId = h.PlanId,
+                ToPlanCode = h.Data.Code,
+                ToWorkerCount = h.Data.Workers,
+                ToBillingCycle = BillingCycle.Monthly,
+                ToTilopayRecurringPlanId = h.Data.RecurringPlanId,
+                Estado = PlanChangeIntentState.Applied,
+                OldProviderCancellation = ProviderCancellationState.PendingManualCancellation,
+                NewProviderSubscriptionId = null,            // ← NULL (bug)
+                PagoSuscripcionId = paymentId,
+                AppliedAtUtc = confirmedAtUtc
+            });
+            await h.Db.SaveChangesAsync();
+
+            var paymentsBefore = await h.Db.PagosSuscripcion.IgnoreQueryFilters().CountAsync();
+            h.Admin.DeleteResult = TilopayAdminOperationResult.Ok("eliminado"); // baja del viejo OK y verificada
+
+            var report = await h.Reconciliation.RunAsync();
+
+            var intent = await h.Db.PlanChangeIntents.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal("384370", intent.NewProviderSubscriptionId);
+            Assert.Equal(ProviderCancellationState.Cancelled, intent.OldProviderCancellation);
+
+            var subscription = await h.Db.Suscripciones.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal("384370", subscription.ProviderSubscriptionId);   // corregido
+            Assert.Equal("5389381", subscription.ProviderTransactionId);
+            // Ciclo recalculado desde la confirmación del pago, no encadenado.
+            Assert.Equal(confirmedAtUtc, subscription.FechaInicio);
+            Assert.Equal(confirmedAtUtc.AddMonths(1), subscription.FechaFin);
+            Assert.Equal(subscription.FechaFin, subscription.FechaProximoCobroUtc);
+
+            Assert.True(report.PlanChangesRepaired >= 1);
+            Assert.Equal(1, await h.CountAuditAsync(PlatformAuditActions.PlanChangeInconsistentStateRepaired));
+            // NUNCA crea pagos nuevos.
+            Assert.Equal(paymentsBefore, await h.Db.PagosSuscripcion.IgnoreQueryFilters().CountAsync());
         }
 
         // ── Verificación OBLIGATORIA post-baja: un 200 de TiloPay no basta ──
@@ -746,6 +1159,9 @@ namespace LuxuryApp.Tests.Billing
                 Id = Guid.NewGuid(),
                 TenantId = tenantB,
                 FromPlanCode = "LC_M_02",
+                // Sin el plan viejo no habría cómo verificar la baja con getSuscriptorRepeat, y el
+                // reintento salta el intent en vez de borrar a ciegas. En producción siempre viene.
+                FromTilopayRecurringPlanId = 6126,
                 FromProviderSubscriptionId = "OLD-B",
                 ToPlanId = h.PlanId,
                 ToPlanCode = "LC_M_03",
@@ -797,7 +1213,347 @@ namespace LuxuryApp.Tests.Billing
             Assert.Contains("***4830", resolvedLog.Reason ?? string.Empty, StringComparison.Ordinal);
         }
 
+        // ══ Suscriptor resuelto TARDE: el pago se confirma antes de saber quién cobra ══
+        // Caso real (tenant compra3, 2026-07-15, LC_M_03 → LC_M_02): repeat_payment_success llegó
+        // sin id_suscriptor (TiloPay nunca lo manda), el guard anti doble-cobro se negó a aplicar
+        // el plan dentro de la transacción, el suscriptor se resolvió medio segundo después... y
+        // nadie volvió a aplicar. El cliente pagó LC_M_02 y siguió viendo LC_M_03, con DOS
+        // suscriptores activos en TiloPay.
+
+        [Fact]
+        public async Task Webhook_PaymentSuccessThenLateSubscriberResolution_AppliesPlanChangeAndCancelsOld()
+        {
+            using var h = await Harness.CreateAsync(workers: 2); // destino LC_M_02 / 6126
+
+            // Estado previo: el tenant está en LC_M_03 (6127) con su suscriptor vivo.
+            SeedActiveOldSubscription(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127);
+            var intentId = SeedPendingPlanChangeIntent(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127, fromPlanCode: "LC_M_03");
+            await h.Db.SaveChangesAsync();
+
+            // Durante el checkout el destino todavía no tiene suscriptor.
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>();
+            h.Admin.ResolutionResult = SubscriberResolutionResult.NotFound();
+            await h.StartCheckoutAsync();
+            await LinkIntentToPaymentAsync(h, intentId);
+
+            // El pago se confirma y RECIÉN AHÍ TiloPay muestra al suscriptor cobrando el destino.
+            // Es el mismo 386117 de antes: TiloPay reactivó el que estaba Delete en vez de crear uno.
+            h.Admin.ResolutionResult = SubscriberResolutionResult.Found(
+                new TilopaySubscriber { SubscriberId = "386117", Email = Email, Status = "Active" }, 1);
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>
+            {
+                new() { SubscriberId = "386117", Email = Email, Status = "Active" }
+            };
+            // GetSubscribers vacío = getSuscriptorRepeat del plan VIEJO tras la baja: el 386130 ya
+            // no aparece, así que la cancelación queda verificada.
+
+            await h.ProcessWebhookAsync("repeat_payment_success", amount: h.Data.Charge, transactionId: "5397431");
+
+            // El cambio quedó APLICADO en el mismo webhook, no 24h después.
+            var subscription = await h.Db.Suscripciones.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(6126, subscription.TilopayRecurringPlanId);
+            Assert.Equal("386117", subscription.ProviderSubscriptionId);
+            Assert.Equal("5397431", subscription.ProviderTransactionId);
+            Assert.Equal(EstadoSuscripcion.Activa, subscription.Estado);
+
+            var intent = await h.Db.PlanChangeIntents.IgnoreQueryFilters().SingleAsync(i => i.Id == intentId);
+            Assert.Equal(PlanChangeIntentState.Applied, intent.Estado);
+            Assert.Equal("386117", intent.NewProviderSubscriptionId);
+
+            // Y el viejo (386130) se canceló y verificó.
+            Assert.Contains("386130", h.Admin.DeletedSubscriberIds);
+            Assert.Equal(ProviderCancellationState.Cancelled, intent.OldProviderCancellation);
+
+            Assert.Equal(1, await h.CountAuditAsync(PlatformAuditActions.PlanChangeAppliedAfterLateSubscriberResolution));
+        }
+
+        [Fact]
+        public async Task LateApplication_ReactivatedPreviouslyDeletedSubscriber_IsAcceptedAsNew()
+        {
+            using var h = await Harness.CreateAsync(workers: 2);
+
+            SeedActiveOldSubscription(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127);
+            var intentId = SeedPendingPlanChangeIntent(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127, fromPlanCode: "LC_M_03");
+            var paymentId = SeedConfirmedPayment(h, subscriberId: "386117", transactionId: "5397431");
+            await h.LinkIntentAsync(intentId, paymentId);
+
+            // 386117 fue el suscriptor VIEJO de un cambio anterior y estaba Delete; TiloPay lo
+            // reactivó para este pago. Ser un id "histórico" no lo hace inválido: hoy cobra el destino.
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>
+            {
+                new() { SubscriberId = "386117", Email = Email, Status = "Active" }
+            };
+
+            var result = await h.LateApplication.ApplyPendingPlanChangeAfterSubscriberResolvedAsync(paymentId, "test");
+
+            Assert.Equal(LatePlanChangeApplicationStatus.Applied, result.Status);
+
+            var intent = await h.Db.PlanChangeIntents.IgnoreQueryFilters().SingleAsync(i => i.Id == intentId);
+            Assert.Equal("386117", intent.NewProviderSubscriptionId);
+            Assert.Equal(PlanChangeIntentState.Applied, intent.Estado);
+        }
+
+        [Fact]
+        public async Task Reconciliation_PendingIntentWithConfirmedPaymentAndSubscriber_IsRepairedAutomatically()
+        {
+            using var h = await Harness.CreateAsync(workers: 2);
+
+            SeedActiveOldSubscription(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127);
+            var intentId = SeedPendingPlanChangeIntent(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127, fromPlanCode: "LC_M_03");
+            var paymentId = SeedConfirmedPayment(h, subscriberId: "386117", transactionId: "5397431");
+            await h.LinkIntentAsync(intentId, paymentId);
+
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>
+            {
+                new() { SubscriberId = "386117", Email = Email, Status = "Active" }
+            };
+            // GetSubscribers vacío = getSuscriptorRepeat del plan VIEJO tras la baja: el 386130 ya
+            // no aparece, así que la cancelación queda verificada.
+
+            var paymentsBefore = await h.Db.PagosSuscripcion.IgnoreQueryFilters().CountAsync();
+
+            // El worker rápido: el doble suscriptor no puede esperar al pase diario.
+            var report = await h.Reconciliation.RunOldSubscriberCancellationRetryAsync();
+
+            Assert.Equal(1, report.LatePlanChangesApplied);
+
+            var subscription = await h.Db.Suscripciones.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(6126, subscription.TilopayRecurringPlanId);
+            Assert.Equal("386117", subscription.ProviderSubscriptionId);
+            Assert.Equal("5397431", subscription.ProviderTransactionId);
+
+            var intent = await h.Db.PlanChangeIntents.IgnoreQueryFilters().SingleAsync(i => i.Id == intentId);
+            Assert.Equal(PlanChangeIntentState.Applied, intent.Estado);
+            Assert.Equal(ProviderCancellationState.Cancelled, intent.OldProviderCancellation);
+            Assert.Contains("386130", h.Admin.DeletedSubscriberIds);
+
+            Assert.Equal(1, await h.CountAuditAsync(PlatformAuditActions.PlanChangeConfirmedPaymentWithLateSubscriberRepaired));
+
+            // La reparación NUNCA crea pagos ni checkouts.
+            Assert.Equal(paymentsBefore, await h.Db.PagosSuscripcion.IgnoreQueryFilters().CountAsync());
+
+            // Y el health queda sin riesgo.
+            var health = await h.Health.BuildAsync();
+            Assert.Equal(0, health.OldCancellationPendingCount);
+        }
+
+        [Fact]
+        public async Task LateApplication_IsIdempotent_SecondRunDoesNothing()
+        {
+            using var h = await Harness.CreateAsync(workers: 2);
+
+            SeedActiveOldSubscription(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127);
+            var intentId = SeedPendingPlanChangeIntent(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127, fromPlanCode: "LC_M_03");
+            var paymentId = SeedConfirmedPayment(h, subscriberId: "386117", transactionId: "5397431");
+            await h.LinkIntentAsync(intentId, paymentId);
+
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>
+            {
+                new() { SubscriberId = "386117", Email = Email, Status = "Active" }
+            };
+
+            var first = await h.LateApplication.ApplyPendingPlanChangeAfterSubscriberResolvedAsync(paymentId, "test");
+            var second = await h.LateApplication.ApplyPendingPlanChangeAfterSubscriberResolvedAsync(paymentId, "test");
+
+            Assert.Equal(LatePlanChangeApplicationStatus.Applied, first.Status);
+            Assert.Equal(LatePlanChangeApplicationStatus.NotApplicable, second.Status);
+            Assert.Equal(1, await h.CountAuditAsync(PlatformAuditActions.PlanChangeAppliedAfterLateSubscriberResolution));
+        }
+
+        [Fact]
+        public async Task LateApplication_MultipleActiveInTarget_DoesNotApplyAndFlagsManualReview()
+        {
+            using var h = await Harness.CreateAsync(workers: 2);
+
+            SeedActiveOldSubscription(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127);
+            var intentId = SeedPendingPlanChangeIntent(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127, fromPlanCode: "LC_M_03");
+            var paymentId = SeedConfirmedPayment(h, subscriberId: "386117", transactionId: "5397431");
+            await h.LinkIntentAsync(intentId, paymentId);
+
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>
+            {
+                new() { SubscriberId = "386117", Email = Email, Status = "Active" },
+                new() { SubscriberId = "999999", Email = Email, Status = "Active" }
+            };
+
+            var result = await h.LateApplication.ApplyPendingPlanChangeAfterSubscriberResolvedAsync(paymentId, "test");
+
+            Assert.Equal(LatePlanChangeApplicationStatus.ManualReview, result.Status);
+
+            // Nada se movió: el plan sigue siendo el viejo.
+            var subscription = await h.Db.Suscripciones.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(6127, subscription.TilopayRecurringPlanId);
+            Assert.Empty(h.Admin.DeletedSubscriberIds);
+
+            var intent = await h.Db.PlanChangeIntents.IgnoreQueryFilters().SingleAsync(i => i.Id == intentId);
+            Assert.Equal(PlanChangeIntentState.Pending, intent.Estado);
+            Assert.Equal(1, await h.CountAuditAsync(PlatformAuditActions.PlanChangeLateSubscriberRequiresManualReview));
+        }
+
+        [Theory]
+        [InlineData("Delete")]
+        [InlineData("4")]
+        public async Task LateApplication_ResolvedSubscriberInactiveInTarget_DoesNotApply(string status)
+        {
+            using var h = await Harness.CreateAsync(workers: 2);
+
+            SeedActiveOldSubscription(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127);
+            var intentId = SeedPendingPlanChangeIntent(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127, fromPlanCode: "LC_M_03");
+            var paymentId = SeedConfirmedPayment(h, subscriberId: "386117", transactionId: "5397431");
+            await h.LinkIntentAsync(intentId, paymentId);
+
+            // El suscriptor del pago NO está cobrando el destino: aplicar dejaría la suscripción
+            // apuntando a un id muerto.
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>
+            {
+                new() { SubscriberId = "386117", Email = Email, Status = status }
+            };
+
+            var result = await h.LateApplication.ApplyPendingPlanChangeAfterSubscriberResolvedAsync(paymentId, "test");
+
+            Assert.Equal(LatePlanChangeApplicationStatus.LeftPendingNoActiveSubscriber, result.Status);
+
+            var subscription = await h.Db.Suscripciones.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(6127, subscription.TilopayRecurringPlanId);
+            Assert.Empty(h.Admin.DeletedSubscriberIds);
+        }
+
+        [Fact]
+        public async Task LateApplication_UnknownStatusInTarget_FlagsManualReview()
+        {
+            using var h = await Harness.CreateAsync(workers: 2);
+
+            SeedActiveOldSubscription(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127);
+            var intentId = SeedPendingPlanChangeIntent(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127, fromPlanCode: "LC_M_03");
+            var paymentId = SeedConfirmedPayment(h, subscriberId: "386117", transactionId: "5397431");
+            await h.LinkIntentAsync(intentId, paymentId);
+
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>
+            {
+                new() { SubscriberId = "386117", Email = Email, Status = "algo-raro" }
+            };
+
+            var result = await h.LateApplication.ApplyPendingPlanChangeAfterSubscriberResolvedAsync(paymentId, "test");
+
+            Assert.Equal(LatePlanChangeApplicationStatus.ManualReview, result.Status);
+            Assert.Equal(1, await h.CountAuditAsync(PlatformAuditActions.PlanChangeLateSubscriberRequiresManualReview));
+        }
+
+        [Fact]
+        public async Task LateApplication_ActiveSubscriberDiffersFromPayment_FlagsManualReview()
+        {
+            using var h = await Harness.CreateAsync(workers: 2);
+
+            SeedActiveOldSubscription(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127);
+            var intentId = SeedPendingPlanChangeIntent(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127, fromPlanCode: "LC_M_03");
+            var paymentId = SeedConfirmedPayment(h, subscriberId: "386117", transactionId: "5397431");
+            await h.LinkIntentAsync(intentId, paymentId);
+
+            // TiloPay dice que quien cobra el destino es OTRO: algo cambió bajo nuestros pies.
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>
+            {
+                new() { SubscriberId = "777777", Email = Email, Status = "Active" }
+            };
+
+            var result = await h.LateApplication.ApplyPendingPlanChangeAfterSubscriberResolvedAsync(paymentId, "test");
+
+            Assert.Equal(LatePlanChangeApplicationStatus.ManualReview, result.Status);
+            Assert.Empty(h.Admin.DeletedSubscriberIds);
+        }
+
+        [Fact]
+        public async Task LateApplication_PaymentNotConfirmed_DoesNothing()
+        {
+            using var h = await Harness.CreateAsync(workers: 2);
+
+            SeedActiveOldSubscription(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127);
+            var intentId = SeedPendingPlanChangeIntent(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127, fromPlanCode: "LC_M_03");
+            var paymentId = SeedConfirmedPayment(h, subscriberId: "386117", transactionId: "5397431", estado: EstadoPagoProveedor.Pendiente);
+            await h.LinkIntentAsync(intentId, paymentId);
+
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>
+            {
+                new() { SubscriberId = "386117", Email = Email, Status = "Active" }
+            };
+
+            var result = await h.LateApplication.ApplyPendingPlanChangeAfterSubscriberResolvedAsync(paymentId, "test");
+
+            Assert.Equal(LatePlanChangeApplicationStatus.NotApplicable, result.Status);
+            var subscription = await h.Db.Suscripciones.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(6127, subscription.TilopayRecurringPlanId);
+        }
+
+        [Fact]
+        public async Task LateApplication_BillingPeriodStartsAtPaymentConfirmation_NotAtRepairTime()
+        {
+            using var h = await Harness.CreateAsync(workers: 2);
+
+            SeedActiveOldSubscription(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127);
+            var intentId = SeedPendingPlanChangeIntent(h, oldSubscriberId: "386130", oldRecurringPlanId: 6127, fromPlanCode: "LC_M_03");
+
+            // El pago se confirmó hace 5 horas; la reparación corre recién ahora.
+            var confirmedAtUtc = DateTime.UtcNow.AddHours(-5);
+            var paymentId = SeedConfirmedPayment(h, subscriberId: "386117", transactionId: "5397431", confirmedAtUtc: confirmedAtUtc);
+            await h.LinkIntentAsync(intentId, paymentId);
+
+            h.Admin.TargetSubscribers = new List<TilopaySubscriber>
+            {
+                new() { SubscriberId = "386117", Email = Email, Status = "Active" }
+            };
+
+            await h.LateApplication.ApplyPendingPlanChangeAfterSubscriberResolvedAsync(paymentId, "test");
+
+            var subscription = await h.Db.Suscripciones.IgnoreQueryFilters().SingleAsync();
+
+            // El ciclo arranca cuando el cliente pagó, no cuando nos enteramos.
+            Assert.Equal(confirmedAtUtc, subscription.FechaInicio, TimeSpan.FromSeconds(1));
+            Assert.Equal(confirmedAtUtc.AddMonths(1), subscription.FechaFin!.Value, TimeSpan.FromSeconds(1));
+            Assert.Equal(subscription.FechaFin, subscription.FechaProximoCobroUtc);
+        }
+
         // ── Helpers ──
+
+        /// <summary>Pago del plan destino tal como queda tras repeat_payment_success + resolución tardía.</summary>
+        private static Guid SeedConfirmedPayment(
+            Harness h,
+            string subscriberId,
+            string transactionId,
+            EstadoPagoProveedor estado = EstadoPagoProveedor.Confirmado,
+            DateTime? confirmedAtUtc = null)
+        {
+            var paymentId = Guid.NewGuid();
+            var confirmed = confirmedAtUtc ?? DateTime.UtcNow.AddMinutes(-2);
+
+            h.Db.PagosSuscripcion.Add(new PagoSuscripcion
+            {
+                Id = paymentId,
+                TenantId = h.TenantId,
+                PlanId = h.PlanId,
+                Proveedor = PaymentProviderType.Tilopay,
+                Estado = estado,
+                ReferenciaInterna = $"LXA-{Guid.NewGuid():N}"[..20],
+                ProviderReference = Guid.NewGuid().ToString("N"),
+                ProviderTransactionId = transactionId,
+                ProviderSubscriberId = subscriberId,
+                TilopayRecurringPlanId = h.Data.RecurringPlanId,
+                ClienteEmail = Email,
+                Monto = h.Data.Charge,
+                Moneda = "CRC",
+                FechaCreacionUtc = confirmed.AddMinutes(-5),
+                FechaConfirmacionUtc = estado == EstadoPagoProveedor.Confirmado ? confirmed : null,
+                FechaActualizacionUtc = confirmed
+            });
+
+            return paymentId;
+        }
+
+        private static async Task LinkIntentToPaymentAsync(Harness h, Guid intentId)
+        {
+            var payment = await h.Db.PagosSuscripcion.IgnoreQueryFilters()
+                .OrderByDescending(p => p.FechaCreacionUtc)
+                .FirstAsync();
+            await h.LinkIntentAsync(intentId, payment.Id);
+        }
 
         private static void AssertPlatformPolicy(Type controllerType)
         {
@@ -808,6 +1564,62 @@ namespace LuxuryApp.Tests.Billing
 
             Assert.NotNull(attribute);
             Assert.Equal(PlatformAuthorizationPolicies.PlatformSuperAdmin, attribute!.Policy);
+        }
+
+        /// <summary>Suscripción vigente en el plan VIEJO con su suscriptor (estado previo al cambio).</summary>
+        private static Suscripcion SeedActiveOldSubscription(
+            Harness h,
+            string oldSubscriberId,
+            int oldRecurringPlanId,
+            DateTime? fechaFin = null)
+        {
+            var subscription = new Suscripcion
+            {
+                Id = Guid.NewGuid(),
+                TenantId = h.TenantId,
+                PlanId = h.PlanId,
+                CodigoPlan = "LC_M_02",
+                Estado = EstadoSuscripcion.Activa,
+                Proveedor = PaymentProviderType.Tilopay,
+                TilopayRecurringPlanId = oldRecurringPlanId,
+                ProviderSubscriptionId = oldSubscriberId,
+                MaxFuncionarios = 2,
+                FechaInicio = DateTime.UtcNow.AddDays(-1),
+                FechaFin = fechaFin ?? DateTime.UtcNow.AddDays(30),
+                FechaProximoCobroUtc = fechaFin ?? DateTime.UtcNow.AddDays(30),
+                FechaUltimaActualizacionUtc = DateTime.UtcNow.AddDays(-1)
+            };
+            h.Db.Suscripciones.Add(subscription);
+            return subscription;
+        }
+
+        /// <summary>Intent de cambio de plan Pending hacia el plan del harness.</summary>
+        /// <summary>Intento de cambio PENDING hacia el plan del harness, como lo deja el checkout.</summary>
+        private static Guid SeedPendingPlanChangeIntent(
+            Harness h,
+            string oldSubscriberId,
+            int oldRecurringPlanId,
+            string fromPlanCode = "LC_M_02")
+        {
+            var intentId = Guid.NewGuid();
+            h.Db.PlanChangeIntents.Add(new PlanChangeIntent
+            {
+                Id = intentId,
+                TenantId = h.TenantId,
+                FromPlanCode = fromPlanCode,
+                FromTilopayRecurringPlanId = oldRecurringPlanId,
+                FromProviderSubscriptionId = oldSubscriberId,
+                ToPlanId = h.PlanId,
+                ToPlanCode = h.Data.Code,
+                ToWorkerCount = h.Data.Workers,
+                ToBillingCycle = BillingCycle.Monthly,
+                ToTilopayRecurringPlanId = h.Data.RecurringPlanId,
+                Estado = PlanChangeIntentState.Pending,
+                OldProviderCancellation = ProviderCancellationState.NotRequired,
+                CreatedAtUtc = DateTime.UtcNow
+            });
+
+            return intentId;
         }
 
         private static void SeedAppliedUpgradeIntent(Harness h, string oldSubscriber, string newSubscriber)
@@ -843,14 +1655,54 @@ namespace LuxuryApp.Tests.Billing
             public List<TilopaySubscriber> GetSubscribers { get; } = new();
             public List<string> DeletedSubscriberIds { get; } = new();
 
+            /// <summary>
+            /// Suscriptores del plan DESTINO. Si se setea, el pre-check evalúa esta lista con las
+            /// reglas reales; si no, el veredicto se deriva de <see cref="ResolutionResult"/>.
+            /// </summary>
+            public List<TilopaySubscriber>? TargetSubscribers { get; set; }
+
+            /// <summary>Cuántas veces se pidió recurrentUrl: un suscriptor Delete NO debe generarla.</summary>
+            public int RecurrentUrlCalls { get; private set; }
+
             public Task<IReadOnlyList<TilopaySubscriber>> GetSuscriptorRepeatAsync(int tilopayPlanId, CancellationToken cancellationToken = default) =>
                 Task.FromResult<IReadOnlyList<TilopaySubscriber>>(GetSubscribers.ToList());
 
             public Task<SubscriberResolutionResult> ResolveSubscriberAsync(int tilopayPlanId, string? email, CancellationToken cancellationToken = default) =>
                 Task.FromResult(ResolutionResult);
 
-            public Task<TilopayAdminOperationResult> GetRecurrentUrlAsync(int tilopayPlanId, string? email, CancellationToken cancellationToken = default) =>
-                Task.FromResult(RecurrentUrl);
+            /// <summary>
+            /// Deriva el veredicto del mismo <see cref="ResolutionResult"/> que ya programan los
+            /// tests, pero clasificando con las reglas REALES (TargetSubscriberAssessment.FromMatches):
+            /// el fake no inventa una tabla propia, así que si la regla de estado cambia, estos
+            /// tests lo notan.
+            /// </summary>
+            public Task<TargetSubscriberAssessment> AssessTargetSubscribersAsync(int tilopayPlanId, string? email, CancellationToken cancellationToken = default) =>
+                TargetSubscribers is not null
+                    ? Task.FromResult(TargetSubscriberAssessment.FromMatches(TargetSubscribers, tilopayPlanId))
+                    : Task.FromResult(ResolutionResult.Status switch
+                {
+                    SubscriberResolutionStatus.Error =>
+                        TargetSubscriberAssessment.Error(ResolutionResult.Detail ?? "error simulado"),
+
+                    SubscriberResolutionStatus.Found =>
+                        TargetSubscriberAssessment.FromMatches(new[] { ResolutionResult.Subscriber! }, tilopayPlanId),
+
+                    // Ambiguo = varios ACTIVOS por email (así lo entiende el pre-check).
+                    SubscriberResolutionStatus.Ambiguous =>
+                        TargetSubscriberAssessment.FromMatches(
+                            Enumerable.Range(0, Math.Max(2, ResolutionResult.MatchCount))
+                                .Select(i => new TilopaySubscriber { SubscriberId = $"AMB-{i}", Email = email, Status = "Active" })
+                                .ToList(),
+                            tilopayPlanId),
+
+                    _ => TargetSubscriberAssessment.FromMatches(Array.Empty<TilopaySubscriber>(), tilopayPlanId)
+                });
+
+            public Task<TilopayAdminOperationResult> GetRecurrentUrlAsync(int tilopayPlanId, string? email, CancellationToken cancellationToken = default)
+            {
+                RecurrentUrlCalls++;
+                return Task.FromResult(RecurrentUrl);
+            }
 
             public Task<TilopayAdminOperationResult> PauseSubscriberAsync(string subscriberId, CancellationToken cancellationToken = default) =>
                 Task.FromResult(TilopayAdminOperationResult.Ok("paused"));
@@ -891,6 +1743,7 @@ namespace LuxuryApp.Tests.Billing
             public SaaSPaymentService Payments { get; private set; } = null!;
             public BillingReconciliationService Reconciliation { get; private set; } = null!;
             public ProviderSubscriptionManager ProviderManager { get; private set; } = null!;
+            public PlanChangeLateApplicationService LateApplication { get; private set; } = null!;
             public BillingHealthService Health { get; private set; } = null!;
             public Guid TenantId { get; } = Guid.NewGuid();
             public Guid PlanId { get; private set; }
@@ -920,6 +1773,18 @@ namespace LuxuryApp.Tests.Billing
                 var resolutionService = new SubscriberResolutionService(context, h.Admin, tenantAccessor, clock, NullLogger<SubscriberResolutionService>.Instance);
                 h.ProviderManager = new ProviderSubscriptionManager(context, h.Admin, tenantAccessor, clock, adminOptions, NullLogger<ProviderSubscriptionManager>.Instance);
 
+                var planChangeService = new PlanChangeService(context, NullLogger<PlanChangeService>.Instance);
+
+                h.LateApplication = new PlanChangeLateApplicationService(
+                    context,
+                    subscriptionService,
+                    planChangeService,
+                    tenantAccessor,
+                    clock,
+                    h.Admin,
+                    NullLogger<PlanChangeLateApplicationService>.Instance,
+                    h.ProviderManager);
+
                 h.Payments = new SaaSPaymentService(
                     context,
                     new PaymentProviderResolver(new IPaymentProvider[] { h.Provider }),
@@ -930,11 +1795,12 @@ namespace LuxuryApp.Tests.Billing
                     Options.Create(repeatOptions),
                     NullLogger<SaaSPaymentService>.Instance,
                     environment: null,
-                    planChangeService: new PlanChangeService(context, NullLogger<PlanChangeService>.Instance),
+                    planChangeService: planChangeService,
                     subscriberResolutionService: resolutionService,
                     tilopayRepeatAdminService: h.Admin,
                     tilopayRepeatAdminOptions: adminOptions,
-                    providerSubscriptionManager: h.ProviderManager);
+                    providerSubscriptionManager: h.ProviderManager,
+                    planChangeLateApplicationService: h.LateApplication);
 
                 h.Reconciliation = new BillingReconciliationService(
                     context,
@@ -946,7 +1812,8 @@ namespace LuxuryApp.Tests.Billing
                     NullLogger<BillingReconciliationService>.Instance,
                     resolutionService,
                     adminOptions,
-                    h.ProviderManager);
+                    h.ProviderManager,
+                    h.LateApplication);
 
                 h.Health = new BillingHealthService(context, subscriptionService);
 
@@ -996,6 +1863,17 @@ namespace LuxuryApp.Tests.Billing
 
             public Task<int> CountAuditAsync(string action) =>
                 Db.PlatformAuditLogs.CountAsync(l => l.Action == action);
+
+            /// <summary>Enlaza intent ↔ pago, como hace el controller con el lc_ref tras abrir el checkout.</summary>
+            public async Task LinkIntentAsync(Guid intentId, Guid paymentId)
+            {
+                await Db.SaveChangesAsync(); // vuelca lo que sembró el test antes de consultar
+
+                var intent = await Db.PlanChangeIntents.IgnoreQueryFilters().SingleAsync(i => i.Id == intentId);
+                intent.PagoSuscripcionId = paymentId;
+                await Db.SaveChangesAsync();
+                Db.ChangeTracker.Clear();
+            }
 
             public void Dispose()
             {

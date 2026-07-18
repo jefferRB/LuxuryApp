@@ -454,7 +454,9 @@ namespace LuxuryApp.Services.Platform
                     s.Estado == EstadoSuscripcion.Activa &&
                     !s.CancelAtPeriodEnd &&
                     s.FechaProximoCobroUtc != null &&
-                    s.FechaProximoCobroUtc < nowUtc);
+                    s.FechaProximoCobroUtc < nowUtc &&
+                    // No es vencida si TiloPay va a cobrar más tarde (expire posterior en el proveedor).
+                    (s.ProviderExpiresAtUtc == null || s.ProviderExpiresAtUtc < nowUtc));
             queues.Add(new MissionControlQueueViewModel
             {
                 Key = "overdue-renewals",

@@ -53,7 +53,67 @@ namespace LuxuryApp.Models.SaaS
 
         public DateTime? FechaFinGraciaUtc { get; set; }
 
+        // ── Vencimiento REAL en el proveedor (fuente de verdad de cuándo cobra TiloPay) ──
+        // Separado de FechaFin/FechaProximoCobroUtc a propósito: esas son la vigencia que calcula
+        // LuxuryCloud; estas son lo que dice el proveedor. Se guardan aparte para poder auditar la
+        // diferencia y calcular la fecha EFECTIVA sin perder ninguna de las dos.
+
+        /// <summary>Expire del suscriptor Active en TiloPay, ya en UTC (fin del día Costa Rica). Null si no se ha sincronizado.</summary>
+        public DateTime? ProviderExpiresAtUtc { get; set; }
+
+        /// <summary>Cuándo se sincronizó por última vez <see cref="ProviderExpiresAtUtc"/> contra getSuscriptorRepeat.</summary>
+        public DateTime? ProviderExpiryLastSyncedUtc { get; set; }
+
+        /// <summary>El expire crudo de TiloPay ("2026-09-15"), para diagnóstico/auditoría.</summary>
+        [MaxLength(20)]
+        public string? ProviderExpiryRaw { get; set; }
+
         public DateTime? FechaCancelacionUtc { get; set; }
+
+        // ── Ciclo de vida: cancelación programada (cancel-at-period-end), pausa y estado provider ──
+        // Separado de Estado/FechaFin a propósito: CancelAtPeriodEnd mantiene el acceso ya pagado
+        // vivo hasta la fecha efectiva, y estas columnas guardan la evidencia verificada contra
+        // TiloPay (nunca solo por un HTTP 200) para poder auditar y reconciliar el cierre del período.
+
+        /// <summary>Cuándo el cliente/soporte pidió cancelar la renovación (no corta acceso).</summary>
+        public DateTime? CancellationRequestedAtUtc { get; set; }
+
+        /// <summary>Cuándo se VERIFICÓ contra TiloPay que el suscriptor quedó inactivo (Delete/Eliminado).</summary>
+        public DateTime? ProviderCancelledAtUtc { get; set; }
+
+        /// <summary>Fecha efectiva en que la cancelación programada corta el acceso (fin de período ya pagado).</summary>
+        public DateTime? CancellationEffectiveAtUtc { get; set; }
+
+        /// <summary>Motivo de la cancelación. Dedicada (no se pisa como MotivoEstado en cada cambio).</summary>
+        [MaxLength(250)]
+        public string? CancellationReason { get; set; }
+
+        /// <summary>UserId de quien solicitó la cancelación (cliente admin o SuperAdmin de plataforma).</summary>
+        [MaxLength(450)]
+        public string? CancellationRequestedByUserId { get; set; }
+
+        /// <summary>Cuándo se VERIFICÓ contra TiloPay que el suscriptor quedó Pausado (status 3). Null = no pausado.</summary>
+        public DateTime? ProviderPausedAtUtc { get; set; }
+
+        /// <summary>Última vez que se sincronizó el status crudo del suscriptor contra getSuscriptorRepeat.</summary>
+        public DateTime? ProviderStatusLastSyncedUtc { get; set; }
+
+        /// <summary>Último status crudo leído del proveedor (para detectar drift local↔proveedor y auditar).</summary>
+        [MaxLength(40)]
+        public string? ProviderStatusRaw { get; set; }
+
+        // ── Resumen de recuperación de pago (el detalle vive en SubscriptionPaymentIncidents) ──
+        // La gracia sigue usando FechaFinGraciaUtc (arriba); estos campos son para display/consulta rápida.
+
+        /// <summary>Cuándo se detectó el último pago recurrente fallido (null = sin incidente abierto).</summary>
+        public DateTime? LastPaymentFailedAtUtc { get; set; }
+
+        /// <summary>Estado de recuperación para mostrar en UI (p.ej. "GraceActive", "GraceExpired"). Null = sano.</summary>
+        [MaxLength(40)]
+        public string? PaymentRecoveryStatus { get; set; }
+
+        /// <summary>Cuándo se envió la última notificación de recuperación de pago.</summary>
+        public DateTime? LastPaymentRecoveryNotificationAtUtc { get; set; }
 
         public decimal? PrecioMensual { get; set; }
 

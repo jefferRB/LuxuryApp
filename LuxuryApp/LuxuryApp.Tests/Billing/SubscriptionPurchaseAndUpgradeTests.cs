@@ -175,15 +175,222 @@ namespace LuxuryApp.Tests.Billing
             var first = await planChangeService.CreateOrReuseAsync(BuildChangeRequest(tenantId, toWorkers: 3, cycle: BillingCycle.Monthly));
             Assert.True(first.Succeeded);
 
-            var differentTarget = await planChangeService.CreateOrReuseAsync(BuildChangeRequest(tenantId, toWorkers: 4, cycle: BillingCycle.Monthly));
-            Assert.False(differentTarget.Succeeded);
-            Assert.Contains("cambio de plan en proceso", differentTarget.Error ?? string.Empty, StringComparison.OrdinalIgnoreCase);
-
+            // Mismo destino: se reutiliza el intento abierto (anti doble-click).
             var sameTarget = await planChangeService.CreateOrReuseAsync(BuildChangeRequest(tenantId, toWorkers: 3, cycle: BillingCycle.Monthly));
             Assert.True(sameTarget.Succeeded);
             Assert.Equal(first.Intent!.Id, sameTarget.Intent!.Id);
-
             Assert.Single(await context.PlanChangeIntents.IgnoreQueryFilters().ToListAsync());
+
+            // Otro destino, y el abierto tiene un pago con SEÑAL DE DINERO (transacción del
+            // proveedor): puede haber un cobro real detrás, así que se rechaza. Este es el bloqueo
+            // que protege de verdad. Lo que decide no es "¿hay pago?" sino "¿hay dinero?".
+            var data = CalculatorCatalog.Find(3, BillingCycle.Monthly);
+            var paidPlan = SeedPlan(context, data);
+            var payment = new PagoSuscripcion
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                PlanId = paidPlan.Id,
+                Proveedor = PaymentProviderType.Tilopay,
+                Estado = EstadoPagoProveedor.Pendiente,
+                ReferenciaInterna = $"LXA-{Guid.NewGuid():N}"[..20],
+                ProviderTransactionId = "TX-EN-VUELO",
+                TilopayRecurringPlanId = data.RecurringPlanId,
+                ClienteEmail = "owner@test.local",
+                Monto = data.Charge,
+                Moneda = "CRC",
+                FechaCreacionUtc = DateTime.UtcNow.AddMinutes(-5)
+            };
+            context.PagosSuscripcion.Add(payment);
+            first.Intent!.PagoSuscripcionId = payment.Id;
+            await context.SaveChangesAsync();
+
+            var differentTargetWithMoney = await planChangeService.CreateOrReuseAsync(
+                BuildChangeRequest(tenantId, toWorkers: 4, cycle: BillingCycle.Monthly));
+            Assert.False(differentTargetWithMoney.Succeeded);
+            Assert.Contains("cambio de plan en proceso", differentTargetWithMoney.Error ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+
+            // Y el pago con dinero no se tocó.
+            Assert.Equal(EstadoPagoProveedor.Pendiente, (await context.PagosSuscripcion.IgnoreQueryFilters()
+                .SingleAsync(p => p.Id == payment.Id)).Estado);
+        }
+
+        // ── Un pending SIN pago no puede trabar al tenant para siempre ──
+        // Es el estado que dejaba un checkout bloqueado: intento abierto, cero dinero detrás.
+        [Fact]
+        public async Task PlanChange_OpenPendingWithoutPayment_IsSupersededByNewTargetInsteadOfBlocking()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var tenantId = Guid.NewGuid();
+            SeedTenantOnly(context, tenantId);
+            await context.SaveChangesAsync();
+
+            var planChangeService = new PlanChangeService(context, NullLogger<PlanChangeService>.Instance);
+
+            var blocked = await planChangeService.CreateOrReuseAsync(BuildChangeRequest(tenantId, toWorkers: 3, cycle: BillingCycle.Monthly));
+            Assert.True(blocked.Succeeded);
+            Assert.Null(blocked.Intent!.PagoSuscripcionId);
+
+            var newTarget = await planChangeService.CreateOrReuseAsync(BuildChangeRequest(tenantId, toWorkers: 4, cycle: BillingCycle.Monthly));
+
+            Assert.True(newTarget.Succeeded);
+            Assert.NotEqual(blocked.Intent!.Id, newTarget.Intent!.Id);
+
+            var superseded = await context.PlanChangeIntents.IgnoreQueryFilters()
+                .SingleAsync(intent => intent.Id == blocked.Intent!.Id);
+            Assert.Equal(PlanChangeIntentState.Superseded, superseded.Estado);
+
+            // Un solo Pending vivo: el índice único por tenant sigue respetado.
+            Assert.Single(await context.PlanChangeIntents.IgnoreQueryFilters()
+                .Where(intent => intent.Estado == PlanChangeIntentState.Pending)
+                .ToListAsync());
+
+            Assert.Equal(1, await context.PlatformAuditLogs
+                .CountAsync(log => log.Action == PlatformAuditActions.PlanChangePendingCheckoutSuperseded));
+        }
+
+        // ── Un checkout que nunca se abrió no puede dejar al tenant trabado ──
+        // El intent se crea ANTES del pre-check del proveedor; si el pre-check bloquea, ese Pending
+        // quedaba vivo y el índice único (un Pending por tenant) trababa el siguiente intento.
+        [Fact]
+        public async Task ExpirePendingAfterBlockedCheckout_PendingWithoutPayment_IsClosedAndAudited()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var tenantId = Guid.NewGuid();
+            SeedTenantOnly(context, tenantId);
+            await context.SaveChangesAsync();
+
+            var planChangeService = new PlanChangeService(context, NullLogger<PlanChangeService>.Instance);
+            var start = await planChangeService.CreateOrReuseAsync(BuildChangeRequest(tenantId, toWorkers: 2, cycle: BillingCycle.Monthly));
+            Assert.True(start.Succeeded);
+
+            await planChangeService.ExpirePendingAfterBlockedCheckoutAsync(
+                tenantId,
+                start.Intent!.Id,
+                "el proveedor bloqueó el checkout");
+
+            var intent = await context.PlanChangeIntents.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(PlanChangeIntentState.Cancelled, intent.Estado);
+            Assert.Equal(1, await context.PlatformAuditLogs
+                .CountAsync(log => log.Action == PlatformAuditActions.PlanChangePendingIntentExpiredAfterBlockedCheckout));
+
+            // Y el tenant puede volver a intentar el MISMO cambio sin trabas.
+            var retry = await planChangeService.CreateOrReuseAsync(BuildChangeRequest(tenantId, toWorkers: 2, cycle: BillingCycle.Monthly));
+            Assert.True(retry.Succeeded);
+            Assert.NotEqual(start.Intent!.Id, retry.Intent!.Id);
+        }
+
+        [Fact]
+        public async Task ExpirePendingAfterBlockedCheckout_PendingWithPayment_IsNeverTouched()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var tenantId = Guid.NewGuid();
+            SeedTenantOnly(context, tenantId);
+            await context.SaveChangesAsync();
+
+            var planChangeService = new PlanChangeService(context, NullLogger<PlanChangeService>.Instance);
+            var start = await planChangeService.CreateOrReuseAsync(BuildChangeRequest(tenantId, toWorkers: 2, cycle: BillingCycle.Monthly));
+
+            // Hay un pago enlazado: puede haber dinero real en TiloPay detrás de este intento.
+            start.Intent!.PagoSuscripcionId = Guid.NewGuid();
+            await context.SaveChangesAsync();
+
+            await planChangeService.ExpirePendingAfterBlockedCheckoutAsync(tenantId, start.Intent!.Id, "bloqueo");
+
+            var intent = await context.PlanChangeIntents.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(PlanChangeIntentState.Pending, intent.Estado);
+            Assert.Equal(0, await context.PlatformAuditLogs
+                .CountAsync(log => log.Action == PlatformAuditActions.PlanChangePendingIntentExpiredAfterBlockedCheckout));
+        }
+
+        [Fact]
+        public async Task ExpirePendingAfterBlockedCheckout_AppliedIntent_IsNeverTouched()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var tenantId = Guid.NewGuid();
+            SeedTenantOnly(context, tenantId);
+            await context.SaveChangesAsync();
+
+            var planChangeService = new PlanChangeService(context, NullLogger<PlanChangeService>.Instance);
+            var start = await planChangeService.CreateOrReuseAsync(BuildChangeRequest(tenantId, toWorkers: 2, cycle: BillingCycle.Monthly));
+
+            start.Intent!.Estado = PlanChangeIntentState.Applied;
+            await context.SaveChangesAsync();
+
+            await planChangeService.ExpirePendingAfterBlockedCheckoutAsync(tenantId, start.Intent!.Id, "bloqueo");
+
+            var intent = await context.PlanChangeIntents.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(PlanChangeIntentState.Applied, intent.Estado);
+        }
+
+        [Fact]
+        public async Task ExpirePendingAfterBlockedCheckout_OtherTenantIntent_IsNeverTouched()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var tenantId = Guid.NewGuid();
+            var otherTenantId = Guid.NewGuid();
+            SeedTenantOnly(context, tenantId);
+            SeedTenantOnly(context, otherTenantId);
+            await context.SaveChangesAsync();
+
+            var planChangeService = new PlanChangeService(context, NullLogger<PlanChangeService>.Instance);
+            var start = await planChangeService.CreateOrReuseAsync(BuildChangeRequest(tenantId, toWorkers: 2, cycle: BillingCycle.Monthly));
+
+            await planChangeService.ExpirePendingAfterBlockedCheckoutAsync(otherTenantId, start.Intent!.Id, "bloqueo");
+
+            var intent = await context.PlanChangeIntents.IgnoreQueryFilters().SingleAsync();
+            Assert.Equal(PlanChangeIntentState.Pending, intent.Estado);
+        }
+
+        // ── Reutilizar un intento viejo no puede arrastrar un ORIGEN obsoleto ──
+        // El From* decide QUÉ suscriptor se cancela después: si quedó de cuando el tenant estaba en
+        // otro plan, se cancelaría el equivocado.
+        [Fact]
+        public async Task PlanChange_ReusingOpenIntent_RefreshesOriginFromCurrentSubscription()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var tenantId = Guid.NewGuid();
+            SeedTenantOnly(context, tenantId);
+            await context.SaveChangesAsync();
+
+            var planChangeService = new PlanChangeService(context, NullLogger<PlanChangeService>.Instance);
+
+            var first = await planChangeService.CreateOrReuseAsync(
+                BuildChangeRequest(tenantId, toWorkers: 3, cycle: BillingCycle.Monthly, fromSubscriber: "OLD-111"));
+            Assert.True(first.Succeeded);
+
+            // El tenant cambió de plan mientras tanto: el origen real ahora es otro suscriptor.
+            var refreshed = BuildChangeRequest(tenantId, toWorkers: 3, cycle: BillingCycle.Monthly, fromSubscriber: "NEW-222") with
+            {
+                FromTilopayRecurringPlanId = 6127,
+                FromPlanCode = "LC_M_03"
+            };
+
+            var reused = await planChangeService.CreateOrReuseAsync(refreshed);
+
+            Assert.True(reused.Succeeded);
+            Assert.Equal(first.Intent!.Id, reused.Intent!.Id);
+            Assert.Equal("NEW-222", reused.Intent!.FromProviderSubscriptionId);
+            Assert.Equal(6127, reused.Intent!.FromTilopayRecurringPlanId);
+            Assert.Equal("LC_M_03", reused.Intent!.FromPlanCode);
         }
 
         // ── Pago de upgrade fallido: se mantiene el plan actual, intento sigue Pending ──

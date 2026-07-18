@@ -14,6 +14,16 @@ namespace LuxuryApp.Services.Tilopay
         /// <summary>Fecha de creación si el payload la incluye (para desempatar por recencia).</summary>
         public DateTime? CreatedAtUtc { get; init; }
 
+        /// <summary>
+        /// Vencimiento REAL en el proveedor, ya convertido a UTC (fin del día Costa Rica). TiloPay
+        /// lo manda como fecha sin hora ("2026-09-15"); es la fuente de verdad de la próxima fecha
+        /// de cobro cuando el suscriptor está Active. Null si el payload no lo trae o no se pudo parsear.
+        /// </summary>
+        public DateTime? ExpiresAtUtc { get; init; }
+
+        /// <summary>El expire crudo tal cual lo devolvió TiloPay ("2026-09-15"), para auditoría.</summary>
+        public string? ExpiresRaw { get; init; }
+
         /// <summary>Plan id de TiloPay si viene en la fila.</summary>
         public int? TilopayPlanId { get; init; }
     }
@@ -94,5 +104,93 @@ namespace LuxuryApp.Services.Tilopay
         Active = 1,
         Paused = 3,
         Deleted = 4
+    }
+
+    /// <summary>Veredicto sobre el plan DESTINO de un checkout: ¿es seguro crear un suscriptor nuevo?</summary>
+    public enum TargetSubscriberVerdict
+    {
+        /// <summary>Nadie cobrando en el destino (cero o solo inactivos): hosted checkout seguro.</summary>
+        Free,
+
+        /// <summary>Exactamente un suscriptor ACTIVO del mismo email.</summary>
+        SingleActive,
+
+        /// <summary>Más de uno activo: ya hay riesgo de doble cobro sin que nosotros toquemos nada.</summary>
+        MultipleActive,
+
+        /// <summary>Algún status que no sabemos clasificar: nunca se asume libre.</summary>
+        UnknownStatus,
+
+        /// <summary>El proveedor no respondió de forma concluyente.</summary>
+        ProviderError
+    }
+
+    /// <summary>
+    /// Clasificación de los suscriptores del plan destino que coinciden por email. Describe, no
+    /// decide: quién bloquea o deja pasar es el pre-check del checkout.
+    /// </summary>
+    public sealed record TargetSubscriberAssessment
+    {
+        public required TargetSubscriberVerdict Verdict { get; init; }
+
+        public IReadOnlyList<TilopaySubscriber> Active { get; init; } = Array.Empty<TilopaySubscriber>();
+
+        /// <summary>Eliminados/cancelados: la señal de que volver a este plan es legítimo.</summary>
+        public IReadOnlyList<TilopaySubscriber> Inactive { get; init; } = Array.Empty<TilopaySubscriber>();
+
+        /// <summary>
+        /// Suscriptores que impiden dar el plan por libre sin ser un activo limpio: status
+        /// desconocido O pausado. Un pausado puede volver a cobrar al reactivarse, así que para el
+        /// checkout cuenta como bloqueante igual que un status que no entendemos.
+        /// </summary>
+        public IReadOnlyList<TilopaySubscriber> Unknown { get; init; } = Array.Empty<TilopaySubscriber>();
+
+        public string? Detail { get; init; }
+
+        public static TargetSubscriberAssessment Error(string detail) =>
+            new() { Verdict = TargetSubscriberVerdict.ProviderError, Detail = detail };
+
+        /// <summary>
+        /// Clasifica los suscriptores que ya coinciden por email. Función pura: sin ella, cada
+        /// consumidor (servicio real, fakes de test) inventaría su propia tabla y volveríamos al
+        /// problema original de tener la regla del dinero escrita en varios lados.
+        ///
+        /// Precedencia deliberada: un status desconocido (o pausado) gana sobre cualquier conteo de
+        /// activos. Si no entendemos una fila, o está pausada y podría reactivarse, no sabemos
+        /// cuántos cobran, y adivinar cuesta dinero real.
+        /// </summary>
+        public static TargetSubscriberAssessment FromMatches(IReadOnlyList<TilopaySubscriber> matches, int tilopayPlanId)
+        {
+            var active = matches.Where(m => ProviderSubscriberStatusRules.IsProviderSubscriberActive(m.Status)).ToList();
+            var inactive = matches.Where(m => ProviderSubscriberStatusRules.IsProviderSubscriberInactive(m.Status)).ToList();
+            // Pausado se agrupa con Unknown a propósito: para el checkout ambos son "no confirmado
+            // libre". Un pausado NO es una baja (puede volver a cobrar), así que bloquear/revisar es
+            // lo seguro, igual que con un status que no sabemos clasificar.
+            var unknown = matches
+                .Where(m =>
+                {
+                    var state = ProviderSubscriberStatusRules.Classify(m.Status);
+                    return state == ProviderSubscriberState.Unknown || state == ProviderSubscriberState.Paused;
+                })
+                .ToList();
+
+            var verdict = unknown.Count > 0
+                ? TargetSubscriberVerdict.UnknownStatus
+                : active.Count switch
+                {
+                    0 => TargetSubscriberVerdict.Free,
+                    1 => TargetSubscriberVerdict.SingleActive,
+                    _ => TargetSubscriberVerdict.MultipleActive
+                };
+
+            return new TargetSubscriberAssessment
+            {
+                Verdict = verdict,
+                Active = active,
+                Inactive = inactive,
+                Unknown = unknown,
+                Detail = $"plan {tilopayPlanId}: {active.Count} activo(s), {inactive.Count} inactivo(s), {unknown.Count} con status desconocido."
+            };
+        }
     }
 }

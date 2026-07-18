@@ -632,6 +632,9 @@ namespace LuxuryApp.Tests.TenantIsolation
                 // Consola de plataforma (SuperAdmin): agregados/lecturas cross-tenant deliberados,
                 // gateados por la politica PlatformSuperAdmin en los controllers Platform.
                 Path.Combine("Controllers", "Platform", "PlatformUsersController.cs"),
+                // Gestión del ciclo de vida del suscriptor (SuperAdmin): lee estado local↔proveedor
+                // cross-tenant en solo lectura; las acciones delegan en ProviderSubscriptionManager.
+                Path.Combine("Controllers", "Platform", "PlatformProviderSubscriptionController.cs"),
                 Path.Combine("Services", "Platform", "PlatformTenantProfileService.cs"),
                 Path.Combine("Services", "Platform", "PlatformMetricsService.cs"),
                 Path.Combine("Services", "Platform", "PlatformWhatsAppStatusService.cs"),
@@ -654,7 +657,26 @@ namespace LuxuryApp.Tests.TenantIsolation
                 Path.Combine("Services", "Billing", "SubscriberResolutionService.cs"),
                 // Gestión del suscriptor del proveedor (cancel/pause/reactivate/upgrade): corre
                 // desde webhook/plataforma sin contexto de tenant; filtra por TenantId explícito.
-                Path.Combine("Services", "Billing", "ProviderSubscriptionManager.cs")
+                Path.Combine("Services", "Billing", "ProviderSubscriptionManager.cs"),
+                // Aplicación tardía del cambio de plan: corre desde el webhook y desde el worker de
+                // reconciliación (sin contexto de tenant). Resuelve el tenant a partir del pago,
+                // filtra por TenantId explícito y escribe bajo BeginScope(tenantId) para RLS.
+                Path.Combine("Services", "Billing", "PlanChangeLateApplicationService.cs"),
+                // Sincronización del expire del proveedor: corre desde la reconciliación (worker sin
+                // contexto de tenant), escanea cross-tenant en solo lectura y escribe cada
+                // suscripción bajo BeginScope(tenantId) para RLS.
+                Path.Combine("Services", "Billing", "ProviderExpirySyncService.cs"),
+                // Recuperación de pago: se engancha en el webhook (sin contexto de tenant), resuelve
+                // el tenant por email+plan, filtra por TenantId explícito y escribe el incidente bajo
+                // BeginScope(tenantId) para RLS.
+                Path.Combine("Services", "Billing", "PaymentRecoveryService.cs"),
+                // Notificaciones de recuperación: corren desde el worker (sin contexto de tenant),
+                // escanean incidentes cross-tenant en solo lectura y escriben los marcadores de cada
+                // incidente bajo BeginScope(tenantId) para RLS.
+                Path.Combine("Services", "Billing", "PaymentRecoveryNotificationService.cs"),
+                // Actualización de método de pago: lee la suscripción por TenantId explícito (lo llama
+                // el admin del tenant y también Platform/SuperAdmin, sin contexto de tenant fijo).
+                Path.Combine("Services", "Billing", "PaymentMethodUpdateService.cs")
             };
 
             var targetRoots = new[]

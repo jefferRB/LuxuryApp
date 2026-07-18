@@ -174,7 +174,17 @@
             if (annualNote) { annualNote.hidden = true; }
         }
 
-        q("renewal").textContent = formatDate(addPeriod(new Date(), state.cycle));
+        // Para el PLAN ACTUAL mostramos la próxima renovación real (fecha efectiva, ya con el
+        // expire del proveedor). Solo si el usuario mueve el slider a otro plan mostramos el
+        // estimado "hoy + 1 ciclo", que es un preview de lo que contrataría.
+        var isCurrentPlan = config.hasActive &&
+            config.currentWorkers === state.workers &&
+            config.currentCycle === state.cycle;
+        if (isCurrentPlan && config.currentRenewal) {
+            q("renewal").textContent = config.currentRenewal;
+        } else {
+            q("renewal").textContent = formatDate(addPeriod(new Date(), state.cycle));
+        }
 
         var ctaInfo = resolveCtaLabel(option);
         ctaText.textContent = ctaInfo.label;

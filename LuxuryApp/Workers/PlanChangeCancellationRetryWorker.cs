@@ -11,8 +11,11 @@ namespace LuxuryApp.Workers
     /// esperar al pase diario de reconciliación.
     /// DEPENDENCIA DELIBERADA: requiere BillingReconciliation:Enabled=true ADEMÁS de
     /// OldCancellationRetryEnabled=true — Enabled actúa como kill-switch maestro de todos los
-    /// jobs automáticos de Billing. Un fallo no tumba el worker. El tope de reintentos por tenant
-    /// vive en el propio servicio (backoff), no en el worker. Late en PlatformWorkerHeartbeats.
+    /// jobs automáticos de Billing. Un fallo no tumba el worker. Late en PlatformWorkerHeartbeats.
+    ///
+    /// El ritmo NO lo decide este worker: el backoff vive POR INTENT en el propio servicio
+    /// (ver PlanChangeCancellationBackoff). Este intervalo es solo la frecuencia con la que se
+    /// pregunta "¿hay algo elegible?", así que bajarlo no dispara más llamadas a TiloPay.
     /// </summary>
     public sealed class PlanChangeCancellationRetryWorker : BackgroundService
     {
@@ -60,11 +63,25 @@ namespace LuxuryApp.Workers
                         var reconciliation = scope.ServiceProvider.GetRequiredService<IBillingReconciliationService>();
                         var report = await reconciliation.RunOldSubscriberCancellationRetryAsync(stoppingToken);
 
-                        if (report.OldSubscriberCancellationsRetried > 0)
+                        if (report.OldSubscriberCancellationsRetried > 0 ||
+                            report.OldCancellationSkippedAutoCancelDisabled > 0 ||
+                            report.OldCancellationSkippedNotEligible > 0 ||
+                            report.PlanChangesRepaired > 0 ||
+                            report.LatePlanChangesApplied > 0 ||
+                            report.LatePlanChangesManualReview > 0)
                         {
+                            // Los skips por backoff no se anuncian aquí (son el ritmo normal): el
+                            // detalle por intent, con nextEligibleUtc, lo escribe el servicio.
                             _logger.LogInformation(
-                                "Reintento rápido de cancelación vieja ejecutado. Reintentos {Retries}. DurationMs {DurationMs}.",
+                                "Pase rápido de cambios de plan ejecutado. AplicadosTardios {LateApplied}. TardiosRevisionManual {LateManual}. IntentosReales {Retries}. Completados {Completed}. Reparados {Repaired}. SaltadosAutoCancelOff {SkippedAutoCancel}. SaltadosNoElegibles {SkippedNotEligible}. SaltadosBackoff {SkippedBackoff}. DurationMs {DurationMs}.",
+                                report.LatePlanChangesApplied,
+                                report.LatePlanChangesManualReview,
                                 report.OldSubscriberCancellationsRetried,
+                                report.OldSubscriberCancellationsCompleted,
+                                report.PlanChangesRepaired,
+                                report.OldCancellationSkippedAutoCancelDisabled,
+                                report.OldCancellationSkippedNotEligible,
+                                report.OldCancellationSkippedBackoff,
                                 report.DurationMs);
                         }
                     }

@@ -9,9 +9,97 @@ namespace LuxuryApp.Models.SaaS
         public string StatusTone { get; init; } = "secondary";
         public bool CanAccessApp { get; init; }
         public bool IsInGracePeriod { get; init; }
+
+        // ── Ciclo de vida: cancelación de renovación (cancel-at-period-end) ──
+        /// <summary>La renovación ya fue cancelada: el acceso sigue hasta la fecha efectiva, sin nuevos cobros.</summary>
+        public bool CancelAtPeriodEnd { get; init; }
+
+        /// <summary>Suscripción recurrente de TiloPay con id_suscriptor: condición para poder cancelar la renovación en línea.</summary>
+        public bool IsRecurringTilopay { get; init; }
+
+        /// <summary>Snapshot crudo del status del proveedor (último sincronizado), para diagnóstico.</summary>
+        public string? ProviderStatusRaw { get; init; }
+
+        /// <summary>
+        /// La renovación está PAUSADA en el proveedor (status 3 / "Pause By Commerce"). El acceso
+        /// puede seguir vigente hasta la fecha efectiva, pero no habrá nuevos cobros mientras dure la
+        /// pausa. La pausa es una acción de soporte/plataforma: el cliente no la revierte en línea.
+        /// Se calcula en el servicio con ProviderSubscriberStatusRules (fuente única).
+        /// </summary>
+        public bool IsRenewalPaused { get; init; }
+
+        /// <summary>
+        /// True si el cliente puede cancelar la renovación ahora: recurrente TiloPay, con acceso
+        /// vigente (Activa/Morosa), sin una cancelación ya pedida y sin una pausa activa (una
+        /// suscripción pausada no se cancela en línea: mezcla estados; se reactiva desde soporte).
+        /// </summary>
+        public bool CanRequestCancellation =>
+            IsRecurringTilopay &&
+            !CancelAtPeriodEnd &&
+            !IsRenewalPaused &&
+            (Status == EstadoSuscripcion.Activa || Status == EstadoSuscripcion.Morosa);
+
+        /// <summary>
+        /// Caso B: la renovación está cancelada pero el período AÚN está vigente (estado efectivo
+        /// Activa/Morosa). Solo entonces el cliente puede reactivar la renovación del mismo suscriptor.
+        /// Si ya venció, el estado efectivo es Suspendida y esto es false (Caso C: suscribirse de nuevo).
+        /// </summary>
+        public bool CanReactivateRenewal =>
+            IsRecurringTilopay &&
+            CancelAtPeriodEnd &&
+            (Status == EstadoSuscripcion.Activa || Status == EstadoSuscripcion.Morosa);
+
+        // ── Recuperación de pago (Fase 3): pago fallido → gracia → gracia vencida → suspensión ──
+        // Se deriva de Suscripcion.PaymentRecoveryStatus, que ya mantiene el backend
+        // (RegisterFailedPayment / ResolveOnSuccess / RunGraceExpirationPass). La UI NO se mezcla con
+        // pausa/cancelación: si hay pausa o renovación cancelada vigente, esos estados mandan.
+
+        /// <summary>Estado de recuperación tal cual lo guardó el backend: "GraceActive"/"GraceExpired"/"Suspended"/null.</summary>
+        public string? PaymentRecoveryStatus { get; init; }
+
+        private bool RecoveryTakesPrecedence => !IsRenewalPaused && !CancelAtPeriodEnd;
+
+        /// <summary>Pago fallido con gracia todavía vigente: acceso mantenido, aún sin cortar.</summary>
+        public bool PaymentInGrace =>
+            RecoveryTakesPrecedence &&
+            string.Equals(PaymentRecoveryStatus, "GraceActive", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>Gracia vencida SIN suspensión (AutoSuspendAfterGrace=false): acceso conservado, aviso fuerte.</summary>
+        public bool PaymentGraceExpired =>
+            RecoveryTakesPrecedence &&
+            string.Equals(PaymentRecoveryStatus, "GraceExpired", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>Cuenta suspendida por impago (AutoSuspendAfterGrace=true y el worker suspendió).</summary>
+        public bool PaymentSuspended =>
+            string.Equals(PaymentRecoveryStatus, "Suspended", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>Hay algún estado de recuperación con banner accionable (no mezcla con pausa/cancelación).</summary>
+        public bool HasPaymentRecoveryBanner => PaymentInGrace || PaymentGraceExpired || PaymentSuspended;
+
+        /// <summary>
+        /// Se puede ofrecer "Actualizar método de pago": suscripción recurrente TiloPay con acceso
+        /// (Activa/Morosa) o suspendida por impago (para reactivar), sin renovación cancelada ni pausa.
+        /// El servicio valida además dominio/estado y, si no aplica, responde con un mensaje seguro.
+        /// </summary>
+        public bool CanUpdatePaymentMethod =>
+            IsRecurringTilopay &&
+            !CancelAtPeriodEnd &&
+            !IsRenewalPaused &&
+            (Status == EstadoSuscripcion.Activa ||
+             Status == EstadoSuscripcion.Morosa ||
+             Status == EstadoSuscripcion.Suspendida);
+
+        // Fechas de CÁLCULO (UTC, efectivas = max(local, proveedor)): úsalas para lógica, no para mostrar.
         public DateTime? CurrentPeriodEndUtc { get; init; }
         public DateTime? NextBillingDateUtc { get; init; }
         public DateTime? GracePeriodEndsUtc { get; init; }
+
+        // Fechas de DISPLAY (dd/MM/yyyy, fecha de calendario en Costa Rica). La UI muestra ESTAS:
+        // cuando la fecha efectiva viene del proveedor, reflejan su expire exacto (p.ej. 15/09/2026),
+        // no el UTC crudo de fin de día (16/09/2026).
+        public string? CurrentPeriodEndDisplay { get; init; }
+        public string? NextBillingDateDisplay { get; init; }
+        public string? GracePeriodEndsDisplay { get; init; }
         public int? MaxFuncionarios { get; init; }
         public int ActiveFuncionarios { get; init; }
         public string? WhatsAppAddonName { get; init; }

@@ -312,6 +312,7 @@
 }
 .sub-alert--ok { background: var(--private-chart-success-soft); color: #fff; }
 .sub-alert--error { background: var(--private-chart-danger-soft); color: #fff; }
+.sub-alert--warn { background: var(--private-chart-warning-soft); color: #fff; }
 
 /* ── Código promocional ── */
 .sub-promo-card {

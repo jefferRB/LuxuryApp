@@ -42,8 +42,54 @@ namespace LuxuryApp.Services.Billing
         /// <summary>id_suscriptor copiado localmente desde un pago confirmado (sin llamar al API).</summary>
         public int SubscriberIdsBackfilledLocally { get; set; }
 
-        /// <summary>Reintentos de cancelación del suscriptor viejo (cambios de plan aplicados) ejecutados.</summary>
+        /// <summary>Intentos REALES contra TiloPay para cancelar el suscriptor viejo. Los skips NO cuentan aquí.</summary>
         public int OldSubscriberCancellationsRetried { get; set; }
+
+        /// <summary>Suscriptores viejos cuya baja quedó VERIFICADA en este pase.</summary>
+        public int OldSubscriberCancellationsCompleted { get; set; }
+
+        /// <summary>Intents saltados porque la cancelación automática está apagada (no consumen presupuesto).</summary>
+        public int OldCancellationSkippedAutoCancelDisabled { get; set; }
+
+        /// <summary>Intents saltados por cooldown de backoff o por el tope diario por intent.</summary>
+        public int OldCancellationSkippedBackoff { get; set; }
+
+        /// <summary>Intents saltados por faltar datos para un intento verificable (revisión manual).</summary>
+        public int OldCancellationSkippedNotEligible { get; set; }
+
+        /// <summary>Cambios de plan con estado inconsistente reparados (subscriber viejo/IDs/fechas).</summary>
+        public int PlanChangesRepaired { get; set; }
+
+        /// <summary>Cambios PAGADOS que seguían sin aplicar por resolución tardía del suscriptor y se aplicaron en este pase.</summary>
+        public int LatePlanChangesApplied { get; set; }
+
+        /// <summary>Cambios pagados que NO se pudieron aplicar con seguridad (ambigüedad en el proveedor).</summary>
+        public int LatePlanChangesManualReview { get; set; }
+
+        /// <summary>Cambios pagados que siguen esperando (el destino aún no muestra suscriptor activo).</summary>
+        public int LatePlanChangesLeftPending { get; set; }
+
+        /// <summary>
+        /// Checkouts de cambio de plan abandonados (sin dinero) expirados en este pase.
+        /// A propósito NO cuenta para <see cref="HasFindings"/>: que un cliente se arrepienta de un
+        /// cambio es higiene esperada, no un hallazgo que alguien deba revisar.
+        /// </summary>
+        public int PlanChangeCheckoutsExpired { get; set; }
+
+        /// <summary>Suscripciones cuyo expire del proveedor se leyó y guardó en este pase.</summary>
+        public int ProviderExpiriesSynced { get; set; }
+
+        /// <summary>Suscripciones cuya vigencia local se EXTENDIÓ a la fecha real (posterior) del proveedor.</summary>
+        public int ProviderExpiriesReconciled { get; set; }
+
+        /// <summary>Suscripciones donde el expire del proveedor es ANTERIOR al local: solo alerta, no se acorta.</summary>
+        public int ProviderExpiryEarlierAlerts { get; set; }
+
+        /// <summary>Suscripciones con CancelAtPeriodEnd cuyo período pagado terminó y se cerraron a Cancelada localmente.</summary>
+        public int CancelAtPeriodEndFinalized { get; set; }
+
+        /// <summary>Desajustes local↔proveedor de ciclo de vida (cancelación/pausa) alertados en este pase.</summary>
+        public int ProviderStatusMismatchesAlerted { get; set; }
 
         public double DurationMs => (FinishedUtc - StartedUtc).TotalMilliseconds;
 
@@ -57,6 +103,22 @@ namespace LuxuryApp.Services.Billing
             StuckEventsAlerted > 0 ||
             SubscriberIdsResolved > 0 ||
             SubscriberIdsBackfilledLocally > 0 ||
-            OldSubscriberCancellationsRetried > 0;
+            OldSubscriberCancellationsRetried > 0 ||
+            // Un skip por AutoCancel apagado o por datos incompletos SÍ es un hallazgo: hay un
+            // suscriptor viejo vivo que nadie está cancelando. El skip por backoff no lo es:
+            // es el funcionamiento normal entre intentos.
+            OldCancellationSkippedAutoCancelDisabled > 0 ||
+            OldCancellationSkippedNotEligible > 0 ||
+            PlanChangesRepaired > 0 ||
+            LatePlanChangesApplied > 0 ||
+            LatePlanChangesManualReview > 0 ||
+            LatePlanChangesLeftPending > 0 ||
+            // Extender vigencia a la fecha real del proveedor no es un problema (es lo correcto),
+            // pero un expire ANTERIOR sí amerita revisión: puede ser un corte que evitamos a tiempo.
+            ProviderExpiryEarlierAlerts > 0 ||
+            // Un drift local↔proveedor de ciclo de vida (p.ej. CancelAtPeriodEnd pero sigue Activo)
+            // es un hallazgo de dinero. La finalización de período (CancelAtPeriodEndFinalized) NO lo
+            // es: es higiene esperada, el cierre normal de un período pagado.
+            ProviderStatusMismatchesAlerted > 0;
     }
 }

@@ -119,6 +119,41 @@ namespace LuxuryApp.Tests.Billing
             Assert.Equal(PlanChangeDecision.BlockedPendingOldCancellation, result.Decision);
         }
 
+        // ── Evidencia prod: con AutoCancel=false NUNCA debe poder pagarse un cambio ──
+        [Fact]
+        public async Task AutoCancelDisabled_ActiveTenantChangingPlan_IsBlockedBeforeCheckout()
+        {
+            var (context, connection) = CreateContext();
+            using var c = context; using var d = connection;
+            var tenantId = Guid.NewGuid();
+            // Tenant real: LC_M_02 activo con subscriber 382770.
+            SeedActiveSubscription(context, tenantId, CurrentPlanId, providerSubscriptionId: "382770", maxFunc: 2);
+            await context.SaveChangesAsync();
+
+            var service = CreateService(context, autoCancelOldSubscriber: false);
+
+            // Selecciona LC_M_03 (6127).
+            var result = await service.EvaluateAsync(tenantId, TargetPlanId, targetWorkerCount: 3, activeFuncionarios: 1);
+
+            Assert.Equal(PlanChangeDecision.BlockedAutoCancellationDisabled, result.Decision);
+            Assert.Contains("contactá soporte", result.Message ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public async Task AutoCancelDisabled_NewTenantWithoutSubscription_StillBuysNormally()
+        {
+            var (context, connection) = CreateContext();
+            using var c = context; using var d = connection;
+            var tenantId = Guid.NewGuid();
+
+            var service = CreateService(context, autoCancelOldSubscriber: false);
+
+            // Sin suscripción activa no hay suscriptor viejo que cancelar: la compra normal sigue.
+            var result = await service.EvaluateAsync(tenantId, TargetPlanId, targetWorkerCount: 3, activeFuncionarios: 1);
+
+            Assert.Equal(PlanChangeDecision.ProceedNormalCheckout, result.Decision);
+        }
+
         [Fact]
         public async Task ValidPlanChange_ProceedsPlanChange()
         {
@@ -174,7 +209,9 @@ namespace LuxuryApp.Tests.Billing
             });
         }
 
-        private static PlanChangeDecisionService CreateService(ApplicationDbContext context)
+        private static PlanChangeDecisionService CreateService(
+            ApplicationDbContext context,
+            bool autoCancelOldSubscriber = true)
         {
             var cache = new MemoryCache(new MemoryCacheOptions());
             var subscriptionService = new SuscripcionService(
@@ -185,7 +222,14 @@ namespace LuxuryApp.Tests.Billing
                 Options.Create(new TilopayRepeatOptions()),
                 NullLogger<SuscripcionService>.Instance);
 
-            return new PlanChangeDecisionService(context, subscriptionService);
+            return new PlanChangeDecisionService(
+                context,
+                subscriptionService,
+                Options.Create(new OpcionesTilopayRepeatAdmin
+                {
+                    Enabled = true,
+                    AutoCancelOldSubscriberOnUpgrade = autoCancelOldSubscriber
+                }));
         }
 
         private static (ApplicationDbContext Context, IDisposable Connection) CreateContext() =>

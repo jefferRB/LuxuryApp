@@ -90,9 +90,38 @@ namespace LuxuryApp.Services.SaaS
                 StatusTone = ResolveStatusTone(subscriptionStatus),
                 CanAccessApp = subscription is not null && _suscripcionService.CanAccessApp(subscription),
                 IsInGracePeriod = subscriptionStatus == EstadoSuscripcion.Morosa,
-                CurrentPeriodEndUtc = subscription?.FechaFin,
-                NextBillingDateUtc = subscription?.FechaProximoCobroUtc,
+                CancelAtPeriodEnd = subscription?.CancelAtPeriodEnd ?? false,
+                IsRecurringTilopay = subscription is not null &&
+                                     subscription.Proveedor == PaymentProviderType.Tilopay &&
+                                     subscription.TilopayRecurringPlanId != null &&
+                                     subscription.ProviderSubscriptionId != null,
+                ProviderStatusRaw = subscription?.ProviderStatusRaw,
+                // Pausa del proveedor (status 3 / "Pause By Commerce"): la clasificación vive en
+                // ProviderSubscriberStatusRules para no duplicar la lista de valores del proveedor.
+                IsRenewalPaused = Tilopay.ProviderSubscriberStatusRules.IsProviderSubscriberPaused(
+                    subscription?.ProviderStatusRaw),
+                // Recuperación de pago: el backend ya mantiene este estado en la suscripción.
+                PaymentRecoveryStatus = subscription?.PaymentRecoveryStatus,
+                // Fechas EFECTIVAS (UTC, para lógica): si TiloPay va a cobrar más tarde de lo que
+                // calculamos (p.ej. reactivó un suscriptor y extendió el expire), el cliente no debe
+                // ver una fecha más temprana que lo haría dudar de un cobro que no va a ocurrir aún.
+                CurrentPeriodEndUtc = Billing.SubscriptionEffectiveDates.GetEffectiveEndUtc(
+                    subscription?.FechaFin, subscription?.ProviderExpiresAtUtc),
+                NextBillingDateUtc = Billing.SubscriptionEffectiveDates.GetEffectiveEndUtc(
+                    subscription?.FechaProximoCobroUtc, subscription?.ProviderExpiresAtUtc),
                 GracePeriodEndsUtc = subscription?.FechaFinGraciaUtc,
+
+                // Fechas de DISPLAY (fecha de calendario Tica): cuando el proveedor es la fuente,
+                // muestran su expire crudo (15/09/2026), no el fin de día UTC (16/09/2026).
+                CurrentPeriodEndDisplay = Billing.SubscriptionDisplayDates.FormatEffective(
+                    subscription?.FechaFin, subscription?.ProviderExpiresAtUtc, subscription?.ProviderExpiryRaw),
+                NextBillingDateDisplay = Billing.SubscriptionDisplayDates.FormatEffective(
+                    subscription?.FechaProximoCobroUtc, subscription?.ProviderExpiresAtUtc, subscription?.ProviderExpiryRaw),
+                // La gracia no tiene fuente en el proveedor: se muestra como se guardó (comportamiento
+                // de siempre), igual que la rama "gana lo local" del helper de display.
+                GracePeriodEndsDisplay = subscription?.FechaFinGraciaUtc is { } graceUtc
+                    ? Billing.SubscriptionDisplayDates.Format(DateOnly.FromDateTime(graceUtc))
+                    : null,
                 MaxFuncionarios = subscription?.MaxFuncionarios ?? subscription?.Plan?.MaxFuncionarios,
                 ActiveFuncionarios = activeFuncionarios,
                 WhatsAppAddonName = hasActiveWhatsAppAddon ? addon?.Plan?.Nombre : null,
