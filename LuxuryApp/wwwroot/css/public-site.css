@@ -3039,93 +3039,222 @@ body.public-shell::after {
     color: var(--public-heading);
 }
 
-.lp-pricing-grid {
+/* Minicalculador compacto (mismos valores que /Billing/Planes) */
+.lp-calc {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1.25rem;
-    align-items: stretch;
-}
-
-.lp-pricing-card {
-    position: relative;
-    display: flex;
-    flex-direction: column;
+    grid-template-columns: 1.05fr 0.95fr;
+    gap: 0;
+    max-width: 920px;
+    margin: 0 auto;
     background: var(--public-card);
     border: 1px solid var(--public-border);
-    border-radius: var(--public-radius);
-    box-shadow: var(--public-shadow-sm);
-    padding: 1.75rem 1.5rem;
+    border-radius: 28px;
+    box-shadow: var(--public-shadow);
+    overflow: hidden;
 }
 
-.lp-pricing-card-featured {
-    border-color: var(--public-primary);
-    box-shadow: 0 20px 55px rgba(91, 124, 255, 0.18);
-}
-
-.lp-pricing-badge {
-    position: absolute;
-    top: -0.75rem;
-    left: 1.5rem;
-    padding: 0.3rem 0.8rem;
-    border-radius: 999px;
-    font-size: 0.72rem;
-    font-weight: 700;
-    color: #fff;
-    background: linear-gradient(135deg, var(--public-primary), var(--public-secondary));
-}
-
-.lp-pricing-card h3 {
-    font-size: 1.15rem;
-    margin: 0.4rem 0 0.75rem;
-}
-
-.lp-pricing-amount {
+.lp-calc-side {
+    padding: 2rem;
     display: flex;
-    align-items: baseline;
-    gap: 0.4rem;
-    margin-bottom: 0.6rem;
+    flex-direction: column;
 }
 
-.lp-pricing-amount strong {
-    font-family: "Space Grotesk", sans-serif;
-    font-size: 1.8rem;
+.lp-calc-cycle {
+    display: inline-flex;
+    align-self: flex-start;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border-radius: 999px;
+    background: var(--public-surface-alt);
+    border: 1px solid var(--public-border);
+    margin-bottom: 1.5rem;
+}
+
+.lp-calc-cycle-btn {
+    border: none;
+    background: transparent;
+    color: var(--public-text-muted);
+    font-weight: 700;
+    font-size: 0.85rem;
+    padding: 0.5rem 1.05rem;
+    min-height: 40px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.lp-calc-cycle-btn.is-active {
+    background: var(--public-card);
+    color: var(--public-accent);
+    box-shadow: var(--public-shadow-sm);
+}
+
+.lp-calc-cycle-btn:focus-visible {
+    outline: 2px solid var(--public-primary);
+    outline-offset: 2px;
+}
+
+.lp-calc-label {
+    display: block;
+    font-weight: 700;
     color: var(--public-heading);
+    margin-bottom: 0.75rem;
+    font-size: 1rem;
 }
 
-.lp-pricing-amount span {
+.lp-calc-select {
+    width: 100%;
+    min-height: 52px;
+    padding: 0.75rem 2.5rem 0.75rem 1rem;
+    font-size: 1rem;
+    color: var(--public-heading);
+    background-color: var(--public-card);
+    border: 1px solid var(--public-border-strong);
+    border-radius: 14px;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%234338ca' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 1rem center;
+}
+
+.lp-calc-select:focus-visible {
+    outline: none;
+    border-color: var(--public-primary);
+    box-shadow: 0 0 0 0.2rem rgba(91, 124, 255, 0.25);
+}
+
+.lp-calc-hint {
+    margin: 0.85rem 0 0;
     color: var(--public-text-muted);
     font-size: 0.85rem;
 }
 
-.lp-pricing-staff {
-    display: inline-block;
-    color: var(--public-accent);
-    font-weight: 600;
-    font-size: 0.85rem;
-    margin-bottom: 1rem;
+.lp-calc-summary {
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+    background:
+        radial-gradient(circle at top right, rgba(134, 93, 255, 0.10), transparent 60%),
+        var(--public-surface-alt);
+    border-left: 1px solid var(--public-border);
 }
 
-.lp-pricing-highlights {
+.lp-calc-period {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--public-text-muted);
+}
+
+.lp-calc-amount {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    margin: 0.35rem 0 0.15rem;
+}
+
+.lp-calc-amount strong {
+    font-family: "Space Grotesk", sans-serif;
+    font-size: 2.4rem;
+    line-height: 1;
+    color: var(--public-heading);
+}
+
+.lp-calc-amount-unit {
+    color: var(--public-text-muted);
+    font-size: 0.9rem;
+}
+
+.lp-calc-equivalent {
+    color: var(--public-accent);
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.lp-calc-included {
+    margin-top: 0.35rem;
+    color: var(--public-accent);
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+
+.lp-calc-benefits {
     list-style: none;
-    margin: 0 0 1.35rem;
+    margin: 1.1rem 0 1.5rem;
     padding: 0;
     display: grid;
-    gap: 0.55rem;
-    flex: 1;
+    gap: 0.5rem;
 }
 
-.lp-pricing-highlights li {
+.lp-calc-benefits li {
     display: flex;
     align-items: flex-start;
     gap: 0.55rem;
     color: var(--public-text);
     font-size: 0.88rem;
-    line-height: 1.5;
+    line-height: 1.45;
 }
 
-.lp-pricing-highlights li i {
+.lp-calc-benefits li i {
     color: var(--public-success);
-    margin-top: 0.15rem;
+    margin-top: 0.1rem;
+}
+
+/* Bloque secundario de WhatsApp (complemento separado) */
+.lp-addon {
+    max-width: 920px;
+    margin: 1.25rem auto 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    background: var(--public-card);
+    border: 1px solid var(--public-border);
+    border-radius: 20px;
+    box-shadow: var(--public-shadow-sm);
+    padding: 1.5rem 1.75rem;
+}
+
+.lp-addon-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-weight: 700;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--public-success);
+    margin-bottom: 0.4rem;
+}
+
+.lp-addon-body h3 {
+    font-size: 1.05rem;
+    margin: 0 0 0.4rem;
+}
+
+.lp-addon-body p {
+    color: var(--public-text);
+    font-size: 0.9rem;
+    line-height: 1.6;
+    margin: 0;
+    max-width: 52ch;
+}
+
+.lp-addon-from {
+    margin: 0.6rem 0 0 !important;
+    color: var(--public-heading);
+    font-weight: 600;
+}
+
+.lp-addon-from strong {
+    font-family: "Space Grotesk", sans-serif;
+    color: var(--public-accent);
+}
+
+.lp-addon .public-btn {
+    flex-shrink: 0;
 }
 
 .lp-pricing-foot {
@@ -3209,10 +3338,18 @@ body.public-shell::after {
         grid-template-columns: repeat(2, 1fr);
     }
 
-    .lp-pricing-grid {
+    .lp-calc {
         grid-template-columns: 1fr;
-        max-width: 460px;
-        margin: 0 auto;
+    }
+
+    .lp-calc-summary {
+        border-left: none;
+        border-top: 1px solid var(--public-border);
+    }
+
+    .lp-addon {
+        flex-direction: column;
+        align-items: flex-start;
     }
 
     .lp-demo-block,

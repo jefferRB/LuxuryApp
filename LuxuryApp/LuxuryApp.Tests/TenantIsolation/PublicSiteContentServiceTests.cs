@@ -1,5 +1,7 @@
+using LuxuryApp.Models.Marketing;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.PublicSite;
+using LuxuryApp.Services.SaaS;
 using LuxuryApp.Tests.Support;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
@@ -496,6 +498,222 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Single(plans);
         }
 
+        // ── Preview comercial de la landing (calculador LC_M_/LC_A_) ─────────────────────
+
+        [Fact]
+        public async Task GetCommercialPricingPreviewAsync_UsesCalculatorPlans_ExcludesLegacyAndTest()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            // Ruido: legacy + TEST + add-on en la base. NO deben influir en el preview comercial.
+            context.Planes.AddRange(
+                CreatePlan(Guid.NewGuid(), PlanCodes.Basic, "Básico", 8000m, maxFuncionarios: 1),
+                CreatePlan(Guid.NewGuid(), PlanCodes.Pro, "Pro", 20000m, maxFuncionarios: 3),
+                CreatePlan(Guid.NewGuid(), PlanCodes.TestProdBasic100, "LuxuryCloud Test Producción", 100m, maxFuncionarios: 1),
+                CreatePlan(Guid.NewGuid(), PlanCodes.WhatsApp400, "WhatsApp 400", 6000m, monthlyMessageLimit: 400));
+            await context.SaveChangesAsync();
+
+            var service = CreateService(
+                context,
+                new OpcionesPago { EnableValidationPlans = true },
+                new OpcionesTilopay { WebhookAccessToken = "token-seguro" },
+                RepeatWithCalculator(
+                    CalcOption("LC_M_01", 8000m, 1, BillingCycle.Monthly),
+                    CalcOption("LC_M_02", 15000m, 2, BillingCycle.Monthly),
+                    CalcOption("LC_M_03", 20000m, 3, BillingCycle.Monthly)));
+
+            var preview = await service.GetCommercialPricingPreviewAsync();
+
+            Assert.True(preview.IsAvailable);
+            Assert.Equal(8000m, preview.StartingMonthlyCharge); // LC_M_01, no ₡100 ni ₡6.000
+            Assert.Equal(1, preview.MinWorkers);
+            Assert.All(preview.Tiers, tier => Assert.InRange(tier.Workers, 1, 3));
+            Assert.DoesNotContain(preview.Tiers, tier => tier.ChargeAmount == 100m);
+            Assert.DoesNotContain(preview.Tiers, tier => tier.ChargeAmount == 6000m);
+        }
+
+        [Fact]
+        public async Task GetCommercialPricingPreviewAsync_StartingCharge_IsOneWorkerMonthly_NotCheapestOverall()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            // Un TEST de ₡100 y un add-on de ₡6.000 más baratos que el plan base: no deben ganar.
+            context.Planes.AddRange(
+                CreatePlan(Guid.NewGuid(), PlanCodes.TestProdBasic100, "LuxuryCloud Test Producción", 100m, maxFuncionarios: 1),
+                CreatePlan(Guid.NewGuid(), PlanCodes.WhatsApp400, "WhatsApp 400", 6000m, monthlyMessageLimit: 400));
+            await context.SaveChangesAsync();
+
+            var service = CreateService(
+                context,
+                new OpcionesPago { EnableValidationPlans = true },
+                new OpcionesTilopay { WebhookAccessToken = "token-seguro" },
+                RepeatWithCalculator(
+                    CalcOption("LC_M_01", 8000m, 1, BillingCycle.Monthly),
+                    CalcOption("LC_M_02", 15000m, 2, BillingCycle.Monthly)));
+
+            var preview = await service.GetCommercialPricingPreviewAsync();
+
+            Assert.Equal(8000m, preview.StartingMonthlyCharge);
+        }
+
+        [Fact]
+        public async Task GetCommercialPricingPreviewAsync_WhatsAppFrom_ComesFromAddonCatalog_NotBase()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            context.Planes.AddRange(
+                CreatePlan(Guid.NewGuid(), PlanCodes.WhatsApp400, "WhatsApp 400", 6000m, monthlyMessageLimit: 400),
+                CreatePlan(Guid.NewGuid(), PlanCodes.WhatsApp800, "WhatsApp 800", 12000m, monthlyMessageLimit: 800));
+            await context.SaveChangesAsync();
+
+            var service = CreateService(
+                context,
+                new OpcionesPago { EnableValidationPlans = true },
+                new OpcionesTilopay { WebhookAccessToken = "token-seguro" },
+                RepeatWithCalculator(CalcOption("LC_M_01", 8000m, 1, BillingCycle.Monthly)));
+
+            var preview = await service.GetCommercialPricingPreviewAsync();
+
+            Assert.Equal(8000m, preview.StartingMonthlyCharge);
+            Assert.Equal(6000m, preview.WhatsAppFromCharge); // el add-on más barato, separado del base
+        }
+
+        [Fact]
+        public async Task GetCommercialPricingPreviewAsync_UsesAnnualFromCatalog_WithoutDuplicatingFormula()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var service = CreateService(
+                context,
+                new OpcionesPago { EnableValidationPlans = true },
+                new OpcionesTilopay { WebhookAccessToken = "token-seguro" },
+                RepeatWithCalculator(
+                    CalcOption("LC_M_01", 8000m, 1, BillingCycle.Monthly),
+                    CalcOption("LC_A_01", 81600m, 1, BillingCycle.Annual, monthlyEquivalent: 6800m)));
+
+            var preview = await service.GetCommercialPricingPreviewAsync();
+
+            Assert.True(preview.HasAnnual);
+            var annual = Assert.Single(preview.Tiers, tier => tier.Cycle == "Annual" && tier.Workers == 1);
+            Assert.Equal(81600m, annual.ChargeAmount);          // valor exacto del catálogo
+            Assert.Equal(6800m, annual.MonthlyEquivalentAmount); // equivalente del catálogo, no recalculado
+        }
+
+        [Fact]
+        public async Task GetCommercialPricingPreviewAsync_NoCalculatorPlans_ReturnsUnavailable()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var service = CreateService(
+                context,
+                new OpcionesPago { EnableValidationPlans = true },
+                new OpcionesTilopay { WebhookAccessToken = "token-seguro" },
+                new TilopayRepeatOptions()); // Calculator vacío
+
+            var preview = await service.GetCommercialPricingPreviewAsync();
+
+            Assert.False(preview.IsAvailable);
+            Assert.Empty(preview.Tiers);
+        }
+
+        [Fact]
+        public async Task GetCommercialPricingPreviewAsync_CacheHit_ReturnsSameInstanceWithoutRebuilding()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            context.Planes.Add(CreatePlan(Guid.NewGuid(), PlanCodes.WhatsApp400, "WhatsApp 400", 6000m, monthlyMessageLimit: 400));
+            await context.SaveChangesAsync();
+
+            using var cache = new MemoryCache(new MemoryCacheOptions());
+            var service = CreateService(
+                context,
+                new OpcionesPago { EnableValidationPlans = true },
+                new OpcionesTilopay { WebhookAccessToken = "token-seguro" },
+                RepeatWithCalculator(CalcOption("LC_M_01", 8000m, 1, BillingCycle.Monthly)),
+                cache);
+
+            var first = await service.GetCommercialPricingPreviewAsync();
+
+            // Un add-on más barato después del primer build: si se reconsultara, cambiaría el "desde".
+            context.Planes.Add(CreatePlan(Guid.NewGuid(), PlanCodes.WhatsApp800, "WhatsApp barato", 3000m, monthlyMessageLimit: 800));
+            await context.SaveChangesAsync();
+
+            var second = await service.GetCommercialPricingPreviewAsync();
+
+            Assert.Same(first, second); // misma instancia cacheada, no se reconstruyó
+            Assert.Equal(6000m, second.WhatsAppFromCharge);
+            Assert.IsType<CommercialPricingPreview>(
+                cache.Get(PublicSiteContentService.CommercialPricingPreviewCacheKey));
+        }
+
+        [Fact]
+        public async Task GetCommercialPricingPreviewAsync_DoesNotCacheWhenCancelled()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            using var cache = new MemoryCache(new MemoryCacheOptions());
+            var service = CreateService(
+                context,
+                new OpcionesPago { EnableValidationPlans = true },
+                new OpcionesTilopay { WebhookAccessToken = "token-seguro" },
+                RepeatWithCalculator(CalcOption("LC_M_01", 8000m, 1, BillingCycle.Monthly)),
+                cache);
+
+            using var cancelled = new CancellationTokenSource();
+            await cancelled.CancelAsync();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => service.GetCommercialPricingPreviewAsync(cancelled.Token));
+
+            Assert.False(cache.TryGetValue(PublicSiteContentService.CommercialPricingPreviewCacheKey, out _));
+
+            var preview = await service.GetCommercialPricingPreviewAsync();
+            Assert.True(preview.IsAvailable);
+        }
+
+        private static TilopayRepeatPlanOption CalcOption(
+            string code,
+            decimal charge,
+            int workers,
+            BillingCycle cycle,
+            decimal? monthlyEquivalent = null) =>
+            new()
+            {
+                Code = code,
+                TilopayPlanId = 6000 + workers + (cycle == BillingCycle.Annual ? 100 : 0),
+                BillingCycle = cycle,
+                MonthlyPrice = charge,
+                MonthlyEquivalentAmount = monthlyEquivalent,
+                Currency = "CRC",
+                MaxFuncionarios = workers,
+                CheckoutUrl = $"https://tp.cr/l/{code}",
+                IsPublic = true,
+                UsesRecurringCheckout = true
+            };
+
+        private static TilopayRepeatOptions RepeatWithCalculator(params TilopayRepeatPlanOption[] options) =>
+            new()
+            {
+                Enabled = true,
+                UseHostedLinks = true,
+                UseRecurringCheckoutForPublicPlans = true,
+                Calculator = options.ToList()
+            };
+
         private static Plan CreatePlan(
             Guid id,
             string code,
@@ -526,6 +744,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             new(
                 context,
                 cache ?? new MemoryCache(new MemoryCacheOptions()),
+                new SubscriptionPricingCatalog(Options.Create(repeatOptions)),
                 Options.Create(paymentOptions),
                 Options.Create(tilopayOptions),
                 Options.Create(repeatOptions));

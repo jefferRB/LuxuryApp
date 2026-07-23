@@ -13,12 +13,10 @@ namespace LuxuryApp.Tests.TenantIsolation
         private const int ClientClosedRequest = 499;
 
         [Fact]
-        public async Task Index_WhenTokenAlreadyCancelled_ReturnsClientClosedRequestWithoutLoadingPlans()
+        public async Task Index_WhenTokenAlreadyCancelled_ReturnsClientClosedRequestWithoutLoadingPricing()
         {
             var logger = new CapturingLogger<HomeController>();
-            var content = new ConfigurablePublicSiteContentService(
-                _ => Task.FromResult<IReadOnlyCollection<MarketingPlanCardViewModel>>(
-                    Array.Empty<MarketingPlanCardViewModel>()));
+            var content = new ConfigurablePublicSiteContentService(_ => Task.FromResult(AvailablePreview()));
             var controller = CreateController(logger, content);
 
             using var cts = new CancellationTokenSource();
@@ -28,17 +26,16 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var statusResult = Assert.IsType<StatusCodeResult>(result);
             Assert.Equal(ClientClosedRequest, statusResult.StatusCode);
-            Assert.Equal(0, content.GetPlanCardsCallCount);
+            Assert.Equal(0, content.GetPricingCallCount);
             Assert.DoesNotContain(logger.Entries, entry => entry.Level == LogLevel.Error);
         }
 
         [Fact]
-        public async Task Index_WhenClientCancelsDuringPlanLoad_ReturnsClientClosedRequestAndDoesNotLogError()
+        public async Task Index_WhenClientCancelsDuringPricingLoad_ReturnsClientClosedRequestAndDoesNotLogError()
         {
             var logger = new CapturingLogger<HomeController>();
             using var cts = new CancellationTokenSource();
 
-            // El cliente cancela justo mientras se cargan los planes.
             var content = new ConfigurablePublicSiteContentService(token =>
             {
                 cts.Cancel();
@@ -50,17 +47,15 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var statusResult = Assert.IsType<StatusCodeResult>(result);
             Assert.Equal(ClientClosedRequest, statusResult.StatusCode);
-            Assert.Equal(1, content.GetPlanCardsCallCount);
+            Assert.Equal(1, content.GetPricingCallCount);
             Assert.DoesNotContain(logger.Entries, entry => entry.Level == LogLevel.Error);
             Assert.Contains(logger.Entries, entry => entry.Level == LogLevel.Debug);
         }
 
         [Fact]
-        public async Task Index_WhenPlanLoadCancelledUnrelatedToRequest_LogsWarningAndRendersLandingWithoutPlans()
+        public async Task Index_WhenPricingLoadCancelledUnrelatedToRequest_LogsWarningAndRendersUnavailable()
         {
             var logger = new CapturingLogger<HomeController>();
-
-            // Cancelación/timeout NO originado por el request (el token del request sigue vivo).
             var content = new ConfigurablePublicSiteContentService(
                 _ => throw new TaskCanceledException("Tiempo de espera de base de datos agotado."));
             var controller = CreateController(logger, content);
@@ -69,55 +64,69 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var view = Assert.IsType<ViewResult>(result);
             var model = Assert.IsType<PublicHomeViewModel>(view.Model);
-            Assert.Empty(model.Plans);
+            Assert.False(model.Pricing.IsAvailable);
             Assert.NotEmpty(model.HeroMetrics);
-            Assert.NotEmpty(model.Modules);
             Assert.Contains(logger.Entries, entry => entry.Level == LogLevel.Warning);
             Assert.DoesNotContain(logger.Entries, entry => entry.Level == LogLevel.Error);
         }
 
         [Fact]
-        public async Task Index_WhenPlanLoadThrowsGeneralException_LogsWarningAndRendersLandingWithoutPlans()
+        public async Task Index_WhenPricingLoadThrowsGeneralException_LogsWarningAndRendersUnavailable()
         {
             var logger = new CapturingLogger<HomeController>();
             var content = new ConfigurablePublicSiteContentService(
-                _ => throw new InvalidOperationException("Fallo inesperado al cargar planes."));
+                _ => throw new InvalidOperationException("Fallo inesperado al cargar el catálogo."));
             var controller = CreateController(logger, content);
 
             var result = await controller.Index(CancellationToken.None);
 
             var view = Assert.IsType<ViewResult>(result);
             var model = Assert.IsType<PublicHomeViewModel>(view.Model);
-            Assert.Empty(model.Plans);
-            Assert.NotEmpty(model.HeroMetrics);
+            Assert.False(model.Pricing.IsAvailable);
+            Assert.NotEmpty(model.Modules);
             Assert.Contains(logger.Entries, entry => entry.Level == LogLevel.Warning);
             Assert.DoesNotContain(logger.Entries, entry => entry.Level == LogLevel.Error);
         }
 
         [Fact]
-        public async Task Index_WhenPlansLoadSucceeds_RendersLandingWithAtMostThreePlans()
+        public async Task Index_WhenPricingLoadSucceeds_RendersLandingWithAvailablePricing()
         {
             var logger = new CapturingLogger<HomeController>();
-            var plans = Enumerable.Range(0, 5)
-                .Select(index => new MarketingPlanCardViewModel
+            var content = new ConfigurablePublicSiteContentService(_ => Task.FromResult(AvailablePreview()));
+            var controller = CreateController(logger, content);
+
+            var result = await controller.Index(CancellationToken.None);
+
+            var view = Assert.IsType<ViewResult>(result);
+            var model = Assert.IsType<PublicHomeViewModel>(view.Model);
+            Assert.True(model.Pricing.IsAvailable);
+            Assert.Equal(8000m, model.Pricing.StartingMonthlyCharge);
+            Assert.NotEmpty(model.HeroMetrics);
+            Assert.NotEmpty(model.Modules);
+            Assert.DoesNotContain(logger.Entries, entry => entry.Level == LogLevel.Error);
+        }
+
+        private static CommercialPricingPreview AvailablePreview() =>
+            new()
+            {
+                IsAvailable = true,
+                Currency = "CRC",
+                MinWorkers = 1,
+                MaxWorkers = 11,
+                StartingMonthlyCharge = 8000m,
+                HasMonthly = true,
+                HasAnnual = false,
+                Tiers = new[]
                 {
-                    Name = $"Plan {index}",
-                    MonthlyPrice = 8000m + index
-                })
-                .ToArray();
-            var content = new ConfigurablePublicSiteContentService(
-                _ => Task.FromResult<IReadOnlyCollection<MarketingPlanCardViewModel>>(plans));
-            var controller = CreateController(logger, content);
-
-            var result = await controller.Index(CancellationToken.None);
-
-            var view = Assert.IsType<ViewResult>(result);
-            var model = Assert.IsType<PublicHomeViewModel>(view.Model);
-            Assert.Equal(3, model.Plans.Count);
-            Assert.NotEmpty(model.HeroMetrics);
-            Assert.NotEmpty(model.Modules);
-            Assert.DoesNotContain(logger.Entries, entry => entry.Level == LogLevel.Error);
-        }
+                    new CommercialPricingTier
+                    {
+                        Workers = 1,
+                        Cycle = "Monthly",
+                        ChargeAmount = 8000m,
+                        MonthlyEquivalentAmount = 8000m
+                    }
+                }
+            };
 
         private static HomeController CreateController(
             ILogger<HomeController> logger,
@@ -130,13 +139,13 @@ namespace LuxuryApp.Tests.TenantIsolation
 
         private sealed class ConfigurablePublicSiteContentService : IPublicSiteContentService
         {
-            private readonly Func<CancellationToken, Task<IReadOnlyCollection<MarketingPlanCardViewModel>>> _planCards;
+            private readonly Func<CancellationToken, Task<CommercialPricingPreview>> _pricing;
 
             public ConfigurablePublicSiteContentService(
-                Func<CancellationToken, Task<IReadOnlyCollection<MarketingPlanCardViewModel>>> planCards) =>
-                _planCards = planCards;
+                Func<CancellationToken, Task<CommercialPricingPreview>> pricing) =>
+                _pricing = pricing;
 
-            public int GetPlanCardsCallCount { get; private set; }
+            public int GetPricingCallCount { get; private set; }
 
             public IReadOnlyCollection<MarketingMetricViewModel> GetHeroMetrics() =>
                 new[] { new MarketingMetricViewModel { Value = "1", Label = "panel" } };
@@ -144,12 +153,17 @@ namespace LuxuryApp.Tests.TenantIsolation
             public IReadOnlyCollection<MarketingModuleViewModel> GetModules() =>
                 new[] { new MarketingModuleViewModel { Id = "agenda", Title = "Agenda" } };
 
-            public Task<IReadOnlyCollection<MarketingPlanCardViewModel>> GetPlanCardsAsync(
+            public Task<CommercialPricingPreview> GetCommercialPricingPreviewAsync(
                 CancellationToken cancellationToken = default)
             {
-                GetPlanCardsCallCount++;
-                return _planCards(cancellationToken);
+                GetPricingCallCount++;
+                return _pricing(cancellationToken);
             }
+
+            public Task<IReadOnlyCollection<MarketingPlanCardViewModel>> GetPlanCardsAsync(
+                CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyCollection<MarketingPlanCardViewModel>>(
+                    Array.Empty<MarketingPlanCardViewModel>());
 
             public Task<IReadOnlyCollection<MarketingPlanCardViewModel>> GetWhatsAppAddonCardsAsync(
                 CancellationToken cancellationToken = default) =>

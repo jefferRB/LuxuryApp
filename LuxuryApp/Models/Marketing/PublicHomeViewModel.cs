@@ -4,6 +4,11 @@ namespace LuxuryApp.Models.Marketing
     {
         public IReadOnlyCollection<MarketingMetricViewModel> HeroMetrics { get; init; } = Array.Empty<MarketingMetricViewModel>();
         public IReadOnlyCollection<MarketingModuleViewModel> Modules { get; init; } = Array.Empty<MarketingModuleViewModel>();
-        public IReadOnlyCollection<MarketingPlanCardViewModel> Plans { get; init; } = Array.Empty<MarketingPlanCardViewModel>();
+
+        /// <summary>
+        /// Vista comercial de precios para la landing, derivada del calculador real
+        /// (LC_M_/LC_A_). Reemplaza las cards de planes legacy/TEST de la iteración anterior.
+        /// </summary>
+        public CommercialPricingPreview Pricing { get; init; } = CommercialPricingPreview.Unavailable();
     }
 }

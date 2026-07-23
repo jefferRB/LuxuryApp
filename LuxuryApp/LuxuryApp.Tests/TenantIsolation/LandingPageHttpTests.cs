@@ -1,10 +1,10 @@
 using System.Net;
-using System.Text.RegularExpressions;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.Layout;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Layout;
 using LuxuryApp.Services.PublicSite;
+using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Tests.Support;
 using Microsoft.AspNetCore.Authorization;
@@ -24,17 +24,17 @@ using System.Security.Claims;
 namespace LuxuryApp.Tests.TenantIsolation
 {
     /// <summary>
-    /// Renderiza la landing pública REAL (HomeController.Index + vista Home/Index.cshtml +
-    /// PublicSiteContentService real) por HTTP. Verifica que la página responde 200, tiene un
-    /// único H1, deriva el precio inicial de los planes públicos (no hardcodeado), degrada bien
-    /// sin planes, usa rutas reales y no renderiza un reproductor de video roto.
+    /// Renderiza la landing pública REAL (HomeController.Index + Home/Index.cshtml +
+    /// PublicSiteContentService real + ISubscriptionPricingCatalog real) por HTTP. Verifica que
+    /// la sección de precios usa el calculador comercial (LC_M_), no planes legacy/TEST, deriva
+    /// el "Desde ₡8.000" de LC_M_01, degrada sin catálogo y nunca expone TEST/₡100/Básico.
     /// </summary>
     public sealed class LandingPageHttpTests
     {
         [Fact]
-        public async Task Get_Landing_WithPlans_Returns200_HasSingleH1_AndDynamicStartingPrice()
+        public async Task Get_Landing_WithCatalog_Returns200_SingleH1_AndStartingPriceFromLcM01()
         {
-            await using var harness = await LandingHarness.CreateAsync(seedPlans: true);
+            await using var harness = await LandingHarness.CreateAsync(withCatalog: true, seedNoise: true);
 
             var response = await harness.Client.GetAsync("/");
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -42,15 +42,61 @@ namespace LuxuryApp.Tests.TenantIsolation
             var html = await response.Content.ReadAsStringAsync();
 
             Assert.Equal(1, CountOccurrences(html, "<h1"));
-            Assert.Contains("bajo control", html); // título del hero (H1)
             Assert.Contains("Desde", html);
-            Assert.Contains("8.000", html); // precio del plan más económico sembrado (₡8.000)
+            Assert.Contains("8.000", html); // LC_M_01, precio de entrada
+            Assert.Contains("Calcular mi plan completo", html);
+            Assert.Contains("/Billing/Planes", html);
         }
 
         [Fact]
-        public async Task Get_Landing_WithoutPlans_Returns200_ShowsNeutralMessage_AndNoHardcodedPrice()
+        public async Task Get_Landing_DoesNotExposeTestOrLegacyPlans()
         {
-            await using var harness = await LandingHarness.CreateAsync(seedPlans: false);
+            await using var harness = await LandingHarness.CreateAsync(withCatalog: true, seedNoise: true);
+
+            var html = await (await harness.Client.GetAsync("/")).Content.ReadAsStringAsync();
+
+            // Regla comercial crítica de NO exposición pública:
+            Assert.DoesNotContain("LuxuryCloud Test Producción", html);
+            Assert.DoesNotContain("₡100", html);
+            Assert.DoesNotContain("Básico", html);
+            Assert.DoesNotContain("lp-pricing-card", html); // ya no existen las cards legacy/TEST
+            // El precio en JSON-LD proviene de LC_M_01 (8000), nunca del TEST de 100.
+            Assert.Contains("\"price\":\"8000\"", html);
+            Assert.DoesNotContain("\"price\":\"100\"", html);
+        }
+
+        [Fact]
+        public async Task Get_Landing_RendersSingularForOneWorker_AndCarriesPluralData()
+        {
+            await using var harness = await LandingHarness.CreateAsync(withCatalog: true, seedNoise: false);
+
+            var html = await (await harness.Client.GetAsync("/")).Content.ReadAsStringAsync();
+
+            Assert.Contains("1 integrante incluido", html);       // estado inicial servidor (singular)
+            Assert.Contains("3 integrantes incluidos", html);     // dato para el JS (plural correcto)
+            // El plan de 1 integrante nunca se pluraliza (evita "1 integrantes incluidos").
+            Assert.DoesNotContain("\"workersLabel\":\"1 integrantes incluidos\"", html);
+            Assert.DoesNotContain("Hasta 1 funcionarios", html);
+        }
+
+        [Fact]
+        public async Task Get_Landing_WhatsAppFrom_ShownFromAddonCatalog_SeparateFromBase()
+        {
+            await using var harness = await LandingHarness.CreateAsync(withCatalog: true, seedNoise: true);
+
+            var html = await (await harness.Client.GetAsync("/")).Content.ReadAsStringAsync();
+
+            Assert.Contains("Ver opciones de WhatsApp", html);
+            Assert.Contains("/Billing/Planes#whatsapp", html);
+            // "Desde ₡6.000" del add-on y "Desde ₡8.000" del plan base son bloques separados.
+            Assert.Contains("Desde <strong>₡6.000", html);
+            Assert.Contains("Desde <strong>₡8.000", html);
+        }
+
+        [Fact]
+        public async Task Get_Landing_WithoutCatalog_ShowsUnavailableMessage_AndNoInventedPrice()
+        {
+            await using var harness = await LandingHarness.CreateAsync(withCatalog: false, seedNoise: true);
 
             var response = await harness.Client.GetAsync("/");
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -58,15 +104,18 @@ namespace LuxuryApp.Tests.TenantIsolation
             var html = await response.Content.ReadAsStringAsync();
 
             Assert.Equal(1, CountOccurrences(html, "<h1"));
-            Assert.Contains("temporalmente no disponibles", html);
-            // Sin planes no debe aparecer un "Desde ₡8.000" hardcodeado.
+            Assert.Contains("Los precios no están disponibles temporalmente.", html);
+            Assert.Contains("/Billing/Planes", html);
+            Assert.DoesNotContain("Desde <strong>", html); // sin "Desde ₡X"
             Assert.DoesNotContain("8.000", html);
+            Assert.DoesNotContain("₡100", html);
+            Assert.DoesNotContain("\"offers\"", html); // JSON-LD sin precio inventado
         }
 
         [Fact]
         public async Task Get_Landing_UsesRealRoutesForKeyCtas()
         {
-            await using var harness = await LandingHarness.CreateAsync(seedPlans: true);
+            await using var harness = await LandingHarness.CreateAsync(withCatalog: true, seedNoise: false);
 
             var html = await (await harness.Client.GetAsync("/")).Content.ReadAsStringAsync();
 
@@ -78,7 +127,7 @@ namespace LuxuryApp.Tests.TenantIsolation
         [Fact]
         public async Task Get_Landing_DoesNotRenderVideoPlayer_WhenNoVideoConfigured()
         {
-            await using var harness = await LandingHarness.CreateAsync(seedPlans: true);
+            await using var harness = await LandingHarness.CreateAsync(withCatalog: true, seedNoise: false);
 
             var html = await (await harness.Client.GetAsync("/")).Content.ReadAsStringAsync();
 
@@ -113,7 +162,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             public HttpClient Client { get; }
 
-            public static async Task<LandingHarness> CreateAsync(bool seedPlans)
+            public static async Task<LandingHarness> CreateAsync(bool withCatalog, bool seedNoise)
             {
                 var connection = new SqliteConnection("DataSource=:memory:");
                 connection.Open();
@@ -123,7 +172,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                     {
                         webHost.UseTestServer();
                         webHost.UseSetting(WebHostDefaults.ApplicationKey, "LuxuryApp");
-                        webHost.ConfigureServices(services => ConfigureServices(services, connection));
+                        webHost.ConfigureServices(services => ConfigureServices(services, connection, withCatalog));
                         webHost.Configure(Configure);
                     })
                     .StartAsync();
@@ -133,24 +182,25 @@ namespace LuxuryApp.Tests.TenantIsolation
                     var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
                     await context.Database.EnsureCreatedAsync();
 
-                    if (seedPlans)
+                    if (seedNoise)
                     {
+                        // Ruido comercial que NO debe aparecer en la landing.
                         context.Planes.AddRange(
                             NewPlan(PlanCodes.Basic, "Básico", 8000m, maxFuncionarios: 1),
                             NewPlan(PlanCodes.Pro, "Pro", 20000m, maxFuncionarios: 3),
-                            NewPlan(PlanCodes.Business, "Empresarial", 35000m, maxFuncionarios: 7));
+                            NewPlan(PlanCodes.TestProdBasic100, "LuxuryCloud Test Producción", 100m, maxFuncionarios: 1),
+                            NewPlan(PlanCodes.WhatsApp400, "WhatsApp 400", 6000m, monthlyMessageLimit: 400));
                         await context.SaveChangesAsync();
                     }
                 }
 
-                var server = host.GetTestServer();
-                var client = server.CreateClient();
+                var client = host.GetTestServer().CreateClient();
                 client.BaseAddress = new Uri("http://localhost/");
 
                 return new LandingHarness(host, connection, client);
             }
 
-            private static Plan NewPlan(string code, string name, decimal price, int maxFuncionarios) =>
+            private static Plan NewPlan(string code, string name, decimal price, int? maxFuncionarios = null, int? monthlyMessageLimit = null) =>
                 new()
                 {
                     Id = Guid.NewGuid(),
@@ -159,10 +209,11 @@ namespace LuxuryApp.Tests.TenantIsolation
                     PrecioMensual = price,
                     Moneda = "CRC",
                     MaxFuncionarios = maxFuncionarios,
+                    LimiteMensajesMensual = monthlyMessageLimit,
                     Activo = true
                 };
 
-            private static void ConfigureServices(IServiceCollection services, SqliteConnection connection)
+            private static void ConfigureServices(IServiceCollection services, SqliteConnection connection, bool withCatalog)
             {
                 services.AddSingleton(connection);
                 services.AddSingleton<ITenantProvider>(new TestTenantProvider());
@@ -173,7 +224,18 @@ namespace LuxuryApp.Tests.TenantIsolation
                 services.AddMemoryCache();
                 services.Configure<OpcionesPago>(options => options.EnableValidationPlans = false);
                 services.Configure<OpcionesTilopay>(_ => { });
-                services.Configure<TilopayRepeatOptions>(_ => { });
+                services.Configure<TilopayRepeatOptions>(options =>
+                {
+                    if (withCatalog)
+                    {
+                        options.Enabled = true;
+                        options.UseHostedLinks = true;
+                        options.UseRecurringCheckoutForPublicPlans = true;
+                        options.Calculator = BuildCalculatorConfig();
+                    }
+                });
+
+                services.AddSingleton<ISubscriptionPricingCatalog, SubscriptionPricingCatalog>();
 
                 services
                     .AddIdentity<AppUsuario, IdentityRole>()
@@ -199,6 +261,46 @@ namespace LuxuryApp.Tests.TenantIsolation
 
                     apm.ApplicationParts.Add(new CompiledRazorAssemblyPart(appAssembly));
                 });
+            }
+
+            private static List<TilopayRepeatPlanOption> BuildCalculatorConfig()
+            {
+                var monthly = new[] { 8000m, 15000m, 20000m, 25000m, 30000m, 35000m, 40000m, 45000m, 50000m, 55000m, 60000m };
+                var annual = new[] { 81600m, 153000m, 204000m, 255000m, 306000m, 336000m, 360000m, 378000m, 390000m, 429000m, 468000m };
+                var annualEq = new[] { 6800m, 12750m, 17000m, 21250m, 25500m, 28000m, 30000m, 31500m, 32500m, 35750m, 39000m };
+
+                var list = new List<TilopayRepeatPlanOption>();
+                for (var w = 1; w <= 11; w++)
+                {
+                    list.Add(new TilopayRepeatPlanOption
+                    {
+                        Code = $"LC_M_{w:D2}",
+                        TilopayPlanId = 6100 + w,
+                        BillingCycle = BillingCycle.Monthly,
+                        MonthlyPrice = monthly[w - 1],
+                        MonthlyEquivalentAmount = monthly[w - 1],
+                        Currency = "CRC",
+                        MaxFuncionarios = w,
+                        CheckoutUrl = $"https://tp.cr/l/m{w}",
+                        IsPublic = true,
+                        UsesRecurringCheckout = true
+                    });
+                    list.Add(new TilopayRepeatPlanOption
+                    {
+                        Code = $"LC_A_{w:D2}",
+                        TilopayPlanId = 6200 + w,
+                        BillingCycle = BillingCycle.Annual,
+                        MonthlyPrice = annual[w - 1],
+                        MonthlyEquivalentAmount = annualEq[w - 1],
+                        Currency = "CRC",
+                        MaxFuncionarios = w,
+                        CheckoutUrl = $"https://tp.cr/l/a{w}",
+                        IsPublic = true,
+                        UsesRecurringCheckout = true
+                    });
+                }
+
+                return list;
             }
 
             private static void Configure(IApplicationBuilder app)

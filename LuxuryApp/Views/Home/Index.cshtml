@@ -7,11 +7,9 @@
     ViewData["CanonicalUrl"] = "https://luxurycloud.app/";
     ViewData["PublicBodyClass"] = "public-home-page";
 
-    // Precio de entrada tomado del plan público válido más económico. Nunca se hardcodea:
-    // si no hay planes disponibles, la sección de precios muestra un mensaje neutro.
-    var startingPlan = Model.Plans.Count > 0
-        ? Model.Plans.OrderBy(plan => plan.MonthlyPrice).First()
-        : null;
+    // Fuente de verdad de precios: el catálogo comercial (mismo calculador que /Billing/Planes,
+    // planes LC_M_/LC_A_). NADA se hardcodea; sin catálogo, la sección muestra un mensaje neutro.
+    var pricing = Model.Pricing;
 
     // Formato con separador de miles "." independiente de la cultura del hilo (es-CR).
     var crFormat = new System.Globalization.NumberFormatInfo
@@ -20,7 +18,60 @@
         NumberDecimalDigits = 0
     };
     string FormatColones(decimal amount) => amount.ToString("N0", crFormat);
-    var startingPriceDisplay = startingPlan is not null ? FormatColones(startingPlan.MonthlyPrice) : null;
+    string WorkersIncludedLabel(int workers) =>
+        workers == 1 ? "1 integrante incluido" : $"{workers} integrantes incluidos";
+
+    // "Desde ₡X" = plan mensual de UN integrante (LC_M_01), no un Min() sobre todos los planes.
+    var startingPriceDisplay = pricing.IsAvailable ? FormatColones(pricing.StartingMonthlyCharge) : null;
+    var whatsAppFromDisplay = pricing.WhatsAppFromCharge is > 0m
+        ? FormatColones(pricing.WhatsAppFromCharge.Value)
+        : null;
+
+    var initialWorkers = pricing.MinWorkers > 0 ? pricing.MinWorkers : 1;
+    var initialMonthlyTier = pricing.Tiers
+        .FirstOrDefault(tier => tier.Cycle == "Monthly" && tier.Workers == initialWorkers);
+
+    // Datos por (ciclo, integrantes) YA formateados en servidor, para que el JS solo cambie
+    // texto y no duplique fórmulas ni formateo comercial.
+    var tierData = pricing.Tiers
+        .Select(tier => new
+        {
+            workers = tier.Workers,
+            cycle = tier.Cycle,
+            charge = FormatColones(tier.ChargeAmount),
+            monthlyEq = FormatColones(tier.MonthlyEquivalentAmount),
+            workersLabel = WorkersIncludedLabel(tier.Workers)
+        })
+        .ToArray();
+    var tierDataJson = System.Text.Json.JsonSerializer.Serialize(tierData);
+
+    // JSON-LD SoftwareApplication con offers.price SOLO desde el plan base comercial (LC_M_01).
+    // Si no hay catálogo, se omite el bloque de precio (no se inventa).
+    // Se usa un marcador "__AT__" para las claves JSON-LD (@context/@type) y se reemplaza al
+    // final, evitando cualquier ambigüedad con la sintaxis de Razor dentro del bloque de código.
+    var softwareApplicationLd = new Dictionary<string, object?>
+    {
+        ["__AT__context"] = "https://schema.org",
+        ["__AT__type"] = "SoftwareApplication",
+        ["name"] = "LuxuryCloud",
+        ["applicationCategory"] = "BusinessApplication",
+        ["operatingSystem"] = "Web",
+        ["url"] = "https://luxurycloud.app/",
+        ["description"] = "Software para barberías, salones y negocios de servicios: agenda, recordatorios por WhatsApp, reservas en línea, clientes, equipo, ingresos, egresos y estadísticas."
+    };
+    if (pricing.IsAvailable && pricing.StartingMonthlyCharge > 0m)
+    {
+        softwareApplicationLd["offers"] = new Dictionary<string, object?>
+        {
+            ["__AT__type"] = "Offer",
+            ["price"] = pricing.StartingMonthlyCharge.ToString("0", System.Globalization.CultureInfo.InvariantCulture),
+            ["priceCurrency"] = string.IsNullOrWhiteSpace(pricing.Currency) ? "CRC" : pricing.Currency,
+            ["category"] = "Suscripción mensual"
+        };
+    }
+    var softwareApplicationLdJson = System.Text.Json.JsonSerializer
+        .Serialize(softwareApplicationLd)
+        .Replace("__AT__", "@");
 
     // Video del fundador: opcional y configurable. Si no hay URL, se muestra el panel del
     // producto (representación fiel), nunca un reproductor vacío.
@@ -49,17 +100,7 @@
       "description": "Plataforma de gestión para barberías, salones y negocios de servicios en Costa Rica."
     }
     </script>
-    <script type="application/ld+json">
-    {
-      "@@context": "https://schema.org",
-      "@@type": "SoftwareApplication",
-      "name": "LuxuryCloud",
-      "applicationCategory": "BusinessApplication",
-      "operatingSystem": "Web",
-      "url": "https://luxurycloud.app/",
-      "description": "Software para barberías, salones y negocios de servicios: agenda, recordatorios por WhatsApp, reservas en línea, clientes, equipo, ingresos, egresos y estadísticas."
-    }
-    </script>
+    <script type="application/ld+json">@Html.Raw(softwareApplicationLdJson)</script>
 }
 
 <!-- ═══════════════════════════ 1 · HERO ═══════════════════════════════ -->
@@ -482,8 +523,8 @@
 <section class="lp-pricing-section" id="precios">
     <div class="container">
         <div class="section-heading text-center" data-aos="fade-up">
-            <span class="section-kicker">Precios</span>
-            <h2>Un plan según el tamaño de su negocio</h2>
+            <span class="section-kicker">Precios claros</span>
+            <h2>Un precio claro según el tamaño de su equipo</h2>
             <p>Empiece con el equipo que tiene hoy y cambie de plan cuando su negocio crezca.</p>
             @if (startingPriceDisplay is not null)
             {
@@ -491,40 +532,63 @@
             }
         </div>
 
-        @if (Model.Plans.Count > 0)
+        @if (pricing.IsAvailable)
         {
-            <div class="lp-pricing-grid">
-                @foreach (var plan in Model.Plans.OrderBy(plan => plan.MonthlyPrice))
-                {
-                    <article class="lp-pricing-card @(plan.IsFeatured ? "lp-pricing-card-featured" : string.Empty)" data-aos="fade-up">
-                        @if (!string.IsNullOrWhiteSpace(plan.BadgeText))
-                        {
-                            <span class="lp-pricing-badge">@plan.BadgeText</span>
-                        }
-                        <h3>@plan.Name</h3>
-                        <div class="lp-pricing-amount">
-                            <strong>₡@FormatColones(plan.MonthlyPrice)</strong>
-                            <span>@plan.BillingLabel</span>
+            <div class="lp-calc" data-lp-calc data-tiers='@Html.Raw(tierDataJson)' data-aos="fade-up">
+                <div class="lp-calc-side">
+                    @if (pricing.HasAnnual)
+                    {
+                        <div class="lp-calc-cycle" role="group" aria-label="Modalidad de pago">
+                            <button type="button" class="lp-calc-cycle-btn is-active" data-lp-cycle="Monthly" aria-pressed="true">Mensual</button>
+                            <button type="button" class="lp-calc-cycle-btn" data-lp-cycle="Annual" aria-pressed="false">Anual</button>
                         </div>
-                        <span class="lp-pricing-staff">@plan.StaffLabel</span>
-                        <ul class="lp-pricing-highlights">
-                            @foreach (var highlight in plan.Highlights.Take(4))
-                            {
-                                <li><i class="bi bi-check2" aria-hidden="true"></i> @highlight</li>
-                            }
-                        </ul>
-                        <a class="btn public-btn public-btn-secondary w-100"
-                           asp-controller="Billing" asp-action="Planes" asp-route-selectedPlanId="@plan.Id"
-                           data-analytics-event="pricing_ver_plan">
-                            Ver este plan
-                        </a>
-                    </article>
-                }
+                    }
+
+                    <label class="lp-calc-label" for="lpCalcWorkers">¿Cuántas personas trabajan en su negocio?</label>
+                    <select class="lp-calc-select" id="lpCalcWorkers" data-lp-workers>
+                        @for (var n = pricing.MinWorkers; n <= pricing.MaxWorkers; n++)
+                        {
+                            <option value="@n" selected="@(n == initialWorkers)">@(n == 1 ? "1 persona" : $"{n} personas")</option>
+                        }
+                    </select>
+                    <p class="lp-calc-hint">Puede cambiar de plan cuando su negocio crezca.</p>
+                </div>
+
+                <div class="lp-calc-summary" aria-live="polite">
+                    <span class="lp-calc-period" data-lp-period>Pago mensual</span>
+                    <div class="lp-calc-amount">
+                        <strong data-lp-charge>₡@startingPriceDisplay</strong>
+                        <span class="lp-calc-amount-unit" data-lp-unit>por mes</span>
+                    </div>
+                    <span class="lp-calc-equivalent" data-lp-equivalent hidden></span>
+                    <span class="lp-calc-included" data-lp-included>@WorkersIncludedLabel(initialWorkers)</span>
+
+                    <ul class="lp-calc-benefits">
+                        <li><i class="bi bi-check2" aria-hidden="true"></i> Agenda y operación del equipo.</li>
+                        <li><i class="bi bi-check2" aria-hidden="true"></i> Control de ingresos y egresos.</li>
+                        <li><i class="bi bi-check2" aria-hidden="true"></i> Clientes e historial.</li>
+                        <li><i class="bi bi-check2" aria-hidden="true"></i> Dashboard e indicadores.</li>
+                        <li><i class="bi bi-check2" aria-hidden="true"></i> Reservas y página pública.</li>
+                    </ul>
+
+                    <a class="btn public-btn public-btn-primary w-100" asp-controller="Billing" asp-action="Planes" data-analytics-event="pricing_calcular">
+                        Calcular mi plan completo
+                    </a>
+                </div>
             </div>
 
-            <div class="lp-pricing-foot" data-aos="fade-up">
-                <a class="btn public-btn public-btn-primary" asp-controller="Billing" asp-action="Planes" data-analytics-event="pricing_ver_todos">
-                    Ver todos los planes
+            <div class="lp-addon" data-aos="fade-up">
+                <div class="lp-addon-body">
+                    <span class="lp-addon-eyebrow"><i class="bi bi-whatsapp" aria-hidden="true"></i> Complemento opcional</span>
+                    <h3>Agregue recordatorios y confirmaciones por WhatsApp</h3>
+                    <p>Los recordatorios por WhatsApp se contratan por separado según la cantidad de mensajes que necesita su negocio.</p>
+                    @if (whatsAppFromDisplay is not null)
+                    {
+                        <p class="lp-addon-from">Desde <strong>₡@whatsAppFromDisplay</strong> al mes</p>
+                    }
+                </div>
+                <a class="btn public-btn public-btn-secondary" href="@(Url.Action("Planes", "Billing"))#whatsapp" data-analytics-event="pricing_ver_whatsapp">
+                    Ver opciones de WhatsApp
                 </a>
             </div>
         }
@@ -532,14 +596,14 @@
         {
             <div class="status-card" data-aos="fade-up">
                 <span class="status-kicker">Precios</span>
-                <h3>Los planes están temporalmente no disponibles.</h3>
-                <p>Puede crear su cuenta ahora y activar el plan que mejor se ajuste a su negocio en un momento.</p>
+                <h3>Los precios no están disponibles temporalmente.</h3>
+                <p>Puede consultar los planes en un momento o crear su cuenta para empezar.</p>
                 <div class="lp-pricing-foot">
-                    <a class="btn public-btn public-btn-primary" asp-controller="Accounts" asp-action="Registro" data-analytics-event="pricing_crear_cuenta">
-                        Crear cuenta
+                    <a class="btn public-btn public-btn-primary" asp-controller="Billing" asp-action="Planes" data-analytics-event="pricing_ver_planes">
+                        Ver planes
                     </a>
-                    <a class="btn public-btn public-btn-secondary" asp-controller="Billing" asp-action="Planes" data-analytics-event="pricing_ver_planes">
-                        Ver precios
+                    <a class="btn public-btn public-btn-secondary" asp-controller="Accounts" asp-action="Registro" data-analytics-event="pricing_crear_cuenta">
+                        Crear cuenta
                     </a>
                 </div>
             </div>

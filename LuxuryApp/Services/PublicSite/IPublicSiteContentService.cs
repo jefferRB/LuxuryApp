@@ -15,5 +15,14 @@ namespace LuxuryApp.Services.PublicSite
             CancellationToken cancellationToken = default);
         Task<Plan?> FindAvailablePlanAsync(Guid planId, CancellationToken cancellationToken = default);
         Task<string?> GetPlanNameAsync(Guid? planId, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Catálogo comercial COMPACTO para la landing (mismo calculador que /Billing/Planes,
+        /// planes LC_M_/LC_A_). Implementación por defecto: no disponible, para que los stubs
+        /// que no lo necesitan no cambien.
+        /// </summary>
+        Task<CommercialPricingPreview> GetCommercialPricingPreviewAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(CommercialPricingPreview.Unavailable());
     }
 }

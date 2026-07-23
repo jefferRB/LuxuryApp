@@ -47,10 +47,10 @@ namespace LuxuryApp.Controllers
                 return new StatusCodeResult(ClientClosedRequest);
             }
 
-            var plans = await LoadPlanCardsResilientlyAsync(cancellationToken);
-            if (plans is null)
+            var pricing = await LoadPricingPreviewResilientlyAsync(cancellationToken);
+            if (pricing is null)
             {
-                // El cliente canceló mientras se cargaban los planes. Respuesta 499 silenciosa.
+                // El cliente canceló mientras se cargaba el catálogo. Respuesta 499 silenciosa.
                 return new StatusCodeResult(ClientClosedRequest);
             }
 
@@ -58,47 +58,48 @@ namespace LuxuryApp.Controllers
             {
                 HeroMetrics = _publicSiteContentService.GetHeroMetrics(),
                 Modules = _publicSiteContentService.GetModules(),
-                Plans = plans.Take(3).ToArray()
+                Pricing = pricing
             };
 
             return View(model);
         }
 
         /// <summary>
-        /// Carga las cards de planes tolerando fallos: la landing debe renderizarse siempre.
-        /// Devuelve <c>null</c> únicamente cuando el propio cliente canceló el request.
+        /// Carga el catálogo comercial tolerando fallos: la landing debe renderizarse siempre.
+        /// Devuelve <c>null</c> únicamente cuando el propio cliente canceló el request; ante
+        /// cualquier otro fallo devuelve un preview "no disponible" (fallback seguro, sin precios
+        /// inventados).
         /// </summary>
-        private async Task<IReadOnlyCollection<MarketingPlanCardViewModel>?> LoadPlanCardsResilientlyAsync(
+        private async Task<CommercialPricingPreview?> LoadPricingPreviewResilientlyAsync(
             CancellationToken cancellationToken)
         {
             try
             {
-                return await _publicSiteContentService.GetPlanCardsAsync(cancellationToken);
+                return await _publicSiteContentService.GetCommercialPricingPreviewAsync(cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 // Cancelación del cliente (navegador). No es un error: como máximo Debug, sin 500.
-                _logger.LogDebug("Carga de planes de la landing cancelada por el cliente.");
+                _logger.LogDebug("Carga del catálogo comercial de la landing cancelada por el cliente.");
                 return null;
             }
             catch (OperationCanceledException ex)
             {
                 // Cancelación/timeout NO originado por el request (p. ej. límite de base de datos).
-                // Se degrada con un fallback seguro: la landing se muestra sin precios dinámicos.
                 _logger.LogWarning(
                     ex,
-                    "Carga de planes públicos cancelada por timeout u origen ajeno al request. " +
-                    "Se renderiza la landing sin precios dinámicos.");
-                return Array.Empty<MarketingPlanCardViewModel>();
+                    "Carga del catálogo comercial cancelada por timeout u origen ajeno al request. " +
+                    "Se renderiza la landing con precios no disponibles.");
+                return CommercialPricingPreview.Unavailable();
             }
             catch (Exception ex)
             {
-                // Cualquier otro fallo (base de datos, mapeo, etc.) no debe tumbar la landing.
+                // Cualquier otro fallo no debe tumbar la landing.
                 _logger.LogWarning(
                     ex,
-                    "No fue posible cargar los planes públicos. " +
-                    "Se renderiza la landing sin la sección dinámica de precios.");
-                return Array.Empty<MarketingPlanCardViewModel>();
+                    "No fue posible cargar el catálogo comercial. " +
+                    "Se renderiza la landing con precios no disponibles.");
+                return CommercialPricingPreview.Unavailable();
             }
         }
 

@@ -1,6 +1,7 @@
 using LuxuryApp.Models.Marketing;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Models.Saas;
+using LuxuryApp.Services.SaaS;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
@@ -14,12 +15,17 @@ namespace LuxuryApp.Services.PublicSite
         // forma controlada si cambia la forma proyectada del snapshot.
         internal const string AvailablePlansCacheKey = "public-site:available-plans:v1";
 
+        // Catálogo comercial (calculador LC_M_/LC_A_) proyectado para la landing. Clave distinta
+        // porque es un propósito distinto al de las cards de planes legacy.
+        internal const string CommercialPricingPreviewCacheKey = "public-site:commercial-pricing-preview:v1";
+
         // Los planes públicos cambian con muy poca frecuencia; 10 minutos absorben los picos
         // de tráfico anónimo sin servir precios desactualizados por mucho tiempo.
         private static readonly TimeSpan AvailablePlansCacheTtl = TimeSpan.FromMinutes(10);
 
         private readonly ApplicationDbContext _context;
         private readonly IMemoryCache _cache;
+        private readonly ISubscriptionPricingCatalog _pricingCatalog;
         private readonly OpcionesPago _paymentOptions;
         private readonly OpcionesTilopay _tilopayOptions;
         private readonly TilopayRepeatOptions _tilopayRepeatOptions;
@@ -27,12 +33,14 @@ namespace LuxuryApp.Services.PublicSite
         public PublicSiteContentService(
             ApplicationDbContext context,
             IMemoryCache cache,
+            ISubscriptionPricingCatalog pricingCatalog,
             IOptions<OpcionesPago> paymentOptions,
             IOptions<OpcionesTilopay> tilopayOptions,
             IOptions<TilopayRepeatOptions> tilopayRepeatOptions)
         {
             _context = context;
             _cache = cache;
+            _pricingCatalog = pricingCatalog;
             _paymentOptions = paymentOptions.Value;
             _tilopayOptions = tilopayOptions.Value;
             _tilopayRepeatOptions = tilopayRepeatOptions.Value;
@@ -180,6 +188,97 @@ namespace LuxuryApp.Services.PublicSite
                 .OrderBy(plan => plan.PrecioMensual)
                 .Select(MapPlanCard)
                 .ToArray();
+        }
+
+        /// <summary>
+        /// Catálogo comercial compacto para la landing. Fuente de verdad ÚNICA: el mismo
+        /// <see cref="ISubscriptionPricingCatalog"/> que alimenta el calculador de /Billing/Planes
+        /// (planes LC_M_/LC_A_). El "Desde ₡X" es el plan mensual de UN integrante (LC_M_01),
+        /// nunca un Min() sobre todos los planes. Excluye por construcción legacy/TEST/internos/add-ons.
+        /// </summary>
+        public async Task<CommercialPricingPreview> GetCommercialPricingPreviewAsync(
+            CancellationToken cancellationToken = default)
+        {
+            if (_cache.TryGetValue(CommercialPricingPreviewCacheKey, out CommercialPricingPreview? cached) &&
+                cached is not null)
+            {
+                return cached;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // El precio de entrada es SIEMPRE el plan mensual de un integrante (LC_M_01),
+            // resuelto explícitamente por el catálogo. Si no está disponible, no hay preview.
+            var starting = _pricingCatalog.Resolve(PlanCodes.CalculatorMinWorkers, BillingCycle.Monthly);
+            if (!starting.IsAvailable || starting.Option is null)
+            {
+                // No se cachea el estado degradado: se reintenta en el siguiente request.
+                return CommercialPricingPreview.Unavailable();
+            }
+
+            var options = _pricingCatalog.ListPublicAvailable();
+            var tiers = options
+                .Select(option => new CommercialPricingTier
+                {
+                    Workers = option.WorkerCount,
+                    Cycle = option.BillingCycle == BillingCycle.Annual ? "Annual" : "Monthly",
+                    ChargeAmount = option.ChargeAmount,
+                    MonthlyEquivalentAmount = option.MonthlyEquivalentAmount
+                })
+                .ToArray();
+
+            // El complemento de WhatsApp viene del catálogo de ADD-ONS (separado de los planes
+            // base). Si falla o no hay add-ons, se omite el precio; nunca contamina el "Desde ₡X".
+            var whatsAppFromCharge = await TryGetWhatsAppFromChargeAsync(cancellationToken);
+
+            var preview = new CommercialPricingPreview
+            {
+                IsAvailable = true,
+                Currency = starting.Option.Currency,
+                MinWorkers = PlanCodes.CalculatorMinWorkers,
+                MaxWorkers = PlanCodes.CalculatorMaxWorkers,
+                StartingMonthlyCharge = starting.Option.ChargeAmount,
+                HasMonthly = options.Any(option => option.BillingCycle == BillingCycle.Monthly),
+                HasAnnual = options.Any(option => option.BillingCycle == BillingCycle.Annual),
+                WhatsAppFromCharge = whatsAppFromCharge,
+                Tiers = tiers
+            };
+
+            // Solo se cachea un preview completo y exitoso.
+            _cache.Set(
+                CommercialPricingPreviewCacheKey,
+                preview,
+                new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = AvailablePlansCacheTtl
+                });
+
+            return preview;
+        }
+
+        private async Task<decimal?> TryGetWhatsAppFromChargeAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                var addonCards = await GetWhatsAppAddonCardsAsync(cancellationToken);
+                var addonCharges = addonCards
+                    .Where(card => card.IsAddon && card.MonthlyPrice > 0)
+                    .Select(card => card.MonthlyPrice)
+                    .ToArray();
+
+                return addonCharges.Length > 0 ? addonCharges.Min() : null;
+            }
+            catch (OperationCanceledException)
+            {
+                // La cancelación del cliente sí debe propagarse (semántica correcta).
+                throw;
+            }
+            catch
+            {
+                // El complemento de WhatsApp es opcional: si el catálogo de add-ons falla,
+                // la landing sigue mostrando el precio base sin el "desde" de WhatsApp.
+                return null;
+            }
         }
 
         public async Task<IReadOnlyCollection<MarketingPlanCardViewModel>> GetWhatsAppAddonCardsAsync(
