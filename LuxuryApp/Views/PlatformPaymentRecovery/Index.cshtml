@@ -45,7 +45,7 @@
 
     @if (!string.IsNullOrWhiteSpace(Model.GeneratedUpdateUrl))
     {
-        <div class="alert alert-info">
+        <div class="alert @(Model.GeneratedUrlUsedFallback ? "alert-warning" : "alert-info")">
             <div class="fw-semibold mb-1">
                 <i class="bi bi-link-45deg"></i> Enlace de actualización generado
                 @if (!string.IsNullOrWhiteSpace(Model.GeneratedUrlTenantName))
@@ -53,7 +53,18 @@
                     <span class="text-muted">— @Model.GeneratedUrlTenantName</span>
                 }
             </div>
-            <p class="small mb-2">Copialo y envialo al cliente por un canal seguro. No se guarda: al recargar esta página desaparece.</p>
+            @if (Model.GeneratedUrlUsedFallback)
+            {
+                <p class="small mb-2">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>El enlace fue generado con contrato fallback (id_plan+aliases).</strong>
+                    Si TiloPay muestra "la suscripción solicitada no existe", el contrato real aún no está confirmado: contactá soporte antes de enviárselo al cliente.
+                </p>
+            }
+            else
+            {
+                <p class="small mb-2">Copialo y envialo al cliente por un canal seguro. No se guarda: al recargar esta página desaparece.</p>
+            }
             <input type="text" class="form-control form-control-sm font-monospace" readonly value="@Model.GeneratedUpdateUrl" onclick="this.select();" />
         </div>
     }

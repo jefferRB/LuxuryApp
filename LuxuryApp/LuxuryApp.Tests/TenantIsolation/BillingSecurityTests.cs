@@ -1689,6 +1689,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 Options.Create(new TilopayRepeatOptions()),
                 new DisabledTilopayRepeatAdminService(),
                 new LuxuryApp.Tests.Support.NoOpProviderSubscriptionManager(),
+                new LuxuryApp.Tests.Support.NoOpAddonSubscriptionManager(),
                 new LuxuryApp.Services.Billing.PaymentMethodUpdateService(
                     context,
                     new DisabledTilopayRepeatAdminService(),

@@ -319,42 +319,138 @@ namespace LuxuryApp.Services.Tilopay
                 return TilopayAdminOperationResult.Fail("email vacío para recurrentUrl.");
             }
 
-            try
+            // El plan va como STRING (el validador de TiloPay lo espera así, igual que getSuscriptorRepeat).
+            var planIdText = tilopayPlanId.ToString(CultureInfo.InvariantCulture);
+
+            // Campo de URL preferido (default url_renew). "url_register" es un modo controlado de diagnóstico.
+            var preferredField = string.Equals(_adminOptions.RecurrentUrlPreferredField?.Trim(), "url_register", StringComparison.OrdinalIgnoreCase)
+                ? "url_register"
+                : "url_renew";
+
+            // Intento principal: contrato recomendado por soporte (key + id_plan + email).
+            var primary = await AttemptRecurrentUrlAsync(
+                tilopayPlanId,
+                normalizedEmail,
+                new Dictionary<string, object?>
+                {
+                    ["key"] = _tilopayOptions.ApiKey,
+                    ["id_plan"] = planIdText,
+                    ["email"] = normalizedEmail
+                },
+                contract: "id_plan",
+                preferredField,
+                cancellationToken);
+
+            if (primary.Result.Succeeded)
             {
-                // TiloPay rechazaba esto con 402 "The id plan parameter is required" aunque el
-                // campo iba: lo mandábamos como int y su validador espera STRING, igual que en
-                // getSuscriptorRepeat (contrato ya verificado en prod). El nombre del campo sí es
-                // "id_plan" — lo dice el propio mensaje de error.
-                var raw = await PostAsync(
-                    "api/v1/recurrentUrl",
+                return primary.Result;
+            }
+
+            // Fallback acotado: SOLO si TiloPay dijo "id plan parameter is required" reintentamos UNA
+            // vez incluyendo los alias del nombre del campo (id / plan_id), por si el contrato drifta.
+            if (primary.MissingPlanContract)
+            {
+                var fallback = await AttemptRecurrentUrlAsync(
+                    tilopayPlanId,
+                    normalizedEmail,
                     new Dictionary<string, object?>
                     {
                         ["key"] = _tilopayOptions.ApiKey,
-                        ["id_plan"] = tilopayPlanId.ToString(CultureInfo.InvariantCulture),
+                        ["id_plan"] = planIdText,
+                        ["id"] = planIdText,
+                        ["plan_id"] = planIdText,
                         ["email"] = normalizedEmail
                     },
+                    contract: "id_plan+aliases",
+                    preferredField,
                     cancellationToken);
 
-                var url = ExtractUrl(raw);
-                if (string.IsNullOrWhiteSpace(url))
+                return fallback.Result;
+            }
+
+            return primary.Result;
+        }
+
+        /// <summary>Resultado de un intento de recurrentUrl + si el fallo fue por "id plan requerido".</summary>
+        private readonly record struct RecurrentUrlAttempt(TilopayAdminOperationResult Result, bool MissingPlanContract);
+
+        private async Task<RecurrentUrlAttempt> AttemptRecurrentUrlAsync(
+            int tilopayPlanId,
+            string normalizedEmail,
+            IReadOnlyDictionary<string, object?> body,
+            string contract,
+            string preferredField,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var (status, raw) = await SendRawAsync("api/v1/recurrentUrl", body, cancellationToken);
+                var parsed = ParseRecurrentUrl(raw, preferredField);
+
+                var diagnostics = new RecurrentUrlDiagnostics
                 {
-                    LogUnexpectedShape("recurrentUrl", raw);
-                    return TilopayAdminOperationResult.Fail("TiloPay no devolvió una URL de renovación utilizable.");
+                    Contract = contract,
+                    HttpStatus = (int)status,
+                    ProviderType = Truncate(parsed.Type, 40),
+                    ProviderMessage = Truncate(parsed.Message, 200),
+                    HasUrlRenew = parsed.HasUrlRenew,
+                    HasUrlRegister = parsed.HasUrlRegister,
+                    SelectedField = parsed.SelectedField,
+                    UrlHostPathMasked = MaskUrlHostPath(parsed.SelectedUrl)
+                };
+
+                // Diagnóstico SANITIZADO: contrato, status, type/message, presencia de cada campo y
+                // host/path enmascarado. NUNCA la URL completa (el token va en el path de tp.cr).
+                _logger.LogInformation(
+                    "recurrentUrl diagnóstico. PlanId {PlanId}. Contract {Contract}. Status {Status}. Type {Type}. Message {Message}. HasRenew {HasRenew}. HasRegister {HasRegister}. Selected {Selected}. UrlHostPath {UrlHostPath}.",
+                    tilopayPlanId, contract, (int)status, diagnostics.ProviderType ?? "-", diagnostics.ProviderMessage ?? "-",
+                    diagnostics.HasUrlRenew, diagnostics.HasUrlRegister, diagnostics.SelectedField ?? "-", diagnostics.UrlHostPathMasked ?? "-");
+
+                if (IsSuccessStatus(status) && !string.IsNullOrWhiteSpace(parsed.SelectedUrl))
+                {
+                    _logger.LogInformation(
+                        "recurrentUrl generado. PlanId {PlanId}. EmailMasked {EmailMasked}. Contract {Contract}. Field {Field}.",
+                        tilopayPlanId, SensitiveDataMasker.MaskEmail(normalizedEmail), contract, diagnostics.SelectedField ?? "-");
+
+                    return new RecurrentUrlAttempt(
+                        TilopayAdminOperationResult.Ok("URL de renovación generada.", parsed.SelectedUrl)
+                            with { Contract = contract, RecurrentDiagnostics = diagnostics },
+                        MissingPlanContract: false);
                 }
 
-                _logger.LogInformation(
-                    "recurrentUrl generado. PlanId {PlanId}. EmailMasked {EmailMasked}.",
-                    tilopayPlanId,
-                    SensitiveDataMasker.MaskEmail(normalizedEmail));
+                if (!IsSuccessStatus(status))
+                {
+                    _logger.LogError(
+                        "TiloPay admin recurrentUrl devolvió error. Status {StatusCode}. Contract {Contract}. Body {SanitizedBody}",
+                        status, contract, SanitizeResponseBody(raw));
+                }
+                else
+                {
+                    // 200 pero sin URL utilizable (a veces type=402 con status 200).
+                    LogUnexpectedShape("recurrentUrl", raw);
+                }
 
-                return TilopayAdminOperationResult.Ok("URL de renovación generada.", url);
+                return new RecurrentUrlAttempt(
+                    TilopayAdminOperationResult.Fail(IsSuccessStatus(status)
+                        ? "TiloPay no devolvió una URL de renovación utilizable."
+                        : "No fue posible generar la URL de renovación.")
+                        with { RecurrentDiagnostics = diagnostics },
+                    MissingPlanContract: IsMissingPlanError(raw));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error generando recurrentUrl. PlanId {PlanId}.", tilopayPlanId);
-                return TilopayAdminOperationResult.Fail("No fue posible generar la URL de renovación.");
+                _logger.LogError(ex, "Error generando recurrentUrl. PlanId {PlanId}. Contract {Contract}.", tilopayPlanId, contract);
+                return new RecurrentUrlAttempt(
+                    TilopayAdminOperationResult.Fail("No fue posible generar la URL de renovación."),
+                    MissingPlanContract: false);
             }
         }
+
+        /// <summary>True si el cuerpo de TiloPay indica el error exacto de plan faltante ("The id plan parameter is required").</summary>
+        private static bool IsMissingPlanError(string? body) =>
+            !string.IsNullOrEmpty(body) &&
+            body.Contains("id plan", StringComparison.OrdinalIgnoreCase) &&
+            body.Contains("required", StringComparison.OrdinalIgnoreCase);
 
         public Task<TilopayAdminOperationResult> PauseSubscriberAsync(string subscriberId, CancellationToken cancellationToken = default) =>
             SubscriberOperationAsync("api/v1/pauseSuscriptorRepeat", subscriberId, "pausar", cancellationToken);
@@ -453,7 +549,40 @@ namespace LuxuryApp.Services.Tilopay
             }
         }
 
+        /// <summary>
+        /// POST autenticado que exige 2xx: si no, loguea el body sanitizado y lanza. Comportamiento
+        /// histórico usado por todos los endpoints salvo recurrentUrl (que necesita inspeccionar el
+        /// error para decidir el fallback de contrato, y por eso usa <see cref="SendRawAsync"/>).
+        /// </summary>
         private async Task<string> PostAsync(
+            string path,
+            IReadOnlyDictionary<string, object?> body,
+            CancellationToken cancellationToken)
+        {
+            var (status, raw) = await SendRawAsync(path, body, cancellationToken);
+
+            if (!IsSuccessStatus(status))
+            {
+                // Body sanitizado para diagnosticar 4xx/5xx (p.ej. "campo id requerido") sin exponer
+                // secretos: se redactan key/token/password/auth/email/tarjeta/cvv, etc.
+                _logger.LogError(
+                    "TiloPay admin {Path} devolvió error. Status {StatusCode}. BodyLength {BodyLength}. Body {SanitizedBody}",
+                    path,
+                    status,
+                    raw.Length,
+                    SanitizeResponseBody(raw));
+                throw new InvalidOperationException($"TiloPay admin {path} devolvió {(int)status}.");
+            }
+
+            return raw;
+        }
+
+        /// <summary>
+        /// POST autenticado que devuelve status + body crudo SIN lanzar. Lo usa recurrentUrl para
+        /// distinguir el error "id plan parameter is required" (y reintentar con otro contrato) tanto
+        /// si TiloPay responde 4xx como si responde 200 con un cuerpo de error.
+        /// </summary>
+        private async Task<(HttpStatusCode Status, string Raw)> SendRawAsync(
             string path,
             IReadOnlyDictionary<string, object?> body,
             CancellationToken cancellationToken)
@@ -472,22 +601,10 @@ namespace LuxuryApp.Services.Tilopay
             });
 
             var raw = await response.Content.ReadAsStringAsync(linkedCts.Token);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                // Body sanitizado para diagnosticar 4xx/5xx (p.ej. "campo id requerido") sin exponer
-                // secretos: se redactan key/token/password/auth/email/tarjeta/cvv, etc.
-                _logger.LogError(
-                    "TiloPay admin {Path} devolvió error. Status {StatusCode}. BodyLength {BodyLength}. Body {SanitizedBody}",
-                    path,
-                    response.StatusCode,
-                    raw.Length,
-                    SanitizeResponseBody(raw));
-                throw new InvalidOperationException($"TiloPay admin {path} devolvió {(int)response.StatusCode}.");
-            }
-
-            return raw;
+            return (response.StatusCode, raw);
         }
+
+        private static bool IsSuccessStatus(HttpStatusCode status) => (int)status is >= 200 and < 300;
 
         /// <summary>
         /// Redacta claves sensibles del body de respuesta para logging seguro (JSON). Si no es JSON,
@@ -645,27 +762,82 @@ namespace LuxuryApp.Services.Tilopay
             }
         }
 
+        private readonly record struct RecurrentUrlParse(
+            string? SelectedUrl, string? SelectedField, bool HasUrlRenew, bool HasUrlRegister, string? Type, string? Message);
+
         /// <summary>
-        /// URL utilizable de la respuesta de recurrentUrl. El contrato real de TiloPay devuelve
-        /// "url_renew" y "url_register" (visto en su propio payload de error en producción), y
-        /// ninguno de los dos estaba en esta lista: aunque el request fuera correcto, la URL nunca
-        /// se encontraba y el checkout terminaba bloqueado.
-        ///
-        /// "url_register" queda FUERA a propósito: registra un suscriptor NUEVO, que es justo el
-        /// duplicado que este flujo evita. Este endpoint solo sirve para renovar/actualizar la
-        /// tarjeta de uno que ya existe; si TiloPay no manda url_renew, preferimos fallar.
+        /// Parsea la respuesta de recurrentUrl y elige la URL según <paramref name="preferredField"/>.
+        /// Por defecto ("url_renew") usa url_renew (renueva el suscriptor existente) y sus alias; NO usa
+        /// url_register salvo que se pida explícitamente el modo controlado "url_register" (TiloPay
+        /// registra un flujo nuevo). Devuelve también el diagnóstico (presencia de cada campo, type/message).
         /// </summary>
-        private static string? ExtractUrl(string raw)
+        private static RecurrentUrlParse ParseRecurrentUrl(string raw, string preferredField)
         {
             try
             {
                 using var document = JsonDocument.Parse(raw);
-                return ReadFirstString(document.RootElement, "url_renew", "url", "recurrentUrl", "recurrent_url", "link", "payment_url", "paymentUrl");
+                var root = document.RootElement;
+
+                var renew = NonEmpty(ReadFirstString(root, "url_renew"));
+                var register = NonEmpty(ReadFirstString(root, "url_register"));
+                var renewOrAlias = renew ?? NonEmpty(ReadFirstString(root, "url", "recurrentUrl", "recurrent_url", "link", "payment_url", "paymentUrl"));
+                var type = ReadFirstString(root, "type");
+                var message = ReadFirstString(root, "message");
+
+                string? selectedUrl;
+                string? selectedField;
+                if (string.Equals(preferredField, "url_register", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Modo controlado: preferir url_register; si no viene, caer a url_renew/alias.
+                    if (register is not null) { selectedUrl = register; selectedField = "url_register"; }
+                    else if (renewOrAlias is not null) { selectedUrl = renewOrAlias; selectedField = "url_renew"; }
+                    else { selectedUrl = null; selectedField = null; }
+                }
+                else if (renewOrAlias is not null)
+                {
+                    selectedUrl = renewOrAlias;
+                    selectedField = "url_renew";
+                }
+                else
+                {
+                    selectedUrl = null;
+                    selectedField = null;
+                }
+
+                return new RecurrentUrlParse(selectedUrl, selectedField, renew is not null, register is not null, type, message);
             }
             catch (JsonException)
             {
+                return new RecurrentUrlParse(null, null, false, false, null, null);
+            }
+        }
+
+        private static string? NonEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
+        private static string? Truncate(string? value, int max) =>
+            string.IsNullOrEmpty(value) ? value : (value.Length <= max ? value : value[..max]);
+
+        /// <summary>
+        /// host + path enmascarado de una URL para diagnóstico. NO incluye el token: en los links de
+        /// TiloPay (tp.cr/l/&lt;token&gt;) el secreto va en el ÚLTIMO segmento del path, que se recorta.
+        /// </summary>
+        private static string? MaskUrlHostPath(string? url)
+        {
+            if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            {
                 return null;
             }
+
+            var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length == 0)
+            {
+                return uri.Host;
+            }
+
+            var shown = string.Join("/", segments.Take(segments.Length - 1));
+            return string.IsNullOrEmpty(shown)
+                ? $"{uri.Host}/*** ({segments.Length} segs)"
+                : $"{uri.Host}/{shown}/*** ({segments.Length} segs)";
         }
 
         private async Task<string> GetApiTokenAsync(CancellationToken cancellationToken)

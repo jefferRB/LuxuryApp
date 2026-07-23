@@ -81,7 +81,8 @@ namespace LuxuryApp.Controllers.Platform
                 Incidents = incidents,
                 AdminEnabled = _methodUpdateService.IsEnabled,
                 GeneratedUpdateUrl = result.Url,
-                GeneratedUrlTenantName = tenantName
+                GeneratedUrlTenantName = tenantName,
+                GeneratedUrlUsedFallback = result.UsedFallbackContract
             });
         }
 

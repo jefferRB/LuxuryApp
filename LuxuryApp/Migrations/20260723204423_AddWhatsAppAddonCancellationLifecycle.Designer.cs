@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ProyectoIdentity.Datos;
 
@@ -11,9 +12,11 @@ using ProyectoIdentity.Datos;
 namespace LuxuryApp.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260723204423_AddWhatsAppAddonCancellationLifecycle")]
+    partial class AddWhatsAppAddonCancellationLifecycle
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -3075,9 +3078,6 @@ namespace LuxuryApp.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid?>("AddonId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<string>("ClienteEmail")
                         .HasMaxLength(320)
                         .HasColumnType("nvarchar(320)");
@@ -3125,9 +3125,6 @@ namespace LuxuryApp.Migrations
 
                     b.Property<DateTime?>("ResolvedAtUtc")
                         .HasColumnType("datetime2");
-
-                    b.Property<int>("Scope")
-                        .HasColumnType("int");
 
                     b.Property<int>("Status")
                         .HasColumnType("int");

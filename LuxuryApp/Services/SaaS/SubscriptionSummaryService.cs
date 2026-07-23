@@ -102,6 +102,9 @@ namespace LuxuryApp.Services.SaaS
                     subscription?.ProviderStatusRaw),
                 // Recuperación de pago: el backend ya mantiene este estado en la suscripción.
                 PaymentRecoveryStatus = subscription?.PaymentRecoveryStatus,
+                // Fail-safe UI: si la ventana de gracia ya venció por reloj, la UI no muestra "en gracia"
+                // aunque el worker todavía no haya marcado GraceExpired.
+                PaymentGraceWindowEnded = subscription?.FechaFinGraciaUtc is { } graceEnd && graceEnd <= DateTime.UtcNow,
                 // Fechas EFECTIVAS (UTC, para lógica): si TiloPay va a cobrar más tarde de lo que
                 // calculamos (p.ej. reactivó un suscriptor y extendió el expire), el cliente no debe
                 // ver una fecha más temprana que lo haría dudar de un cobro que no va a ocurrir aún.
@@ -163,7 +166,16 @@ namespace LuxuryApp.Services.SaaS
                 QuietHoursEnabled = whatsAppSettings?.QuietHoursEnabled ?? false,
                 QuietHoursStart = whatsAppSettings?.QuietHoursStart,
                 QuietHoursEnd = whatsAppSettings?.QuietHoursEnd,
-                WhatsAppNextBillingDateUtc = hasActiveWhatsAppAddon ? addon?.FechaProximoCobroUtc : null
+                WhatsAppNextBillingDateUtc = hasActiveWhatsAppAddon ? addon?.FechaProximoCobroUtc : null,
+                WhatsAppNextBillingDateDisplay = hasActiveWhatsAppAddon && addon?.FechaProximoCobroUtc is { } addonNext
+                    ? Billing.SubscriptionDisplayDates.Format(DateOnly.FromDateTime(addonNext))
+                    : null,
+                WhatsAppAddonIsRecurring = hasActiveWhatsAppAddon && addon?.TilopayRecurringPlanId != null,
+                WhatsAppAddonCancelAtPeriodEnd = hasActiveWhatsAppAddon && (addon?.CancelAtPeriodEnd ?? false),
+                WhatsAppAddonEndsDisplay = hasActiveWhatsAppAddon && (addon?.CancelAtPeriodEnd ?? false) &&
+                    (addon?.CancellationEffectiveAtUtc ?? addon?.FechaFin) is { } addonEnds
+                    ? Billing.SubscriptionDisplayDates.Format(DateOnly.FromDateTime(addonEnds))
+                    : null
             };
         }
 

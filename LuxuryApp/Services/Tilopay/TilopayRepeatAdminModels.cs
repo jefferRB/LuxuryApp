@@ -82,6 +82,15 @@ namespace LuxuryApp.Services.Tilopay
         public string? Message { get; init; }
 
         /// <summary>
+        /// Para recurrentUrl: qué contrato de body funcionó (p.ej. "id_plan" o "id_plan+aliases"),
+        /// para auditar sin exponer la URL. Null cuando no aplica.
+        /// </summary>
+        public string? Contract { get; init; }
+
+        /// <summary>Para recurrentUrl: diagnóstico sanitizado de la respuesta del proveedor (sin URL completa).</summary>
+        public RecurrentUrlDiagnostics? RecurrentDiagnostics { get; init; }
+
+        /// <summary>
         /// True cuando TiloPay respondió éxito HTTP pero la verificación posterior
         /// (getSuscriptorRepeat) mostró al suscriptor todavía Activo o no pudo confirmarse.
         /// Un 200 sin verificación NUNCA cuenta como cancelación real.
@@ -96,6 +105,32 @@ namespace LuxuryApp.Services.Tilopay
 
         public static TilopayAdminOperationResult FailVerification(string message) =>
             new() { Succeeded = false, Message = message, VerificationFailed = true };
+    }
+
+    /// <summary>
+    /// Diagnóstico SANITIZADO de una respuesta de recurrentUrl (para logs/auditoría). NUNCA lleva la
+    /// URL completa: solo host + path enmascarado (el token va en el path de los links tp.cr, así que
+    /// se recorta), presencia de cada campo, y el type/message del proveedor.
+    /// </summary>
+    public sealed record RecurrentUrlDiagnostics
+    {
+        /// <summary>Contrato de body usado ("id_plan" / "id_plan+aliases").</summary>
+        public required string Contract { get; init; }
+
+        /// <summary>True si el contrato usado fue el fallback (id_plan+aliases): el enlace es sospechoso.</summary>
+        public bool UsedFallbackContract => string.Equals(Contract, "id_plan+aliases", StringComparison.Ordinal);
+
+        public int HttpStatus { get; init; }
+        public string? ProviderType { get; init; }
+        public string? ProviderMessage { get; init; }
+        public bool HasUrlRenew { get; init; }
+        public bool HasUrlRegister { get; init; }
+
+        /// <summary>Campo del que se tomó la URL ("url_renew" / "url_register" / null si ninguna).</summary>
+        public string? SelectedField { get; init; }
+
+        /// <summary>host + path enmascarado (sin el token). Ej: "tp.cr/l/*** (2 segs)".</summary>
+        public string? UrlHostPathMasked { get; init; }
     }
 
     /// <summary>Estados admitidos por editSuscriptorRepeat.</summary>

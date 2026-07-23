@@ -89,7 +89,7 @@
         <div class="sub-alert sub-alert--error">
             <div>
                 <i class="bi bi-exclamation-octagon"></i>
-                Tu pago sigue pendiente. Actualizá tu método de pago para evitar la suspensión.
+                Tu pago sigue pendiente. Tu acceso continúa activo por ahora, pero actualizá tu método de pago para evitar la suspensión.
             </div>
             @if (Model.RecurrentUpdateAvailable)
             {
@@ -118,22 +118,21 @@
             @if (sub is not null)
             {
                 <h2 class="sub-state-plan">@(sub.PlanName ?? "Sin plan base")</h2>
-                <span class="sub-state-badge @toneClass">@sub.StatusLabel</span>
+                @* Cuando manda la recuperación de pago, el badge principal refleja ese estado
+                   (nunca "En gracia" si la gracia venció). Si no, se muestra el estado genérico. *@
+                @if (sub.PaymentStateBadgeLabel is { } recoveryBadge)
+                {
+                    var recoveryTone = sub.PaymentInGrace ? "sub-state--warn" : "sub-state--danger";
+                    var recoveryIcon = sub.PaymentInGrace ? "bi-hourglass-split" : sub.PaymentSuspended ? "bi-lock" : "bi-exclamation-octagon";
+                    <span class="sub-state-badge @recoveryTone"><i class="bi @recoveryIcon"></i> @recoveryBadge</span>
+                }
+                else
+                {
+                    <span class="sub-state-badge @toneClass">@sub.StatusLabel</span>
+                }
                 @if (sub.IsRenewalPaused)
                 {
                     <span class="sub-state-badge sub-state--warn ms-1"><i class="bi bi-pause-circle"></i> Renovación pausada</span>
-                }
-                @if (sub.PaymentInGrace)
-                {
-                    <span class="sub-state-badge sub-state--warn ms-1"><i class="bi bi-hourglass-split"></i> En período de gracia</span>
-                }
-                else if (sub.PaymentGraceExpired)
-                {
-                    <span class="sub-state-badge sub-state--danger ms-1"><i class="bi bi-exclamation-octagon"></i> Pago pendiente</span>
-                }
-                else if (sub.PaymentSuspended)
-                {
-                    <span class="sub-state-badge sub-state--danger ms-1"><i class="bi bi-lock"></i> Suspendida por pago</span>
                 }
                 <div class="sub-state-meta">
                     @if (!string.IsNullOrEmpty(sub.CurrentPeriodEndDisplay))
@@ -148,7 +147,11 @@
                     {
                         <span><i class="bi bi-arrow-repeat"></i> Próximo cobro <strong>@sub.NextBillingDateDisplay</strong></span>
                     }
-                    @if (sub.IsInGracePeriod && !string.IsNullOrEmpty(sub.GracePeriodEndsDisplay))
+                    @if (sub.PaymentGraceExpired && !string.IsNullOrEmpty(sub.GracePeriodEndsDisplay))
+                    {
+                        <span class="sub-state--danger"><i class="bi bi-exclamation-octagon"></i> Gracia vencida el <strong>@sub.GracePeriodEndsDisplay</strong></span>
+                    }
+                    else if ((sub.PaymentInGrace || sub.IsInGracePeriod) && !string.IsNullOrEmpty(sub.GracePeriodEndsDisplay))
                     {
                         <span class="sub-state--warn"><i class="bi bi-hourglass-split"></i> Gracia hasta <strong>@sub.GracePeriodEndsDisplay</strong></span>
                     }
@@ -209,7 +212,18 @@
             @if (sub?.HasWhatsAppAddon == true)
             {
                 <strong class="sub-summary-value">@sub.WhatsAppAddonName</strong>
-                <span class="sub-summary-foot">@sub.WhatsAppAddonStatusLabel · <a asp-controller="WhatsApp" asp-action="Index">Configurar</a></span>
+                @if (sub.WhatsAppAddonCancelAtPeriodEnd)
+                {
+                    <span class="sub-summary-foot">No se renovará · activo hasta @(sub.WhatsAppAddonEndsDisplay ?? "el fin del período") · <a asp-controller="WhatsApp" asp-action="Index">Configurar</a></span>
+                }
+                else if (sub.WhatsAppNextBillingDateDisplay is not null)
+                {
+                    <span class="sub-summary-foot">@sub.WhatsAppAddonStatusLabel · próx. cobro @sub.WhatsAppNextBillingDateDisplay · <a asp-controller="WhatsApp" asp-action="Index">Configurar</a></span>
+                }
+                else
+                {
+                    <span class="sub-summary-foot">@sub.WhatsAppAddonStatusLabel · <a asp-controller="WhatsApp" asp-action="Index">Configurar</a></span>
+                }
             }
             else
             {
@@ -272,6 +286,24 @@
             HasBaseAccess = hasBaseAccess,
             HasActiveAddon = sub?.HasWhatsAppAddon == true
         })" />
+
+    @if (sub?.WhatsAppAddonCancelAtPeriodEnd == true)
+    {
+        <div class="sub-alert sub-alert--warn">
+            <i class="bi bi-info-circle"></i>
+            Tu paquete de WhatsApp no se renovará. Seguirá activo hasta @(sub.WhatsAppAddonEndsDisplay ?? "el fin del período").
+        </div>
+    }
+    else if (sub?.CanCancelWhatsAppAddon == true)
+    {
+        <form asp-action="CancelarWhatsAppAddon" method="post" class="sub-addon-cancel-form"
+              onsubmit="return confirm('¿Cancelar la renovación del paquete de WhatsApp? Seguirá activo hasta el fin del período ya pagado y no se renovará. Tu plan base no se ve afectado.');">
+            @Html.AntiForgeryToken()
+            <button type="submit" class="sub-btn sub-btn--ghost">
+                <i class="bi bi-x-circle"></i> Cancelar renovación del paquete WhatsApp
+            </button>
+        </form>
+    }
 
     @* ── Código promocional ── *@
     <section class="sub-card sub-promo-card">

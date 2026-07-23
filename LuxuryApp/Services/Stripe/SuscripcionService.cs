@@ -500,6 +500,14 @@ namespace LuxuryApp.Services.SaaS
                                        addon.AddonCode,
                                        plan.Codigo ?? plan.Nombre,
                                        StringComparison.OrdinalIgnoreCase));
+
+            // Strategy B: capturar el suscriptor recurrente ANTERIOR antes de sobrescribirlo. Si es un
+            // CAMBIO de paquete (WA400→WA800→WA1200 o bajada), el anterior sigue vivo en TiloPay y hay
+            // que cancelarlo DESPUÉS de confirmar el nuevo (post-commit). Sin capturarlo aquí se
+            // perdería su id al pisar ProviderSubscriptionId y quedaría cobrando para siempre.
+            var previousSubscriberId = addon?.ProviderSubscriptionId;
+            var previousRecurringPlanId = addon?.TilopayRecurringPlanId;
+
             var (periodStartUtc, periodEndUtc) = ResolveNextBillingPeriod(
                 nowUtc,
                 addon?.FechaFin,
@@ -531,7 +539,30 @@ namespace LuxuryApp.Services.SaaS
             addon.FechaProximoCobroUtc = periodEndUtc;
             addon.FechaFinGraciaUtc = null;
             addon.FechaCancelacionUtc = null;
+            // Una activación pagada revierte cualquier cancelación de renovación previa del add-on.
+            addon.CancelAtPeriodEnd = false;
+            addon.CancellationEffectiveAtUtc = null;
+            addon.CancellationRequestedByUserId = null;
+            addon.CancellationReason = null;
             addon.UpdatedAtUtc = nowUtc;
+
+            // Strategy B: si cambió el suscriptor recurrente (paquete distinto), dejar el ANTERIOR
+            // pendiente de cancelación en TiloPay. Se cancela DESPUÉS (post-commit del webhook o
+            // reconciliación), nunca antes de confirmar el nuevo. Guarda: si el proveedor reutilizó el
+            // mismo id (viejo == nuevo), no hay nada que cancelar.
+            var newSubscriberId = addon.ProviderSubscriptionId;
+            if (!isSameAddonPlan &&
+                !string.IsNullOrWhiteSpace(previousSubscriberId) &&
+                !string.Equals(previousSubscriberId, newSubscriberId, StringComparison.OrdinalIgnoreCase))
+            {
+                addon.PendingCancellationProviderSubscriptionId = previousSubscriberId;
+                addon.PendingCancellationTilopayRecurringPlanId = previousRecurringPlanId;
+                addon.ProviderCancellation = ProviderCancellationState.PendingManualCancellation;
+                addon.ProviderCancellationAttemptCount = 0;
+                addon.ProviderCancellationLastAttemptUtc = null;
+                addon.ProviderCancellationNextRetryUtc = null;
+                addon.ProviderCancelledAtUtc = null;
+            }
 
             var settings = await _db.TenantWhatsAppSettings
                 .IgnoreQueryFilters()
@@ -592,6 +623,12 @@ namespace LuxuryApp.Services.SaaS
                 addon?.Estado,
                 revoking ? "NONE" : addonCode);
 
+            // Si el add-on previo tenía un suscriptor recurrente en TiloPay, revocarlo o cambiarlo
+            // manualmente NO lo cancela en el proveedor: se deja pendiente para que la reconciliación
+            // (o la plataforma) lo dé de baja verificado. Evita que un add-on "revocado" siga cobrando.
+            var previousRecurringSubscriberId = addon?.ProviderSubscriptionId;
+            var previousRecurringPlanId = addon?.TilopayRecurringPlanId;
+
             if (revoking)
             {
                 if (addon is not null)
@@ -599,6 +636,7 @@ namespace LuxuryApp.Services.SaaS
                     addon.Estado = EstadoSuscripcion.Cancelada;
                     addon.FechaCancelacionUtc = nowUtc;
                     addon.FechaFin = nowUtc;
+                    StashManualPendingProviderCancellation(addon, previousRecurringSubscriberId, previousRecurringPlanId);
                     addon.UpdatedAtUtc = nowUtc;
                 }
 
@@ -651,6 +689,13 @@ namespace LuxuryApp.Services.SaaS
             addon.FechaProximoCobroUtc = nowUtc.AddMonths(1);
             addon.FechaFinGraciaUtc = null;
             addon.FechaCancelacionUtc = null;
+            // Un alta manual reemplaza cualquier cancelación de renovación previa.
+            addon.CancelAtPeriodEnd = false;
+            addon.CancellationEffectiveAtUtc = null;
+            addon.CancellationRequestedByUserId = null;
+            addon.CancellationReason = null;
+            // Si venía de un add-on recurrente, ese suscriptor queda huérfano en TiloPay: cancelar.
+            StashManualPendingProviderCancellation(addon, previousRecurringSubscriberId, previousRecurringPlanId);
             addon.UpdatedAtUtc = nowUtc;
 
             var dailyLimit = ResolveWhatsAppDailyMessageLimit(addonCode);
@@ -703,6 +748,32 @@ namespace LuxuryApp.Services.SaaS
                 ? TenantWhatsAppSettings.DefaultTimeZoneId
                 : settings.TimeZoneId;
             settings.UpdatedAtUtc = nowUtc;
+        }
+
+        /// <summary>
+        /// Deja el suscriptor recurrente ANTERIOR del add-on pendiente de cancelación en TiloPay
+        /// (presupuesto de reintentos fresco). Se usa cuando un alta/baja MANUAL reemplaza o revoca un
+        /// add-on que sí tenía suscriptor recurrente: cambiarlo localmente no lo cancela en el
+        /// proveedor. No-op si no había suscriptor recurrente. La baja verificada la hace el
+        /// AddonSubscriptionManager desde la reconciliación (o la plataforma).
+        /// </summary>
+        private static void StashManualPendingProviderCancellation(
+            TenantSubscriptionAddon addon,
+            string? previousSubscriberId,
+            int? previousRecurringPlanId)
+        {
+            if (string.IsNullOrWhiteSpace(previousSubscriberId))
+            {
+                return;
+            }
+
+            addon.PendingCancellationProviderSubscriptionId = previousSubscriberId;
+            addon.PendingCancellationTilopayRecurringPlanId = previousRecurringPlanId;
+            addon.ProviderCancellation = ProviderCancellationState.PendingManualCancellation;
+            addon.ProviderCancellationAttemptCount = 0;
+            addon.ProviderCancellationLastAttemptUtc = null;
+            addon.ProviderCancellationNextRetryUtc = null;
+            addon.ProviderCancelledAtUtc = null;
         }
 
         public async Task RegistrarPagoFallidoAddonAsync(

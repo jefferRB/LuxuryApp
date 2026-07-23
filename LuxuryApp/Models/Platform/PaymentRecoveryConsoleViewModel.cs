@@ -19,5 +19,8 @@ namespace LuxuryApp.Models.Platform
         public string? GeneratedUpdateUrl { get; init; }
 
         public string? GeneratedUrlTenantName { get; init; }
+
+        /// <summary>El enlace se generó con contrato fallback (id_plan+aliases): puede fallar en TiloPay.</summary>
+        public bool GeneratedUrlUsedFallback { get; init; }
     }
 }

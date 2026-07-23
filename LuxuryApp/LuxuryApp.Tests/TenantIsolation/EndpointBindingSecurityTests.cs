@@ -658,6 +658,10 @@ namespace LuxuryApp.Tests.TenantIsolation
                 // Gestión del suscriptor del proveedor (cancel/pause/reactivate/upgrade): corre
                 // desde webhook/plataforma sin contexto de tenant; filtra por TenantId explícito.
                 Path.Combine("Services", "Billing", "ProviderSubscriptionManager.cs"),
+                // Gestión de la cancelación saliente del suscriptor del ADD-ON de WhatsApp (Strategy B
+                // / cascada): corre desde webhook/reconciliación/plataforma sin contexto de tenant;
+                // filtra por TenantId explícito y escribe bajo BeginScope(tenantId) para RLS.
+                Path.Combine("Services", "Billing", "AddonSubscriptionManager.cs"),
                 // Aplicación tardía del cambio de plan: corre desde el webhook y desde el worker de
                 // reconciliación (sin contexto de tenant). Resuelve el tenant a partir del pago,
                 // filtra por TenantId explícito y escribe bajo BeginScope(tenantId) para RLS.

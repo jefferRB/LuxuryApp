@@ -37,6 +37,96 @@ namespace LuxuryApp.Tests.Billing
             Assert.Equal(1, await fixture.Context.EventosPago.IgnoreQueryFilters().CountAsync());
         }
 
+        // ── Idempotencia: replay de un pago APROBADO clasificado como fallo/genérico ──
+        // Reproduce el bug de prod: un reenvío del paymentId ya aprobado degradaba el pago a
+        // Fallido y ponía la suscripción en Morosa. Debe tratarse como duplicado sin degradar.
+        [Fact]
+        public async Task Chaos_ReplayOfApprovedPaymentAsNotification_DoesNotDegradePaymentOrSubscription()
+        {
+            using var fixture = await ChaosFixture.CreateWithSignupAsync(workers: 1);
+
+            var approved = await fixture.Context.PagosSuscripcion.IgnoreQueryFilters().AsNoTracking()
+                .SingleAsync(p => p.Estado == EstadoPagoProveedor.Confirmado);
+            var approvedTxn = approved.ProviderTransactionId!;
+
+            // Replay del MISMO txn aprobado, sin marcadores de éxito (como el caso real).
+            var replay = await fixture.SendReplayNotificationWebhookAsync(approvedTxn);
+
+            Assert.True(replay.IsDuplicate);
+            Assert.True(replay.IsProcessed);
+
+            // El pago aprobado NO se degrada.
+            var payment = await fixture.Context.PagosSuscripcion.IgnoreQueryFilters().AsNoTracking()
+                .SingleAsync(p => p.Id == approved.Id);
+            Assert.Equal(EstadoPagoProveedor.Confirmado, payment.Estado);
+
+            // La suscripción NO cae en morosa.
+            var suscripcion = await fixture.Context.Suscripciones.IgnoreQueryFilters().AsNoTracking().SingleAsync();
+            Assert.Equal(EstadoSuscripcion.Activa, suscripcion.Estado);
+            Assert.Null(suscripcion.FechaFinGraciaUtc);
+
+            // No se creó un segundo pago.
+            Assert.Equal(1, await fixture.Context.PagosSuscripcion.IgnoreQueryFilters().CountAsync());
+        }
+
+        [Fact]
+        public async Task Chaos_ReplayOfApprovedPayment_MarksEventAsDuplicado()
+        {
+            using var fixture = await ChaosFixture.CreateWithSignupAsync(workers: 1);
+            var approvedTxn = (await fixture.Context.PagosSuscripcion.IgnoreQueryFilters().AsNoTracking()
+                .SingleAsync(p => p.Estado == EstadoPagoProveedor.Confirmado)).ProviderTransactionId!;
+
+            await fixture.SendReplayNotificationWebhookAsync(approvedTxn, incomingEvent: "repeat_payment_failed");
+
+            // El evento del replay queda marcado como Duplicado (terminal), no como Procesado normal.
+            var replayEvent = await fixture.Context.EventosPago.IgnoreQueryFilters().AsNoTracking()
+                .Where(e => e.EstadoProcesamiento == "Duplicado")
+                .SingleAsync();
+            Assert.True(replayEvent.Procesado);
+
+            // Sigue habiendo un solo pago confirmado.
+            Assert.Equal(1, await fixture.Context.PagosSuscripcion.IgnoreQueryFilters()
+                .CountAsync(p => p.Estado == EstadoPagoProveedor.Confirmado));
+        }
+
+        // ── Caso real reportado: paymentId 5389381, plan 6127 (LC_M_03), monto 20000 ──
+        [Fact]
+        public async Task Chaos_RealReplay_5389381_Plan6127_DoesNotDegrade()
+        {
+            // workers:3 = LC_M_03 = TilopayRecurringPlanId 6127, cargo 20000.
+            using var fixture = await ChaosFixture.CreateWithSignupAsync(workers: 3, signupTransactionId: "5389381");
+
+            var beforePayment = await fixture.Context.PagosSuscripcion.IgnoreQueryFilters().AsNoTracking()
+                .SingleAsync(p => p.Estado == EstadoPagoProveedor.Confirmado);
+            Assert.Equal("5389381", beforePayment.ProviderTransactionId);
+
+            var replay = await fixture.SendReplayNotificationWebhookAsync("5389381");
+
+            Assert.True(replay.IsDuplicate);
+            var payment = await fixture.Context.PagosSuscripcion.IgnoreQueryFilters().AsNoTracking()
+                .SingleAsync(p => p.Id == beforePayment.Id);
+            Assert.Equal(EstadoPagoProveedor.Confirmado, payment.Estado);
+            Assert.NotEqual("REPEAT_PAYMENT_FAILED", payment.ProviderResultCode);
+            var suscripcion = await fixture.Context.Suscripciones.IgnoreQueryFilters().AsNoTracking().SingleAsync();
+            Assert.Equal(EstadoSuscripcion.Activa, suscripcion.Estado);
+        }
+
+        // ── Requisito 5: un webhook nuevo con paymentId inexistente NO afecta pagos aprobados ──
+        [Fact]
+        public async Task Chaos_NewFailedWebhookUnknownTxn_DoesNotAffectApprovedPayment()
+        {
+            using var fixture = await ChaosFixture.CreateWithSignupAsync(workers: 1);
+            var approvedId = (await fixture.Context.PagosSuscripcion.IgnoreQueryFilters().AsNoTracking()
+                .SingleAsync(p => p.Estado == EstadoPagoProveedor.Confirmado)).Id;
+
+            // Fallo real de OTRA transacción (renovación fallida): no debe tocar el pago aprobado.
+            await fixture.SendRenewalFailedWebhookAsync("TX-UNKNOWN-NEW-FAIL");
+
+            var approved = await fixture.Context.PagosSuscripcion.IgnoreQueryFilters().AsNoTracking()
+                .SingleAsync(p => p.Id == approvedId);
+            Assert.Equal(EstadoPagoProveedor.Confirmado, approved.Estado); // el aprobado sigue intacto
+        }
+
         // ── Fuera de orden: fallo de renovación y luego cobro exitoso ──
         [Fact]
         public async Task Chaos_FailureThenSuccess_RecoversToActiveWithTwoInvoices()
@@ -419,7 +509,7 @@ namespace LuxuryApp.Tests.Billing
                 _connection = connection;
             }
 
-            public static async Task<ChaosFixture> CreateAsync(int workers)
+            public static async Task<ChaosFixture> CreateAsync(int workers, string? signupTransactionId = null)
             {
                 var tenantProvider = new TestTenantProvider();
                 var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
@@ -435,18 +525,45 @@ namespace LuxuryApp.Tests.Billing
                 fixture.PlanId = plan.Id;
                 await context.SaveChangesAsync();
 
-                fixture._signupTransactionId = $"TX-SIGNUP-{Guid.NewGuid():N}"[..20];
+                fixture._signupTransactionId = signupTransactionId ?? $"TX-SIGNUP-{Guid.NewGuid():N}"[..20];
                 fixture._subscriberId = $"sub-chaos-{Guid.NewGuid():N}"[..20];
                 return fixture;
             }
 
-            public static async Task<ChaosFixture> CreateWithSignupAsync(int workers)
+            public static async Task<ChaosFixture> CreateWithSignupAsync(int workers, string? signupTransactionId = null)
             {
-                var fixture = await CreateAsync(workers);
+                var fixture = await CreateAsync(workers, signupTransactionId);
                 await fixture.StartCheckoutAsync();
                 var signup = await fixture.SendSignupSuccessWebhookAsync();
                 Assert.True(signup.IsProcessed, "El alta inicial del fixture no se procesó.");
                 return fixture;
+            }
+
+            /// <summary>Txn del alta (el ProviderTransactionId del pago aprobado inicial).</summary>
+            public string SignupTransactionId => _signupTransactionId;
+
+            /// <summary>
+            /// Replay de un webhook recurrente SIN marcadores de éxito (ni monto ni code=1): reproduce
+            /// el caso de producción donde un reenvío llegó como "tilopay_repeat_notification" y caía en
+            /// la rama de fallo. <paramref name="incomingEvent"/> null = tipo genérico de notificación.
+            /// </summary>
+            public Task<PaymentWebhookProcessingResult> SendReplayNotificationWebhookAsync(
+                string transactionId, string? incomingEvent = null)
+            {
+                Provider.WebhookData = new PaymentProviderWebhookData
+                {
+                    ProviderType = PaymentProviderType.Tilopay,
+                    EventType = "tilopay.repeat.notification",
+                    Reference = string.Empty,
+                    RecurringPlanId = _data.RecurringPlanId,
+                    CustomerEmail = Email,
+                    ProviderTransactionId = transactionId,
+                    ProviderSubscriberId = _subscriberId,
+                    IsRecurring = true
+                };
+
+                return PaymentService.ProcessTilopayWebhookAsync(
+                    "{\"replay\":true}", $"corr-replay-{transactionId}", incomingEvent);
             }
 
             public Plan SeedPlan(CalculatorPlanData data)

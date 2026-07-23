@@ -121,6 +121,9 @@ namespace LuxuryApp.Services.Billing
         // manager con el ctor mínimo queda null y la invalidación de acceso se salta sin efecto.
         private readonly ITenantCommercialAccessCache? _accessCache;
 
+        // Opcional: cascada de cancelación al add-on de WhatsApp. Null en tests con ctor mínimo.
+        private readonly IAddonSubscriptionManager? _addonSubscriptionManager;
+
         public ProviderSubscriptionManager(
             ApplicationDbContext db,
             ITilopayRepeatAdminService adminService,
@@ -128,7 +131,8 @@ namespace LuxuryApp.Services.Billing
             IBusinessDateTimeProvider clock,
             IOptions<OpcionesTilopayRepeatAdmin> adminOptions,
             ILogger<ProviderSubscriptionManager> logger,
-            ITenantCommercialAccessCache? accessCache = null)
+            ITenantCommercialAccessCache? accessCache = null,
+            IAddonSubscriptionManager? addonSubscriptionManager = null)
         {
             _db = db;
             _adminService = adminService;
@@ -137,6 +141,7 @@ namespace LuxuryApp.Services.Billing
             _adminOptions = adminOptions.Value;
             _logger = logger;
             _accessCache = accessCache;
+            _addonSubscriptionManager = addonSubscriptionManager;
         }
 
         public bool IsEnabled => _adminService.IsEnabled;
@@ -375,20 +380,63 @@ namespace LuxuryApp.Services.Billing
             return ProviderSubscriberStatusRules.MayStillCharge(match.Status);
         }
 
-        public Task<ProviderSubscriptionActionResult> RequestCancellationAtPeriodEndAsync(
+        public async Task<ProviderSubscriptionActionResult> RequestCancellationAtPeriodEndAsync(
             Guid tenantId,
             string actorUserId,
             string actorEmail,
             string? reason,
-            CancellationToken cancellationToken = default) =>
-            ExecuteCancellationAsync(tenantId, actorUserId, actorEmail, reason, immediate: false, cancellationToken);
+            CancellationToken cancellationToken = default)
+        {
+            var result = await ExecuteCancellationAsync(tenantId, actorUserId, actorEmail, reason, immediate: false, cancellationToken);
+            await CascadeAddonCancellationAsync(tenantId, actorUserId, result, immediate: false, cancellationToken);
+            return result;
+        }
 
-        public Task<ProviderSubscriptionActionResult> CancelAsync(
+        public async Task<ProviderSubscriptionActionResult> CancelAsync(
             Guid tenantId,
             string actorUserId,
             string actorEmail,
-            CancellationToken cancellationToken = default) =>
-            ExecuteCancellationAsync(tenantId, actorUserId, actorEmail, "Cancelación inmediata (plataforma).", immediate: true, cancellationToken);
+            CancellationToken cancellationToken = default)
+        {
+            var result = await ExecuteCancellationAsync(tenantId, actorUserId, actorEmail, "Cancelación inmediata (plataforma).", immediate: true, cancellationToken);
+            await CascadeAddonCancellationAsync(tenantId, actorUserId, result, immediate: true, cancellationToken);
+            return result;
+        }
+
+        /// <summary>
+        /// Cascada base→add-on: si la cancelación del plan base se aplicó, el add-on de WhatsApp no
+        /// debe seguir cobrando (regla: nunca un add-on vivo sin SaaS). Best-effort y FUERA del scope
+        /// de la cancelación base (ya committeada). Nunca rompe la operación principal.
+        /// </summary>
+        private async Task CascadeAddonCancellationAsync(
+            Guid tenantId,
+            string actorUserId,
+            ProviderSubscriptionActionResult baseResult,
+            bool immediate,
+            CancellationToken cancellationToken)
+        {
+            if (!baseResult.Succeeded || _addonSubscriptionManager is null)
+            {
+                return;
+            }
+
+            try
+            {
+                await _addonSubscriptionManager.ScheduleAddonCancellationForBaseCancellationAsync(
+                    tenantId,
+                    actorUserId,
+                    "Cascada de la cancelación del plan base.",
+                    immediate,
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Cascada de cancelación del add-on tras cancelar el plan base no se completó. TenantId {TenantId}.",
+                    tenantId);
+            }
+        }
 
         /// <summary>
         /// Núcleo compartido de cancelación. Da de baja el suscriptor en TiloPay CON verificación

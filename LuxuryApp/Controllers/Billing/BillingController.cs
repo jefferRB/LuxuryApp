@@ -43,6 +43,7 @@ namespace LuxuryApp.Controllers
         private readonly TilopayRepeatOptions _tilopayRepeatOptions;
         private readonly LuxuryApp.Services.Tilopay.ITilopayRepeatAdminService _tilopayRepeatAdminService;
         private readonly LuxuryApp.Services.Billing.IProviderSubscriptionManager _providerSubscriptionManager;
+        private readonly LuxuryApp.Services.Billing.IAddonSubscriptionManager _addonSubscriptionManager;
         private readonly LuxuryApp.Services.Billing.IPaymentMethodUpdateService _paymentMethodUpdateService;
 
         public BillingController(
@@ -66,6 +67,7 @@ namespace LuxuryApp.Controllers
             IOptions<TilopayRepeatOptions> tilopayRepeatOptions,
             LuxuryApp.Services.Tilopay.ITilopayRepeatAdminService tilopayRepeatAdminService,
             LuxuryApp.Services.Billing.IProviderSubscriptionManager providerSubscriptionManager,
+            LuxuryApp.Services.Billing.IAddonSubscriptionManager addonSubscriptionManager,
             LuxuryApp.Services.Billing.IPaymentMethodUpdateService paymentMethodUpdateService)
         {
             _logger = logger;
@@ -88,6 +90,7 @@ namespace LuxuryApp.Controllers
             _tilopayRepeatOptions = tilopayRepeatOptions.Value;
             _tilopayRepeatAdminService = tilopayRepeatAdminService;
             _providerSubscriptionManager = providerSubscriptionManager;
+            _addonSubscriptionManager = addonSubscriptionManager;
             _paymentMethodUpdateService = paymentMethodUpdateService;
         }
 
@@ -175,6 +178,58 @@ namespace LuxuryApp.Controllers
                     "CancelarRenovacion no se pudo completar automáticamente. TenantId {TenantId}.",
                     user.TenantId);
                 TempData["BillingError"] = "No pudimos completar la solicitud automáticamente. Soporte fue notificado.";
+            }
+
+            return RedirectToAction(nameof(Suscripcion));
+        }
+
+        /// <summary>
+        /// Cancela la RENOVACIÓN del add-on de WhatsApp (independiente del plan base). Da de baja el
+        /// suscriptor del add-on en TiloPay con verificación (el servicio nunca deja doble cobro
+        /// silencioso: si no verifica, queda en revisión). El uso del paquete sigue hasta el fin del
+        /// período ya pagado. NO toca el plan base.
+        /// </summary>
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> CancelarWhatsAppAddon(CancellationToken cancellationToken)
+        {
+            var user = await _userManager.GetUserAsync(User);
+            if (user is null)
+            {
+                return Challenge();
+            }
+
+            if (user.TenantId == Guid.Empty)
+            {
+                TempData["BillingError"] = "Tu cuenta no tiene un tenant asociado.";
+                return RedirectToAction(nameof(Suscripcion));
+            }
+
+            if (!_addonSubscriptionManager.IsEnabled)
+            {
+                TempData["BillingError"] = "La cancelación en línea del paquete no está disponible en este momento. Contactá soporte.";
+                return RedirectToAction(nameof(Suscripcion));
+            }
+
+            var result = await _addonSubscriptionManager.RequestAddonCancellationAtPeriodEndAsync(
+                user.TenantId,
+                user.Id,
+                user.Email ?? user.Id,
+                "Cancelación del paquete de WhatsApp solicitada por el cliente desde /Billing/Suscripcion.",
+                cancellationToken);
+
+            if (result.Succeeded)
+            {
+                TempData["BillingSuccess"] = result.Message
+                    ?? "Listo. Tu paquete de WhatsApp no se renovará.";
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "CancelarWhatsAppAddon no se pudo completar automáticamente. TenantId {TenantId}.",
+                    user.TenantId);
+                TempData["BillingError"] = result.Message
+                    ?? "No pudimos completar la solicitud automáticamente. Soporte fue notificado.";
             }
 
             return RedirectToAction(nameof(Suscripcion));

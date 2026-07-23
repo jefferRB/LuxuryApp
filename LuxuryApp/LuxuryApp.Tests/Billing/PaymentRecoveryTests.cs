@@ -8,6 +8,7 @@ using LuxuryApp.Services.Tilopay;
 using LuxuryApp.Tests.Support;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ProyectoIdentity.Datos;
@@ -37,6 +38,36 @@ namespace LuxuryApp.Tests.Billing
             Assert.True(result.Succeeded);
             Assert.StartsWith("https://app.tilopay.com/", result.Url);
             Assert.Equal(1, await h.CountAuditAsync(PlatformAuditActions.PaymentMethodUpdateUrlGenerated));
+        }
+
+        [Fact]
+        public async Task UpdateUrl_PrimaryContract_AuditsGeneratedNormally_NotFallback()
+        {
+            using var h = await Harness.CreateAsync();
+            h.Admin.Contract = "id_plan";
+            await h.SeedSubscriptionAsync(localEndUtc: h.NowUtc.AddDays(10));
+
+            var result = await h.MethodUpdate.GenerateUpdateUrlAsync(h.TenantId, "compra3@test.cr", "user-1", "user@test.cr");
+
+            Assert.True(result.Succeeded);
+            Assert.False(result.UsedFallbackContract);
+            Assert.Equal(1, await h.CountAuditAsync(PlatformAuditActions.PaymentMethodUpdateUrlGenerated));
+            Assert.Equal(0, await h.CountAuditAsync(PlatformAuditActions.PaymentMethodUpdateUrlGeneratedWithFallback));
+        }
+
+        [Fact]
+        public async Task UpdateUrl_FallbackContract_AuditsWithFallback_AndFlagsResult()
+        {
+            using var h = await Harness.CreateAsync();
+            h.Admin.Contract = "id_plan+aliases"; // solo funcionó el fallback: enlace sospechoso
+            await h.SeedSubscriptionAsync(localEndUtc: h.NowUtc.AddDays(10));
+
+            var result = await h.MethodUpdate.GenerateUpdateUrlAsync(h.TenantId, "compra3@test.cr", "user-1", "user@test.cr");
+
+            Assert.True(result.Succeeded);
+            Assert.True(result.UsedFallbackContract);
+            Assert.Equal(1, await h.CountAuditAsync(PlatformAuditActions.PaymentMethodUpdateUrlGeneratedWithFallback));
+            Assert.Equal(0, await h.CountAuditAsync(PlatformAuditActions.PaymentMethodUpdateUrlGenerated));
         }
 
         [Fact]
@@ -257,18 +288,45 @@ namespace LuxuryApp.Tests.Billing
         }
 
         [Fact]
-        public async Task GraceExpiration_DoesNotSuspend_BeforeEffectiveDate()
+        public async Task GraceExpiration_MarksExpired_ButKeepsAccess_WhilePaidPeriodActive()
         {
             using var h = await Harness.CreateAsync(autoSuspend: true);
-            // El período pagado (provider/local) todavía es futuro aunque la gracia del incidente venció.
+            // El período pagado (provider/local) todavía es futuro aunque la gracia del incidente venció:
+            // se MARCA GraceExpired (es un estado) pero NO se suspende (no se quita acceso ya pagado).
             var id = await h.SeedSubscriptionAsync(localEndUtc: h.NowUtc.AddDays(20), estado: EstadoSuscripcion.Morosa);
-            await h.SeedIncidentAsync(id, graceEndsAtUtc: h.NowUtc.AddDays(-1));
+            var incidentId = await h.SeedIncidentAsync(id, graceEndsAtUtc: h.NowUtc.AddDays(-1));
 
             var processed = await h.Recovery.RunGraceExpirationPassAsync();
 
-            Assert.Equal(0, processed);
+            Assert.Equal(1, processed);
+            var incident = await h.GetIncidentAsync(incidentId);
+            Assert.Equal(PaymentIncidentStatus.GraceExpired, incident.Status);
             var sub = await h.GetSubscriptionAsync(id);
-            Assert.NotEqual(EstadoSuscripcion.Suspendida, sub.Estado);
+            Assert.NotEqual(EstadoSuscripcion.Suspendida, sub.Estado);   // acceso NO cortado
+            Assert.Equal("GraceExpired", sub.PaymentRecoveryStatus);
+            Assert.Equal(0, await h.CountAuditAsync(PlatformAuditActions.SubscriptionSuspendedForNonPayment));
+        }
+
+        [Fact]
+        public async Task GraceExpiration_OpenExpired_MarksGraceExpired_WhenAutoSuspendFalse_EvenWithFuturePeriod()
+        {
+            using var h = await Harness.CreateAsync(autoSuspend: false);
+            // Reproduce el caso reportado en prod: FechaFin futura pero la GRACIA ya venció.
+            var id = await h.SeedSubscriptionAsync(
+                localEndUtc: h.NowUtc.AddDays(20),
+                estado: EstadoSuscripcion.Morosa,
+                paymentRecoveryStatus: "GraceActive");
+            var incidentId = await h.SeedIncidentAsync(id, graceEndsAtUtc: h.NowUtc.AddHours(-2));
+
+            var processed = await h.Recovery.RunGraceExpirationPassAsync();
+
+            Assert.Equal(1, processed);
+            var incident = await h.GetIncidentAsync(incidentId);
+            Assert.Equal(PaymentIncidentStatus.GraceExpired, incident.Status); // ya no queda Open
+            var sub = await h.GetSubscriptionAsync(id);
+            Assert.Equal("GraceExpired", sub.PaymentRecoveryStatus);           // UI deja de decir "en gracia"
+            Assert.NotEqual(EstadoSuscripcion.Suspendida, sub.Estado);         // acceso conservado
+            Assert.Equal(1, await h.CountAuditAsync(PlatformAuditActions.SubscriptionPaymentGraceExpiredDryRun));
         }
 
         [Fact]
@@ -514,6 +572,171 @@ namespace LuxuryApp.Tests.Billing
         }
 
         [Fact]
+        public async Task ManualResolve_Morosa_ReturnsToActiva_AndClearsAllRecoveryFields()
+        {
+            using var h = await Harness.CreateAsync();
+            var subId = await h.SeedSubscriptionAsync(
+                localEndUtc: h.NowUtc.AddDays(20),                 // período aún vigente
+                estado: EstadoSuscripcion.Morosa,
+                paymentRecoveryStatus: "GraceExpired",
+                lastPaymentFailedAtUtc: h.NowUtc.AddDays(-3),
+                fechaFinGraciaUtc: h.NowUtc.AddDays(-1),           // gracia vieja
+                lastPaymentRecoveryNotificationAtUtc: h.NowUtc.AddDays(-2));
+            var incidentId = await h.SeedIncidentAsync(subId, graceEndsAtUtc: h.NowUtc.AddDays(-1), status: PaymentIncidentStatus.GraceExpired);
+
+            var result = await h.Recovery.ResolveManuallyAsync(incidentId, "admin", "admin@luxurycloud.cr");
+
+            Assert.True(result.Succeeded);
+            var sub = await h.GetSubscriptionAsync(subId);
+            Assert.Equal(EstadoSuscripcion.Activa, sub.Estado);        // Morosa (recovery) → Activa
+            Assert.Null(sub.PaymentRecoveryStatus);
+            Assert.Null(sub.LastPaymentFailedAtUtc);
+            Assert.Null(sub.FechaFinGraciaUtc);                        // fecha vieja limpiada (bug 3)
+            Assert.Null(sub.LastPaymentRecoveryNotificationAtUtc);
+            Assert.True(h.SubscriptionService.CanAccessApp(sub));
+        }
+
+        [Fact]
+        public async Task ManualResolve_DoesNotReactivate_RealSuspended()
+        {
+            using var h = await Harness.CreateAsync();
+            var subId = await h.SeedSubscriptionAsync(
+                localEndUtc: h.NowUtc.AddDays(20),
+                estado: EstadoSuscripcion.Suspendida,
+                paymentRecoveryStatus: "Suspended");
+            var incidentId = await h.SeedIncidentAsync(subId, graceEndsAtUtc: h.NowUtc.AddDays(-1), status: PaymentIncidentStatus.GraceExpired);
+
+            var result = await h.Recovery.ResolveManuallyAsync(incidentId, "admin", "admin@luxurycloud.cr");
+
+            Assert.True(result.Succeeded);
+            var sub = await h.GetSubscriptionAsync(subId);
+            Assert.Equal(EstadoSuscripcion.Suspendida, sub.Estado);    // NO se reactiva un suspendido real
+            Assert.Equal("Suspended", sub.PaymentRecoveryStatus);      // se conserva el contexto real
+        }
+
+        [Fact]
+        public async Task ManualResolve_WithAnotherLiveIncident_DoesNotClearRecoveryFields()
+        {
+            using var h = await Harness.CreateAsync();
+            var subId = await h.SeedSubscriptionAsync(
+                localEndUtc: h.NowUtc.AddDays(20),
+                estado: EstadoSuscripcion.Morosa,
+                paymentRecoveryStatus: "GraceActive",
+                lastPaymentFailedAtUtc: h.NowUtc.AddDays(-1),
+                fechaFinGraciaUtc: h.NowUtc.AddDays(3));
+            var first = await h.SeedIncidentAsync(subId, graceEndsAtUtc: h.NowUtc.AddDays(-1), status: PaymentIncidentStatus.GraceExpired);
+            await h.SeedIncidentAsync(subId, graceEndsAtUtc: h.NowUtc.AddDays(3), status: PaymentIncidentStatus.Open); // otro vivo
+
+            await h.Recovery.ResolveManuallyAsync(first, "admin", "admin@luxurycloud.cr");
+
+            var sub = await h.GetSubscriptionAsync(subId);
+            Assert.Equal("GraceActive", sub.PaymentRecoveryStatus);   // NO se limpia: queda otro incidente vivo
+            Assert.NotNull(sub.LastPaymentFailedAtUtc);
+            Assert.NotNull(sub.FechaFinGraciaUtc);
+            Assert.Equal(EstadoSuscripcion.Morosa, sub.Estado);       // tampoco se reactiva
+        }
+
+        [Fact]
+        public async Task UpdateUrl_Failure_DoesNotModifyRecoveryState()
+        {
+            using var h = await Harness.CreateAsync();
+            h.Admin.Url = null; // fuerza fallo de recurrentUrl
+            var subId = await h.SeedSubscriptionAsync(
+                localEndUtc: h.NowUtc.AddDays(10),
+                estado: EstadoSuscripcion.Morosa,
+                paymentRecoveryStatus: "GraceActive",
+                lastPaymentFailedAtUtc: h.NowUtc.AddDays(-1),
+                fechaFinGraciaUtc: h.NowUtc.AddDays(3));
+            var incidentId = await h.SeedIncidentAsync(subId, graceEndsAtUtc: h.NowUtc.AddDays(3));
+
+            var result = await h.MethodUpdate.GenerateUpdateUrlAsync(h.TenantId, "compra3@test.cr", "user-1", "user@test.cr");
+
+            Assert.False(result.Succeeded);
+            Assert.Equal(1, await h.CountAuditAsync(PlatformAuditActions.PaymentMethodUpdateUrlFailed));
+            var sub = await h.GetSubscriptionAsync(subId);
+            Assert.Equal("GraceActive", sub.PaymentRecoveryStatus);   // recovery intacto
+            Assert.NotNull(sub.LastPaymentFailedAtUtc);
+            var incident = await h.GetIncidentAsync(incidentId);
+            Assert.Equal(PaymentIncidentStatus.Open, incident.Status);
+        }
+
+        // ── Worker: ejecuta el pase al arranque ──────────────────────────────────────
+
+        [Fact]
+        public async Task Worker_RunsGraceAndNotificationPasses_OnStartup()
+        {
+            var recovery = new RecordingRecoveryService();
+            var notifications = new RecordingNotificationService();
+            var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+            services.AddScoped<IPaymentRecoveryService>(_ => recovery);
+            services.AddScoped<IPaymentRecoveryNotificationService>(_ => notifications);
+            await using var provider = services.BuildServiceProvider();
+
+            var options = new StaticOptionsMonitor<BillingPaymentRecoveryOptions>(new BillingPaymentRecoveryOptions
+            {
+                Enabled = true,
+                WorkerInitialDelayMinutes = 0,
+                WorkerIntervalMinutes = 5
+            });
+            var worker = new LuxuryApp.Workers.PaymentRecoveryWorker(
+                provider.GetRequiredService<IServiceScopeFactory>(),
+                options,
+                new NoOpHeartbeat(),
+                NullLogger<LuxuryApp.Workers.PaymentRecoveryWorker>.Instance);
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await worker.StartAsync(cts.Token);
+
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while ((recovery.GraceCalls == 0 || notifications.Calls == 0) && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(50, cts.Token);
+            }
+
+            await worker.StopAsync(CancellationToken.None);
+
+            Assert.True(recovery.GraceCalls >= 1, "el worker debe ejecutar el pase de expiración al arranque");
+            Assert.True(notifications.Calls >= 1, "el worker debe ejecutar el pase de notificaciones al arranque");
+        }
+
+        private sealed class NoOpHeartbeat : LuxuryApp.Services.Platform.IWorkerHeartbeatService
+        {
+            public Task TryBeatAsync(string workerName, string? cycleSummary = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task<IReadOnlyList<LuxuryApp.Models.Platform.PlatformWorkerHeartbeat>> GetAllAsync(CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<LuxuryApp.Models.Platform.PlatformWorkerHeartbeat>>(Array.Empty<LuxuryApp.Models.Platform.PlatformWorkerHeartbeat>());
+        }
+
+        private sealed class RecordingNotificationService : IPaymentRecoveryNotificationService
+        {
+            public int Calls;
+            public Task<int> RunPendingNotificationsAsync(CancellationToken cancellationToken = default)
+            {
+                Interlocked.Increment(ref Calls);
+                return Task.FromResult(0);
+            }
+        }
+
+        private sealed class RecordingRecoveryService : IPaymentRecoveryService
+        {
+            public int GraceCalls;
+            public Task RegisterFailedPaymentAsync(Guid tenantId, int? failedRecurringPlanId, string? providerSubscriberId, string? resultCode, string? resultMessage, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task ResolveOnSuccessAsync(Guid tenantId, int? paidRecurringPlanId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task RegisterFailedAddonPaymentAsync(Guid tenantId, int? failedRecurringPlanId, string? providerSubscriberId, string? resultCode, string? resultMessage, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task ResolveAddonOnSuccessAsync(Guid tenantId, int? paidRecurringPlanId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task<int> RunGraceExpirationPassAsync(CancellationToken cancellationToken = default)
+            {
+                Interlocked.Increment(ref GraceCalls);
+                return Task.FromResult(0);
+            }
+            public Task<IReadOnlyList<PaymentRecoveryConsoleItem>> ListConsoleIncidentsAsync(CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<PaymentRecoveryConsoleItem>>(Array.Empty<PaymentRecoveryConsoleItem>());
+            public Task<PaymentRecoveryActionResult> ResolveManuallyAsync(Guid incidentId, string actorUserId, string actorEmail, CancellationToken cancellationToken = default) =>
+                Task.FromResult(PaymentRecoveryActionResult.Ok("ok"));
+            public Task<PaymentRecoveryActionResult> IgnoreAsync(Guid incidentId, string actorUserId, string actorEmail, string? reason, CancellationToken cancellationToken = default) =>
+                Task.FromResult(PaymentRecoveryActionResult.Ok("ok"));
+        }
+
+        [Fact]
         public async Task Console_ListsLiveIncidents_NotResolvedOnes()
         {
             using var h = await Harness.CreateAsync();
@@ -539,9 +762,23 @@ namespace LuxuryApp.Tests.Billing
             public string? Url { get; set; } = "https://app.tilopay.com/recurrent/abc123";
             public bool Succeeds { get; set; } = true;
 
+            /// <summary>Contrato que "funcionó": "id_plan" (primario) o "id_plan+aliases" (fallback).</summary>
+            public string Contract { get; set; } = "id_plan";
+
             public Task<TilopayAdminOperationResult> GetRecurrentUrlAsync(int tilopayPlanId, string? email, CancellationToken cancellationToken = default) =>
                 Task.FromResult(Succeeds && Url is not null
-                    ? TilopayAdminOperationResult.Ok("ok", Url)
+                    ? TilopayAdminOperationResult.Ok("ok", Url) with
+                    {
+                        Contract = Contract,
+                        RecurrentDiagnostics = new RecurrentUrlDiagnostics
+                        {
+                            Contract = Contract,
+                            HttpStatus = 200,
+                            HasUrlRenew = true,
+                            SelectedField = "url_renew",
+                            UrlHostPathMasked = "app.tilopay.com/recurrent/*** (2 segs)"
+                        }
+                    }
                     : TilopayAdminOperationResult.Fail("no disponible"));
 
             public Task<IReadOnlyList<TilopaySubscriber>> GetSuscriptorRepeatAsync(int tilopayPlanId, CancellationToken cancellationToken = default) =>
@@ -672,6 +909,8 @@ namespace LuxuryApp.Tests.Billing
                 string? providerStatusRaw = null,
                 string? paymentRecoveryStatus = null,
                 DateTime? lastPaymentFailedAtUtc = null,
+                DateTime? fechaFinGraciaUtc = null,
+                DateTime? lastPaymentRecoveryNotificationAtUtc = null,
                 Guid? tenantId = null)
             {
                 var owner = tenantId ?? TenantId;
@@ -694,9 +933,11 @@ namespace LuxuryApp.Tests.Billing
                     ProviderStatusRaw = providerStatusRaw,
                     PaymentRecoveryStatus = paymentRecoveryStatus,
                     LastPaymentFailedAtUtc = lastPaymentFailedAtUtc,
+                    LastPaymentRecoveryNotificationAtUtc = lastPaymentRecoveryNotificationAtUtc,
                     FechaInicio = localEndUtc.AddMonths(-1),
                     FechaFin = localEndUtc,
                     FechaProximoCobroUtc = localEndUtc,
+                    FechaFinGraciaUtc = fechaFinGraciaUtc,
                     CancelAtPeriodEnd = cancelAtPeriodEnd,
                     CancellationEffectiveAtUtc = cancellationEffectiveAtUtc
                 });

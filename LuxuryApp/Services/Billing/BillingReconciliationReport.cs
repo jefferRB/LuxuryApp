@@ -91,6 +91,20 @@ namespace LuxuryApp.Services.Billing
         /// <summary>Desajustes local↔proveedor de ciclo de vida (cancelación/pausa) alertados en este pase.</summary>
         public int ProviderStatusMismatchesAlerted { get; set; }
 
+        // ── Add-on de WhatsApp ──
+
+        /// <summary>Intentos REALES contra TiloPay para cancelar un suscriptor de add-on pendiente.</summary>
+        public int AddonCancellationsRetried { get; set; }
+
+        /// <summary>Suscriptores de add-on cuya baja quedó VERIFICADA en este pase.</summary>
+        public int AddonCancellationsCompleted { get; set; }
+
+        /// <summary>Add-ons con cancelación de suscriptor pendiente que NO se pudo llamar (API apagado): alerta.</summary>
+        public int AddonCancellationsPendingProviderDisabled { get; set; }
+
+        /// <summary>Add-ons de WhatsApp ACTIVOS con el plan base cancelado/vencido (alerta, nunca se tocan).</summary>
+        public int AddonsWithoutActiveBaseAlerted { get; set; }
+
         public double DurationMs => (FinishedUtc - StartedUtc).TotalMilliseconds;
 
         public bool HasFindings =>
@@ -119,6 +133,10 @@ namespace LuxuryApp.Services.Billing
             // Un drift local↔proveedor de ciclo de vida (p.ej. CancelAtPeriodEnd pero sigue Activo)
             // es un hallazgo de dinero. La finalización de período (CancelAtPeriodEndFinalized) NO lo
             // es: es higiene esperada, el cierre normal de un período pagado.
-            ProviderStatusMismatchesAlerted > 0;
+            ProviderStatusMismatchesAlerted > 0 ||
+            // Un suscriptor de add-on que nadie está cancelando (API apagado) es dinero en riesgo;
+            // un add-on activo sin plan base es un estado que debe resolverse. Ambos son hallazgos.
+            AddonCancellationsPendingProviderDisabled > 0 ||
+            AddonsWithoutActiveBaseAlerted > 0;
     }
 }

@@ -50,6 +50,36 @@ namespace LuxuryApp.Tests.Billing
         }
 
         [Fact]
+        public void PaymentInGrace_False_WhenGraceWindowEnded_FailSafe()
+        {
+            // El backend aún dice "GraceActive" pero la fecha de gracia ya venció: la UI NO debe
+            // mostrar "en gracia"; debe tratarlo como pago pendiente / gracia vencida.
+            var vm = new BillingSubscriptionSummaryViewModel
+            {
+                Status = EstadoSuscripcion.Morosa,
+                IsRecurringTilopay = true,
+                PaymentRecoveryStatus = "GraceActive",
+                PaymentGraceWindowEnded = true
+            };
+            Assert.False(vm.PaymentInGrace);
+            Assert.True(vm.PaymentGraceExpired);
+        }
+
+        [Fact]
+        public void PaymentInGrace_True_WhenGraceActive_AndWindowNotEnded()
+        {
+            var vm = new BillingSubscriptionSummaryViewModel
+            {
+                Status = EstadoSuscripcion.Morosa,
+                IsRecurringTilopay = true,
+                PaymentRecoveryStatus = "GraceActive",
+                PaymentGraceWindowEnded = false
+            };
+            Assert.True(vm.PaymentInGrace);
+            Assert.False(vm.PaymentGraceExpired);
+        }
+
+        [Fact]
         public void PaymentSuspended_True_WhenSuspended()
         {
             var vm = new BillingSubscriptionSummaryViewModel
@@ -134,6 +164,70 @@ namespace LuxuryApp.Tests.Billing
             }.CanUpdatePaymentMethod);
         }
 
+        // ── Badge de estado: GraceExpired NO debe decir "En gracia" ──
+
+        [Fact]
+        public void PaymentStateBadge_GraceActive_ShowsEnPeriodoDeGracia()
+        {
+            var vm = new BillingSubscriptionSummaryViewModel
+            {
+                Status = EstadoSuscripcion.Morosa,
+                IsRecurringTilopay = true,
+                PaymentRecoveryStatus = "GraceActive"
+            };
+            Assert.Equal("En período de gracia", vm.PaymentStateBadgeLabel);
+        }
+
+        [Fact]
+        public void PaymentStateBadge_GraceExpired_ShowsPagoPendiente_NotEnGracia()
+        {
+            var vm = new BillingSubscriptionSummaryViewModel
+            {
+                Status = EstadoSuscripcion.Morosa,
+                IsRecurringTilopay = true,
+                PaymentRecoveryStatus = "GraceExpired"
+            };
+            Assert.Equal("Pago pendiente", vm.PaymentStateBadgeLabel);
+            Assert.DoesNotContain("gracia", vm.PaymentStateBadgeLabel!, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void PaymentStateBadge_GraceExpiredByFailSafe_ShowsPagoPendiente()
+        {
+            // Backend aún "GraceActive" pero la ventana ya venció: badge debe ser "Pago pendiente".
+            var vm = new BillingSubscriptionSummaryViewModel
+            {
+                Status = EstadoSuscripcion.Morosa,
+                IsRecurringTilopay = true,
+                PaymentRecoveryStatus = "GraceActive",
+                PaymentGraceWindowEnded = true
+            };
+            Assert.Equal("Pago pendiente", vm.PaymentStateBadgeLabel);
+        }
+
+        [Fact]
+        public void PaymentStateBadge_Suspended_ShowsSuspendidaPorPago()
+        {
+            var vm = new BillingSubscriptionSummaryViewModel
+            {
+                Status = EstadoSuscripcion.Suspendida,
+                IsRecurringTilopay = true,
+                PaymentRecoveryStatus = "Suspended"
+            };
+            Assert.Equal("Suspendida por pago pendiente", vm.PaymentStateBadgeLabel);
+        }
+
+        [Fact]
+        public void PaymentStateBadge_Normal_IsNull()
+        {
+            var vm = new BillingSubscriptionSummaryViewModel
+            {
+                Status = EstadoSuscripcion.Activa,
+                IsRecurringTilopay = true
+            };
+            Assert.Null(vm.PaymentStateBadgeLabel);
+        }
+
         // ── Autorización + CSRF ──
 
         [Fact]
@@ -207,6 +301,18 @@ namespace LuxuryApp.Tests.Billing
         }
 
         [Fact]
+        public void BillingSuscripcion_GraceExpired_ShowsGraciaVencida_AndBadgeLabel()
+        {
+            var view = ReadView("Views", "Billing", "Suscripcion.cshtml");
+            // El badge principal usa PaymentStateBadgeLabel (no el genérico StatusLabel "En gracia").
+            Assert.Contains("PaymentStateBadgeLabel", view, StringComparison.Ordinal);
+            // Meta de gracia vencida.
+            Assert.Contains("Gracia vencida el", view, StringComparison.Ordinal);
+            // Sigue existiendo el caso de gracia vigente.
+            Assert.Contains("Gracia hasta", view, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void BillingHealth_HasRecoverySection_AndLink()
         {
             var view = ReadView("Views", "PlatformBillingHealth", "Index.cshtml");
@@ -224,6 +330,22 @@ namespace LuxuryApp.Tests.Billing
             Assert.Contains("Resolve", view, StringComparison.Ordinal);
             Assert.Contains("Ignore", view, StringComparison.Ordinal);
             Assert.Contains("RESOLVER", view, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void MissionControl_HasPaymentRecoveryLink()
+        {
+            var view = ReadView("Views", "Platform", "Index.cshtml");
+            Assert.Contains("PlatformPaymentRecovery", view, StringComparison.Ordinal);
+            Assert.Contains("Recuperación de pago", view, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void PlatformTenants_HasPaymentRecoveryLink()
+        {
+            var view = ReadView("Views", "Platform", "Tenants.cshtml");
+            Assert.Contains("PlatformPaymentRecovery", view, StringComparison.Ordinal);
+            Assert.Contains("Recuperación de pago", view, StringComparison.Ordinal);
         }
 
         // ── Helpers ──
@@ -257,6 +379,8 @@ namespace LuxuryApp.Tests.Billing
 
             public Task RegisterFailedPaymentAsync(Guid tenantId, int? failedRecurringPlanId, string? providerSubscriberId, string? resultCode, string? resultMessage, CancellationToken cancellationToken = default) => Task.CompletedTask;
             public Task ResolveOnSuccessAsync(Guid tenantId, int? paidRecurringPlanId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task RegisterFailedAddonPaymentAsync(Guid tenantId, int? failedRecurringPlanId, string? providerSubscriberId, string? resultCode, string? resultMessage, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task ResolveAddonOnSuccessAsync(Guid tenantId, int? paidRecurringPlanId, CancellationToken cancellationToken = default) => Task.CompletedTask;
             public Task<int> RunGraceExpirationPassAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
             public Task<IReadOnlyList<PaymentRecoveryConsoleItem>> ListConsoleIncidentsAsync(CancellationToken cancellationToken = default) =>
                 Task.FromResult<IReadOnlyList<PaymentRecoveryConsoleItem>>(Array.Empty<PaymentRecoveryConsoleItem>());

@@ -36,5 +36,12 @@ namespace LuxuryApp.Models.SaaS
 
         /// <summary>Timeout dedicado para las llamadas admin (segundos).</summary>
         public int TimeoutSeconds { get; set; } = 30;
+
+        /// <summary>
+        /// Campo de la respuesta de recurrentUrl que se usa para actualizar el método de pago:
+        /// "url_renew" (default, renueva el suscriptor existente) o "url_register" (modo controlado
+        /// para diagnóstico: TiloPay registra un flujo nuevo). Cualquier otro valor cae a "url_renew".
+        /// </summary>
+        public string RecurrentUrlPreferredField { get; set; } = "url_renew";
     }
 }

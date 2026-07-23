@@ -100,6 +100,7 @@ namespace LuxuryApp.Services.Billing
         private readonly BillingReconciliationOptions _options;
         private readonly ISubscriberResolutionService? _subscriberResolutionService;
         private readonly IProviderSubscriptionManager? _providerSubscriptionManager;
+        private readonly IAddonSubscriptionManager? _addonSubscriptionManager;
         private readonly IPlanChangeLateApplicationService? _planChangeLateApplicationService;
         private readonly IProviderExpirySyncService? _providerExpirySyncService;
         // Opcionales (patrón del módulo): DI los inyecta en producción; en tests con el ctor mínimo
@@ -124,7 +125,8 @@ namespace LuxuryApp.Services.Billing
             IPlanChangeLateApplicationService? planChangeLateApplicationService = null,
             IProviderExpirySyncService? providerExpirySyncService = null,
             ITilopayRepeatAdminService? adminService = null,
-            ITenantCommercialAccessCache? accessCache = null)
+            ITenantCommercialAccessCache? accessCache = null,
+            IAddonSubscriptionManager? addonSubscriptionManager = null)
         {
             _db = db;
             _suscripcionService = suscripcionService;
@@ -134,6 +136,7 @@ namespace LuxuryApp.Services.Billing
             _options = options.Value;
             _subscriberResolutionService = subscriberResolutionService;
             _providerSubscriptionManager = providerSubscriptionManager;
+            _addonSubscriptionManager = addonSubscriptionManager;
             _planChangeLateApplicationService = planChangeLateApplicationService;
             _providerExpirySyncService = providerExpirySyncService;
             _adminService = adminService;
@@ -177,6 +180,10 @@ namespace LuxuryApp.Services.Billing
             // suscripción, para que la cancelación del viejo trabaje sobre datos ya consistentes.
             await RunPhaseAsync("RepairInconsistentPlanChanges", () => RepairInconsistentPlanChangesAsync(report, cancellationToken), cancellationToken);
             await RunPhaseAsync("RetryOldSubscriberCancellations", () => RetryPendingPlanChangeCancellationsAsync(report, cancellationToken), cancellationToken);
+            // Add-ons: reintentar la baja pendiente de suscriptores (Strategy B / cascada / manual) y
+            // alertar add-ons activos sin plan base. Independiente del plan base; nunca lo toca.
+            await RunPhaseAsync("RetryPendingAddonCancellations", () => RetryPendingAddonCancellationsAsync(report, cancellationToken), cancellationToken);
+            await RunPhaseAsync("AlertAddonsWithoutActiveBase", () => AlertAddonsWithoutActiveBaseAsync(report, cancellationToken), cancellationToken);
 
             report.FinishedUtc = GetUtcNow();
 
@@ -256,6 +263,11 @@ namespace LuxuryApp.Services.Billing
             await RunPhaseAsync(
                 "RetryOldSubscriberCancellations",
                 () => RetryPendingPlanChangeCancellationsAsync(report, cancellationToken),
+                cancellationToken);
+            // El doble cobro de un add-on tampoco puede esperar al pase diario: reintentar aquí.
+            await RunPhaseAsync(
+                "RetryPendingAddonCancellations",
+                () => RetryPendingAddonCancellationsAsync(report, cancellationToken),
                 cancellationToken);
             report.FinishedUtc = GetUtcNow();
             return report;
@@ -2221,6 +2233,189 @@ namespace LuxuryApp.Services.Billing
                     cancellationToken))
                 {
                     report.OverdueAddonsAlerted++;
+                }
+            }
+        }
+
+        // ── 2b. Add-on: reintento de cancelación saliente + alerta add-on sin base ────
+
+        /// <summary>
+        /// Reintenta la baja del suscriptor del add-on pendiente (huérfano de Strategy B, cascada del
+        /// plan base o cambio manual). Delega en <see cref="IAddonSubscriptionManager"/>, que verifica
+        /// contra TiloPay (un 200 nunca basta) y lleva el presupuesto/backoff en la fila del add-on.
+        /// Si el API admin está apagado, ALERTA el dinero en riesgo (no puede cancelar). Aislado por
+        /// tenant. NUNCA toca el plan base.
+        /// </summary>
+        private async Task RetryPendingAddonCancellationsAsync(
+            BillingReconciliationReport report,
+            CancellationToken cancellationToken)
+        {
+            var nowUtc = GetUtcNow();
+
+            var candidates = await _db.TenantSubscriptionAddons
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(addon =>
+                    addon.ProviderCancellation == ProviderCancellationState.PendingManualCancellation &&
+                    addon.PendingCancellationProviderSubscriptionId != null &&
+                    (addon.ProviderCancellationNextRetryUtc == null ||
+                     addon.ProviderCancellationNextRetryUtc <= nowUtc))
+                .OrderBy(addon => addon.UpdatedAtUtc)
+                .Select(addon => new { addon.Id, addon.TenantId })
+                .ToListAsync(cancellationToken);
+
+            if (candidates.Count == 0)
+            {
+                return;
+            }
+
+            // API admin apagado: no hay forma de cancelar (ni verificar) el suscriptor del add-on.
+            // Cada pendiente es dinero en riesgo → alertar para baja manual en TiloPay.
+            if (_addonSubscriptionManager is null || !_addonSubscriptionManager.IsEnabled)
+            {
+                foreach (var candidate in candidates)
+                {
+                    if (candidate.TenantId == Guid.Empty)
+                    {
+                        continue;
+                    }
+
+                    DetachAllTracked();
+                    if (await TryAddAlertAsync(
+                        report,
+                        PlatformAuditEntityTypes.WhatsAppAddon,
+                        candidate.Id.ToString(),
+                        candidate.TenantId,
+                        "Suscriptor de add-on WhatsApp pendiente de cancelación en TiloPay, pero el API admin está deshabilitado. Riesgo de doble cobro del add-on: cancelar manualmente en TiloPay.",
+                        cancellationToken))
+                    {
+                        report.AddonCancellationsPendingProviderDisabled++;
+                    }
+                }
+
+                return;
+            }
+
+            foreach (var candidate in candidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (candidate.TenantId == Guid.Empty)
+                {
+                    continue;
+                }
+
+                DetachAllTracked();
+
+                try
+                {
+                    var outcome = await _addonSubscriptionManager.TryCancelPendingAddonSubscriberAsync(
+                        candidate.TenantId,
+                        cancellationToken);
+
+                    if (outcome.ProviderCalled)
+                    {
+                        report.AddonCancellationsRetried++;
+                        if (outcome.Cancelled)
+                        {
+                            report.AddonCancellationsCompleted++;
+                        }
+                    }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    DetachAllTracked();
+                    _logger.LogError(
+                        ex,
+                        "Reintento de cancelación de suscriptor de add-on falló. TenantId {TenantId}. AddonId {AddonId}. Se continúa.",
+                        candidate.TenantId,
+                        candidate.Id);
+                }
+            }
+        }
+
+        /// <summary>
+        /// R5/regla 11: alerta los add-ons de WhatsApp ACTIVOS cuyo plan base está cancelado/vencido
+        /// (o no puede acceder a la app). Solo lectura y local (sin HTTP). Nunca toca datos: un humano
+        /// decide cancelar el add-on o corregir el estado del base. El add-on NO se auto-cancela aquí
+        /// para no cortar automatizaciones hacia clientes finales sin revisión.
+        /// </summary>
+        private async Task AlertAddonsWithoutActiveBaseAsync(
+            BillingReconciliationReport report,
+            CancellationToken cancellationToken)
+        {
+            var addons = await _db.TenantSubscriptionAddons
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(addon =>
+                    addon.Estado == EstadoSuscripcion.Activa ||
+                    addon.Estado == EstadoSuscripcion.Morosa ||
+                    addon.Estado == EstadoSuscripcion.Trial)
+                .ToListAsync(cancellationToken);
+
+            var activeAddons = addons
+                .Where(addon => _suscripcionService.IsWhatsAppAddonActive(addon))
+                .ToList();
+
+            if (activeAddons.Count == 0)
+            {
+                return;
+            }
+
+            var tenantIds = activeAddons.Select(addon => addon.TenantId).Distinct().ToList();
+
+            var baseSubscriptions = await _db.Suscripciones
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(subscription => tenantIds.Contains(subscription.TenantId))
+                .ToListAsync(cancellationToken);
+
+            var baseByTenant = baseSubscriptions
+                .GroupBy(subscription => subscription.TenantId)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group
+                        .OrderByDescending(subscription => subscription.FechaUltimaActualizacionUtc ?? subscription.FechaInicio)
+                        .First());
+
+            foreach (var addon in activeAddons)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                baseByTenant.TryGetValue(addon.TenantId, out var baseSubscription);
+
+                var basePlanCode = baseSubscription?.CodigoPlan;
+                var baseIsRealBasePlan = baseSubscription is not null &&
+                    (string.IsNullOrWhiteSpace(basePlanCode) ||
+                     !PlanCodes.WhatsAppAddons.Contains(basePlanCode, StringComparer.OrdinalIgnoreCase));
+
+                var hasActiveBase = baseSubscription is not null &&
+                                    baseIsRealBasePlan &&
+                                    _suscripcionService.CanAccessApp(baseSubscription);
+
+                if (hasActiveBase)
+                {
+                    continue;
+                }
+
+                var estadoBase = baseSubscription is null
+                    ? "sin plan base"
+                    : _suscripcionService.GetEffectiveStatus(baseSubscription).ToString();
+
+                DetachAllTracked();
+                if (await TryAddAlertAsync(
+                    report,
+                    PlatformAuditEntityTypes.WhatsAppAddon,
+                    addon.Id.ToString(),
+                    addon.TenantId,
+                    $"Add-on WhatsApp {addon.AddonCode} ACTIVO con plan base {estadoBase}. Revisar: cancelar el add-on (no debe seguir cobrando sin SaaS) o corregir el estado del plan base.",
+                    cancellationToken))
+                {
+                    report.AddonsWithoutActiveBaseAlerted++;
                 }
             }
         }

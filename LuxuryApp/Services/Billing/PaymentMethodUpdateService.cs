@@ -21,7 +21,17 @@ namespace LuxuryApp.Services.Billing
         /// <summary>True si el camino correcto es un checkout NUEVO (no recurrentUrl).</summary>
         public bool RequiresNewCheckout { get; init; }
 
-        public static PaymentMethodUpdateResult Ok(string url) => new() { Succeeded = true, Url = url };
+        /// <summary>Contrato de body que funcionó ("id_plan" / "id_plan+aliases"). Para diagnóstico.</summary>
+        public string? Contract { get; init; }
+
+        /// <summary>
+        /// True si la URL se generó SOLO con el contrato de fallback (id_plan+aliases): el enlace es
+        /// sospechoso y puede fallar en TiloPay ("suscripción no existe"). La UI de plataforma avisa.
+        /// </summary>
+        public bool UsedFallbackContract { get; init; }
+
+        public static PaymentMethodUpdateResult Ok(string url, string? contract = null, bool usedFallback = false) =>
+            new() { Succeeded = true, Url = url, Contract = contract, UsedFallbackContract = usedFallback };
         public static PaymentMethodUpdateResult Fail(string message, bool requiresNewCheckout = false) =>
             new() { Succeeded = false, Message = message, RequiresNewCheckout = requiresNewCheckout };
     }
@@ -173,14 +183,28 @@ namespace LuxuryApp.Services.Billing
                 return PaymentMethodUpdateResult.Fail("No pudimos generar el enlace de actualización. Contactá soporte.");
             }
 
+            // Distinguir el fallback: si el contrato primario (id_plan) falló y solo funcionó
+            // id_plan+aliases, el enlace es sospechoso. Se audita con una acción DISTINTA para no
+            // ocultarlo como un éxito normal (el enlace puede fallar en TiloPay).
+            var diag = result.RecurrentDiagnostics;
+            var usedFallback = diag?.UsedFallbackContract ?? string.Equals(result.Contract, "id_plan+aliases", StringComparison.Ordinal);
+
+            var diagDetail = diag is null
+                ? string.Empty
+                : $" Status {diag.HttpStatus}. Type {diag.ProviderType ?? "-"}. Message {diag.ProviderMessage ?? "-"}. " +
+                  $"HasRenew {diag.HasUrlRenew}. HasRegister {diag.HasUrlRegister}. Field {diag.SelectedField ?? "-"}. UrlHostPath {diag.UrlHostPathMasked ?? "-"}.";
+
             _db.PlatformAuditLogs.Add(BuildAudit(
-                PlatformAuditActions.PaymentMethodUpdateUrlGenerated,
+                usedFallback
+                    ? PlatformAuditActions.PaymentMethodUpdateUrlGeneratedWithFallback
+                    : PlatformAuditActions.PaymentMethodUpdateUrlGenerated,
                 tenantId, actorUserId, actorEmail,
-                $"recurrentUrl generada para actualizar método de pago. Plan {recurringPlanId}. EmailMasked {SensitiveDataMasker.MaskEmail(email)}.",
+                $"recurrentUrl generada para actualizar método de pago. Plan {recurringPlanId}. Contract {result.Contract ?? "n/a"}. " +
+                $"ProviderContractFallback {usedFallback}.{diagDetail} EmailMasked {SensitiveDataMasker.MaskEmail(email)}.",
                 nowUtc));
             await _db.SaveChangesAsync(cancellationToken);
 
-            return PaymentMethodUpdateResult.Ok(result.Url!);
+            return PaymentMethodUpdateResult.Ok(result.Url!, result.Contract, usedFallback);
         }
 
         /// <summary>Anti open-redirect: solo se acepta redirigir a HTTPS del dominio de TiloPay.</summary>

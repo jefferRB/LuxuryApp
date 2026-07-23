@@ -23,6 +23,16 @@ namespace LuxuryApp.Models.SaaS
         Ignored = 4
     }
 
+    /// <summary>A qué producto pertenece el incidente de recuperación de pago. Aditivo (default BasePlan).</summary>
+    public enum PaymentIncidentScope
+    {
+        /// <summary>Plan base del SaaS. Comportamiento histórico (todo incidente previo es de base).</summary>
+        BasePlan = 0,
+
+        /// <summary>Add-on de WhatsApp: su ciclo de cobro es independiente y NUNCA contamina el base.</summary>
+        WhatsAppAddon = 1
+    }
+
     /// <summary>
     /// Incidente de recuperación de pago recurrente. Tabla separada de <see cref="Suscripcion"/> a
     /// propósito: agrupa el ciclo pago-fallido → gracia → notificación → resolución/suspensión sin
@@ -38,6 +48,12 @@ namespace LuxuryApp.Models.SaaS
         public Guid TenantId { get; set; }
 
         public Guid SuscripcionId { get; set; }
+
+        /// <summary>Ámbito del incidente. Aditivo: los incidentes existentes son BasePlan (default 0).</summary>
+        public PaymentIncidentScope Scope { get; set; } = PaymentIncidentScope.BasePlan;
+
+        /// <summary>Para incidentes de add-on: la fila de <see cref="TenantSubscriptionAddon"/>. Null en base.</summary>
+        public Guid? AddonId { get; set; }
 
         [MaxLength(50)]
         public string? PlanCode { get; set; }

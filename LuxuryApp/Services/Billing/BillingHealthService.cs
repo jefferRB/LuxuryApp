@@ -185,6 +185,23 @@ namespace LuxuryApp.Services.Billing
         /// <summary>Detalle de los pendientes (acotado) para que soporte pueda actuar por intent.</summary>
         public IReadOnlyList<OldCancellationPendingItem> OldCancellationPendingItems { get; init; } =
             Array.Empty<OldCancellationPendingItem>();
+
+        // ── Add-on de WhatsApp (sección SEPARADA: su dinero-en-riesgo NO se mezcla con el del base) ──
+
+        /// <summary>Add-ons de WhatsApp ACTIVOS con el plan base cancelado/vencido (regla 11: no deben seguir cobrando).</summary>
+        public int WhatsAppAddonsWithoutActiveBase { get; init; }
+
+        /// <summary>Suscriptores de add-on pendientes de baja en TiloPay (Strategy B / cascada / manual): riesgo de DOBLE COBRO del add-on.</summary>
+        public int WhatsAppAddonsPendingProviderCancellation { get; init; }
+
+        /// <summary>Tenants con más de un add-on ACTIVO. El índice único por TenantId lo impide; debe ser 0 siempre (guarda).</summary>
+        public int WhatsAppAddonsDoubleActiveTenants { get; init; }
+
+        /// <summary>Incidentes de recuperación de pago del ADD-ON abiertos (pago del add-on fallido en curso). Separado del base.</summary>
+        public int WhatsAppAddonOpenPaymentIncidents { get; init; }
+
+        /// <summary>El número del add-on que importa: pendientes de cancelación + doble activo. Si es 0, no hay dinero-en-riesgo de add-on.</summary>
+        public int WhatsAppAddonMoneyRiskCount { get; init; }
     }
 
     /// <summary>
@@ -294,7 +311,77 @@ namespace LuxuryApp.Services.Billing
                 .IgnoreQueryFilters()
                 .AsNoTracking()
                 .ToListAsync(cancellationToken);
-            var activeAddons = addons.Count(addon => _suscripcionService.IsWhatsAppAddonActive(addon));
+            var activeAddonList = addons.Where(addon => _suscripcionService.IsWhatsAppAddonActive(addon)).ToList();
+            var activeAddons = activeAddonList.Count;
+
+            // ── Add-on: métricas propias (sección separada del dinero-en-riesgo del base) ──
+            var addonPendingProviderCancellation = addons.Count(addon =>
+                addon.ProviderCancellation == ProviderCancellationState.PendingManualCancellation &&
+                addon.PendingCancellationProviderSubscriptionId != null);
+
+            // El índice único por TenantId lo impide estructuralmente; se cuenta como guarda (debe ser 0).
+            var addonDoubleActiveTenants = activeAddonList
+                .GroupBy(addon => addon.TenantId)
+                .Count(group => group.Count() > 1);
+
+            // Add-on activo sin plan base con acceso (regla 11). Se recomputa el base de esos tenants
+            // con TODOS los campos que necesita CanAccessApp (la proyección base de arriba es mínima).
+            var addonWithoutActiveBase = 0;
+            var addonTenantIds = activeAddonList.Select(addon => addon.TenantId).Distinct().ToList();
+            if (addonTenantIds.Count > 0)
+            {
+                var baseForAddons = await _db.Suscripciones
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .Where(s => addonTenantIds.Contains(s.TenantId))
+                    .Select(s => new Suscripcion
+                    {
+                        Id = s.Id,
+                        TenantId = s.TenantId,
+                        Estado = s.Estado,
+                        CodigoPlan = s.CodigoPlan,
+                        FechaInicio = s.FechaInicio,
+                        FechaFin = s.FechaFin,
+                        FechaTrialFin = s.FechaTrialFin,
+                        FechaFinGraciaUtc = s.FechaFinGraciaUtc,
+                        ProviderExpiresAtUtc = s.ProviderExpiresAtUtc,
+                        CancelAtPeriodEnd = s.CancelAtPeriodEnd,
+                        CancellationEffectiveAtUtc = s.CancellationEffectiveAtUtc,
+                        FechaUltimaActualizacionUtc = s.FechaUltimaActualizacionUtc
+                    })
+                    .ToListAsync(cancellationToken);
+
+                var baseByTenant = baseForAddons
+                    .GroupBy(s => s.TenantId)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => group
+                            .OrderByDescending(s => s.FechaUltimaActualizacionUtc ?? s.FechaInicio)
+                            .First());
+
+                foreach (var addonTenantId in addonTenantIds)
+                {
+                    baseByTenant.TryGetValue(addonTenantId, out var baseSubscription);
+                    var basePlanCode = baseSubscription?.CodigoPlan;
+                    var isRealBase = baseSubscription is not null &&
+                        (string.IsNullOrWhiteSpace(basePlanCode) ||
+                         !PlanCodes.WhatsAppAddons.Contains(basePlanCode, StringComparer.OrdinalIgnoreCase));
+                    var hasActiveBase = baseSubscription is not null && isRealBase &&
+                                        _suscripcionService.CanAccessApp(baseSubscription);
+                    if (!hasActiveBase)
+                    {
+                        addonWithoutActiveBase++;
+                    }
+                }
+            }
+
+            var addonOpenPaymentIncidents = await _db.SubscriptionPaymentIncidents
+                .IgnoreQueryFilters()
+                .CountAsync(incident =>
+                    incident.Scope == PaymentIncidentScope.WhatsAppAddon &&
+                    incident.Status == PaymentIncidentStatus.Open, cancellationToken);
+
+            var addonMoneyRisk = addonPendingProviderCancellation + addonDoubleActiveTenants;
 
             var pendingPayments = await _db.PagosSuscripcion.IgnoreQueryFilters()
                 .CountAsync(p => p.Estado == EstadoPagoProveedor.Pendiente, cancellationToken);
@@ -636,20 +723,21 @@ namespace LuxuryApp.Services.Billing
                     log.Action == PlatformAuditActions.SubscriptionProviderStatusMismatch &&
                     log.CreatedAtUtc >= last7dUtc, cancellationToken);
 
-            // ── Recuperación de pago ──
+            // ── Recuperación de pago (SOLO base: los incidentes de add-on van en su propia sección) ──
             var openPaymentIncidents = await _db.SubscriptionPaymentIncidents.IgnoreQueryFilters()
-                .CountAsync(i => i.Status == PaymentIncidentStatus.Open, cancellationToken);
+                .CountAsync(i => i.Scope == PaymentIncidentScope.BasePlan && i.Status == PaymentIncidentStatus.Open, cancellationToken);
             var activeGracePeriods = await _db.SubscriptionPaymentIncidents.IgnoreQueryFilters()
                 .CountAsync(i =>
+                    i.Scope == PaymentIncidentScope.BasePlan &&
                     i.Status == PaymentIncidentStatus.Open &&
                     i.GraceEndsAtUtc != null &&
                     i.GraceEndsAtUtc > nowUtc, cancellationToken);
             var graceExpiredNotSuspended = await _db.SubscriptionPaymentIncidents.IgnoreQueryFilters()
-                .CountAsync(i => i.Status == PaymentIncidentStatus.GraceExpired, cancellationToken);
+                .CountAsync(i => i.Scope == PaymentIncidentScope.BasePlan && i.Status == PaymentIncidentStatus.GraceExpired, cancellationToken);
             var suspendedForNonPayment = await _db.Suscripciones.IgnoreQueryFilters()
                 .CountAsync(s => s.PaymentRecoveryStatus == "Suspended", cancellationToken);
             var paymentRecoveryManualReview = await _db.SubscriptionPaymentIncidents.IgnoreQueryFilters()
-                .CountAsync(i => i.Status == PaymentIncidentStatus.ManualReview, cancellationToken);
+                .CountAsync(i => i.Scope == PaymentIncidentScope.BasePlan && i.Status == PaymentIncidentStatus.ManualReview, cancellationToken);
             var notificationsFailed7d = await _db.PlatformAuditLogs
                 .CountAsync(log =>
                     log.Action == PlatformAuditActions.PaymentRecoveryNotificationFailed &&
@@ -662,6 +750,11 @@ namespace LuxuryApp.Services.Billing
             return new BillingHealthSnapshot
             {
                 GeneratedAtUtc = nowUtc,
+                WhatsAppAddonsWithoutActiveBase = addonWithoutActiveBase,
+                WhatsAppAddonsPendingProviderCancellation = addonPendingProviderCancellation,
+                WhatsAppAddonsDoubleActiveTenants = addonDoubleActiveTenants,
+                WhatsAppAddonOpenPaymentIncidents = addonOpenPaymentIncidents,
+                WhatsAppAddonMoneyRiskCount = addonMoneyRisk,
                 ActiveSubscriptions = active,
                 TrialSubscriptions = trial,
                 MorosaSubscriptions = morosa,

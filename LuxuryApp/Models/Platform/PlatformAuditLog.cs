@@ -283,6 +283,12 @@ namespace LuxuryApp.Models.Platform
         /// <summary>Se generó una URL de actualización de método de pago (recurrentUrl). NUNCA se loguea la URL.</summary>
         public const string PaymentMethodUpdateUrlGenerated = "PaymentMethodUpdateUrlGenerated";
 
+        /// <summary>
+        /// Se generó la recurrentUrl SOLO con el contrato de fallback (id_plan+aliases): el enlace es
+        /// sospechoso (el contrato primario id_plan falló). Distinto del éxito normal para no ocultarlo.
+        /// </summary>
+        public const string PaymentMethodUpdateUrlGeneratedWithFallback = "PaymentMethodUpdateUrlGeneratedWithFallback";
+
         /// <summary>No se pudo generar la URL de actualización de método de pago (o falló la validación de dominio).</summary>
         public const string PaymentMethodUpdateUrlFailed = "PaymentMethodUpdateUrlFailed";
 
@@ -355,6 +361,44 @@ namespace LuxuryApp.Models.Platform
         /// pausa/baja, sin cambiar el acceso ni el estado local de la suscripción.
         /// </summary>
         public const string SubscriptionProviderStatusSynced = "SubscriptionProviderStatusSynced";
+
+        // ── Ciclo de vida del ADD-ON de WhatsApp (independiente del plan base) ──
+        // Espeja las reglas money-critical del base: toda baja del suscriptor del add-on se VERIFICA
+        // contra getSuscriptorRepeat (un 200 nunca basta) y, si no se puede, queda pendiente + alerta.
+        // El add-on NUNCA toca el estado del plan base y viceversa.
+
+        /// <summary>El cliente/soporte/cascada solicitó cancelar la renovación del add-on de WhatsApp.</summary>
+        public const string AddonCancellationRequested = "AddonCancellationRequested";
+
+        /// <summary>Cancelación de renovación del add-on PROGRAMADA: el uso sigue hasta el fin del período ya pagado.</summary>
+        public const string AddonCancellationScheduledAtPeriodEnd = "AddonCancellationScheduledAtPeriodEnd";
+
+        /// <summary>VERIFICADO contra TiloPay: el suscriptor del add-on quedó inactivo. No habrá nuevos cobros del add-on.</summary>
+        public const string AddonProviderCancellationVerified = "AddonProviderCancellationVerified";
+
+        /// <summary>Idempotente: el suscriptor del add-on ya estaba inactivo en TiloPay al pedir cancelar.</summary>
+        public const string AddonProviderCancellationAlreadyInactive = "AddonProviderCancellationAlreadyInactive";
+
+        /// <summary>CRÍTICO: no se pudo cancelar/verificar la baja del suscriptor del add-on (API apagado, 200 sin verificar o sigue Activo). Riesgo de doble cobro del add-on. Reintento con backoff.</summary>
+        public const string AddonProviderCancellationFailedManualReview = "AddonProviderCancellationFailedManualReview";
+
+        /// <summary>Strategy B del add-on: tras confirmar el add-on NUEVO se canceló el suscriptor ANTERIOR (huérfano de upgrade/downgrade) en TiloPay.</summary>
+        public const string AddonUpgradeOldSubscriberCancellationCompleted = "AddonUpgradeOldSubscriberCancellationCompleted";
+
+        /// <summary>CRÍTICO: no se pudo cancelar el suscriptor ANTERIOR del add-on tras un cambio de paquete. Riesgo de doble cobro. Queda pendiente con backoff.</summary>
+        public const string AddonUpgradeOldSubscriberCancellationFailed = "AddonUpgradeOldSubscriberCancellationFailed";
+
+        /// <summary>Reconciliación: add-on de WhatsApp ACTIVO con el plan base cancelado/vencido. Requiere revisión (cancelar el add-on o el estado del base).</summary>
+        public const string AddonActiveWithoutActiveBaseAlert = "AddonActiveWithoutActiveBaseAlert";
+
+        /// <summary>Reconciliación: drift entre el add-on local y el proveedor (activo local sin suscriptor cobrable, o al revés).</summary>
+        public const string AddonProviderStateMismatch = "AddonProviderStateMismatch";
+
+        /// <summary>Pago recurrente del add-on fallido: se abrió incidente + gracia del add-on (no toca el plan base).</summary>
+        public const string AddonPaymentFailedGraceStarted = "AddonPaymentFailedGraceStarted";
+
+        /// <summary>Pago recurrente del add-on exitoso posterior: el incidente del add-on se resolvió y se limpió su gracia.</summary>
+        public const string AddonPaymentRecoveryResolved = "AddonPaymentRecoveryResolved";
     }
 
     public static class PlatformAuditEntityTypes
@@ -365,5 +409,6 @@ namespace LuxuryApp.Models.Platform
         public const string Billing = "Billing";
         public const string PromotionalCode = "PromotionalCode";
         public const string CommercialSnapshot = "CommercialSnapshot";
+        public const string WhatsAppAddon = "WhatsAppAddon";
     }
 }

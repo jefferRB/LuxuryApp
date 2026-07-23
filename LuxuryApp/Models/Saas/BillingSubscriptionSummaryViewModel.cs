@@ -57,17 +57,28 @@ namespace LuxuryApp.Models.SaaS
         /// <summary>Estado de recuperación tal cual lo guardó el backend: "GraceActive"/"GraceExpired"/"Suspended"/null.</summary>
         public string? PaymentRecoveryStatus { get; init; }
 
+        /// <summary>
+        /// La ventana de gracia (FechaFinGraciaUtc) ya venció por reloj, aunque el worker todavía no
+        /// haya marcado GraceExpired. Fail-safe de la UI: no mostrar "en gracia" con la fecha vencida.
+        /// Lo calcula el servicio contra la hora actual.
+        /// </summary>
+        public bool PaymentGraceWindowEnded { get; init; }
+
         private bool RecoveryTakesPrecedence => !IsRenewalPaused && !CancelAtPeriodEnd;
+        private bool IsGraceActiveStatus => string.Equals(PaymentRecoveryStatus, "GraceActive", StringComparison.OrdinalIgnoreCase);
+        private bool IsGraceExpiredStatus => string.Equals(PaymentRecoveryStatus, "GraceExpired", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>Pago fallido con gracia todavía vigente: acceso mantenido, aún sin cortar.</summary>
         public bool PaymentInGrace =>
-            RecoveryTakesPrecedence &&
-            string.Equals(PaymentRecoveryStatus, "GraceActive", StringComparison.OrdinalIgnoreCase);
+            RecoveryTakesPrecedence && IsGraceActiveStatus && !PaymentGraceWindowEnded;
 
-        /// <summary>Gracia vencida SIN suspensión (AutoSuspendAfterGrace=false): acceso conservado, aviso fuerte.</summary>
+        /// <summary>
+        /// Gracia vencida SIN suspensión (acceso conservado, aviso fuerte). Incluye el fail-safe:
+        /// si el backend aún dice "GraceActive" pero la fecha ya venció, la UI trata como vencida.
+        /// </summary>
         public bool PaymentGraceExpired =>
             RecoveryTakesPrecedence &&
-            string.Equals(PaymentRecoveryStatus, "GraceExpired", StringComparison.OrdinalIgnoreCase);
+            (IsGraceExpiredStatus || (IsGraceActiveStatus && PaymentGraceWindowEnded));
 
         /// <summary>Cuenta suspendida por impago (AutoSuspendAfterGrace=true y el worker suspendió).</summary>
         public bool PaymentSuspended =>
@@ -75,6 +86,17 @@ namespace LuxuryApp.Models.SaaS
 
         /// <summary>Hay algún estado de recuperación con banner accionable (no mezcla con pausa/cancelación).</summary>
         public bool HasPaymentRecoveryBanner => PaymentInGrace || PaymentGraceExpired || PaymentSuspended;
+
+        /// <summary>
+        /// Etiqueta de estado a mostrar cuando manda la recuperación de pago (reemplaza el genérico
+        /// "En gracia" de Morosa). Null cuando no hay estado de recuperación (se usa StatusLabel).
+        /// GraceExpired NUNCA dice "En gracia": la gracia ya venció.
+        /// </summary>
+        public string? PaymentStateBadgeLabel =>
+            PaymentInGrace ? "En período de gracia"
+            : PaymentGraceExpired ? "Pago pendiente"
+            : PaymentSuspended ? "Suspendida por pago pendiente"
+            : null;
 
         /// <summary>
         /// Se puede ofrecer "Actualizar método de pago": suscripción recurrente TiloPay con acceso
@@ -137,6 +159,31 @@ namespace LuxuryApp.Models.SaaS
         public TimeOnly? QuietHoursEnd { get; init; }
 
         public DateTime? WhatsAppNextBillingDateUtc { get; init; }
+
+        /// <summary>Próximo cobro del ADD-ON (ciclo INDEPENDIENTE del plan base), fecha de calendario Tica.</summary>
+        public string? WhatsAppNextBillingDateDisplay { get; init; }
+
+        /// <summary>El add-on es recurrente (tiene suscriptor TiloPay): condición para cancelar/cambiar en línea.</summary>
+        public bool WhatsAppAddonIsRecurring { get; init; }
+
+        /// <summary>La renovación del add-on ya fue cancelada: sigue activo hasta la fecha efectiva, sin nuevos cobros.</summary>
+        public bool WhatsAppAddonCancelAtPeriodEnd { get; init; }
+
+        /// <summary>Fecha hasta la que el add-on sigue vigente cuando su renovación fue cancelada (display Tico).</summary>
+        public string? WhatsAppAddonEndsDisplay { get; init; }
+
         public bool HasWhatsAppAddon => !string.IsNullOrWhiteSpace(WhatsAppAddonCode);
+
+        /// <summary>
+        /// El cliente puede cancelar la renovación del add-on ahora: add-on recurrente activo/moroso,
+        /// sin una cancelación ya pedida. Independiente del ciclo del plan base.
+        /// </summary>
+        public bool CanCancelWhatsAppAddon =>
+            HasWhatsAppAddon &&
+            WhatsAppAddonIsRecurring &&
+            !WhatsAppAddonCancelAtPeriodEnd &&
+            (WhatsAppAddonStatus == EstadoSuscripcion.Activa ||
+             WhatsAppAddonStatus == EstadoSuscripcion.Morosa ||
+             WhatsAppAddonStatus == EstadoSuscripcion.Trial);
     }
 }

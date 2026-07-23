@@ -31,6 +31,7 @@ namespace LuxuryApp.Services.Payments
         private readonly Billing.ISubscriberResolutionService? _subscriberResolutionService;
         private readonly Tilopay.ITilopayRepeatAdminService? _tilopayRepeatAdminService;
         private readonly Billing.IProviderSubscriptionManager? _providerSubscriptionManager;
+        private readonly Billing.IAddonSubscriptionManager? _addonSubscriptionManager;
         private readonly Billing.IPlanChangeLateApplicationService? _planChangeLateApplicationService;
         private readonly Billing.IPaymentRecoveryService? _paymentRecovery;
         private readonly OpcionesTilopayRepeatAdmin _tilopayRepeatAdminOptions;
@@ -51,7 +52,8 @@ namespace LuxuryApp.Services.Payments
             IOptions<OpcionesTilopayRepeatAdmin>? tilopayRepeatAdminOptions = null,
             Billing.IProviderSubscriptionManager? providerSubscriptionManager = null,
             Billing.IPlanChangeLateApplicationService? planChangeLateApplicationService = null,
-            Billing.IPaymentRecoveryService? paymentRecovery = null)
+            Billing.IPaymentRecoveryService? paymentRecovery = null,
+            Billing.IAddonSubscriptionManager? addonSubscriptionManager = null)
         {
             _db = db;
             _providerResolver = providerResolver;
@@ -66,6 +68,7 @@ namespace LuxuryApp.Services.Payments
             _subscriberResolutionService = subscriberResolutionService;
             _tilopayRepeatAdminService = tilopayRepeatAdminService;
             _providerSubscriptionManager = providerSubscriptionManager;
+            _addonSubscriptionManager = addonSubscriptionManager;
             _planChangeLateApplicationService = planChangeLateApplicationService;
             _paymentRecovery = paymentRecovery;
             _tilopayRepeatAdminOptions = tilopayRepeatAdminOptions?.Value ?? new OpcionesTilopayRepeatAdmin();
@@ -1577,6 +1580,37 @@ namespace LuxuryApp.Services.Payments
                     var paymentAttempt = intento ?? throw new InvalidOperationException(
                         "No fue posible crear el intento recurrente requerido para registrar el pago fallido.");
 
+                    // ── IDEMPOTENCIA CRÍTICA ─────────────────────────────────────────────────
+                    // Un replay/duplicado de un ProviderTransactionId ya APROBADO NUNCA puede
+                    // degradar un pago aprobado ni poner la suscripción en morosa. La dedup por
+                    // EventId no lo cubre: un replay con OTRO tipo de evento (p.ej. real llegó como
+                    // repeat_payment_success y el replay como tilopay_repeat_notification) genera un
+                    // EventId distinto y llega hasta acá. La protección se hace a nivel de PAGO.
+                    if (paymentAttempt.Estado == EstadoPagoProveedor.Confirmado)
+                    {
+                        var replayTransactionId = ResolveApprovedProviderTransactionId(webhook);
+                        var replayReference = ResolveProviderReference(webhook);
+
+                        if (MatchesConfirmedAttempt(paymentAttempt, replayTransactionId, replayReference))
+                        {
+                            _logger.LogInformation(
+                                "Webhook recurrente idempotente: replay de un pago ya APROBADO; no se degrada el pago ni la suscripción. PaymentId {PaymentId}. EventType {EventType}. TxnSuffix {TxnSuffix}.",
+                                paymentAttempt.Id,
+                                webhook.EventType,
+                                SensitiveDataMasker.MaskReference(paymentAttempt.ProviderTransactionId));
+
+                            return await MarkAlreadyProcessedPaymentEventAsDuplicateAsync(
+                                evento, paymentAttempt, webhook, replayReference, cancellationToken,
+                                estadoProcesamiento: "Duplicado");
+                        }
+
+                        // Confirmado pero de OTRA transacción: NO se degrada el confirmado; el fallo
+                        // se registra en un intento NUEVO (mismo patrón que la rama de aprobación).
+                        paymentAttempt = await EnsureRecurringPaymentAttemptAsync(
+                            tenantId, internalPlan, webhook, resolvedPlan, cancellationToken);
+                        intento = paymentAttempt;
+                    }
+
                     paymentAttempt.Estado = MapFailedStatus(webhook.StatusCode);
                     paymentAttempt.ProviderResultCode = FirstNonEmpty(webhook.StatusCode, "REPEAT_PAYMENT_FAILED");
                     paymentAttempt.ProviderResultMessage = Trim(
@@ -1687,6 +1721,30 @@ namespace LuxuryApp.Services.Payments
                         _logger.LogError(
                             ex,
                             "Cancelación del suscriptor anterior tras upgrade no se completó. TenantId {TenantId}.",
+                            tenantId);
+                    }
+                }
+
+                // Strategy B del ADD-ON: si este pago exitoso cambió el paquete (WA400→WA800→…), el
+                // suscriptor ANTERIOR del add-on quedó pendiente de baja. Cancelarlo AHORA (post-commit,
+                // best-effort, HTTP fuera de tx) para no arrastrar doble cobro del add-on. Si el API
+                // admin está apagado, TryCancel devuelve NotCalled y la reconciliación reintenta/alerta.
+                if (resolvedPlan.IsAddon &&
+                    (IsRecurringPaymentSuccessEvent(webhook.EventType) || IsRecurringApproved(webhook)) &&
+                    _addonSubscriptionManager is not null &&
+                    _addonSubscriptionManager.IsEnabled)
+                {
+                    try
+                    {
+                        await _addonSubscriptionManager.TryCancelPendingAddonSubscriberAsync(
+                            tenantId,
+                            cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(
+                            ex,
+                            "Cancelación del suscriptor anterior del add-on tras cambio no se completó. TenantId {TenantId}.",
                             tenantId);
                     }
                 }
@@ -3151,7 +3209,8 @@ namespace LuxuryApp.Services.Payments
             PagoSuscripcion intento,
             PaymentProviderWebhookData webhook,
             string? providerReference,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            string estadoProcesamiento = "Procesado")
         {
             evento.TenantId = intento.TenantId;
             evento.PlanId = intento.PlanId;
@@ -3161,7 +3220,9 @@ namespace LuxuryApp.Services.Payments
                 webhook.ProviderTransactionId,
                 webhook.ProviderOrderNumber);
             evento.ReferenciaExterna = FirstNonEmpty(providerReference, evento.ReferenciaExterna);
-            evento.EstadoProcesamiento = "Procesado";
+            // Marca terminal + etiqueta: los replays idempotentes se guardan como "Duplicado" para
+            // que soporte los distinga de un procesamiento normal (IsTerminal cubre ambos).
+            evento.EstadoProcesamiento = estadoProcesamiento;
             evento.Procesado = true;
             evento.FechaProcesamientoUtc = DateTime.UtcNow;
             evento.Error = null;
@@ -3751,9 +3812,11 @@ namespace LuxuryApp.Services.Payments
                 : eventType.Trim().Replace('.', '_').Replace('-', '_').ToLowerInvariant();
 
         /// <summary>
-        /// Engancha la recuperación de pago tras procesar (y commitear) un webhook recurrente del
-        /// plan base: éxito ⇒ resuelve el incidente; fallo ⇒ abre/actualiza incidente + gracia.
-        /// Best-effort: cualquier error se registra y NO afecta el resultado del webhook.
+        /// Engancha la recuperación de pago tras procesar (y commitear) un webhook recurrente:
+        /// éxito ⇒ resuelve el incidente; fallo ⇒ abre/actualiza incidente + gracia. El ámbito
+        /// (base vs add-on) se resuelve por <paramref name="isAddon"/> y NUNCA se cruzan: un evento
+        /// de add-on solo toca incidentes de add-on y viceversa. Best-effort: cualquier error se
+        /// registra y NO afecta el resultado del webhook.
         /// </summary>
         private async Task TryTrackPaymentRecoveryAsync(
             Guid tenantId,
@@ -3762,18 +3825,41 @@ namespace LuxuryApp.Services.Payments
             PaymentProviderWebhookData webhook,
             CancellationToken cancellationToken)
         {
-            if (_paymentRecovery is null || isAddon)
+            if (_paymentRecovery is null)
             {
                 return;
             }
 
             try
             {
-                if (IsRecurringPaymentSuccessEvent(webhook.EventType) || IsRecurringApproved(webhook))
+                var isSuccess = IsRecurringPaymentSuccessEvent(webhook.EventType) || IsRecurringApproved(webhook);
+                var isFailure = IsRecurringPaymentFailedEvent(webhook.EventType);
+
+                if (isAddon)
+                {
+                    if (isSuccess)
+                    {
+                        await _paymentRecovery.ResolveAddonOnSuccessAsync(tenantId, recurringPlanId, cancellationToken);
+                    }
+                    else if (isFailure)
+                    {
+                        await _paymentRecovery.RegisterFailedAddonPaymentAsync(
+                            tenantId,
+                            recurringPlanId,
+                            webhook.ProviderSubscriberId,
+                            webhook.StatusCode,
+                            webhook.StatusDescription,
+                            cancellationToken);
+                    }
+
+                    return;
+                }
+
+                if (isSuccess)
                 {
                     await _paymentRecovery.ResolveOnSuccessAsync(tenantId, recurringPlanId, cancellationToken);
                 }
-                else if (IsRecurringPaymentFailedEvent(webhook.EventType))
+                else if (isFailure)
                 {
                     await _paymentRecovery.RegisterFailedPaymentAsync(
                         tenantId,
@@ -3786,7 +3872,7 @@ namespace LuxuryApp.Services.Payments
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Tracking de recuperación de pago no se completó. TenantId {TenantId}.", tenantId);
+                _logger.LogError(ex, "Tracking de recuperación de pago no se completó. TenantId {TenantId}. IsAddon {IsAddon}.", tenantId, isAddon);
             }
         }
 

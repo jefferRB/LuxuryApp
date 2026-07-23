@@ -391,6 +391,9 @@ builder.Services.AddHttpClient<LuxuryApp.Services.Tilopay.ITilopayRepeatAdminSer
     });
 builder.Services.AddScoped<LuxuryApp.Services.Billing.ISubscriberResolutionService, LuxuryApp.Services.Billing.SubscriberResolutionService>();
 builder.Services.AddScoped<LuxuryApp.Services.Billing.IProviderSubscriptionManager, LuxuryApp.Services.Billing.ProviderSubscriptionManager>();
+// Cancelación SALIENTE del suscriptor del add-on de WhatsApp (Strategy B en cambio de paquete +
+// cascada del plan base). Manual-safe: verifica contra TiloPay o deja pendiente + alerta.
+builder.Services.AddScoped<LuxuryApp.Services.Billing.IAddonSubscriptionManager, LuxuryApp.Services.Billing.AddonSubscriptionManager>();
 // Aplica un cambio de plan cuyo pago ya está confirmado pero cuyo id_suscriptor nuevo llegó tarde
 // (TiloPay no lo manda en el webhook). Lo usan el webhook y la reconciliación.
 builder.Services.AddScoped<LuxuryApp.Services.Billing.IPlanChangeLateApplicationService, LuxuryApp.Services.Billing.PlanChangeLateApplicationService>();

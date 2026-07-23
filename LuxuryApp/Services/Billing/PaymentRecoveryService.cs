@@ -72,6 +72,29 @@ namespace LuxuryApp.Services.Billing
             CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Igual que <see cref="RegisterFailedPaymentAsync"/> pero para el ADD-ON de WhatsApp: abre/
+        /// actualiza un incidente con Scope=WhatsAppAddon ligado a la fila del add-on. NUNCA toca el
+        /// plan base ni sus incidentes. La gracia/estado del add-on ya los maneja SuscripcionService;
+        /// acá solo se agrega el incidente (historial + visibilidad en Mission Control). Sin emails.
+        /// </summary>
+        Task RegisterFailedAddonPaymentAsync(
+            Guid tenantId,
+            int? failedRecurringPlanId,
+            string? providerSubscriberId,
+            string? resultCode,
+            string? resultMessage,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Resuelve el incidente ABIERTO del add-on tras un pago exitoso del add-on actual. Un éxito de
+        /// otro paquete no toca el incidente actual. Idempotente. NUNCA toca el plan base.
+        /// </summary>
+        Task ResolveAddonOnSuccessAsync(
+            Guid tenantId,
+            int? paidRecurringPlanId,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Pase LOCAL (sin HTTP) que cierra los incidentes cuya gracia venció: los marca GraceExpired
         /// y, SOLO si <c>AutoSuspendAfterGrace=true</c>, suspende el acceso; si no, deja rastro dry-run
         /// sin cortar. Nunca suspende antes de la fecha efectiva ni con renovación cancelada vigente.
@@ -323,6 +346,168 @@ namespace LuxuryApp.Services.Billing
                 tenantId, open?.Id);
         }
 
+        public async Task RegisterFailedAddonPaymentAsync(
+            Guid tenantId,
+            int? failedRecurringPlanId,
+            string? providerSubscriberId,
+            string? resultCode,
+            string? resultMessage,
+            CancellationToken cancellationToken = default)
+        {
+            if (!_options.Enabled || tenantId == Guid.Empty)
+            {
+                return;
+            }
+
+            using var scope = _tenantExecutionContextAccessor.BeginScope(tenantId);
+            var nowUtc = GetUtcNow();
+
+            var addon = await _db.TenantSubscriptionAddons
+                .IgnoreQueryFilters()
+                .Where(a => a.TenantId == tenantId)
+                .OrderByDescending(a => a.UpdatedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (addon is null)
+            {
+                return;
+            }
+
+            // Fallo de un add-on VIEJO (ya cambiado): no abre incidente del actual.
+            if (failedRecurringPlanId is { } failedPlan &&
+                addon.TilopayRecurringPlanId is { } currentPlan &&
+                failedPlan != currentPlan)
+            {
+                return;
+            }
+
+            var planId = addon.TilopayRecurringPlanId;
+
+            var existing = await _db.SubscriptionPaymentIncidents
+                .IgnoreQueryFilters()
+                .Where(i =>
+                    i.TenantId == tenantId &&
+                    i.Status == PaymentIncidentStatus.Open &&
+                    i.Scope == PaymentIncidentScope.WhatsAppAddon &&
+                    i.AddonId == addon.Id)
+                .OrderByDescending(i => i.CreatedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (existing is not null)
+            {
+                existing.FailureCount += 1;
+                existing.ProviderResultCode = Trim(resultCode, 40) ?? existing.ProviderResultCode;
+                existing.ProviderResultMessage = Trim(resultMessage, 300) ?? existing.ProviderResultMessage;
+                existing.ProviderSubscriptionId = providerSubscriberId ?? existing.ProviderSubscriptionId;
+                existing.UpdatedAtUtc = nowUtc;
+                await _db.SaveChangesAsync(cancellationToken);
+                return;
+            }
+
+            var clienteEmail = await ResolveTenantEmailAsync(tenantId, cancellationToken);
+            var graceEndsAtUtc = addon.FechaFinGraciaUtc ?? nowUtc.AddDays(Math.Clamp(_options.GraceDays, 1, 60));
+
+            var incident = new SubscriptionPaymentIncident
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                Scope = PaymentIncidentScope.WhatsAppAddon,
+                AddonId = addon.Id,
+                SuscripcionId = Guid.Empty, // no aplica al add-on (columna escalar, sin FK)
+                PlanCode = addon.AddonCode,
+                TilopayRecurringPlanId = planId,
+                ProviderSubscriptionId = providerSubscriberId ?? addon.ProviderSubscriptionId,
+                ClienteEmail = Trim(clienteEmail, 320),
+                Status = PaymentIncidentStatus.Open,
+                FailureDetectedAtUtc = nowUtc,
+                GraceEndsAtUtc = graceEndsAtUtc,
+                ProviderEventKey = BuildEventKey(tenantId, planId, resultCode, nowUtc),
+                ProviderResultCode = Trim(resultCode, 40),
+                ProviderResultMessage = Trim(resultMessage, 300),
+                FailureCount = 1,
+                CreatedAtUtc = nowUtc,
+                UpdatedAtUtc = nowUtc
+            };
+            _db.SubscriptionPaymentIncidents.Add(incident);
+
+            _db.PlatformAuditLogs.Add(BuildAudit(
+                PlatformAuditActions.AddonPaymentFailedGraceStarted,
+                tenantId,
+                incident.Id.ToString(),
+                $"Pago recurrente del ADD-ON fallido: incidente abierto (no afecta el plan base). " +
+                $"Add-on {addon.AddonCode}. Gracia hasta {graceEndsAtUtc:yyyy-MM-dd HH:mm} UTC. Code {Trim(resultCode, 40)}.",
+                nowUtc));
+
+            await _db.SaveChangesAsync(cancellationToken);
+
+            _logger.LogWarning(
+                "Incidente de pago del add-on abierto. TenantId {TenantId}. IncidentId {IncidentId}. AddonId {AddonId}.",
+                tenantId, incident.Id, addon.Id);
+        }
+
+        public async Task ResolveAddonOnSuccessAsync(
+            Guid tenantId,
+            int? paidRecurringPlanId,
+            CancellationToken cancellationToken = default)
+        {
+            if (!_options.Enabled || tenantId == Guid.Empty)
+            {
+                return;
+            }
+
+            using var scope = _tenantExecutionContextAccessor.BeginScope(tenantId);
+            var nowUtc = GetUtcNow();
+
+            var addon = await _db.TenantSubscriptionAddons
+                .IgnoreQueryFilters()
+                .Where(a => a.TenantId == tenantId)
+                .OrderByDescending(a => a.UpdatedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (addon is null)
+            {
+                return;
+            }
+
+            // Un éxito de OTRO paquete no resuelve el incidente del add-on actual.
+            if (paidRecurringPlanId is { } paidPlan &&
+                addon.TilopayRecurringPlanId is { } currentPlan &&
+                paidPlan != currentPlan)
+            {
+                return;
+            }
+
+            var open = await _db.SubscriptionPaymentIncidents
+                .IgnoreQueryFilters()
+                .Where(i =>
+                    i.TenantId == tenantId &&
+                    i.Status == PaymentIncidentStatus.Open &&
+                    i.Scope == PaymentIncidentScope.WhatsAppAddon &&
+                    i.AddonId == addon.Id)
+                .OrderByDescending(i => i.CreatedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (open is null)
+            {
+                return;
+            }
+
+            open.Status = PaymentIncidentStatus.Resolved;
+            open.ResolvedAtUtc = nowUtc;
+            open.UpdatedAtUtc = nowUtc;
+
+            _db.PlatformAuditLogs.Add(BuildAudit(
+                PlatformAuditActions.AddonPaymentRecoveryResolved,
+                tenantId,
+                open.Id.ToString(),
+                "Pago del add-on confirmado: incidente de recuperación del add-on resuelto.",
+                nowUtc));
+
+            await _db.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "Incidente de recuperación del add-on resuelto por pago confirmado. TenantId {TenantId}. IncidentId {IncidentId}.",
+                tenantId, open.Id);
+        }
+
         public async Task<int> RunGraceExpirationPassAsync(CancellationToken cancellationToken = default)
         {
             if (!_options.Enabled)
@@ -341,7 +526,9 @@ namespace LuxuryApp.Services.Billing
                 .Select(i => new { i.Id, i.TenantId })
                 .ToListAsync(cancellationToken);
 
-            var processed = 0;
+            var openChecked = candidates.Count;
+            int graceExpiredMarked = 0, suspended = 0, dryRuns = 0, ignored = 0, processed = 0;
+
             foreach (var candidate in candidates)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -353,9 +540,17 @@ namespace LuxuryApp.Services.Billing
                 try
                 {
                     _db.ChangeTracker.Clear();
-                    if (await ExpireOneGraceAsync(candidate.Id, candidate.TenantId, nowUtc, cancellationToken))
+                    switch (await ExpireOneGraceAsync(candidate.Id, candidate.TenantId, nowUtc, cancellationToken))
                     {
-                        processed++;
+                        case GraceExpirationOutcome.Ignored:
+                            ignored++; processed++; break;
+                        case GraceExpirationOutcome.DryRunMarked:
+                            dryRuns++; graceExpiredMarked++; processed++; break;
+                        case GraceExpirationOutcome.Suspended:
+                            suspended++; graceExpiredMarked++; processed++; break;
+                        case GraceExpirationOutcome.Skipped:
+                        default:
+                            break;
                     }
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -369,7 +564,30 @@ namespace LuxuryApp.Services.Billing
                 }
             }
 
+            if (openChecked > 0)
+            {
+                _logger.LogInformation(
+                    "Pase de expiración de gracia. OpenChecked {OpenChecked}. GraceExpiredMarked {GraceExpiredMarked}. Suspended {Suspended}. DryRuns {DryRuns}. Ignored {Ignored}. AutoSuspend {AutoSuspend}.",
+                    openChecked, graceExpiredMarked, suspended, dryRuns, ignored, _options.AutoSuspendAfterGrace);
+            }
+
             return processed;
+        }
+
+        /// <summary>Qué le pasó a un incidente en el pase de expiración de gracia.</summary>
+        private enum GraceExpirationOutcome
+        {
+            /// <summary>No aplicaba (ya no Open, o la gracia aún no venció entre la lectura y el tracked).</summary>
+            Skipped,
+
+            /// <summary>Renovación cancelada: fallo no accionable, incidente marcado Ignored.</summary>
+            Ignored,
+
+            /// <summary>Marcado GraceExpired conservando el acceso (AutoSuspend=false, o período pagado aún vigente).</summary>
+            DryRunMarked,
+
+            /// <summary>Marcado GraceExpired y acceso suspendido por impago (AutoSuspend=true y período pagado vencido).</summary>
+            Suspended
         }
 
         public async Task<IReadOnlyList<PaymentRecoveryConsoleItem>> ListConsoleIncidentsAsync(CancellationToken cancellationToken = default)
@@ -524,17 +742,54 @@ namespace LuxuryApp.Services.Billing
                 incident.ResolvedAtUtc = nowUtc;
             }
 
-            // Limpiar el banner de recuperación de la suscripción. NO se toca el Estado: si el acceso
-            // estaba suspendido, se reactiva desde el ciclo de vida, no desde acá.
+            // Solo se limpia el estado de recuperación de la suscripción si NO quedan otros incidentes
+            // vivos (otro incidente abierto/vencido/revisión sigue siendo válido y no debe borrarse).
+            var hasOtherLiveIncidents = await _db.SubscriptionPaymentIncidents
+                .IgnoreQueryFilters()
+                .AnyAsync(i =>
+                    i.TenantId == owner &&
+                    i.Id != incidentId &&
+                    (i.Status == PaymentIncidentStatus.Open ||
+                     i.Status == PaymentIncidentStatus.GraceExpired ||
+                     i.Status == PaymentIncidentStatus.ManualReview),
+                    cancellationToken);
+
             var subscription = await LoadSubscriptionAsync(owner, cancellationToken);
             if (subscription is not null)
             {
-                subscription.LastPaymentFailedAtUtc = null;
-                if (!string.Equals(subscription.PaymentRecoveryStatus, "Suspended", StringComparison.Ordinal))
-                {
-                    subscription.PaymentRecoveryStatus = null;
-                }
                 subscription.FechaUltimaActualizacionUtc = nowUtc;
+
+                if (!hasOtherLiveIncidents)
+                {
+                    // Una suspensión REAL (acceso cortado) no se limpia ni se reactiva desde acá:
+                    // reactivar un suspendido es una acción de ciclo de vida explícita.
+                    var reallySuspended =
+                        subscription.Estado == EstadoSuscripcion.Suspendida ||
+                        string.Equals(subscription.PaymentRecoveryStatus, "Suspended", StringComparison.Ordinal);
+
+                    subscription.LastPaymentFailedAtUtc = null;
+                    subscription.LastPaymentRecoveryNotificationAtUtc = null;
+
+                    if (!reallySuspended)
+                    {
+                        subscription.PaymentRecoveryStatus = null;
+                        subscription.FechaFinGraciaUtc = null;
+
+                        // Si la morosidad la causó recovery y la suscripción sigue vigente (sin otros
+                        // bloqueos), al RESOLVER se vuelve a Activa para que la UI quede consistente.
+                        if (targetStatus == PaymentIncidentStatus.Resolved &&
+                            subscription.Estado == EstadoSuscripcion.Morosa &&
+                            !subscription.CancelAtPeriodEnd &&
+                            subscription.ProviderPausedAtUtc is null &&
+                            SubscriptionEffectiveDates.GetEffectiveEndUtc(subscription.FechaFin, subscription.ProviderExpiresAtUtc) is { } end &&
+                            end > nowUtc)
+                        {
+                            subscription.Estado = EstadoSuscripcion.Activa;
+                            subscription.MotivoEstado = "Incidente de pago resuelto manualmente por soporte.";
+                            _accessCache?.Invalidate(owner);
+                        }
+                    }
+                }
             }
 
             var detail = reason is null
@@ -549,7 +804,7 @@ namespace LuxuryApp.Services.Billing
             return PaymentRecoveryActionResult.Ok(successMessage);
         }
 
-        private async Task<bool> ExpireOneGraceAsync(Guid incidentId, Guid tenantId, DateTime nowUtc, CancellationToken cancellationToken)
+        private async Task<GraceExpirationOutcome> ExpireOneGraceAsync(Guid incidentId, Guid tenantId, DateTime nowUtc, CancellationToken cancellationToken)
         {
             using var scope = _tenantExecutionContextAccessor.BeginScope(tenantId);
 
@@ -563,31 +818,22 @@ namespace LuxuryApp.Services.Billing
                 incident.GraceEndsAtUtc is null ||
                 incident.GraceEndsAtUtc > nowUtc)
             {
-                return false;
+                return GraceExpirationOutcome.Skipped;
             }
 
             var subscription = await LoadSubscriptionAsync(tenantId, cancellationToken);
 
-            // Nunca cortar si la renovación cancelada sigue vigente, o si el período pagado
-            // (provider/local) todavía no venció.
-            if (subscription is not null)
+            // Renovación cancelada: el fallo no es accionable (la cancelación manda). Se marca Ignored.
+            if (subscription?.CancelAtPeriodEnd == true)
             {
-                if (subscription.CancelAtPeriodEnd)
-                {
-                    incident.Status = PaymentIncidentStatus.Ignored;
-                    incident.UpdatedAtUtc = nowUtc;
-                    await _db.SaveChangesAsync(cancellationToken);
-                    return true;
-                }
-
-                var effectiveEndUtc = SubscriptionEffectiveDates.GetEffectiveEndUtc(
-                    subscription.FechaFin, subscription.ProviderExpiresAtUtc);
-                if (effectiveEndUtc is { } end && end > nowUtc)
-                {
-                    return false; // aún dentro del período pagado: no se corta acceso.
-                }
+                incident.Status = PaymentIncidentStatus.Ignored;
+                incident.UpdatedAtUtc = nowUtc;
+                await _db.SaveChangesAsync(cancellationToken);
+                return GraceExpirationOutcome.Ignored;
             }
 
+            // Marcar GraceExpired SIEMPRE que la gracia haya vencido: es un ESTADO (no corta acceso por
+            // sí solo). El corte de acceso se decide aparte y NUNCA quita un período ya pagado.
             incident.Status = PaymentIncidentStatus.GraceExpired;
             incident.UpdatedAtUtc = nowUtc;
 
@@ -597,7 +843,14 @@ namespace LuxuryApp.Services.Billing
                 $"Gracia de pago vencida ({incident.GraceEndsAtUtc:yyyy-MM-dd HH:mm} UTC). AutoSuspend {_options.AutoSuspendAfterGrace}.",
                 nowUtc));
 
-            if (_options.AutoSuspendAfterGrace)
+            // Solo se suspende con AutoSuspend=true Y cuando el período pagado (local/proveedor) ya
+            // venció: nunca se corta acceso ya pagado.
+            var effectiveEndUtc = subscription is null
+                ? null
+                : SubscriptionEffectiveDates.GetEffectiveEndUtc(subscription.FechaFin, subscription.ProviderExpiresAtUtc);
+            var paidPeriodActive = effectiveEndUtc is { } end && end > nowUtc;
+
+            if (_options.AutoSuspendAfterGrace && !paidPeriodActive)
             {
                 if (subscription is not null &&
                     subscription.Estado is EstadoSuscripcion.Activa or EstadoSuscripcion.Morosa)
@@ -614,24 +867,28 @@ namespace LuxuryApp.Services.Billing
                     tenantId, incident.Id.ToString(),
                     "Acceso suspendido por impago (AutoSuspendAfterGrace=true).",
                     nowUtc));
-            }
-            else
-            {
-                if (subscription is not null)
-                {
-                    subscription.PaymentRecoveryStatus = "GraceExpired";
-                    subscription.FechaUltimaActualizacionUtc = nowUtc;
-                }
 
-                _db.PlatformAuditLogs.Add(BuildAudit(
-                    PlatformAuditActions.SubscriptionPaymentGraceExpiredDryRun,
-                    tenantId, incident.Id.ToString(),
-                    "Gracia vencida SIN suspensión (AutoSuspendAfterGrace=false): solo alerta, acceso conservado.",
-                    nowUtc));
+                await _db.SaveChangesAsync(cancellationToken);
+                return GraceExpirationOutcome.Suspended;
             }
+
+            // Dry-run: se conserva el acceso (AutoSuspend=false, o período pagado todavía vigente).
+            if (subscription is not null)
+            {
+                subscription.PaymentRecoveryStatus = "GraceExpired";
+                subscription.FechaUltimaActualizacionUtc = nowUtc;
+            }
+
+            _db.PlatformAuditLogs.Add(BuildAudit(
+                PlatformAuditActions.SubscriptionPaymentGraceExpiredDryRun,
+                tenantId, incident.Id.ToString(),
+                paidPeriodActive
+                    ? "Gracia vencida; acceso conservado porque el período pagado sigue vigente."
+                    : "Gracia vencida SIN suspensión (AutoSuspendAfterGrace=false): solo alerta, acceso conservado.",
+                nowUtc));
 
             await _db.SaveChangesAsync(cancellationToken);
-            return true;
+            return GraceExpirationOutcome.DryRunMarked;
         }
 
         // ── Internos ─────────────────────────────────────────────────────────────

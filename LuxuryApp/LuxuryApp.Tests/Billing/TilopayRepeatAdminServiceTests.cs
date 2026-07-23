@@ -234,6 +234,130 @@ namespace LuxuryApp.Tests.Billing
             Assert.False(result.Succeeded);
         }
 
+        [Fact]
+        public async Task GetRecurrentUrl_PrimarySucceeds_ReportsIdPlanContract()
+        {
+            var handler = new StubHandler(RealSuscriptorResponse);
+            handler.SetResponse(
+                "recurrentUrl",
+                HttpStatusCode.OK,
+                """{ "type": "success", "url_renew": "https://tp.cr/l/renew" }""");
+            var service = CreateService(handler);
+
+            var result = await service.GetRecurrentUrlAsync(6126, "compra3usuarios@gmail.com");
+
+            Assert.True(result.Succeeded);
+            Assert.Equal("id_plan", result.Contract);
+            // Un solo intento: no hay fallback si el principal funcionó.
+            Assert.Single(handler.AllByPath("recurrentUrl"));
+        }
+
+        [Fact]
+        public async Task GetRecurrentUrl_PrimaryMissingPlanError_FallsBackWithAliases_AndSucceeds()
+        {
+            var handler = new StubHandler(RealSuscriptorResponse);
+            // 1º intento (id_plan): HTTP 402 "id plan required". 2º intento (con alias): 200 con url_renew.
+            handler.SetResponseSequence(
+                "recurrentUrl",
+                (HttpStatusCode.PaymentRequired, """{ "type": "402", "message": "The id plan parameter is required", "url_register": "", "url_renew": "" }"""),
+                (HttpStatusCode.OK, """{ "type": "success", "url_renew": "https://tp.cr/l/renew" }"""));
+            var service = CreateService(handler);
+
+            var result = await service.GetRecurrentUrlAsync(6126, "compra3usuarios@gmail.com");
+
+            Assert.True(result.Succeeded);
+            Assert.Equal("https://tp.cr/l/renew", result.Url);
+            Assert.Equal("id_plan+aliases", result.Contract);
+
+            var requests = handler.AllByPath("recurrentUrl");
+            Assert.Equal(2, requests.Count); // primary + fallback
+
+            using var primaryBody = JsonDocument.Parse(requests[0].Body!);
+            Assert.Equal("6126", primaryBody.RootElement.GetProperty("id_plan").GetString());
+            Assert.False(primaryBody.RootElement.TryGetProperty("id", out _)); // primary NO manda alias
+
+            using var fallbackBody = JsonDocument.Parse(requests[1].Body!);
+            Assert.Equal("6126", fallbackBody.RootElement.GetProperty("id_plan").GetString());
+            Assert.Equal("6126", fallbackBody.RootElement.GetProperty("id").GetString());       // alias STRING
+            Assert.Equal("6126", fallbackBody.RootElement.GetProperty("plan_id").GetString());   // alias STRING
+        }
+
+        [Fact]
+        public async Task GetRecurrentUrl_NonMissingPlanError_DoesNotFallBack()
+        {
+            var handler = new StubHandler(RealSuscriptorResponse);
+            // Error distinto (no "id plan required"): NO se reintenta con alias.
+            handler.SetResponse(
+                "recurrentUrl",
+                HttpStatusCode.PaymentRequired,
+                """{ "type": "402", "message": "insufficient funds" }""");
+            var service = CreateService(handler);
+
+            var result = await service.GetRecurrentUrlAsync(6126, "compra3usuarios@gmail.com");
+
+            Assert.False(result.Succeeded);
+            Assert.Single(handler.AllByPath("recurrentUrl")); // un solo intento
+        }
+
+        // ── recurrentUrl: selección de campo (url_renew / url_register) + diagnóstico ──
+
+        [Fact]
+        public async Task GetRecurrentUrl_DefaultPrefersUrlRenew_EvenIfRegisterPresent()
+        {
+            var handler = new StubHandler(RealSuscriptorResponse);
+            handler.SetResponse(
+                "recurrentUrl",
+                HttpStatusCode.OK,
+                """{ "type": "success", "url_register": "https://tp.cr/l/reg", "url_renew": "https://tp.cr/l/renew" }""");
+            var service = CreateService(handler); // default url_renew
+
+            var result = await service.GetRecurrentUrlAsync(6126, "compra3usuarios@gmail.com");
+
+            Assert.True(result.Succeeded);
+            Assert.Equal("https://tp.cr/l/renew", result.Url);
+            Assert.Equal("url_renew", result.RecurrentDiagnostics!.SelectedField);
+            Assert.True(result.RecurrentDiagnostics.HasUrlRenew);
+            Assert.True(result.RecurrentDiagnostics.HasUrlRegister);
+            Assert.Equal(200, result.RecurrentDiagnostics.HttpStatus);
+        }
+
+        [Fact]
+        public async Task GetRecurrentUrl_PreferredUrlRegister_SelectsRegister()
+        {
+            var handler = new StubHandler(RealSuscriptorResponse);
+            handler.SetResponse(
+                "recurrentUrl",
+                HttpStatusCode.OK,
+                """{ "type": "success", "url_register": "https://tp.cr/l/reg", "url_renew": "https://tp.cr/l/renew" }""");
+            var service = CreateService(handler, preferredField: "url_register"); // modo controlado
+
+            var result = await service.GetRecurrentUrlAsync(6126, "compra3usuarios@gmail.com");
+
+            Assert.True(result.Succeeded);
+            Assert.Equal("https://tp.cr/l/reg", result.Url);
+            Assert.Equal("url_register", result.RecurrentDiagnostics!.SelectedField);
+        }
+
+        [Fact]
+        public async Task GetRecurrentUrl_NeverLogsFullUrl()
+        {
+            const string secretToken = "SUPERSECRETTOKEN123456789";
+            var handler = new StubHandler(RealSuscriptorResponse);
+            handler.SetResponse(
+                "recurrentUrl",
+                HttpStatusCode.OK,
+                $$"""{ "type": "success", "url_renew": "https://tp.cr/l/{{secretToken}}" }""");
+            var logger = new CapturingLogger();
+            var service = CreateService(handler, logger);
+
+            var result = await service.GetRecurrentUrlAsync(6126, "compra3usuarios@gmail.com");
+
+            Assert.True(result.Succeeded);
+            var logged = string.Join("\n", logger.Messages);
+            Assert.DoesNotContain(secretToken, logged, StringComparison.Ordinal); // token NUNCA en logs
+            Assert.Contains("tp.cr", logged, StringComparison.Ordinal);           // host sí, sanitizado
+        }
+
         // ── Estado del suscriptor: la respuesta REAL de TiloPay usa "Delete" (singular) ──
         [Fact]
         public async Task Resolve_SubscriberWithRealDeleteStatus_IsNotReusedAsExisting()
@@ -348,7 +472,8 @@ namespace LuxuryApp.Tests.Billing
         private static TilopayRepeatAdminService CreateService(
             StubHandler handler,
             ILogger<TilopayRepeatAdminService>? logger = null,
-            bool enabled = true)
+            bool enabled = true,
+            string preferredField = "url_renew")
         {
             var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://app.tilopay.com/") };
             var cache = new MemoryCache(new MemoryCacheOptions());
@@ -366,7 +491,8 @@ namespace LuxuryApp.Tests.Billing
                 Options.Create(new OpcionesTilopayRepeatAdmin
                 {
                     Enabled = enabled,
-                    ResolveRetryCount = 0
+                    ResolveRetryCount = 0,
+                    RecurrentUrlPreferredField = preferredField
                 }),
                 logger ?? NullLogger<TilopayRepeatAdminService>.Instance);
         }
@@ -381,6 +507,7 @@ namespace LuxuryApp.Tests.Billing
         {
             private readonly string _defaultBody;
             private readonly Dictionary<string, (HttpStatusCode Status, string Body)> _byPath = new(StringComparer.OrdinalIgnoreCase);
+            private readonly Dictionary<string, Queue<(HttpStatusCode Status, string Body)>> _sequences = new(StringComparer.OrdinalIgnoreCase);
             private readonly List<(string Path, CapturedRequest Request)> _captured = new();
 
             public StubHandler(string defaultBody) => _defaultBody = defaultBody;
@@ -388,8 +515,16 @@ namespace LuxuryApp.Tests.Billing
             public void SetResponse(string pathContains, HttpStatusCode status, string body) =>
                 _byPath[pathContains] = (status, body);
 
+            /// <summary>Respuestas en orden para reintentos del mismo path (p.ej. primary + fallback de recurrentUrl).</summary>
+            public void SetResponseSequence(string pathContains, params (HttpStatusCode Status, string Body)[] responses) =>
+                _sequences[pathContains] = new Queue<(HttpStatusCode, string)>(responses);
+
             public CapturedRequest? LastByPath(string pathContains) =>
                 _captured.LastOrDefault(entry => entry.Path.Contains(pathContains, StringComparison.OrdinalIgnoreCase)).Request;
+
+            public IReadOnlyList<CapturedRequest> AllByPath(string pathContains) =>
+                _captured.Where(entry => entry.Path.Contains(pathContains, StringComparison.OrdinalIgnoreCase))
+                    .Select(entry => entry.Request).ToList();
 
             protected override async Task<HttpResponseMessage> SendAsync(
                 HttpRequestMessage request,
@@ -408,6 +543,15 @@ namespace LuxuryApp.Tests.Billing
                 if (path.EndsWith("login", StringComparison.OrdinalIgnoreCase))
                 {
                     return Json(HttpStatusCode.OK, """{ "access_token": "fake-token", "expires_in": 3600 }""");
+                }
+
+                foreach (var (pathContains, queue) in _sequences)
+                {
+                    if (path.Contains(pathContains, StringComparison.OrdinalIgnoreCase) && queue.Count > 0)
+                    {
+                        var next = queue.Dequeue();
+                        return Json(next.Status, next.Body);
+                    }
                 }
 
                 foreach (var (pathContains, configured) in _byPath)
