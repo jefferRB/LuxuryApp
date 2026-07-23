@@ -1,12 +1,20 @@
 document.addEventListener("DOMContentLoaded", () => {
     const navbar = document.querySelector("[data-public-navbar]");
 
+    // Respeta prefers-reduced-motion: si el usuario pidió menos movimiento, AOS se
+    // deshabilita (deja el contenido visible sin animar). Sin JS, el CSS ya garantiza
+    // que el contenido de la landing sea visible.
+    const prefersReducedMotion = window.matchMedia
+        ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        : false;
+
     if (window.AOS) {
         window.AOS.init({
             duration: 700,
             easing: "ease-out-cubic",
             once: true,
-            offset: 40
+            offset: 40,
+            disable: prefersReducedMotion
         });
     }
 

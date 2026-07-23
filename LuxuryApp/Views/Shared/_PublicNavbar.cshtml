@@ -34,10 +34,10 @@
         <div class="collapse navbar-collapse" id="publicNavbar">
             <ul class="navbar-nav mx-auto mb-3 mb-lg-0 public-navbar-links">
                 <li class="nav-item">
-                    <a class="nav-link @(currentController == "home" ? "active" : string.Empty)" asp-controller="Home" asp-action="Index">Inicio</a>
+                    <a class="nav-link" asp-controller="Home" asp-action="Index" asp-fragment="como-funciona">Cómo funciona</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" asp-controller="Home" asp-action="Index" asp-fragment="modulos">Módulos</a>
+                    <a class="nav-link" asp-controller="Home" asp-action="Index" asp-fragment="funciones">Funciones</a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link @(currentController == "billing" ? "active" : string.Empty)" asp-controller="Billing" asp-action="Planes">Precios</a>
@@ -58,7 +58,7 @@
                 else
                 {
                     <a class="btn public-btn public-btn-secondary" asp-controller="Accounts" asp-action="Acceso">Iniciar sesión</a>
-                    <a class="btn public-btn public-btn-primary" asp-controller="Accounts" asp-action="Registro">Registrarse</a>
+                    <a class="btn public-btn public-btn-primary" asp-controller="Accounts" asp-action="Registro">Crear cuenta</a>
                 }
             </div>
         </div>

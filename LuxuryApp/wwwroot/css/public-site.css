@@ -2512,3 +2512,763 @@ body.public-shell::after {
     --private-chart-positive: var(--public-success);
     --private-chart-danger: var(--public-danger);
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   LANDING DE CONVERSIÓN — secciones nuevas (scoped a .public-home-page)
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Robustez: en la landing el contenido NUNCA depende de JavaScript para ser
+   visible. AOS oculta [data-aos] por defecto; aquí lo revertimos para que la
+   página siga siendo legible sin JS y con prefers-reduced-motion. */
+.public-home-page [data-aos] {
+    opacity: 1;
+    transform: none;
+}
+
+.public-home-page .section-heading {
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+    margin-bottom: 2.5rem;
+}
+
+.public-home-page .section-heading p {
+    color: var(--public-text);
+}
+
+/* — Hero: lista de confianza (usa <li> en vez de <span>) — */
+.hero-trust-list {
+    list-style: none;
+    padding: 0;
+}
+
+.hero-trust-list li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: var(--public-text);
+    font-size: 0.86rem;
+    font-weight: 600;
+}
+
+.hero-trust-list li i {
+    color: var(--public-primary);
+    font-size: 0.95rem;
+}
+
+/* — Hero: contenedor de video del fundador (opcional) — */
+.hero-video-card {
+    border: 1px solid var(--public-border);
+    border-radius: 28px;
+    background: #0f172a;
+    box-shadow: var(--public-shadow-lg);
+    overflow: hidden;
+}
+
+.hero-video {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    background: #0f172a;
+}
+
+.hero-video-caption {
+    margin: 0;
+    padding: 0.75rem 1rem;
+    color: var(--public-text-muted);
+    font-size: 0.85rem;
+    text-align: center;
+    background: var(--public-card);
+}
+
+/* ── 2 · PROBLEMA ──────────────────────────────────────────────────── */
+.lp-problem-section {
+    padding: 3.5rem 0;
+    background: var(--public-surface-alt);
+    border-top: 1px solid var(--public-border);
+    border-bottom: 1px solid var(--public-border);
+}
+
+.lp-problem-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2.5rem;
+    align-items: center;
+}
+
+.lp-problem-intro h2 {
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    margin: 0.6rem 0 1rem;
+    line-height: 1.25;
+}
+
+.lp-problem-intro p {
+    color: var(--public-text);
+    line-height: 1.75;
+    max-width: 46ch;
+}
+
+.lp-problem-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.85rem;
+}
+
+.lp-problem-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.85rem;
+    background: var(--public-card);
+    border: 1px solid var(--public-border);
+    border-radius: 16px;
+    padding: 1rem 1.1rem;
+    color: var(--public-heading);
+    font-weight: 600;
+    box-shadow: var(--public-shadow-sm);
+}
+
+.lp-problem-list li i {
+    color: var(--public-danger);
+    font-size: 1.15rem;
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+}
+
+.lp-problem-close {
+    margin: 2.25rem auto 0;
+    text-align: center;
+    max-width: 640px;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--public-heading);
+}
+
+/* ── 3 · RESULTADOS Y FUNCIONES ────────────────────────────────────── */
+.lp-results-section {
+    padding: 4.5rem 0;
+}
+
+.lp-results-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1.1rem;
+}
+
+.lp-result-card {
+    border: 1px solid var(--public-border);
+    border-radius: var(--public-radius);
+    background: var(--public-card);
+    box-shadow: var(--public-shadow-sm);
+    padding: 1.5rem 1.35rem;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.lp-result-card:hover {
+    border-color: rgba(91, 124, 255, 0.35);
+    box-shadow: var(--public-shadow);
+    transform: translateY(-2px);
+}
+
+.lp-result-icon {
+    width: 3rem;
+    height: 3rem;
+    border-radius: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.35rem;
+    color: #fff;
+    background: linear-gradient(135deg, var(--public-primary), var(--public-secondary));
+    margin-bottom: 1rem;
+}
+
+.lp-result-card h3 {
+    font-size: 1.05rem;
+    margin: 0 0 0.5rem;
+}
+
+.lp-result-card p {
+    color: var(--public-text);
+    font-size: 0.9rem;
+    line-height: 1.7;
+    margin-bottom: 0.9rem;
+}
+
+.lp-result-modules {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--public-accent);
+    border-top: 1px solid var(--public-border);
+    padding-top: 0.75rem;
+}
+
+/* ── 4 · ASÍ SE VE UN DÍA ──────────────────────────────────────────── */
+.lp-day-section {
+    padding: 4.5rem 0;
+    background: var(--public-surface-alt);
+    border-top: 1px solid var(--public-border);
+    border-bottom: 1px solid var(--public-border);
+}
+
+.lp-day-timeline {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1.1rem;
+    counter-reset: lp-day;
+}
+
+.lp-day-step {
+    position: relative;
+    background: var(--public-card);
+    border: 1px solid var(--public-border);
+    border-radius: var(--public-radius);
+    box-shadow: var(--public-shadow-sm);
+    padding: 1.5rem 1.35rem;
+    counter-increment: lp-day;
+}
+
+.lp-day-step::before {
+    content: counter(lp-day);
+    position: absolute;
+    top: -0.85rem;
+    left: 1.35rem;
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Space Grotesk", sans-serif;
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: #fff;
+    background: var(--public-primary-deep);
+}
+
+.lp-day-time {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0.6rem 0 0.6rem;
+    font-weight: 700;
+    color: var(--public-heading);
+    font-size: 0.95rem;
+}
+
+.lp-day-time i {
+    color: var(--public-primary);
+}
+
+.lp-day-step p {
+    margin: 0;
+    color: var(--public-text);
+    font-size: 0.9rem;
+    line-height: 1.7;
+}
+
+/* ── 5 · HISTORIA DEL FUNDADOR ─────────────────────────────────────── */
+.lp-founder-section {
+    padding: 4.5rem 0;
+}
+
+.lp-founder-card {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 1.75rem;
+    align-items: start;
+    max-width: 900px;
+    margin: 0 auto;
+    background: var(--public-card);
+    border: 1px solid var(--public-border);
+    border-radius: 28px;
+    box-shadow: var(--public-shadow);
+    padding: 2.25rem;
+}
+
+.lp-founder-mark {
+    width: 4.5rem;
+    height: 4.5rem;
+    border-radius: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Space Grotesk", sans-serif;
+    font-weight: 700;
+    font-size: 1.6rem;
+    color: #fff;
+    background: linear-gradient(135deg, var(--public-primary), var(--public-secondary));
+}
+
+.lp-founder-body h2 {
+    font-size: clamp(1.4rem, 2.6vw, 1.9rem);
+    margin: 0.5rem 0 1rem;
+    line-height: 1.3;
+}
+
+.lp-founder-body p {
+    color: var(--public-text);
+    line-height: 1.8;
+    margin-bottom: 0.9rem;
+}
+
+.lp-founder-highlight {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--public-heading);
+    border-left: 3px solid var(--public-primary);
+    padding-left: 1rem;
+}
+
+.lp-founder-sign {
+    display: block;
+    margin-top: 0.5rem;
+    font-weight: 600;
+    color: var(--public-accent);
+    font-size: 0.9rem;
+}
+
+/* ── 6 · DEMOSTRACIÓN DEL PRODUCTO ─────────────────────────────────── */
+.lp-demo-section {
+    padding: 4.5rem 0;
+    background: var(--public-surface-alt);
+    border-top: 1px solid var(--public-border);
+    border-bottom: 1px solid var(--public-border);
+}
+
+.lp-demo-list {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.lp-demo-block {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    align-items: center;
+    background: var(--public-card);
+    border: 1px solid var(--public-border);
+    border-radius: 28px;
+    box-shadow: var(--public-shadow-sm);
+    padding: 2rem;
+}
+
+.lp-demo-block-reverse .lp-demo-copy {
+    order: 2;
+}
+
+.lp-demo-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-weight: 700;
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--public-accent);
+    margin-bottom: 0.75rem;
+}
+
+.lp-demo-copy h3 {
+    font-size: clamp(1.2rem, 2.2vw, 1.55rem);
+    margin: 0 0 0.7rem;
+    line-height: 1.3;
+}
+
+.lp-demo-copy p {
+    color: var(--public-text);
+    line-height: 1.75;
+    margin: 0;
+    max-width: 44ch;
+}
+
+.lp-demo-mockup {
+    background: var(--public-surface-alt);
+    border: 1px solid var(--public-border);
+    border-radius: 20px;
+    padding: 1.35rem;
+}
+
+/* Mockup específico: reservas / página pública */
+.lp-booking {
+    background: var(--public-card);
+    border: 1px solid var(--public-border);
+    border-radius: 16px;
+    overflow: hidden;
+    font-size: 0.8rem;
+}
+
+.lp-booking-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.85rem;
+    background: var(--public-surface-alt);
+    border-bottom: 1px solid var(--public-border);
+}
+
+.lp-booking-dot {
+    width: 0.7rem;
+    height: 0.7rem;
+    border-radius: 50%;
+    background: var(--public-success);
+    flex-shrink: 0;
+}
+
+.lp-booking-url {
+    color: var(--public-text-muted);
+    font-size: 0.72rem;
+    word-break: break-all;
+}
+
+.lp-booking-body {
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.lp-booking-name {
+    color: var(--public-heading);
+    font-size: 0.95rem;
+}
+
+.lp-booking-service {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.55rem 0.75rem;
+    background: var(--public-surface-alt);
+    border: 1px solid var(--public-border);
+    border-radius: 12px;
+    color: var(--public-heading);
+}
+
+.lp-booking-service strong {
+    color: var(--public-accent);
+}
+
+.lp-booking-cta {
+    margin-top: 0.25rem;
+    text-align: center;
+    padding: 0.6rem;
+    border-radius: 999px;
+    color: #fff;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--public-primary), var(--public-secondary));
+}
+
+/* ── 7 · OFERTA ────────────────────────────────────────────────────── */
+.lp-offer-section {
+    padding: 4.5rem 0;
+}
+
+.lp-offer-card {
+    max-width: 960px;
+    margin: 0 auto;
+    background: var(--public-card);
+    border: 1px solid var(--public-border);
+    border-radius: 28px;
+    box-shadow: var(--public-shadow);
+    padding: 2.5rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    align-items: center;
+}
+
+.lp-offer-head h2 {
+    font-size: clamp(1.4rem, 2.6vw, 1.85rem);
+    margin: 0.5rem 0 0.9rem;
+    line-height: 1.3;
+}
+
+.lp-offer-head p {
+    color: var(--public-text);
+    line-height: 1.75;
+    margin: 0;
+}
+
+.lp-offer-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.85rem;
+}
+
+.lp-offer-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    color: var(--public-heading);
+    font-weight: 600;
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+.lp-offer-list li i {
+    color: var(--public-success);
+    font-size: 1.15rem;
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+}
+
+/* ── 8 · PRECIOS ───────────────────────────────────────────────────── */
+.lp-pricing-section {
+    padding: 4.5rem 0;
+    background: var(--public-surface-alt);
+    border-top: 1px solid var(--public-border);
+    border-bottom: 1px solid var(--public-border);
+}
+
+.lp-pricing-from {
+    margin-top: 0.75rem;
+    font-size: 1.1rem;
+    color: var(--public-text);
+}
+
+.lp-pricing-from strong {
+    font-family: "Space Grotesk", sans-serif;
+    font-size: 1.35rem;
+    color: var(--public-heading);
+}
+
+.lp-pricing-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.25rem;
+    align-items: stretch;
+}
+
+.lp-pricing-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    background: var(--public-card);
+    border: 1px solid var(--public-border);
+    border-radius: var(--public-radius);
+    box-shadow: var(--public-shadow-sm);
+    padding: 1.75rem 1.5rem;
+}
+
+.lp-pricing-card-featured {
+    border-color: var(--public-primary);
+    box-shadow: 0 20px 55px rgba(91, 124, 255, 0.18);
+}
+
+.lp-pricing-badge {
+    position: absolute;
+    top: -0.75rem;
+    left: 1.5rem;
+    padding: 0.3rem 0.8rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #fff;
+    background: linear-gradient(135deg, var(--public-primary), var(--public-secondary));
+}
+
+.lp-pricing-card h3 {
+    font-size: 1.15rem;
+    margin: 0.4rem 0 0.75rem;
+}
+
+.lp-pricing-amount {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    margin-bottom: 0.6rem;
+}
+
+.lp-pricing-amount strong {
+    font-family: "Space Grotesk", sans-serif;
+    font-size: 1.8rem;
+    color: var(--public-heading);
+}
+
+.lp-pricing-amount span {
+    color: var(--public-text-muted);
+    font-size: 0.85rem;
+}
+
+.lp-pricing-staff {
+    display: inline-block;
+    color: var(--public-accent);
+    font-weight: 600;
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+}
+
+.lp-pricing-highlights {
+    list-style: none;
+    margin: 0 0 1.35rem;
+    padding: 0;
+    display: grid;
+    gap: 0.55rem;
+    flex: 1;
+}
+
+.lp-pricing-highlights li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    color: var(--public-text);
+    font-size: 0.88rem;
+    line-height: 1.5;
+}
+
+.lp-pricing-highlights li i {
+    color: var(--public-success);
+    margin-top: 0.15rem;
+}
+
+.lp-pricing-foot {
+    margin-top: 2rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.85rem;
+    justify-content: center;
+}
+
+/* ── 9 · FAQ ───────────────────────────────────────────────────────── */
+.lp-faq-section {
+    padding: 4.5rem 0;
+}
+
+.lp-faq-list {
+    max-width: 780px;
+    margin: 0 auto;
+    display: grid;
+    gap: 0.75rem;
+}
+
+.lp-faq-item {
+    border: 1px solid var(--public-border);
+    border-radius: 16px;
+    background: var(--public-card);
+    box-shadow: var(--public-shadow-sm);
+    overflow: hidden;
+}
+
+.lp-faq-item summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.1rem 1.35rem;
+    cursor: pointer;
+    font-weight: 700;
+    color: var(--public-heading);
+    list-style: none;
+}
+
+.lp-faq-item summary::-webkit-details-marker {
+    display: none;
+}
+
+.lp-faq-item summary::after {
+    content: "\F282"; /* bootstrap-icons chevron-down */
+    font-family: "bootstrap-icons";
+    font-weight: normal;
+    color: var(--public-primary);
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+}
+
+.lp-faq-item[open] summary::after {
+    transform: rotate(180deg);
+}
+
+.lp-faq-item summary:focus-visible {
+    outline: 2px solid var(--public-primary);
+    outline-offset: -2px;
+}
+
+.lp-faq-item p {
+    margin: 0;
+    padding: 0 1.35rem 1.2rem;
+    color: var(--public-text);
+    line-height: 1.75;
+}
+
+/* ── Responsive ────────────────────────────────────────────────────── */
+@media (max-width: 991.98px) {
+    .lp-problem-layout {
+        grid-template-columns: 1fr;
+        gap: 1.75rem;
+    }
+
+    .lp-results-grid,
+    .lp-day-timeline {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .lp-pricing-grid {
+        grid-template-columns: 1fr;
+        max-width: 460px;
+        margin: 0 auto;
+    }
+
+    .lp-demo-block,
+    .lp-demo-block-reverse {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+    }
+
+    .lp-demo-block-reverse .lp-demo-copy {
+        order: 0;
+    }
+
+    .lp-founder-card,
+    .lp-offer-card {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .lp-results-grid,
+    .lp-day-timeline {
+        grid-template-columns: 1fr;
+    }
+
+    .lp-problem-section,
+    .lp-results-section,
+    .lp-day-section,
+    .lp-founder-section,
+    .lp-demo-section,
+    .lp-offer-section,
+    .lp-pricing-section,
+    .lp-faq-section {
+        padding-left: 0;
+        padding-right: 0;
+    }
+
+    .lp-founder-card,
+    .lp-offer-card,
+    .lp-demo-block {
+        padding: 1.5rem;
+    }
+}
+
+/* ── Accesibilidad: prefers-reduced-motion ─────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    html {
+        scroll-behavior: auto;
+    }
+
+    .public-home-page *,
+    .public-home-page *::before,
+    .public-home-page *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }
+}
