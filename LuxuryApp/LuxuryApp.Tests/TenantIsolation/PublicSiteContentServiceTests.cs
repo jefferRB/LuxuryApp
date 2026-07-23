@@ -1,6 +1,7 @@
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.PublicSite;
 using LuxuryApp.Tests.Support;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 
 namespace LuxuryApp.Tests.TenantIsolation
@@ -406,6 +407,95 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Empty(plans);
         }
 
+        [Fact]
+        public async Task GetPlanCardsAsync_ShouldServeFromCacheWithinTtlWithoutRequeryingDatabase()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            context.Planes.Add(CreatePlan(Guid.NewGuid(), PlanCodes.Basic, "Basico", 8000m, maxFuncionarios: 1));
+            await context.SaveChangesAsync();
+
+            using var cache = new MemoryCache(new MemoryCacheOptions());
+            var service = CreateService(
+                context,
+                new OpcionesPago { EnableValidationPlans = true },
+                new OpcionesTilopay { WebhookAccessToken = "token-seguro" },
+                new TilopayRepeatOptions(),
+                cache);
+
+            var first = await service.GetPlanCardsAsync();
+            Assert.Single(first);
+
+            // Segunda inserción directa en la base: si la consulta se repitiera, aparecería.
+            context.Planes.Add(CreatePlan(Guid.NewGuid(), PlanCodes.Pro, "Pro", 20000m, maxFuncionarios: 3));
+            await context.SaveChangesAsync();
+
+            var second = await service.GetPlanCardsAsync();
+
+            // Dentro del TTL la respuesta proviene del snapshot cacheado, no de una nueva consulta.
+            Assert.Single(second);
+            Assert.Equal(PlanCodes.Basic, Assert.Single(second).Code);
+        }
+
+        [Fact]
+        public async Task GetPlanCardsAsync_ShouldCacheProjectedSnapshotsNotTrackedEntities()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            context.Planes.Add(CreatePlan(Guid.NewGuid(), PlanCodes.Basic, "Basico", 8000m, maxFuncionarios: 1));
+            await context.SaveChangesAsync();
+
+            using var cache = new MemoryCache(new MemoryCacheOptions());
+            var service = CreateService(
+                context,
+                new OpcionesPago { EnableValidationPlans = true },
+                new OpcionesTilopay { WebhookAccessToken = "token-seguro" },
+                new TilopayRepeatOptions(),
+                cache);
+
+            await service.GetPlanCardsAsync();
+
+            Assert.True(cache.TryGetValue(PublicSiteContentService.AvailablePlansCacheKey, out var cached));
+            var snapshots = Assert.IsAssignableFrom<IReadOnlyCollection<PublicPlanSnapshot>>(cached);
+            Assert.NotEmpty(snapshots);
+        }
+
+        [Fact]
+        public async Task GetPlanCardsAsync_ShouldNotCacheAnythingWhenRequestIsCancelled()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            context.Planes.Add(CreatePlan(Guid.NewGuid(), PlanCodes.Basic, "Basico", 8000m, maxFuncionarios: 1));
+            await context.SaveChangesAsync();
+
+            using var cache = new MemoryCache(new MemoryCacheOptions());
+            var service = CreateService(
+                context,
+                new OpcionesPago { EnableValidationPlans = true },
+                new OpcionesTilopay { WebhookAccessToken = "token-seguro" },
+                new TilopayRepeatOptions(),
+                cache);
+
+            using var cancelled = new CancellationTokenSource();
+            await cancelled.CancelAsync();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => service.GetPlanCardsAsync(cancelled.Token));
+
+            // Un visitante que cancela no debe dejar datos (ni vacíos ni parciales) en cache.
+            Assert.False(cache.TryGetValue(PublicSiteContentService.AvailablePlansCacheKey, out _));
+
+            // Una carga posterior sana sigue devolviendo los planes reales.
+            var plans = await service.GetPlanCardsAsync();
+            Assert.Single(plans);
+        }
+
         private static Plan CreatePlan(
             Guid id,
             string code,
@@ -431,9 +521,11 @@ namespace LuxuryApp.Tests.TenantIsolation
             ProyectoIdentity.Datos.ApplicationDbContext context,
             OpcionesPago paymentOptions,
             OpcionesTilopay tilopayOptions,
-            TilopayRepeatOptions repeatOptions) =>
+            TilopayRepeatOptions repeatOptions,
+            IMemoryCache? cache = null) =>
             new(
                 context,
+                cache ?? new MemoryCache(new MemoryCacheOptions()),
                 Options.Create(paymentOptions),
                 Options.Create(tilopayOptions),
                 Options.Create(repeatOptions));

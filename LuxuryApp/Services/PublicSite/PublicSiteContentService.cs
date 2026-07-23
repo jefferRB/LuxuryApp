@@ -2,6 +2,7 @@ using LuxuryApp.Models.Marketing;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Models.Saas;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using ProyectoIdentity.Datos;
 
@@ -9,18 +10,29 @@ namespace LuxuryApp.Services.PublicSite
 {
     public sealed class PublicSiteContentService : IPublicSiteContentService
     {
+        // Clave estable y claramente nombrada. El sufijo de versión permite invalidar de
+        // forma controlada si cambia la forma proyectada del snapshot.
+        internal const string AvailablePlansCacheKey = "public-site:available-plans:v1";
+
+        // Los planes públicos cambian con muy poca frecuencia; 10 minutos absorben los picos
+        // de tráfico anónimo sin servir precios desactualizados por mucho tiempo.
+        private static readonly TimeSpan AvailablePlansCacheTtl = TimeSpan.FromMinutes(10);
+
         private readonly ApplicationDbContext _context;
+        private readonly IMemoryCache _cache;
         private readonly OpcionesPago _paymentOptions;
         private readonly OpcionesTilopay _tilopayOptions;
         private readonly TilopayRepeatOptions _tilopayRepeatOptions;
 
         public PublicSiteContentService(
             ApplicationDbContext context,
+            IMemoryCache cache,
             IOptions<OpcionesPago> paymentOptions,
             IOptions<OpcionesTilopay> tilopayOptions,
             IOptions<TilopayRepeatOptions> tilopayRepeatOptions)
         {
             _context = context;
+            _cache = cache;
             _paymentOptions = paymentOptions.Value;
             _tilopayOptions = tilopayOptions.Value;
             _tilopayRepeatOptions = tilopayRepeatOptions.Value;
@@ -217,24 +229,109 @@ namespace LuxuryApp.Services.PublicSite
                 plan.Activo &&
                 (!plan.EsPlanValidacion || _paymentOptions.EnableValidationPlans));
 
-        private async Task<IReadOnlyCollection<Plan>> LoadAvailablePlansAsync(CancellationToken cancellationToken) =>
-            await BuildAvailablePlansQuery()
+        /// <summary>
+        /// Devuelve los planes disponibles como snapshots proyectados y cacheados.
+        /// Nunca se cachea una cancelación ni una excepción: ambas rompen el flujo antes de
+        /// <see cref="IMemoryCache.Set"/>, por lo que un visitante que abandona no deja
+        /// datos inválidos en cache.
+        /// </summary>
+        private async Task<IReadOnlyCollection<PublicPlanSnapshot>> LoadAvailablePlansAsync(
+            CancellationToken cancellationToken)
+        {
+            if (_cache.TryGetValue(AvailablePlansCacheKey, out IReadOnlyCollection<PublicPlanSnapshot>? cachedPlans) &&
+                cachedPlans is not null)
+            {
+                return cachedPlans;
+            }
+
+            // Si el request ya fue abortado no consultamos la base de datos ni contaminamos
+            // la cache; respetamos la cancelación lanzando la excepción estándar.
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Proyección directa a los campos que necesitan las cards. No se usa Include:
+            // el join a Feature se resuelve dentro del Select y no arrastra entidades EF.
+            var plans = await BuildAvailablePlansQuery()
                 .AsNoTracking()
-                .Include(plan => plan.PlanFeatures)
-                    .ThenInclude(planFeature => planFeature.Feature)
+                .OrderBy(plan => plan.PrecioMensual)
+                .Select(plan => new PublicPlanSnapshot
+                {
+                    Id = plan.Id,
+                    Codigo = plan.Codigo,
+                    Nombre = plan.Nombre,
+                    PrecioMensual = plan.PrecioMensual,
+                    Moneda = plan.Moneda,
+                    MaxFuncionarios = plan.MaxFuncionarios,
+                    LimiteMensajesMensual = plan.LimiteMensajesMensual,
+                    EsPlanValidacion = plan.EsPlanValidacion,
+                    Features = plan.PlanFeatures
+                        .Select(planFeature => new PublicPlanFeatureSnapshot(
+                            planFeature.Feature != null ? planFeature.Feature.Nombre : null,
+                            planFeature.Limite))
+                        .ToList()
+                })
                 .ToListAsync(cancellationToken);
+
+            var snapshot = (IReadOnlyCollection<PublicPlanSnapshot>)plans;
+
+            // Solo llega aquí un resultado completo y exitoso.
+            _cache.Set(
+                AvailablePlansCacheKey,
+                snapshot,
+                new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = AvailablePlansCacheTtl
+                });
+
+            return snapshot;
+        }
 
         private async Task<Plan?> FindAvailablePlanCoreAsync(Guid planId, CancellationToken cancellationToken)
         {
-            var plans = await LoadAvailablePlansAsync(cancellationToken);
-            return plans.FirstOrDefault(plan =>
-                plan.Id == planId &&
-                (IsPublicBasePlan(plan) || IsPublicAddonPlan(plan) || IsInternalPlan(plan)));
+            if (planId == Guid.Empty)
+            {
+                return null;
+            }
+
+            // La ruta de registro sí necesita la entidad real, no el snapshot, por lo que se
+            // consulta el plan puntual (sin cache). Es un flujo frío, no el de la landing.
+            var plan = await BuildAvailablePlansQuery()
+                .AsNoTracking()
+                .Include(candidate => candidate.PlanFeatures)
+                    .ThenInclude(planFeature => planFeature.Feature)
+                .FirstOrDefaultAsync(candidate => candidate.Id == planId, cancellationToken);
+
+            if (plan is null)
+            {
+                return null;
+            }
+
+            var snapshot = ToSnapshot(plan);
+            return IsPublicBasePlan(snapshot) || IsPublicAddonPlan(snapshot) || IsInternalPlan(snapshot)
+                ? plan
+                : null;
         }
 
-        private MarketingPlanCardViewModel MapPlanCard(Plan plan)
+        private static PublicPlanSnapshot ToSnapshot(Plan plan) =>
+            new()
+            {
+                Id = plan.Id,
+                Codigo = plan.Codigo,
+                Nombre = plan.Nombre,
+                PrecioMensual = plan.PrecioMensual,
+                Moneda = plan.Moneda,
+                MaxFuncionarios = plan.MaxFuncionarios,
+                LimiteMensajesMensual = plan.LimiteMensajesMensual,
+                EsPlanValidacion = plan.EsPlanValidacion,
+                Features = plan.PlanFeatures
+                    .Select(planFeature => new PublicPlanFeatureSnapshot(
+                        planFeature.Feature?.Nombre,
+                        planFeature.Limite))
+                    .ToList()
+            };
+
+        private MarketingPlanCardViewModel MapPlanCard(PublicPlanSnapshot plan)
         {
-            var highlights = plan.PlanFeatures
+            var highlights = plan.Features
                 .Select(FormatFeature)
                 .Where(highlight => !string.IsNullOrWhiteSpace(highlight))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -304,7 +401,7 @@ namespace LuxuryApp.Services.PublicSite
             };
         }
 
-        private bool IsPublicBasePlan(Plan plan)
+        private bool IsPublicBasePlan(PublicPlanSnapshot plan)
         {
             var code = plan.Codigo?.Trim();
             if (string.IsNullOrWhiteSpace(code))
@@ -315,7 +412,7 @@ namespace LuxuryApp.Services.PublicSite
             return code is PlanCodes.Basic or PlanCodes.Pro or PlanCodes.Business or PlanCodes.TestProdBasic100;
         }
 
-        private bool IsPublicAddonPlan(Plan plan)
+        private bool IsPublicAddonPlan(PublicPlanSnapshot plan)
         {
             var code = plan.Codigo?.Trim();
             if (string.IsNullOrWhiteSpace(code))
@@ -326,7 +423,7 @@ namespace LuxuryApp.Services.PublicSite
             return code is PlanCodes.WhatsApp400 or PlanCodes.WhatsApp800 or PlanCodes.WhatsApp1200;
         }
 
-        private bool IsInternalPlan(Plan plan)
+        private bool IsInternalPlan(PublicPlanSnapshot plan)
         {
             if (!_paymentOptions.EnableValidationPlans ||
                 !_tilopayRepeatOptions.Enabled ||
@@ -341,9 +438,9 @@ namespace LuxuryApp.Services.PublicSite
                 StringComparison.OrdinalIgnoreCase);
         }
 
-        private static string FormatFeature(PlanFeature planFeature)
+        private static string FormatFeature(PublicPlanFeatureSnapshot planFeature)
         {
-            var featureName = planFeature.Feature?.Nombre?.Trim();
+            var featureName = planFeature.Nombre?.Trim();
             if (string.IsNullOrWhiteSpace(featureName))
             {
                 return string.Empty;
@@ -354,7 +451,7 @@ namespace LuxuryApp.Services.PublicSite
                 : featureName;
         }
 
-        private CheckoutAvailability ResolveCheckoutAvailability(Plan plan)
+        private CheckoutAvailability ResolveCheckoutAvailability(PublicPlanSnapshot plan)
         {
             var code = plan.Codigo?.Trim();
             if (string.IsNullOrWhiteSpace(code))
