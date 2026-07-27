@@ -52,16 +52,18 @@ namespace LuxuryApp.Controllers.Platform
         /// </summary>
         [HttpPost("generate-update-url")]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> GenerateUpdateUrl(Guid tenantId, CancellationToken cancellationToken)
+        public async Task<IActionResult> GenerateUpdateUrl(Guid incidentId, CancellationToken cancellationToken)
         {
-            if (tenantId == Guid.Empty)
+            if (incidentId == Guid.Empty)
             {
-                TempData["PlatformError"] = "Tenant no especificado.";
+                TempData["PlatformError"] = "Incidente no especificado.";
                 return RedirectToAction(nameof(Index));
             }
 
             var (actorId, actorEmail) = await ResolveActorAsync();
-            var result = await _methodUpdateService.GenerateUpdateUrlForTenantAsync(tenantId, actorId, actorEmail, cancellationToken);
+            // Incident-aware: el scope del incidente decide el plan (base vs add-on). Nunca se mezcla
+            // el suscriptor base con el del add-on.
+            var result = await _methodUpdateService.GenerateUpdateUrlForIncidentAsync(incidentId, actorId, actorEmail, cancellationToken);
 
             var incidents = await _recoveryService.ListConsoleIncidentsAsync(cancellationToken);
             if (!result.Succeeded || string.IsNullOrWhiteSpace(result.Url))
@@ -74,7 +76,7 @@ namespace LuxuryApp.Controllers.Platform
                 });
             }
 
-            var tenantName = incidents.FirstOrDefault(i => i.TenantId == tenantId)?.TenantName;
+            var tenantName = incidents.FirstOrDefault(i => i.IncidentId == incidentId)?.TenantName;
             // La URL viaja SOLO en el HTML de esta respuesta (nunca a cookie/TempData ni al log).
             return View(nameof(Index), new PaymentRecoveryConsoleViewModel
             {

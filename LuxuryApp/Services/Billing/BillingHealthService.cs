@@ -202,6 +202,14 @@ namespace LuxuryApp.Services.Billing
 
         /// <summary>El número del add-on que importa: pendientes de cancelación + doble activo. Si es 0, no hay dinero-en-riesgo de add-on.</summary>
         public int WhatsAppAddonMoneyRiskCount { get; init; }
+
+        /// <summary>
+        /// Config EFECTIVA de checkout por add-on (appsettings + env vars ya resueltas): HasCheckoutUrl
+        /// enmascarado. Si algún add-on tiene HasCheckoutUrl=false, no se puede vender por checkout
+        /// recurrente hasta cargar el hosted link real en TiloPay.
+        /// </summary>
+        public IReadOnlyList<ManagedPlanCheckoutStatus> WhatsAppAddonCheckoutConfig { get; init; } =
+            Array.Empty<ManagedPlanCheckoutStatus>();
     }
 
     /// <summary>
@@ -261,11 +269,18 @@ namespace LuxuryApp.Services.Billing
 
         private readonly ApplicationDbContext _db;
         private readonly SuscripcionService _suscripcionService;
+        // Opcional (patrón del módulo): DI lo inyecta en producción; en tests con ctor mínimo queda
+        // null y la config de checkout sale vacía (no rompe las construcciones existentes).
+        private readonly IManagedPlanCheckoutInspector? _checkoutInspector;
 
-        public BillingHealthService(ApplicationDbContext db, SuscripcionService suscripcionService)
+        public BillingHealthService(
+            ApplicationDbContext db,
+            SuscripcionService suscripcionService,
+            IManagedPlanCheckoutInspector? checkoutInspector = null)
         {
             _db = db;
             _suscripcionService = suscripcionService;
+            _checkoutInspector = checkoutInspector;
         }
 
         public async Task<BillingHealthSnapshot> BuildAsync(CancellationToken cancellationToken = default)
@@ -755,6 +770,7 @@ namespace LuxuryApp.Services.Billing
                 WhatsAppAddonsDoubleActiveTenants = addonDoubleActiveTenants,
                 WhatsAppAddonOpenPaymentIncidents = addonOpenPaymentIncidents,
                 WhatsAppAddonMoneyRiskCount = addonMoneyRisk,
+                WhatsAppAddonCheckoutConfig = _checkoutInspector?.InspectAddons() ?? Array.Empty<ManagedPlanCheckoutStatus>(),
                 ActiveSubscriptions = active,
                 TrialSubscriptions = trial,
                 MorosaSubscriptions = morosa,

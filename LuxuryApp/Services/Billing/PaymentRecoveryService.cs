@@ -25,6 +25,13 @@ namespace LuxuryApp.Services.Billing
     {
         public required Guid IncidentId { get; init; }
         public required Guid TenantId { get; init; }
+
+        /// <summary>Ámbito del incidente: plan base o add-on de WhatsApp. Determina qué plan usa la update URL.</summary>
+        public PaymentIncidentScope Scope { get; init; }
+
+        /// <summary>Plan recurrente de TiloPay del incidente (base o add-on): el "id" para recurrentUrl.</summary>
+        public int? TilopayRecurringPlanId { get; init; }
+
         public string? TenantName { get; init; }
         public string? ClienteEmail { get; init; }
         public string? PlanCode { get; init; }
@@ -210,6 +217,7 @@ namespace LuxuryApp.Services.Billing
                 .IgnoreQueryFilters()
                 .Where(i =>
                     i.TenantId == tenantId &&
+                    i.Scope == PaymentIncidentScope.BasePlan &&
                     i.Status == PaymentIncidentStatus.Open &&
                     i.TilopayRecurringPlanId == planId)
                 .OrderByDescending(i => i.CreatedAtUtc)
@@ -309,7 +317,10 @@ namespace LuxuryApp.Services.Billing
 
             var open = await _db.SubscriptionPaymentIncidents
                 .IgnoreQueryFilters()
-                .Where(i => i.TenantId == tenantId && i.Status == PaymentIncidentStatus.Open)
+                .Where(i =>
+                    i.TenantId == tenantId &&
+                    i.Scope == PaymentIncidentScope.BasePlan &&
+                    i.Status == PaymentIncidentStatus.Open)
                 .OrderByDescending(i => i.CreatedAtUtc)
                 .FirstOrDefaultAsync(cancellationToken);
 
@@ -516,10 +527,14 @@ namespace LuxuryApp.Services.Billing
             }
 
             var nowUtc = GetUtcNow();
+            // SOLO incidentes de PLAN BASE: la expiración de gracia suspende (con AutoSuspend) la
+            // suscripción base. Los incidentes de add-on NO pasan por acá — el corte del add-on lo hace
+            // su propio estado efectivo al vencer su gracia, sin tocar el plan base.
             var candidates = await _db.SubscriptionPaymentIncidents
                 .IgnoreQueryFilters()
                 .AsNoTracking()
                 .Where(i =>
+                    i.Scope == PaymentIncidentScope.BasePlan &&
                     i.Status == PaymentIncidentStatus.Open &&
                     i.GraceEndsAtUtc != null &&
                     i.GraceEndsAtUtc <= nowUtc)
@@ -607,6 +622,8 @@ namespace LuxuryApp.Services.Billing
                 {
                     i.Id,
                     i.TenantId,
+                    i.Scope,
+                    i.TilopayRecurringPlanId,
                     i.ClienteEmail,
                     i.PlanCode,
                     i.ProviderSubscriptionId,
@@ -645,6 +662,8 @@ namespace LuxuryApp.Services.Billing
             {
                 IncidentId = i.Id,
                 TenantId = i.TenantId,
+                Scope = i.Scope,
+                TilopayRecurringPlanId = i.TilopayRecurringPlanId,
                 TenantName = tenantNames.TryGetValue(i.TenantId, out var name) ? name : null,
                 ClienteEmail = i.ClienteEmail,
                 PlanCode = i.PlanCode,

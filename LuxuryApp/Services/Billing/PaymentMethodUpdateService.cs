@@ -61,6 +61,17 @@ namespace LuxuryApp.Services.Billing
             string actorUserId,
             string actorEmail,
             CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Genera la url_renew para el plan CORRECTO según el SCOPE del incidente: add-on ⇒ plan
+        /// recurrente del add-on; base ⇒ plan recurrente base. Nunca mezcla el suscriptor base con el
+        /// del add-on. Lo usa la consola de recuperación de plataforma (por incidente).
+        /// </summary>
+        Task<PaymentMethodUpdateResult> GenerateUpdateUrlForIncidentAsync(
+            Guid incidentId,
+            string actorUserId,
+            string actorEmail,
+            CancellationToken cancellationToken = default);
     }
 
     public sealed class PaymentMethodUpdateService : IPaymentMethodUpdateService
@@ -165,6 +176,94 @@ namespace LuxuryApp.Services.Billing
                     requiresNewCheckout: true);
             }
 
+            return await GenerateForPlanAsync(tenantId, recurringPlanId, email, "base", actorUserId, actorEmail, cancellationToken);
+        }
+
+        public async Task<PaymentMethodUpdateResult> GenerateUpdateUrlForIncidentAsync(
+            Guid incidentId,
+            string actorUserId,
+            string actorEmail,
+            CancellationToken cancellationToken = default)
+        {
+            if (!_adminService.IsEnabled)
+            {
+                return PaymentMethodUpdateResult.Fail("La actualización de tarjeta en línea no está disponible en este momento. Contactá soporte.");
+            }
+
+            var incident = await _db.SubscriptionPaymentIncidents
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(i => i.Id == incidentId)
+                .Select(i => new { i.TenantId, i.Scope, i.AddonId })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (incident is null || incident.TenantId == Guid.Empty)
+            {
+                return PaymentMethodUpdateResult.Fail("No encontramos el incidente indicado.");
+            }
+
+            var email = await ResolveTenantEmailAsync(incident.TenantId, cancellationToken);
+            if (string.IsNullOrWhiteSpace(email))
+            {
+                return PaymentMethodUpdateResult.Fail("No pudimos generar el enlace de actualización. Contactá soporte.");
+            }
+
+            // El scope del incidente decide QUÉ plan recurrente usa la update URL. NUNCA se mezcla el
+            // suscriptor base con el del add-on: para add-on se usa el TilopayRecurringPlanId del add-on,
+            // para base el de la suscripción base. recurrentUrl solo necesita (id=plan, email), sin id_suscriptor.
+            if (incident.Scope == PaymentIncidentScope.WhatsAppAddon)
+            {
+                var addonPlanId = await _db.TenantSubscriptionAddons
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .Where(a => a.TenantId == incident.TenantId &&
+                                (incident.AddonId == null || a.Id == incident.AddonId) &&
+                                a.TilopayRecurringPlanId != null)
+                    .OrderByDescending(a => a.UpdatedAtUtc)
+                    .Select(a => a.TilopayRecurringPlanId)
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (addonPlanId is not { } addonRecurringPlanId)
+                {
+                    return PaymentMethodUpdateResult.Fail("El add-on del incidente no tiene un plan recurrente para actualizar el método de pago.");
+                }
+
+                return await GenerateForPlanAsync(incident.TenantId, addonRecurringPlanId, email, "add-on", actorUserId, actorEmail, cancellationToken);
+            }
+
+            var basePlanId = await _db.Suscripciones
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(s => s.TenantId == incident.TenantId && s.TilopayRecurringPlanId != null)
+                .OrderByDescending(s => s.FechaUltimaActualizacionUtc ?? s.FechaInicio)
+                .Select(s => s.TilopayRecurringPlanId)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (basePlanId is not { } baseRecurringPlanId)
+            {
+                return PaymentMethodUpdateResult.Fail(
+                    "No encontramos una suscripción recurrente base para actualizar.",
+                    requiresNewCheckout: true);
+            }
+
+            return await GenerateForPlanAsync(incident.TenantId, baseRecurringPlanId, email, "base", actorUserId, actorEmail, cancellationToken);
+        }
+
+        /// <summary>
+        /// Núcleo: genera + valida + audita la recurrentUrl para un plan recurrente concreto (base o
+        /// add-on) y un email. Usa url_renew (contrato oficial "id"). Si no hay url_renew utilizable o
+        /// no es un dominio TiloPay, audita el fallo y devuelve un mensaje controlado (nunca url_register
+        /// como sustituto silencioso). NUNCA almacena ni loguea la URL completa.
+        /// </summary>
+        private async Task<PaymentMethodUpdateResult> GenerateForPlanAsync(
+            Guid tenantId,
+            int recurringPlanId,
+            string email,
+            string scopeLabel,
+            string actorUserId,
+            string actorEmail,
+            CancellationToken cancellationToken)
+        {
             var nowUtc = GetUtcNow();
             var result = await _adminService.GetRecurrentUrlAsync(recurringPlanId, email, cancellationToken);
 
@@ -173,19 +272,18 @@ namespace LuxuryApp.Services.Billing
                 _db.PlatformAuditLogs.Add(BuildAudit(
                     PlatformAuditActions.PaymentMethodUpdateUrlFailed,
                     tenantId, actorUserId, actorEmail,
-                    $"No se pudo generar/validar la recurrentUrl. Plan {recurringPlanId}. UrlValida {(!string.IsNullOrWhiteSpace(result.Url) && IsSafeTilopayUrl(result.Url))}.",
+                    $"No se pudo generar/validar la url_renew ({scopeLabel}). Plan {recurringPlanId}. UrlValida {(!string.IsNullOrWhiteSpace(result.Url) && IsSafeTilopayUrl(result.Url))}.",
                     nowUtc));
                 await _db.SaveChangesAsync(cancellationToken);
 
                 _logger.LogWarning(
-                    "recurrentUrl no disponible/insegura para actualizar tarjeta. TenantId {TenantId}. PlanId {PlanId}.",
-                    tenantId, recurringPlanId);
+                    "url_renew no disponible/insegura para actualizar tarjeta ({Scope}). TenantId {TenantId}. PlanId {PlanId}.",
+                    scopeLabel, tenantId, recurringPlanId);
                 return PaymentMethodUpdateResult.Fail("No pudimos generar el enlace de actualización. Contactá soporte.");
             }
 
-            // Distinguir el fallback: si el contrato primario (id_plan) falló y solo funcionó
-            // id_plan+aliases, el enlace es sospechoso. Se audita con una acción DISTINTA para no
-            // ocultarlo como un éxito normal (el enlace puede fallar en TiloPay).
+            // Compat: si por config de diagnóstico se usara un contrato de fallback, se audita distinto
+            // para no ocultarlo. Con el contrato oficial "id" esto es siempre false.
             var diag = result.RecurrentDiagnostics;
             var usedFallback = diag?.UsedFallbackContract ?? string.Equals(result.Contract, "id_plan+aliases", StringComparison.Ordinal);
 
@@ -199,13 +297,21 @@ namespace LuxuryApp.Services.Billing
                     ? PlatformAuditActions.PaymentMethodUpdateUrlGeneratedWithFallback
                     : PlatformAuditActions.PaymentMethodUpdateUrlGenerated,
                 tenantId, actorUserId, actorEmail,
-                $"recurrentUrl generada para actualizar método de pago. Plan {recurringPlanId}. Contract {result.Contract ?? "n/a"}. " +
+                $"url_renew generada para actualizar método de pago ({scopeLabel}). Plan {recurringPlanId}. Contract {result.Contract ?? "n/a"}. " +
                 $"ProviderContractFallback {usedFallback}.{diagDetail} EmailMasked {SensitiveDataMasker.MaskEmail(email)}.",
                 nowUtc));
             await _db.SaveChangesAsync(cancellationToken);
 
             return PaymentMethodUpdateResult.Ok(result.Url!, result.Contract, usedFallback);
         }
+
+        private async Task<string?> ResolveTenantEmailAsync(Guid tenantId, CancellationToken cancellationToken) =>
+            await _db.Users
+                .AsNoTracking()
+                .Where(u => u.TenantId == tenantId && u.Email != null)
+                .OrderBy(u => u.Email)
+                .Select(u => u.Email)
+                .FirstOrDefaultAsync(cancellationToken);
 
         /// <summary>Anti open-redirect: solo se acepta redirigir a HTTPS del dominio de TiloPay.</summary>
         private static bool IsSafeTilopayUrl(string? url)

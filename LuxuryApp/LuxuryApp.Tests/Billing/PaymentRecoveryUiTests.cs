@@ -371,6 +371,8 @@ namespace LuxuryApp.Tests.Billing
                 Task.FromResult(PaymentMethodUpdateResult.Ok("https://app.tilopay.com/x"));
             public Task<PaymentMethodUpdateResult> GenerateUpdateUrlForTenantAsync(Guid tenantId, string actorUserId, string actorEmail, CancellationToken cancellationToken = default) =>
                 Task.FromResult(PaymentMethodUpdateResult.Ok("https://app.tilopay.com/x"));
+            public Task<PaymentMethodUpdateResult> GenerateUpdateUrlForIncidentAsync(Guid incidentId, string actorUserId, string actorEmail, CancellationToken cancellationToken = default) =>
+                Task.FromResult(PaymentMethodUpdateResult.Ok("https://app.tilopay.com/x"));
         }
 
         private sealed class RecordingRecoveryService : IPaymentRecoveryService

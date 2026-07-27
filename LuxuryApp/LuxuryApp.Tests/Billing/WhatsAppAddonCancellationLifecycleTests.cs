@@ -1,3 +1,4 @@
+using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.Platform;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Billing;
@@ -23,6 +24,7 @@ namespace LuxuryApp.Tests.Billing
     {
         private const int Wa400PlanId = 5831;
         private const int Wa800PlanId = 5832;
+        private const int BasePlanId = 6127; // LC_M_03
 
         // ── R1: Strategy B — cambiar de paquete deja el suscriptor anterior pendiente ──
 
@@ -235,6 +237,87 @@ namespace LuxuryApp.Tests.Billing
             Assert.Contains("sub-002", admin.DeletedSubscriberIds);
         }
 
+        [Fact]
+        public async Task StrategyB_PostCommitCancel_AutomaticallyCancelsPreviousSubscriber_WhenEnabled()
+        {
+            // Reproduce lo que hace el post-commit del webhook tras un cambio de paquete: el viejo
+            // suscriptor quedó stasheado en la activación y aquí se cancela AUTOMÁTICAMENTE (verificado).
+            var tenantId = Guid.NewGuid();
+            var (context, connection, accessor) = CreateContext(tenantId);
+            using var _ = context;
+            using var __ = connection;
+
+            await SeedTenantAndBaseAsync(context, tenantId);
+            var plan400 = await SeedWhatsAppPlanAsync(context, PlanCodes.WhatsApp400, 400);
+            var plan800 = await SeedWhatsAppPlanAsync(context, PlanCodes.WhatsApp800, 800);
+
+            var svc = CreateSuscripcionService(context);
+            await svc.ActivarAddonWhatsAppRecurrenteAsync(tenantId, plan400, Wa400PlanId, "sub-001", "txn-1");
+            await svc.ActivarAddonWhatsAppRecurrenteAsync(tenantId, plan800, Wa800PlanId, "sub-002", "txn-2");
+
+            var admin = new FakeAddonAdmin();
+            admin.AddSubscriber(Wa400PlanId, "sub-001"); // el anterior sigue vivo en TiloPay
+            var manager = CreateManager(context, accessor, admin);
+
+            var result = await manager.TryCancelPendingAddonSubscriberAsync(tenantId);
+
+            Assert.True(result.Cancelled);
+            Assert.Contains("sub-001", admin.DeletedSubscriberIds);
+
+            var addon = await context.TenantSubscriptionAddons.IgnoreQueryFilters()
+                .SingleAsync(a => a.TenantId == tenantId);
+            Assert.Equal(ProviderCancellationState.Cancelled, addon.ProviderCancellation);
+            Assert.Null(addon.PendingCancellationProviderSubscriptionId);
+            Assert.Equal("sub-002", addon.ProviderSubscriptionId); // el nuevo, intacto
+            Assert.Equal(PlanCodes.WhatsApp800, addon.AddonCode);
+        }
+
+        [Fact]
+        public async Task CascadeCancellation_AdminEnabled_NonImmediate_AutoCancelsSubscriber_KeepsAddonUntilPeriodEnd()
+        {
+            var tenantId = Guid.NewGuid();
+            var (context, connection, accessor) = CreateContext(tenantId);
+            using var _ = context;
+            using var __ = connection;
+
+            var admin = new FakeAddonAdmin();
+            admin.AddSubscriber(Wa800PlanId, "sub-002");
+            await SeedAddonAsync(context, tenantId, current: "sub-002", currentPlanId: Wa800PlanId);
+
+            var manager = CreateManager(context, accessor, admin);
+            await manager.ScheduleAddonCancellationForBaseCancellationAsync(tenantId, "user-1", "canceló el SaaS", immediate: false);
+
+            // Con el API habilitado, la baja se intenta AUTOMÁTICAMENTE y se verifica.
+            Assert.Contains("sub-002", admin.DeletedSubscriberIds);
+
+            var addon = await context.TenantSubscriptionAddons.IgnoreQueryFilters()
+                .SingleAsync(a => a.TenantId == tenantId);
+            Assert.True(addon.CancelAtPeriodEnd);
+            Assert.Equal(ProviderCancellationState.Cancelled, addon.ProviderCancellation);
+            Assert.Equal(EstadoSuscripcion.Activa, addon.Estado); // el uso sigue hasta FechaFin
+        }
+
+        [Fact]
+        public void CheckoutInspector_ReportsHasCheckoutUrlPerAddon_WithoutExposingUrl()
+        {
+            var options = new TilopayRepeatOptions
+            {
+                WhatsApp400 = new TilopayRepeatPlanOption { Code = PlanCodes.WhatsApp400, TilopayPlanId = Wa400PlanId, IsAddon = true, CheckoutUrl = "https://tp.cr/l/abc123token" },
+                WhatsApp800 = new TilopayRepeatPlanOption { Code = PlanCodes.WhatsApp800, TilopayPlanId = Wa800PlanId, IsAddon = true, CheckoutUrl = "" }
+            };
+            var inspector = new ManagedPlanCheckoutInspector(Options.Create(options));
+
+            var addons = inspector.InspectAddons();
+
+            var wa400 = addons.Single(a => a.Code == PlanCodes.WhatsApp400);
+            var wa800 = addons.Single(a => a.Code == PlanCodes.WhatsApp800);
+            Assert.True(wa400.HasCheckoutUrl);
+            Assert.False(wa800.HasCheckoutUrl);
+            // Nunca se expone el token/path completo en el descriptor.
+            Assert.DoesNotContain("abc123token", wa400.CheckoutUrlDescriptor);
+            Assert.Contains("tp.cr", wa400.CheckoutUrlDescriptor);
+        }
+
         // ── R7: recuperación de incidentes del add-on SIN contaminar el base ──
 
         [Fact]
@@ -322,7 +405,114 @@ namespace LuxuryApp.Tests.Billing
             Assert.Equal(0, snapshot.WhatsAppAddonsDoubleActiveTenants);
         }
 
+        // ── recurrentUrl update card: por SCOPE del incidente (base vs add-on) ──
+
+        [Fact]
+        public async Task IncidentUpdateUrl_AddonScope_UsesAddonPlanId_NotBase()
+        {
+            var tenantId = Guid.NewGuid();
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(new TestTenantProvider { TenantId = tenantId });
+            using var _ = context;
+            using var __ = connection;
+
+            await SeedTenantAndBaseAsync(context, tenantId);
+            await SeedUserAsync(context, tenantId, "owner@test.cr");
+            await SeedAddonAsync(context, tenantId, current: "sub-002", currentPlanId: Wa800PlanId);
+            var addonId = await context.TenantSubscriptionAddons.IgnoreQueryFilters()
+                .Where(a => a.TenantId == tenantId).Select(a => a.Id).SingleAsync();
+            var incidentId = await SeedIncidentAsync(context, tenantId, PaymentIncidentScope.WhatsAppAddon, Wa800PlanId, addonId);
+
+            var admin = new FakeAddonAdmin();
+            var svc = CreateMethodUpdateService(context, admin);
+            var result = await svc.GenerateUpdateUrlForIncidentAsync(incidentId, "admin", "admin@test.cr");
+
+            Assert.True(result.Succeeded);
+            Assert.Contains(Wa800PlanId, admin.RecurrentUrlPlanIds);       // plan del ADD-ON
+            Assert.DoesNotContain(BasePlanId, admin.RecurrentUrlPlanIds);  // NUNCA el plan base
+        }
+
+        [Fact]
+        public async Task IncidentUpdateUrl_BaseScope_UsesBasePlanId_NotAddon()
+        {
+            var tenantId = Guid.NewGuid();
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(new TestTenantProvider { TenantId = tenantId });
+            using var _ = context;
+            using var __ = connection;
+
+            await SeedTenantAndBaseAsync(context, tenantId);
+            await SeedUserAsync(context, tenantId, "owner@test.cr");
+            await SeedAddonAsync(context, tenantId, current: "sub-002", currentPlanId: Wa800PlanId);
+            var incidentId = await SeedIncidentAsync(context, tenantId, PaymentIncidentScope.BasePlan, BasePlanId);
+
+            var admin = new FakeAddonAdmin();
+            var svc = CreateMethodUpdateService(context, admin);
+            var result = await svc.GenerateUpdateUrlForIncidentAsync(incidentId, "admin", "admin@test.cr");
+
+            Assert.True(result.Succeeded);
+            Assert.Contains(BasePlanId, admin.RecurrentUrlPlanIds);        // plan BASE
+            Assert.DoesNotContain(Wa800PlanId, admin.RecurrentUrlPlanIds); // NUNCA el plan del add-on
+        }
+
+        [Fact]
+        public async Task Recovery_BaseSuccessResolvesBaseIncidentOnly_AddonSuccessResolvesAddonOnly()
+        {
+            var tenantId = Guid.NewGuid();
+            var (context, connection, accessor) = CreateContext(tenantId);
+            using var _ = context;
+            using var __ = connection;
+
+            await SeedTenantAndBaseAsync(context, tenantId);
+            await SeedAddonAsync(context, tenantId, current: "sub-001", currentPlanId: Wa400PlanId);
+            var addonId = await context.TenantSubscriptionAddons.IgnoreQueryFilters()
+                .Where(a => a.TenantId == tenantId).Select(a => a.Id).SingleAsync();
+            var baseIncidentId = await SeedIncidentAsync(context, tenantId, PaymentIncidentScope.BasePlan, BasePlanId);
+            var addonIncidentId = await SeedIncidentAsync(context, tenantId, PaymentIncidentScope.WhatsAppAddon, Wa400PlanId, addonId);
+
+            var recovery = CreateRecoveryService(context, accessor);
+
+            // Éxito BASE: cierra el incidente base, NO el del add-on.
+            await recovery.ResolveOnSuccessAsync(tenantId, BasePlanId);
+            Assert.Equal(PaymentIncidentStatus.Resolved, (await LoadIncidentAsync(context, baseIncidentId)).Status);
+            Assert.Equal(PaymentIncidentStatus.Open, (await LoadIncidentAsync(context, addonIncidentId)).Status);
+
+            // Éxito ADD-ON: cierra el del add-on, deja el base como estaba (resuelto).
+            await recovery.ResolveAddonOnSuccessAsync(tenantId, Wa400PlanId);
+            Assert.Equal(PaymentIncidentStatus.Resolved, (await LoadIncidentAsync(context, addonIncidentId)).Status);
+            Assert.Equal(PaymentIncidentStatus.Resolved, (await LoadIncidentAsync(context, baseIncidentId)).Status);
+        }
+
+        [Fact]
+        public async Task AddonRecovery_DoesNotTouchBaseSubscriptionState()
+        {
+            var tenantId = Guid.NewGuid();
+            var (context, connection, accessor) = CreateContext(tenantId);
+            using var _ = context;
+            using var __ = connection;
+
+            await SeedTenantAndBaseAsync(context, tenantId);
+            var baseSub = await context.Suscripciones.IgnoreQueryFilters().SingleAsync(s => s.TenantId == tenantId);
+            var baseFechaFin = baseSub.FechaFin;
+            baseSub.PaymentRecoveryStatus = "GraceActive";
+            baseSub.LastPaymentFailedAtUtc = DateTime.UtcNow.AddDays(-1);
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            await SeedAddonAsync(context, tenantId, current: "sub-001", currentPlanId: Wa400PlanId);
+            var recovery = CreateRecoveryService(context, accessor);
+
+            await recovery.RegisterFailedAddonPaymentAsync(tenantId, Wa400PlanId, "sub-001", "2", "declined");
+            await recovery.ResolveAddonOnSuccessAsync(tenantId, Wa400PlanId);
+
+            var after = await context.Suscripciones.IgnoreQueryFilters().SingleAsync(s => s.TenantId == tenantId);
+            Assert.Equal(EstadoSuscripcion.Activa, after.Estado);           // Estado base intacto
+            Assert.Equal("GraceActive", after.PaymentRecoveryStatus);       // PaymentRecoveryStatus base intacto
+            Assert.Equal(baseFechaFin, after.FechaFin);                     // FechaFin base intacto
+        }
+
         // ── Helpers ──
+
+        private static Task<SubscriptionPaymentIncident> LoadIncidentAsync(ApplicationDbContext context, Guid incidentId) =>
+            context.SubscriptionPaymentIncidents.IgnoreQueryFilters().SingleAsync(i => i.Id == incidentId);
 
         private static (ApplicationDbContext, System.Data.Common.DbConnection, TenantExecutionContextAccessor) CreateContext(Guid tenantId)
         {
@@ -343,14 +533,10 @@ namespace LuxuryApp.Tests.Billing
         private static AddonSubscriptionManager CreateManager(
             ApplicationDbContext context, TenantExecutionContextAccessor accessor, FakeAddonAdmin admin)
         {
-            var options = Options.Create(new OpcionesTilopayRepeatAdmin
-            {
-                Enabled = true,
-                AutoCancelOldSubscriberOnUpgrade = true
-            });
+            // El comportamiento automático depende SOLO de admin.IsEnabled (no de un flag secundario).
             return new AddonSubscriptionManager(
                 context, admin, accessor, new FixedBusinessDateTimeProvider(),
-                options, NullLogger<AddonSubscriptionManager>.Instance);
+                NullLogger<AddonSubscriptionManager>.Instance);
         }
 
         private static PaymentRecoveryService CreateRecoveryService(
@@ -390,6 +576,8 @@ namespace LuxuryApp.Tests.Billing
                 CodigoPlan = PlanCodes.Business,
                 Estado = EstadoSuscripcion.Activa,
                 Proveedor = PaymentProviderType.Tilopay,
+                TilopayRecurringPlanId = BasePlanId,
+                ProviderSubscriptionId = "base-sub",
                 FechaInicio = DateTime.UtcNow.AddDays(-3),
                 FechaFin = DateTime.UtcNow.AddDays(27),
                 FechaProximoCobroUtc = DateTime.UtcNow.AddDays(27),
@@ -399,6 +587,55 @@ namespace LuxuryApp.Tests.Billing
             context.ChangeTracker.Clear();
             return planId;
         }
+
+        private static async Task SeedUserAsync(ApplicationDbContext context, Guid tenantId, string email)
+        {
+            context.Users.Add(new AppUsuario
+            {
+                Id = Guid.NewGuid().ToString(),
+                TenantId = tenantId,
+                Email = email,
+                UserName = email,
+                NormalizedEmail = email.ToUpperInvariant(),
+                NormalizedUserName = email.ToUpperInvariant()
+            });
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+        }
+
+        private static async Task<Guid> SeedIncidentAsync(
+            ApplicationDbContext context,
+            Guid tenantId,
+            PaymentIncidentScope scope,
+            int tilopayPlanId,
+            Guid? addonId = null,
+            PaymentIncidentStatus status = PaymentIncidentStatus.Open)
+        {
+            var id = Guid.NewGuid();
+            var nowUtc = DateTime.UtcNow;
+            context.SubscriptionPaymentIncidents.Add(new SubscriptionPaymentIncident
+            {
+                Id = id,
+                TenantId = tenantId,
+                Scope = scope,
+                AddonId = addonId,
+                SuscripcionId = scope == PaymentIncidentScope.BasePlan ? Guid.NewGuid() : Guid.Empty,
+                TilopayRecurringPlanId = tilopayPlanId,
+                PlanCode = scope == PaymentIncidentScope.BasePlan ? PlanCodes.Business : PlanCodes.WhatsApp400,
+                Status = status,
+                FailureDetectedAtUtc = nowUtc,
+                GraceEndsAtUtc = nowUtc.AddDays(3),
+                FailureCount = 1,
+                CreatedAtUtc = nowUtc,
+                UpdatedAtUtc = nowUtc
+            });
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+            return id;
+        }
+
+        private static PaymentMethodUpdateService CreateMethodUpdateService(ApplicationDbContext context, FakeAddonAdmin admin) =>
+            new(context, admin, new FixedBusinessDateTimeProvider(), NullLogger<PaymentMethodUpdateService>.Instance);
 
         private static async Task SeedExpiredBaseAsync(ApplicationDbContext context, Guid tenantId)
         {
@@ -516,6 +753,8 @@ namespace LuxuryApp.Tests.Billing
             public bool IsEnabled { get; set; } = true;
             public bool ActuallyRemoveOnDelete { get; set; } = true;
             public List<string> DeletedSubscriberIds { get; } = new();
+            /// <summary>Planes con los que se pidió recurrentUrl (para verificar que se usa el plan correcto).</summary>
+            public List<int> RecurrentUrlPlanIds { get; } = new();
             private readonly Dictionary<int, List<TilopaySubscriber>> _byPlan = new();
 
             public void AddSubscriber(int planId, string subscriberId, string status = "Active")
@@ -562,8 +801,13 @@ namespace LuxuryApp.Tests.Billing
             public Task<SubscriberResolutionResult> ResolveSubscriberAsync(int tilopayPlanId, string? email, CancellationToken cancellationToken = default) =>
                 throw new NotImplementedException();
 
-            public Task<TilopayAdminOperationResult> GetRecurrentUrlAsync(int tilopayPlanId, string? email, CancellationToken cancellationToken = default) =>
-                throw new NotImplementedException();
+            public Task<TilopayAdminOperationResult> GetRecurrentUrlAsync(int tilopayPlanId, string? email, CancellationToken cancellationToken = default)
+            {
+                RecurrentUrlPlanIds.Add(tilopayPlanId);
+                // Devuelve una url_renew válida de dominio TiloPay para el plan solicitado.
+                return Task.FromResult(TilopayAdminOperationResult.Ok("url_renew", $"https://app.tilopay.com/recurrent/{tilopayPlanId}")
+                    with { Contract = "id" });
+            }
 
             public Task<TargetSubscriberAssessment> AssessTargetSubscribersAsync(int tilopayPlanId, string? email, CancellationToken cancellationToken = default) =>
                 throw new NotImplementedException();

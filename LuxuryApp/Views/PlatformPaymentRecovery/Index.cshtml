@@ -107,7 +107,13 @@
                                     <div class="text-muted">@(item.ClienteEmail ?? "—")</div>
                                 </td>
                                 <td class="small">
-                                    <div>@(item.PlanCode ?? "—")</div>
+                                    <div>
+                                        @(item.PlanCode ?? "—")
+                                        @if (item.Scope == LuxuryApp.Models.SaaS.PaymentIncidentScope.WhatsAppAddon)
+                                        {
+                                            <span class="badge text-bg-info ms-1">add-on</span>
+                                        }
+                                    </div>
                                     <div class="font-monospace text-muted">@(item.ProviderSubscriberSuffix ?? "—")</div>
                                 </td>
                                 <td>
@@ -144,10 +150,10 @@
                                         </div>
                                         @if (Model.AdminEnabled)
                                         {
-                                            <form asp-action="GenerateUpdateUrl" asp-route-tenantId="@item.TenantId" method="post" class="d-inline">
+                                            <form asp-action="GenerateUpdateUrl" asp-route-incidentId="@item.IncidentId" method="post" class="d-inline">
                                                 @Html.AntiForgeryToken()
                                                 <button type="submit" class="btn btn-sm btn-outline-primary">
-                                                    <i class="bi bi-credit-card"></i> Generar enlace
+                                                    <i class="bi bi-credit-card"></i> Generar enlace@(item.Scope == LuxuryApp.Models.SaaS.PaymentIncidentScope.WhatsAppAddon ? " (add-on)" : "")
                                                 </button>
                                             </form>
                                         }

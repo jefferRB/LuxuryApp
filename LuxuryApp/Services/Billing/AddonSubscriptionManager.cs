@@ -5,7 +5,6 @@ using LuxuryApp.Services.Security;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Services.Tilopay;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Services.Billing
@@ -83,7 +82,6 @@ namespace LuxuryApp.Services.Billing
         private readonly ITilopayRepeatAdminService _adminService;
         private readonly ITenantExecutionContextAccessor _tenantExecutionContextAccessor;
         private readonly IBusinessDateTimeProvider _clock;
-        private readonly OpcionesTilopayRepeatAdmin _adminOptions;
         private readonly ILogger<AddonSubscriptionManager> _logger;
 
         public AddonSubscriptionManager(
@@ -91,14 +89,12 @@ namespace LuxuryApp.Services.Billing
             ITilopayRepeatAdminService adminService,
             ITenantExecutionContextAccessor tenantExecutionContextAccessor,
             IBusinessDateTimeProvider clock,
-            IOptions<OpcionesTilopayRepeatAdmin> adminOptions,
             ILogger<AddonSubscriptionManager> logger)
         {
             _db = db;
             _adminService = adminService;
             _tenantExecutionContextAccessor = tenantExecutionContextAccessor;
             _clock = clock;
-            _adminOptions = adminOptions.Value;
             _logger = logger;
         }
 
@@ -229,12 +225,14 @@ namespace LuxuryApp.Services.Billing
             Guid tenantId,
             CancellationToken cancellationToken = default)
         {
-            if (!_adminService.IsEnabled || !_adminOptions.AutoCancelOldSubscriberOnUpgrade)
+            // Cancelación AUTOMÁTICA por defecto cuando el API admin de TiloPay está habilitado
+            // (TilopayRepeatAdmin:Enabled=true). El modo manual NO es el camino principal: es solo el
+            // fallback cuando el API está apagado — ahí la fila queda ProviderCancellation=Pending y
+            // la reconciliación/Mission Control alertan (NotCalled no gasta presupuesto de reintentos).
+            if (!_adminService.IsEnabled)
             {
-                // Deshabilitado: la fila queda con ProviderCancellation=Pending y la reconciliación/
-                // Mission Control ya alertan. NO es un intento fallido: no gasta presupuesto.
                 return ProviderCancellationAttemptResult.NotCalled(
-                    "La cancelación automática del suscriptor del add-on está deshabilitada.");
+                    "El API admin de TiloPay está deshabilitado; el suscriptor del add-on queda pendiente para cancelación manual + alerta.");
             }
 
             var nowUtc = GetUtcNow();
@@ -414,11 +412,9 @@ namespace LuxuryApp.Services.Billing
                 await _db.SaveChangesAsync(cancellationToken);
             }
 
-            // Intento best-effort de la baja verificada (fuera del scope anterior). Si el API está
-            // apagado, queda pendiente y la reconciliación reintenta.
-            if (hasPendingProviderCancellation &&
-                _adminService.IsEnabled &&
-                _adminOptions.AutoCancelOldSubscriberOnUpgrade)
+            // Intento AUTOMÁTICO de la baja verificada (fuera del scope anterior), por defecto cuando
+            // el API está habilitado. Si está apagado, queda pendiente y la reconciliación reintenta.
+            if (hasPendingProviderCancellation && _adminService.IsEnabled)
             {
                 try
                 {

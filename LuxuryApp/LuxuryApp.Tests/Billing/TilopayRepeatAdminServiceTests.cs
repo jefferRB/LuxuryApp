@@ -107,7 +107,8 @@ namespace LuxuryApp.Tests.Billing
         [Fact]
         public async Task GetRecurrentUrl_ReturnsUrl()
         {
-            var service = CreateService("""{ "url": "https://tp.cr/l/recurrent-link" }""");
+            // Contrato oficial: la URL de actualización viene en url_renew (no en un alias "url").
+            var service = CreateService("""{ "type": "success", "url_renew": "https://tp.cr/l/recurrent-link" }""");
 
             var result = await service.GetRecurrentUrlAsync(6119, "owner@test.local");
 
@@ -171,12 +172,11 @@ namespace LuxuryApp.Tests.Billing
             Assert.False(root.TryGetProperty("plan_id", out _));                  // NO plan_id
         }
 
-        // ── recurrentUrl: contrato del body ──
-        // Producción devolvía 402 {"type":"402","message":"The id plan parameter is required"}
-        // aunque el campo iba: se mandaba como int y el validador de TiloPay espera STRING, igual
-        // que getSuscriptorRepeat. El nombre "id_plan" sí es correcto (lo dice su propio error).
+        // ── recurrentUrl: contrato OFICIAL del body (soporte TiloPay 2026) ──
+        // POST /api/v1/recurrentUrl, JSON { key, id, email }. El campo del plan recurrente es "id"
+        // (STRING). NO se envía id_plan ni plan_id (no oficiales) ni id_suscriptor (no requerido).
         [Fact]
-        public async Task GetRecurrentUrl_SendsIdPlanAsString()
+        public async Task GetRecurrentUrl_SendsId_NotIdPlanNorPlanId_AsJson()
         {
             var handler = new StubHandler(RealSuscriptorResponse);
             handler.SetResponse(
@@ -192,12 +192,16 @@ namespace LuxuryApp.Tests.Billing
 
             var request = handler.LastByPath("recurrentUrl");
             Assert.NotNull(request);
+            Assert.Equal("application/json", request!.ContentType); // Content-Type application/json
 
-            using var doc = JsonDocument.Parse(request!.Body!);
+            using var doc = JsonDocument.Parse(request.Body!);
             var root = doc.RootElement;
             Assert.Equal("k", root.GetProperty("key").GetString());
-            Assert.Equal(JsonValueKind.String, root.GetProperty("id_plan").ValueKind);  // STRING, no int
-            Assert.Equal("6126", root.GetProperty("id_plan").GetString());
+            Assert.Equal(JsonValueKind.String, root.GetProperty("id").ValueKind); // "id" STRING, no int
+            Assert.Equal("6126", root.GetProperty("id").GetString());
+            Assert.False(root.TryGetProperty("id_plan", out _));       // NO id_plan
+            Assert.False(root.TryGetProperty("plan_id", out _));       // NO plan_id
+            Assert.False(root.TryGetProperty("id_suscriptor", out _)); // NO id_suscriptor
             Assert.Equal("compra3usuarios@gmail.com", root.GetProperty("email").GetString());
         }
 
@@ -235,7 +239,7 @@ namespace LuxuryApp.Tests.Billing
         }
 
         [Fact]
-        public async Task GetRecurrentUrl_PrimarySucceeds_ReportsIdPlanContract()
+        public async Task GetRecurrentUrl_Succeeds_ReportsIdContract()
         {
             var handler = new StubHandler(RealSuscriptorResponse);
             handler.SetResponse(
@@ -247,46 +251,15 @@ namespace LuxuryApp.Tests.Billing
             var result = await service.GetRecurrentUrlAsync(6126, "compra3usuarios@gmail.com");
 
             Assert.True(result.Succeeded);
-            Assert.Equal("id_plan", result.Contract);
-            // Un solo intento: no hay fallback si el principal funcionó.
+            Assert.Equal("id", result.Contract);
             Assert.Single(handler.AllByPath("recurrentUrl"));
         }
 
         [Fact]
-        public async Task GetRecurrentUrl_PrimaryMissingPlanError_FallsBackWithAliases_AndSucceeds()
+        public async Task GetRecurrentUrl_ProviderError_SingleAttempt_NoFallback()
         {
             var handler = new StubHandler(RealSuscriptorResponse);
-            // 1º intento (id_plan): HTTP 402 "id plan required". 2º intento (con alias): 200 con url_renew.
-            handler.SetResponseSequence(
-                "recurrentUrl",
-                (HttpStatusCode.PaymentRequired, """{ "type": "402", "message": "The id plan parameter is required", "url_register": "", "url_renew": "" }"""),
-                (HttpStatusCode.OK, """{ "type": "success", "url_renew": "https://tp.cr/l/renew" }"""));
-            var service = CreateService(handler);
-
-            var result = await service.GetRecurrentUrlAsync(6126, "compra3usuarios@gmail.com");
-
-            Assert.True(result.Succeeded);
-            Assert.Equal("https://tp.cr/l/renew", result.Url);
-            Assert.Equal("id_plan+aliases", result.Contract);
-
-            var requests = handler.AllByPath("recurrentUrl");
-            Assert.Equal(2, requests.Count); // primary + fallback
-
-            using var primaryBody = JsonDocument.Parse(requests[0].Body!);
-            Assert.Equal("6126", primaryBody.RootElement.GetProperty("id_plan").GetString());
-            Assert.False(primaryBody.RootElement.TryGetProperty("id", out _)); // primary NO manda alias
-
-            using var fallbackBody = JsonDocument.Parse(requests[1].Body!);
-            Assert.Equal("6126", fallbackBody.RootElement.GetProperty("id_plan").GetString());
-            Assert.Equal("6126", fallbackBody.RootElement.GetProperty("id").GetString());       // alias STRING
-            Assert.Equal("6126", fallbackBody.RootElement.GetProperty("plan_id").GetString());   // alias STRING
-        }
-
-        [Fact]
-        public async Task GetRecurrentUrl_NonMissingPlanError_DoesNotFallBack()
-        {
-            var handler = new StubHandler(RealSuscriptorResponse);
-            // Error distinto (no "id plan required"): NO se reintenta con alias.
+            // Contrato oficial "id": NUNCA hay reintento con campos no oficiales (id_plan/plan_id).
             handler.SetResponse(
                 "recurrentUrl",
                 HttpStatusCode.PaymentRequired,
@@ -296,7 +269,7 @@ namespace LuxuryApp.Tests.Billing
             var result = await service.GetRecurrentUrlAsync(6126, "compra3usuarios@gmail.com");
 
             Assert.False(result.Succeeded);
-            Assert.Single(handler.AllByPath("recurrentUrl")); // un solo intento
+            Assert.Single(handler.AllByPath("recurrentUrl")); // un solo intento, sin fallback
         }
 
         // ── recurrentUrl: selección de campo (url_renew / url_register) + diagnóstico ──
