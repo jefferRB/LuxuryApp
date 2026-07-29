@@ -1409,7 +1409,6 @@ namespace LuxuryApp.Tests.TenantIsolation
             var evento = await context.EventosPago.IgnoreQueryFilters().SingleAsync();
             var baseSubscription = await context.Suscripciones.IgnoreQueryFilters().SingleAsync();
             var addon = await context.TenantSubscriptionAddons.IgnoreQueryFilters().SingleAsync();
-            var settings = await context.TenantWhatsAppSettings.IgnoreQueryFilters().SingleAsync();
             var intento = await context.PagosSuscripcion.IgnoreQueryFilters().SingleAsync();
 
             Assert.True(result.IsProcessed);
@@ -1433,10 +1432,12 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(monthlyMessageLimit, addon.MonthlyMessageLimit);
             Assert.Equal(nextPaymentDateUtc, addon.FechaProximoCobroUtc);
             Assert.NotNull(addon.FechaFin);
-            Assert.True(settings.IsEnabled);
-            Assert.True(settings.SendConfirmationOnCreate);
-            Assert.True(settings.SendReminderThreeHoursBefore);
-            Assert.Equal(dailyMessageLimit, settings.DailyMessageLimit);
+            // Opción A: la cuota mensual comercial vive en el add-on; el pago recurrente NO crea ni
+            // habilita TenantWhatsAppSettings (la integración se configura aparte en /WhatsApp).
+            Assert.Equal(monthlyMessageLimit, addon.MonthlyMessageLimit);
+            Assert.Empty(context.TenantWhatsAppSettings.IgnoreQueryFilters());
+            // dailyMessageLimit sigue siendo el default operativo del add-on (no el paquete mensual).
+            Assert.True(dailyMessageLimit > 0);
 
             Assert.Equal(EstadoSuscripcion.Activa, baseSubscription.Estado);
             Assert.Equal(basePlanId, baseSubscription.PlanId);
@@ -1646,19 +1647,17 @@ namespace LuxuryApp.Tests.TenantIsolation
                 "repeat_payment_success");
 
             var addonAfterApproval = await context.TenantSubscriptionAddons.IgnoreQueryFilters().SingleAsync();
-            var settingsAfterApproval = await context.TenantWhatsAppSettings.IgnoreQueryFilters().SingleAsync();
 
             Assert.True(result.IsProcessed);
             Assert.Equal(addonBeforeApproval.Id, addonAfterApproval.Id);
             Assert.Equal(newAddonPlanId, addonAfterApproval.PlanId);
             Assert.Equal(PlanCodes.WhatsApp800, addonAfterApproval.AddonCode);
+            // La cuota mensual comercial se actualiza en el add-on (WA400 → WA800).
             Assert.Equal(800, addonAfterApproval.MonthlyMessageLimit);
             Assert.Equal("subscriber-wa800-active", addonAfterApproval.ProviderSubscriptionId);
             Assert.Equal("PRE-WA800-REPLACE", addonAfterApproval.ProviderTransactionId);
-            Assert.Equal(30, settingsAfterApproval.DailyMessageLimit);
-            Assert.True(settingsAfterApproval.IsEnabled);
-            Assert.True(settingsAfterApproval.SendConfirmationOnCreate);
-            Assert.True(settingsAfterApproval.SendReminderThreeHoursBefore);
+            // Opción A: el cambio de paquete no crea/toca la configuración técnica de WhatsApp.
+            Assert.Empty(context.TenantWhatsAppSettings.IgnoreQueryFilters());
         }
 
         [Fact]

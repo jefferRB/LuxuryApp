@@ -572,10 +572,285 @@ namespace LuxuryApp.Tests.Billing
             return payment;
         }
 
+        [Fact]
+        public async Task Heal_ProviderActiveAndRenewed_ClosesGraceAndReactivates_EvenIfWebhookWasUnmatched()
+        {
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var nowUtc = new DateTimeOffset(new DateTime(2026, 5, 26, 10, 30, 0), TimeSpan.FromHours(-6)).UtcDateTime;
+            var tenantId = Guid.NewGuid();
+            var planId = Guid.NewGuid();
+
+            context.Tenants.Add(new Tenant { Id = tenantId, Nombre = "Compra2", Activo = true });
+            context.Planes.Add(new Plan { Id = planId, Codigo = "LC_M_03", Nombre = "LC_M_03", PrecioMensual = 20000m, Moneda = "CRC", MaxFuncionarios = 3, Activo = true });
+
+            var subId = Guid.NewGuid();
+            context.Suscripciones.Add(new Suscripcion
+            {
+                Id = subId,
+                TenantId = tenantId,
+                PlanId = planId,
+                CodigoPlan = "LC_M_03",
+                Proveedor = PaymentProviderType.Tilopay,
+                TilopayRecurringPlanId = 6127,
+                ProviderSubscriptionId = "384370",
+                Estado = EstadoSuscripcion.Morosa,
+                PaymentRecoveryStatus = "GraceActive",
+                FechaInicio = nowUtc.AddDays(-31),
+                FechaFin = nowUtc.AddDays(-1),
+                FechaProximoCobroUtc = nowUtc.AddDays(-1),
+                FechaFinGraciaUtc = nowUtc.AddDays(3),
+                LastPaymentFailedAtUtc = nowUtc.AddHours(-1),
+                FechaUltimaActualizacionUtc = nowUtc.AddHours(-1)
+            });
+            context.SubscriptionPaymentIncidents.Add(new SubscriptionPaymentIncident
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                Scope = PaymentIncidentScope.BasePlan,
+                SuscripcionId = subId,
+                TilopayRecurringPlanId = 6127,
+                PlanCode = "LC_M_03",
+                Status = PaymentIncidentStatus.Open,
+                FailureDetectedAtUtc = nowUtc.AddHours(-1),
+                GraceEndsAtUtc = nowUtc.AddDays(3),
+                FailureCount = 1,
+                CreatedAtUtc = nowUtc.AddHours(-1),
+                UpdatedAtUtc = nowUtc.AddHours(-1)
+            });
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            var admin = new FakeReconAdmin();
+            admin.Subscribers[6127] = new()
+            {
+                new LuxuryApp.Services.Tilopay.TilopaySubscriber
+                {
+                    SubscriberId = "384370",
+                    Email = "compra2usuarios@gmail.com",
+                    Status = "Active",
+                    ExpiresAtUtc = nowUtc.AddDays(90),
+                    ExpiresRaw = "2026-09-14"
+                }
+            };
+
+            var report = await CreateService(context, adminService: admin).RunAsync();
+
+            Assert.True(report.RecoveredSubscriptionsHealed >= 1);
+
+            var sub = await context.Suscripciones.IgnoreQueryFilters().SingleAsync(s => s.Id == subId);
+            Assert.Equal(EstadoSuscripcion.Activa, sub.Estado);
+            Assert.Null(sub.PaymentRecoveryStatus);
+            Assert.Null(sub.FechaFinGraciaUtc);
+            Assert.True(sub.FechaFin > nowUtc);
+            Assert.NotNull(sub.ProviderExpiresAtUtc);
+
+            var inc = await context.SubscriptionPaymentIncidents.IgnoreQueryFilters().SingleAsync(i => i.TenantId == tenantId);
+            Assert.Equal(PaymentIncidentStatus.Resolved, inc.Status);
+        }
+
+        [Fact]
+        public async Task Reconcile_OrphanedRenewalSuccessEvent_MarksReconciledAndRecordsPayment_WithoutDoubleExtension_Idempotent()
+        {
+            // Escenario compra2: la base YA fue sanada (Activa, renovada por el proveedor) pero el
+            // repeat_payment_success de url_renew quedó SinRelacion. La reconciliación debe cerrar la
+            // traza financiera: marcar el evento ReconciliadoPorProveedor + registrar el PagoSuscripcion
+            // Confirmado del cobro, sin extender la suscripción ni duplicar pagos, y ser idempotente.
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var nowUtc = new DateTimeOffset(new DateTime(2026, 5, 26, 10, 30, 0), TimeSpan.FromHours(-6)).UtcDateTime;
+            var tenantId = Guid.NewGuid();
+            var planId = Guid.NewGuid();
+            var subId = Guid.NewGuid();
+            var eventId = Guid.NewGuid();
+            const string txn = "5483055";
+
+            context.Tenants.Add(new Tenant { Id = tenantId, Nombre = "Compra2", Activo = true });
+            context.Planes.Add(new Plan { Id = planId, Codigo = "LC_M_03", Nombre = "LC_M_03", PrecioMensual = 20000m, Moneda = "CRC", MaxFuncionarios = 3, Activo = true });
+
+            // Suscripción base YA sana (Activa) y renovada por el proveedor.
+            var renewedEndUtc = nowUtc.AddDays(30);
+            context.Suscripciones.Add(new Suscripcion
+            {
+                Id = subId,
+                TenantId = tenantId,
+                PlanId = planId,
+                CodigoPlan = "LC_M_03",
+                Proveedor = PaymentProviderType.Tilopay,
+                TilopayRecurringPlanId = 6127,
+                ProviderSubscriptionId = "384370",
+                Estado = EstadoSuscripcion.Activa,
+                FechaInicio = nowUtc.AddDays(-1),
+                FechaFin = renewedEndUtc,
+                FechaProximoCobroUtc = renewedEndUtc,
+                ProviderExpiresAtUtc = renewedEndUtc,
+                FechaUltimaActualizacionUtc = nowUtc.AddHours(-1)
+            });
+
+            // Evento financiero real que quedó SinRelacion (url_renew success sin pending).
+            context.EventosPago.Add(new EventoPago
+            {
+                Id = eventId,
+                Proveedor = PaymentProviderType.Tilopay,
+                ProveedorEventId = $"tilopay-repeat-repeat_payment_success-6127-{txn}",
+                Tipo = "repeat_payment_success",
+                TilopayRecurringPlanId = 6127,
+                ProviderTransactionId = txn,
+                ProviderSubscriberId = null,
+                Monto = 20000m,
+                Moneda = "CRC",
+                Procesado = false,
+                EstadoProcesamiento = "SinRelacion",
+                Error = "No existe un pending recurrente vigente para el plan y correo recibidos.",
+                FechaRecepcionUtc = nowUtc.AddHours(-2),
+                FechaProcesamientoUtc = nowUtc.AddHours(-2)
+            });
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            var admin = new FakeReconAdmin();
+            admin.Subscribers[6127] = new()
+            {
+                new LuxuryApp.Services.Tilopay.TilopaySubscriber
+                {
+                    SubscriberId = "384370",
+                    Email = "compra2usuarios@gmail.com",
+                    Status = "Active",
+                    ExpiresAtUtc = nowUtc.AddDays(90),
+                    ExpiresRaw = "2026-09-14"
+                }
+            };
+
+            var report = await CreateService(context, adminService: admin).RunAsync();
+
+            Assert.True(report.RenewalSuccessEventsReconciled >= 1);
+
+            // El evento dejó de estar SinRelacion.
+            var evento = await context.EventosPago.IgnoreQueryFilters().SingleAsync(e => e.Id == eventId);
+            Assert.True(evento.Procesado);
+            Assert.Equal("ReconciliadoPorProveedor", evento.EstadoProcesamiento);
+            Assert.NotNull(evento.PagoSuscripcionId);
+            Assert.Equal(tenantId, evento.TenantId);
+            Assert.Null(evento.Error);
+
+            // Se registró EXACTAMENTE un PagoSuscripcion Confirmado para el cobro real.
+            var payments = await context.PagosSuscripcion.IgnoreQueryFilters()
+                .Where(p => p.ProviderTransactionId == txn).ToListAsync();
+            Assert.Single(payments);
+            Assert.Equal(EstadoPagoProveedor.Confirmado, payments[0].Estado);
+            Assert.Equal(tenantId, payments[0].TenantId);
+            Assert.Equal(20000m, payments[0].Monto);
+            Assert.Equal(evento.PagoSuscripcionId, payments[0].Id);
+
+            // NO se extendió la suscripción (la renovación ya la aplicó la sanación/proveedor).
+            var sub = await context.Suscripciones.IgnoreQueryFilters().SingleAsync(s => s.Id == subId);
+            Assert.Equal(renewedEndUtc, sub.FechaFin);
+            Assert.Equal(EstadoSuscripcion.Activa, sub.Estado);
+
+            // Auditoría de la reconciliación del evento.
+            Assert.Equal(1, await context.PlatformAuditLogs.CountAsync(l =>
+                l.Action == PlatformAuditActions.PaymentEventReconciledByProviderRenewal));
+
+            // ── Idempotencia: un segundo pase no reprocesa ni duplica nada ──
+            context.ChangeTracker.Clear();
+            var report2 = await CreateService(context, adminService: admin).RunAsync();
+
+            Assert.Equal(0, report2.RenewalSuccessEventsReconciled);
+            Assert.Single(await context.PagosSuscripcion.IgnoreQueryFilters()
+                .Where(p => p.ProviderTransactionId == txn).ToListAsync());
+            var subAfter = await context.Suscripciones.IgnoreQueryFilters().SingleAsync(s => s.Id == subId);
+            Assert.Equal(renewedEndUtc, subAfter.FechaFin);
+            Assert.Equal(1, await context.PlatformAuditLogs.CountAsync(l =>
+                l.Action == PlatformAuditActions.PaymentEventReconciledByProviderRenewal));
+        }
+
+        [Fact]
+        public async Task Reconcile_OrphanedSuccessEvent_MultipleActiveSubscribersOnPlan_LeavesUntouched()
+        {
+            // Ambigüedad: dos suscripciones locales activas en el MISMO plan recurrente. Sin el
+            // id_suscriptor/correo del evento (redactado) no se puede atribuir el cobro huérfano a una
+            // de ellas: la reconciliación NO debe tocar el evento ni inventar un pago.
+            var (context, connection) = CreateSystemContext();
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+
+            var nowUtc = new DateTimeOffset(new DateTime(2026, 5, 26, 10, 30, 0), TimeSpan.FromHours(-6)).UtcDateTime;
+            var planId = Guid.NewGuid();
+            var eventId = Guid.NewGuid();
+            var tenantA = Guid.NewGuid();
+            var tenantB = Guid.NewGuid();
+
+            context.Tenants.Add(new Tenant { Id = tenantA, Nombre = "A", Activo = true });
+            context.Tenants.Add(new Tenant { Id = tenantB, Nombre = "B", Activo = true });
+            context.Planes.Add(new Plan { Id = planId, Codigo = "LC_M_03", Nombre = "LC_M_03", PrecioMensual = 20000m, Moneda = "CRC", MaxFuncionarios = 3, Activo = true });
+            await context.SaveChangesAsync();
+
+            // Cada suscripción se guarda por separado: el guard de tenant del contexto de sistema
+            // bloquea mezclar dos tenants en un mismo SaveChanges.
+            foreach (var (tenantId, subscriberId) in new[] { (tenantA, "384370"), (tenantB, "999999") })
+            {
+                context.Suscripciones.Add(new Suscripcion
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = tenantId,
+                    PlanId = planId,
+                    CodigoPlan = "LC_M_03",
+                    Proveedor = PaymentProviderType.Tilopay,
+                    TilopayRecurringPlanId = 6127,
+                    ProviderSubscriptionId = subscriberId,
+                    Estado = EstadoSuscripcion.Activa,
+                    FechaInicio = nowUtc.AddDays(-1),
+                    FechaFin = nowUtc.AddDays(30),
+                    FechaUltimaActualizacionUtc = nowUtc.AddHours(-1)
+                });
+                await context.SaveChangesAsync();
+                context.ChangeTracker.Clear();
+            }
+
+            context.EventosPago.Add(new EventoPago
+            {
+                Id = eventId,
+                Proveedor = PaymentProviderType.Tilopay,
+                ProveedorEventId = "tilopay-repeat-repeat_payment_success-6127-777",
+                Tipo = "repeat_payment_success",
+                TilopayRecurringPlanId = 6127,
+                ProviderTransactionId = "777",
+                Monto = 20000m,
+                Moneda = "CRC",
+                Procesado = false,
+                EstadoProcesamiento = "SinRelacion",
+                FechaRecepcionUtc = nowUtc.AddHours(-2),
+                FechaProcesamientoUtc = nowUtc.AddHours(-2)
+            });
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            var admin = new FakeReconAdmin();
+            admin.Subscribers[6127] = new()
+            {
+                new LuxuryApp.Services.Tilopay.TilopaySubscriber { SubscriberId = "384370", Status = "Active", ExpiresAtUtc = nowUtc.AddDays(90) },
+                new LuxuryApp.Services.Tilopay.TilopaySubscriber { SubscriberId = "999999", Status = "Active", ExpiresAtUtc = nowUtc.AddDays(90) }
+            };
+
+            var report = await CreateService(context, adminService: admin).RunAsync();
+
+            Assert.Equal(0, report.RenewalSuccessEventsReconciled);
+            var evento = await context.EventosPago.IgnoreQueryFilters().SingleAsync(e => e.Id == eventId);
+            Assert.False(evento.Procesado);
+            Assert.Equal("SinRelacion", evento.EstadoProcesamiento);
+            Assert.Empty(await context.PagosSuscripcion.IgnoreQueryFilters()
+                .Where(p => p.ProviderTransactionId == "777").ToListAsync());
+        }
+
         private static BillingReconciliationService CreateService(
             ApplicationDbContext context,
             Action<BillingReconciliationOptions>? configure = null,
-            ISubscriberResolutionService? subscriberResolutionService = null)
+            ISubscriberResolutionService? subscriberResolutionService = null,
+            LuxuryApp.Services.Tilopay.ITilopayRepeatAdminService? adminService = null)
         {
             var repeatOptions = CalculatorCatalog.BuildRepeatOptions();
             var options = new BillingReconciliationOptions();
@@ -599,7 +874,34 @@ namespace LuxuryApp.Tests.Billing
                 Options.Create(options),
                 NullLogger<BillingReconciliationService>.Instance,
                 subscriberResolutionService,
-                Options.Create(new OpcionesTilopayRepeatAdmin()));
+                Options.Create(new OpcionesTilopayRepeatAdmin()),
+                adminService: adminService);
+        }
+
+        /// <summary>Fake mínimo del admin de TiloPay para el test de sanación (getSuscriptorRepeat).</summary>
+        private sealed class FakeReconAdmin : LuxuryApp.Services.Tilopay.ITilopayRepeatAdminService
+        {
+            public bool IsEnabled { get; set; } = true;
+            public Dictionary<int, List<LuxuryApp.Services.Tilopay.TilopaySubscriber>> Subscribers { get; } = new();
+
+            public Task<IReadOnlyList<LuxuryApp.Services.Tilopay.TilopaySubscriber>> GetSuscriptorRepeatAsync(int tilopayPlanId, CancellationToken cancellationToken = default) =>
+                Task.FromResult<IReadOnlyList<LuxuryApp.Services.Tilopay.TilopaySubscriber>>(
+                    Subscribers.TryGetValue(tilopayPlanId, out var list) ? list.ToList() : new List<LuxuryApp.Services.Tilopay.TilopaySubscriber>());
+
+            public Task<LuxuryApp.Services.Tilopay.SubscriberResolutionResult> ResolveSubscriberAsync(int tilopayPlanId, string? email, CancellationToken cancellationToken = default) =>
+                throw new NotImplementedException();
+            public Task<LuxuryApp.Services.Tilopay.TilopayAdminOperationResult> GetRecurrentUrlAsync(int tilopayPlanId, string? email, CancellationToken cancellationToken = default) =>
+                throw new NotImplementedException();
+            public Task<LuxuryApp.Services.Tilopay.TargetSubscriberAssessment> AssessTargetSubscribersAsync(int tilopayPlanId, string? email, CancellationToken cancellationToken = default) =>
+                throw new NotImplementedException();
+            public Task<LuxuryApp.Services.Tilopay.TilopayAdminOperationResult> PauseSubscriberAsync(string subscriberId, CancellationToken cancellationToken = default) =>
+                throw new NotImplementedException();
+            public Task<LuxuryApp.Services.Tilopay.TilopayAdminOperationResult> ReactivateSubscriberAsync(string subscriberId, CancellationToken cancellationToken = default) =>
+                throw new NotImplementedException();
+            public Task<LuxuryApp.Services.Tilopay.TilopayAdminOperationResult> DeleteSubscriberAsync(string subscriberId, CancellationToken cancellationToken = default) =>
+                throw new NotImplementedException();
+            public Task<LuxuryApp.Services.Tilopay.TilopayAdminOperationResult> EditSubscriberStatusAsync(string subscriberId, LuxuryApp.Services.Tilopay.TilopaySubscriberStatus status, CancellationToken cancellationToken = default) =>
+                throw new NotImplementedException();
         }
 
         /// <summary>Fake de resolución para probar aislamiento de fases y Pass A local (IsEnabled=true).</summary>

@@ -31,7 +31,7 @@ namespace LuxuryApp.Tests.Billing
         public async Task UpdateUrl_HappyPath_ReturnsTilopayUrl_AndAudits()
         {
             using var h = await Harness.CreateAsync();
-            await h.SeedSubscriptionAsync(localEndUtc: h.NowUtc.AddDays(10));
+            await h.SeedSubscriptionAsync(localEndUtc: h.NowUtc.AddDays(10), estado: EstadoSuscripcion.Morosa, paymentRecoveryStatus: "GraceActive");
 
             var result = await h.MethodUpdate.GenerateUpdateUrlAsync(h.TenantId, "compra3@test.cr", "user-1", "user@test.cr");
 
@@ -45,7 +45,7 @@ namespace LuxuryApp.Tests.Billing
         {
             using var h = await Harness.CreateAsync();
             h.Admin.Contract = "id_plan";
-            await h.SeedSubscriptionAsync(localEndUtc: h.NowUtc.AddDays(10));
+            await h.SeedSubscriptionAsync(localEndUtc: h.NowUtc.AddDays(10), estado: EstadoSuscripcion.Morosa, paymentRecoveryStatus: "GraceActive");
 
             var result = await h.MethodUpdate.GenerateUpdateUrlAsync(h.TenantId, "compra3@test.cr", "user-1", "user@test.cr");
 
@@ -60,7 +60,7 @@ namespace LuxuryApp.Tests.Billing
         {
             using var h = await Harness.CreateAsync();
             h.Admin.Contract = "id_plan+aliases"; // solo funcionó el fallback: enlace sospechoso
-            await h.SeedSubscriptionAsync(localEndUtc: h.NowUtc.AddDays(10));
+            await h.SeedSubscriptionAsync(localEndUtc: h.NowUtc.AddDays(10), estado: EstadoSuscripcion.Morosa, paymentRecoveryStatus: "GraceActive");
 
             var result = await h.MethodUpdate.GenerateUpdateUrlAsync(h.TenantId, "compra3@test.cr", "user-1", "user@test.cr");
 
@@ -75,7 +75,7 @@ namespace LuxuryApp.Tests.Billing
         {
             using var h = await Harness.CreateAsync();
             h.Admin.IsEnabled = false;
-            await h.SeedSubscriptionAsync(localEndUtc: h.NowUtc.AddDays(10));
+            await h.SeedSubscriptionAsync(localEndUtc: h.NowUtc.AddDays(10), estado: EstadoSuscripcion.Morosa, paymentRecoveryStatus: "GraceActive");
 
             var result = await h.MethodUpdate.GenerateUpdateUrlAsync(h.TenantId, "compra3@test.cr", "user-1", "user@test.cr");
 
@@ -87,7 +87,7 @@ namespace LuxuryApp.Tests.Billing
         {
             using var h = await Harness.CreateAsync();
             h.Admin.Url = "https://evil.example.com/steal"; // dominio NO TiloPay ⇒ open-redirect bloqueado
-            await h.SeedSubscriptionAsync(localEndUtc: h.NowUtc.AddDays(10));
+            await h.SeedSubscriptionAsync(localEndUtc: h.NowUtc.AddDays(10), estado: EstadoSuscripcion.Morosa, paymentRecoveryStatus: "GraceActive");
 
             var result = await h.MethodUpdate.GenerateUpdateUrlAsync(h.TenantId, "compra3@test.cr", "user-1", "user@test.cr");
 
@@ -121,6 +121,36 @@ namespace LuxuryApp.Tests.Billing
 
             Assert.False(result.Succeeded);
             Assert.True(result.RequiresNewCheckout);
+        }
+
+        [Fact]
+        public async Task UpdateUrl_ActiveSubscription_BlockedWithContactSupportMessage()
+        {
+            using var h = await Harness.CreateAsync();
+            // Cuenta ACTIVA/vigente (sin recovery): url_renew de TiloPay COBRA, no es update-only.
+            await h.SeedSubscriptionAsync(localEndUtc: h.NowUtc.AddDays(10)); // estado Activa por defecto
+
+            var result = await h.MethodUpdate.GenerateUpdateUrlAsync(h.TenantId, "compra3@test.cr", "user-1", "user@test.cr");
+
+            Assert.False(result.Succeeded);
+            Assert.False(result.RequiresNewCheckout);
+            Assert.Contains("soporte", result.Message!, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public async Task UpdateUrl_RecoverySubscription_GeneratesUrl()
+        {
+            using var h = await Harness.CreateAsync();
+            // Cuenta en RECUPERACIÓN: url_renew se usa para regularizar/pagar ahora → sí se permite.
+            await h.SeedSubscriptionAsync(
+                localEndUtc: h.NowUtc.AddDays(10),
+                estado: EstadoSuscripcion.Morosa,
+                paymentRecoveryStatus: "GraceActive");
+
+            var result = await h.MethodUpdate.GenerateUpdateUrlAsync(h.TenantId, "compra3@test.cr", "user-1", "user@test.cr");
+
+            Assert.True(result.Succeeded);
+            Assert.StartsWith("https://app.tilopay.com/", result.Url);
         }
 
         [Fact]

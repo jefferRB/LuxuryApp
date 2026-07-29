@@ -11,6 +11,19 @@ namespace LuxuryApp.Models.SaaS
         public DateTime? VigenciaHastaUtc { get; set; }
         public DateTime? ProximoCobroUtc { get; set; }
         public int? MaxFuncionarios { get; set; }
+
+        // ── Scope-aware: retorno de un ADD-ON de WhatsApp (no del plan base) ──
+        /// <summary>True si este retorno corresponde a la compra/renovación de un add-on de WhatsApp.</summary>
+        public bool EsAddon { get; set; }
+
+        /// <summary>Límite MENSUAL de mensajes del add-on (para el comprobante del paquete).</summary>
+        public int? MensajesMensuales { get; set; }
+
+        /// <summary>El plan BASE necesita atención (impago/gracia): se muestra en una sección aparte, no mezclado con el add-on.</summary>
+        public bool BaseRequiereAtencion { get; set; }
+
+        public string? BaseAtencionMensaje { get; set; }
+
         public bool AccesoRestringido { get; set; }
         public bool PagoAprobadoPorProveedor { get; set; }
         public bool ConfirmadoPorWebhook { get; set; }

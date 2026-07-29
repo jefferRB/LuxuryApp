@@ -1,4 +1,5 @@
 using LuxuryApp.Controllers.Platform;
+using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.Platform;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Billing;
@@ -1644,6 +1645,137 @@ namespace LuxuryApp.Tests.Billing
         }
 
         /// <summary>Cliente admin fake, programable y con contadores de invocación.</summary>
+        // ── Renovación / regularización vía url_renew: repeat_payment_success SIN pending local ──
+        [Fact]
+        public async Task PaymentSuccessWithoutPending_CorrelatesExistingSubscription_ReactivatesAndClosesIncident()
+        {
+            using var h = await Harness.CreateAsync(3); // LC_M_03 → recurringPlanId 6127
+
+            // Estado real de compra2 ANTES del success: base Morosa + gracia + incidente abierto,
+            // suscriptor ya vivo en TiloPay. NO se abre checkout (no hay pending): es un url_renew.
+            var subId = Guid.NewGuid();
+            h.Db.Users.Add(new AppUsuario
+            {
+                Id = Guid.NewGuid().ToString(),
+                TenantId = h.TenantId,
+                Email = Email,
+                UserName = Email,
+                NormalizedEmail = Email.ToUpperInvariant(),
+                NormalizedUserName = Email.ToUpperInvariant()
+            });
+            h.Db.Suscripciones.Add(new Suscripcion
+            {
+                Id = subId,
+                TenantId = h.TenantId,
+                PlanId = h.PlanId,
+                CodigoPlan = h.Data.Code,
+                Proveedor = PaymentProviderType.Tilopay,
+                TilopayRecurringPlanId = h.Data.RecurringPlanId,
+                ProviderSubscriptionId = "384370",
+                Estado = EstadoSuscripcion.Morosa,
+                PaymentRecoveryStatus = "GraceActive",
+                FechaInicio = DateTime.UtcNow.AddDays(-31),
+                FechaFin = DateTime.UtcNow.AddDays(-1),
+                FechaProximoCobroUtc = DateTime.UtcNow.AddDays(-1),
+                FechaFinGraciaUtc = DateTime.UtcNow.AddDays(3),
+                FechaUltimaActualizacionUtc = DateTime.UtcNow.AddHours(-1)
+            });
+            h.Db.SubscriptionPaymentIncidents.Add(new SubscriptionPaymentIncident
+            {
+                Id = Guid.NewGuid(),
+                TenantId = h.TenantId,
+                Scope = PaymentIncidentScope.BasePlan,
+                SuscripcionId = subId,
+                TilopayRecurringPlanId = h.Data.RecurringPlanId,
+                PlanCode = h.Data.Code,
+                Status = PaymentIncidentStatus.Open,
+                FailureDetectedAtUtc = DateTime.UtcNow.AddHours(-1),
+                GraceEndsAtUtc = DateTime.UtcNow.AddDays(3),
+                FailureCount = 1,
+                CreatedAtUtc = DateTime.UtcNow.AddHours(-1),
+                UpdatedAtUtc = DateTime.UtcNow.AddHours(-1)
+            });
+            await h.Db.SaveChangesAsync();
+            h.Db.ChangeTracker.Clear();
+
+            // El proveedor confirma un suscriptor para (plan, email).
+            h.Admin.ResolutionResult = SubscriberResolutionResult.Found(
+                new TilopaySubscriber { SubscriberId = "384370", Email = Email, Status = "Active" }, 1);
+
+            // Llega el success de url_renew SIN pending (no se llamó StartCheckoutAsync).
+            await h.ProcessWebhookAsync("repeat_payment_success", amount: h.Data.Charge, transactionId: "5483055");
+
+            // CAUSA RAÍZ: antes esto quedaba SinRelacion. Ahora correlaciona la suscripción existente
+            // (plan/email + verificación del proveedor), crea el intento y ACTIVA/renueva.
+            var sub = await h.Db.Suscripciones.IgnoreQueryFilters().SingleAsync(s => s.Id == subId);
+            Assert.Equal(EstadoSuscripcion.Activa, sub.Estado);
+
+            // Se creó/confirmó un pago para ese transactionId (ya no es un success huérfano).
+            var confirmedPayment = await h.Db.PagosSuscripcion.IgnoreQueryFilters()
+                .SingleOrDefaultAsync(p => p.ProviderTransactionId == "5483055" && p.Estado == EstadoPagoProveedor.Confirmado);
+            Assert.NotNull(confirmedPayment);
+
+            // El evento NO quedó SinRelacion: se procesó correlacionando la suscripción existente.
+            var evento = await h.Db.EventosPago.IgnoreQueryFilters()
+                .OrderByDescending(e => e.FechaRecepcionUtc)
+                .FirstAsync();
+            Assert.True(evento.Procesado);
+            Assert.NotEqual("SinRelacion", evento.EstadoProcesamiento);
+        }
+
+        [Fact]
+        public async Task PaymentSuccessWithoutPending_ReplaySamePayment_IsIdempotent_NoDoubleExtend()
+        {
+            using var h = await Harness.CreateAsync(3);
+
+            h.Db.Users.Add(new AppUsuario
+            {
+                Id = Guid.NewGuid().ToString(),
+                TenantId = h.TenantId,
+                Email = Email,
+                UserName = Email,
+                NormalizedEmail = Email.ToUpperInvariant(),
+                NormalizedUserName = Email.ToUpperInvariant()
+            });
+            var subId = Guid.NewGuid();
+            h.Db.Suscripciones.Add(new Suscripcion
+            {
+                Id = subId,
+                TenantId = h.TenantId,
+                PlanId = h.PlanId,
+                CodigoPlan = h.Data.Code,
+                Proveedor = PaymentProviderType.Tilopay,
+                TilopayRecurringPlanId = h.Data.RecurringPlanId,
+                ProviderSubscriptionId = "384370",
+                Estado = EstadoSuscripcion.Morosa,
+                PaymentRecoveryStatus = "GraceActive",
+                FechaInicio = DateTime.UtcNow.AddDays(-31),
+                FechaFin = DateTime.UtcNow.AddDays(-1),
+                FechaProximoCobroUtc = DateTime.UtcNow.AddDays(-1),
+                FechaUltimaActualizacionUtc = DateTime.UtcNow.AddHours(-1)
+            });
+            await h.Db.SaveChangesAsync();
+            h.Db.ChangeTracker.Clear();
+
+            h.Admin.ResolutionResult = SubscriberResolutionResult.Found(
+                new TilopaySubscriber { SubscriberId = "384370", Email = Email, Status = "Active" }, 1);
+
+            await h.ProcessWebhookAsync("repeat_payment_success", amount: h.Data.Charge, transactionId: "5483055");
+            var afterFirst = await h.Db.Suscripciones.IgnoreQueryFilters().AsNoTracking().SingleAsync(s => s.Id == subId);
+            var fechaFinFirst = afterFirst.FechaFin;
+
+            // Replay del MISMO pago (mismo transactionId): idempotente, no extiende dos veces.
+            await h.ProcessWebhookAsync("repeat_payment_success", amount: h.Data.Charge, transactionId: "5483055");
+            var afterReplay = await h.Db.Suscripciones.IgnoreQueryFilters().AsNoTracking().SingleAsync(s => s.Id == subId);
+
+            Assert.Equal(fechaFinFirst, afterReplay.FechaFin);
+            Assert.Equal(EstadoSuscripcion.Activa, afterReplay.Estado);
+
+            var confirmedPayments = await h.Db.PagosSuscripcion.IgnoreQueryFilters()
+                .CountAsync(p => p.ProviderTransactionId == "5483055" && p.Estado == EstadoPagoProveedor.Confirmado);
+            Assert.Equal(1, confirmedPayments); // un solo pago confirmado, no duplicado
+        }
+
         private sealed class FakeAdmin : ITilopayRepeatAdminService
         {
             public bool IsEnabled { get; set; } = true;

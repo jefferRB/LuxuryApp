@@ -64,8 +64,15 @@ namespace LuxuryApp.Services.SaaS
             var addonStatus = addon is null
                 ? (EstadoSuscripcion?)null
                 : _suscripcionService.GetEffectiveStatus(addon);
-            var hasActiveWhatsAppAddon = addon is not null &&
-                                         addonStatus is EstadoSuscripcion.Activa or EstadoSuscripcion.Morosa or EstadoSuscripcion.Trial;
+            // Entitlement por fuente: distingue pagado / manual (vigente o vencido) / legacy. Un legacy
+            // con Estado activo NO es acceso efectivo, así que se usa IsEffective (no GetEffectiveStatus).
+            var addonEntitlement = addon is null
+                ? null
+                : _suscripcionService.ResolveWhatsAppEntitlement(addon);
+            var hasActiveWhatsAppAddon = addonEntitlement?.IsEffective == true;
+            // La tarjeta del add-on también se muestra para un acceso manual VENCIDO (para avisar).
+            var showWhatsAppAddonCard = hasActiveWhatsAppAddon || addonEntitlement?.IsManualGrantExpired == true;
+            var isManualGrant = addonEntitlement?.IsManualGrant == true;
             var whatsAppSettings = hasActiveWhatsAppAddon
                 ? await _tenantWhatsAppSettingsService.GetSettingsForTenantAsync(tenantId, cancellationToken)
                 : null;
@@ -127,10 +134,17 @@ namespace LuxuryApp.Services.SaaS
                     : null,
                 MaxFuncionarios = subscription?.MaxFuncionarios ?? subscription?.Plan?.MaxFuncionarios,
                 ActiveFuncionarios = activeFuncionarios,
-                WhatsAppAddonName = hasActiveWhatsAppAddon ? addon?.Plan?.Nombre : null,
-                WhatsAppAddonCode = hasActiveWhatsAppAddon ? addon?.AddonCode ?? addon?.Plan?.Codigo : null,
+                WhatsAppAddonName = showWhatsAppAddonCard ? addon?.Plan?.Nombre ?? addon?.AddonCode : null,
+                WhatsAppAddonCode = showWhatsAppAddonCard ? addon?.AddonCode ?? addon?.Plan?.Codigo : null,
                 WhatsAppAddonStatus = hasActiveWhatsAppAddon ? addonStatus : null,
                 WhatsAppAddonStatusLabel = hasActiveWhatsAppAddon ? ResolveStatusLabel(addonStatus) : null,
+                // ── Acceso manual/cortesía/canje (distinto de un paquete pagado por TiloPay) ──
+                WhatsAppAddonIsManualGrant = isManualGrant,
+                WhatsAppManualGrantIndefinite = addonEntitlement?.IsIndefinite == true,
+                WhatsAppManualGrantExpired = addonEntitlement?.IsManualGrantExpired == true,
+                WhatsAppManualGrantExpiresDisplay = isManualGrant && addonEntitlement?.IsIndefinite == false && addonEntitlement.ExpiresAtUtc is { } manualExp
+                    ? Billing.SubscriptionDisplayDates.Format(DateOnly.FromDateTime(manualExp))
+                    : null,
                 WhatsAppMonthlyLimit = !hasActiveWhatsAppAddon || addon is null
                     ? null
                     : addon.MonthlyMessageLimit > 0
@@ -146,9 +160,15 @@ namespace LuxuryApp.Services.SaaS
                         0),
                 WhatsAppTodayUsage = hasActiveWhatsAppAddon ? todaysWhatsAppUsage : 0,
                 WhatsAppDailyLimit = hasActiveWhatsAppAddon ? whatsAppSettings?.DailyMessageLimit : null,
-                WhatsAppAutomationEnabled = hasActiveWhatsAppAddon && (whatsAppSettings?.IsEnabled ?? false),
-                SendAppointmentConfirmations = hasActiveWhatsAppAddon && (whatsAppSettings?.SendConfirmationOnCreate ?? false),
-                SendAppointmentReminders = hasActiveWhatsAppAddon && (whatsAppSettings?.SendReminderThreeHoursBefore ?? false),
+                // Opción A: la automatización solo cuenta como "habilitada" si hay una configuración
+                // PERSISTIDA (Exists) y habilitada. El snapshot sintético para un add-on sin configurar
+                // trae IsEnabled=true (defaults de la pantalla de configuración), pero eso NO es un
+                // envío autorizado: exigir Exists evita mostrar "activo" cuando en realidad falta configurar.
+                WhatsAppAutomationEnabled = hasActiveWhatsAppAddon && (whatsAppSettings?.Exists ?? false) && (whatsAppSettings?.IsEnabled ?? false),
+                SendAppointmentConfirmations = hasActiveWhatsAppAddon && (whatsAppSettings?.Exists ?? false) && (whatsAppSettings?.SendConfirmationOnCreate ?? false),
+                SendAppointmentReminders = hasActiveWhatsAppAddon && (whatsAppSettings?.Exists ?? false) && (whatsAppSettings?.SendReminderThreeHoursBefore ?? false),
+                // El paquete está activo pero la integración técnica aún no se configuró (sin fila persistida).
+                WhatsAppAddonNeedsConfiguration = hasActiveWhatsAppAddon && !(whatsAppSettings?.Exists ?? false),
                 ConfirmationHoursBefore = whatsAppSettings?.ConfirmationHoursBefore ?? Models.WhatsApp.TenantWhatsAppSettings.DefaultConfirmationHoursBefore,
                 SendConfirmationImmediatelyIfInsideWindow = whatsAppSettings?.SendConfirmationImmediatelyIfInsideWindow ?? true,
                 ReminderHoursBefore = whatsAppSettings?.ReminderHoursBefore ?? Models.WhatsApp.TenantWhatsAppSettings.DefaultReminderHoursBefore,
@@ -170,7 +190,11 @@ namespace LuxuryApp.Services.SaaS
                 WhatsAppNextBillingDateDisplay = hasActiveWhatsAppAddon && addon?.FechaProximoCobroUtc is { } addonNext
                     ? Billing.SubscriptionDisplayDates.Format(DateOnly.FromDateTime(addonNext))
                     : null,
-                WhatsAppAddonIsRecurring = hasActiveWhatsAppAddon && addon?.TilopayRecurringPlanId != null,
+                // Recurrente SOLO si la fuente es TiloPay (un acceso manual nunca muestra "próximo cobro"
+                // ni el botón de cancelar renovación, aunque un override haya conservado ids del proveedor).
+                WhatsAppAddonIsRecurring = hasActiveWhatsAppAddon &&
+                                           addonEntitlement?.Source == WhatsAppAddonBillingSource.ProviderRecurring &&
+                                           addon?.TilopayRecurringPlanId != null,
                 WhatsAppAddonCancelAtPeriodEnd = hasActiveWhatsAppAddon && (addon?.CancelAtPeriodEnd ?? false),
                 WhatsAppAddonEndsDisplay = hasActiveWhatsAppAddon && (addon?.CancelAtPeriodEnd ?? false) &&
                     (addon?.CancellationEffectiveAtUtc ?? addon?.FechaFin) is { } addonEnds

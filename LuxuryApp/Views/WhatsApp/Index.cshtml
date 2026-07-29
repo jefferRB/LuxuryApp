@@ -13,14 +13,26 @@
 
     string badgeLabel;
     string badgeClass;
+    var manualGrant = sub?.WhatsAppAddonIsManualGrant == true;
+    var manualExpired = sub?.WhatsAppManualGrantExpired == true;
     if (!hasAddon)
     {
         badgeLabel = "Sin paquete";
         badgeClass = "wa-badge--muted";
     }
+    else if (manualExpired)
+    {
+        badgeLabel = "Acceso manual vencido";
+        badgeClass = "wa-badge--warn";
+    }
     else if (sub?.WhatsAppAddonStatus == LuxuryApp.Models.SaaS.EstadoSuscripcion.Morosa)
     {
         badgeLabel = "En gracia";
+        badgeClass = "wa-badge--warn";
+    }
+    else if (sub?.WhatsAppAddonNeedsConfiguration == true)
+    {
+        badgeLabel = "Falta configurar";
         badgeClass = "wa-badge--warn";
     }
     else if (!automationOn)
@@ -54,7 +66,18 @@
         </div>
     </header>
 
-    <p class="wa-addon-note"><i class="bi bi-info-circle"></i> WhatsApp se cobra como add-on mensual separado del plan base.</p>
+    @if (manualExpired)
+    {
+        <p class="wa-addon-note wa-addon-note--warn"><i class="bi bi-exclamation-triangle"></i> Tu acceso manual/canje de WhatsApp está <strong>vencido</strong>: no se envían mensajes. Contactá soporte para renovar el acceso.</p>
+    }
+    else if (manualGrant)
+    {
+        <p class="wa-addon-note"><i class="bi bi-gift"></i> Acceso manual/canje de WhatsApp (@(sub?.WhatsAppManualGrantIndefinite == true ? "vigencia indefinida" : "vigente hasta " + (sub?.WhatsAppManualGrantExpiresDisplay ?? "—"))). No tiene cobro mensual.</p>
+    }
+    else
+    {
+        <p class="wa-addon-note"><i class="bi bi-info-circle"></i> WhatsApp se cobra como add-on mensual separado del plan base.</p>
+    }
 
     @if (hasAddon)
     {

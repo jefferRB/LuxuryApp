@@ -83,7 +83,12 @@ namespace LuxuryApp.Services.Platform
                     a.FechaFin,
                     a.FechaFinGraciaUtc,
                     a.TilopayRecurringPlanId,
-                    a.MonthlyMessageLimit
+                    a.ProviderSubscriptionId,
+                    a.MonthlyMessageLimit,
+                    a.BillingSource,
+                    a.IsManualGrantIndefinite,
+                    a.ManualGrantExpiresAtUtc,
+                    a.RevokedAtUtc
                 })
                 .ToListAsync(cancellationToken);
             // Índice único por tenant, pero GroupBy+First garantiza el más reciente si hubiera duplicados
@@ -99,8 +104,14 @@ namespace LuxuryApp.Services.Platform
                 lastErrorByTenant.TryGetValue(tenantId, out var lastError);
                 addonByTenant.TryGetValue(tenantId, out var addon);
 
-                var addonActive = addon is not null
-                    && IsAddonActive(addon.Estado, addon.FechaFin, addon.FechaFinGraciaUtc, nowUtc);
+                var entitlement = addon is null
+                    ? null
+                    : WhatsAppAddonEntitlementRules.Classify(
+                        addon.BillingSource, addon.Estado, addon.FechaFin, addon.FechaFinGraciaUtc,
+                        addon.ProviderSubscriptionId, addon.TilopayRecurringPlanId,
+                        addon.IsManualGrantIndefinite, addon.ManualGrantExpiresAtUtc, addon.RevokedAtUtc,
+                        addon.MonthlyMessageLimit, nowUtc);
+                var addonActive = entitlement?.IsEffective == true;
 
                 result[tenantId] = new PlatformWhatsAppAddonState
                 {
@@ -115,9 +126,15 @@ namespace LuxuryApp.Services.Platform
                     Notes = settings?.Notes,
                     AddonActive = addonActive,
                     AddonCode = addonActive ? addon!.AddonCode : null,
-                    AddonIsManual = addonActive && addon!.TilopayRecurringPlanId is null,
+                    AddonIsManual = entitlement?.IsManualGrant == true,
                     AddonFechaFin = addonActive ? addon!.FechaFin : null,
                     AddonMonthlyLimit = addonActive ? (int?)addon!.MonthlyMessageLimit : null,
+                    AddonSource = entitlement?.Source ?? WhatsAppAddonBillingSource.ProviderRecurring,
+                    AddonManualIndefinite = entitlement?.IsIndefinite == true,
+                    AddonManualExpiresAtUtc = entitlement?.IsManualGrant == true ? entitlement.ExpiresAtUtc : null,
+                    AddonManualExpired = entitlement?.IsManualGrantExpired == true,
+                    AddonProviderRisk = entitlement?.IsProviderRisk == true,
+                    AddonExists = addon is not null,
                     LastErrorCode = lastError?.ErrorCode,
                     LastErrorMessage = lastError?.ErrorMessage,
                     LastErrorAtUtc = lastError?.CreatedAtUtc
@@ -189,12 +206,23 @@ namespace LuxuryApp.Services.Platform
                     a.FechaFin,
                     a.FechaFinGraciaUtc,
                     a.TilopayRecurringPlanId,
-                    a.MonthlyMessageLimit
+                    a.ProviderSubscriptionId,
+                    a.MonthlyMessageLimit,
+                    a.BillingSource,
+                    a.IsManualGrantIndefinite,
+                    a.ManualGrantExpiresAtUtc,
+                    a.RevokedAtUtc
                 })
                 .FirstOrDefaultAsync(cancellationToken);
 
-            var addonActive = addon is not null
-                && IsAddonActive(addon.Estado, addon.FechaFin, addon.FechaFinGraciaUtc, nowUtc);
+            var entitlement = addon is null
+                ? null
+                : WhatsAppAddonEntitlementRules.Classify(
+                    addon.BillingSource, addon.Estado, addon.FechaFin, addon.FechaFinGraciaUtc,
+                    addon.ProviderSubscriptionId, addon.TilopayRecurringPlanId,
+                    addon.IsManualGrantIndefinite, addon.ManualGrantExpiresAtUtc, addon.RevokedAtUtc,
+                    addon.MonthlyMessageLimit, nowUtc);
+            var addonActive = entitlement?.IsEffective == true;
 
             return new PlatformWhatsAppAddonState
             {
@@ -208,36 +236,20 @@ namespace LuxuryApp.Services.Platform
                 Notes = settings?.Notes,
                 AddonActive = addonActive,
                 AddonCode = addonActive ? addon!.AddonCode : null,
-                AddonIsManual = addonActive && addon!.TilopayRecurringPlanId is null,
+                AddonIsManual = entitlement?.IsManualGrant == true,
                 AddonFechaFin = addonActive ? addon!.FechaFin : null,
                 AddonMonthlyLimit = addonActive ? (int?)addon!.MonthlyMessageLimit : null,
+                AddonSource = entitlement?.Source ?? WhatsAppAddonBillingSource.ProviderRecurring,
+                AddonManualIndefinite = entitlement?.IsIndefinite == true,
+                AddonManualExpiresAtUtc = entitlement?.IsManualGrant == true ? entitlement.ExpiresAtUtc : null,
+                AddonManualExpired = entitlement?.IsManualGrantExpired == true,
+                AddonProviderRisk = entitlement?.IsProviderRisk == true,
+                AddonExists = addon is not null,
                 LastErrorCode = lastError?.ErrorCode,
                 LastErrorMessage = lastError?.ErrorMessage,
                 LastErrorAtUtc = lastError?.CreatedAtUtc,
                 LastMessageSentUtc = lastSent
             };
-        }
-
-        /// <summary>
-        /// Replica SuscripcionService.IsWhatsAppAddonActive (vía GetEffectiveStatusInternal).
-        /// True si el addon está Activo o en período de gracia (Morosa).
-        /// Mantener sincronizado con SuscripcionService.
-        /// </summary>
-        private static bool IsAddonActive(
-            EstadoSuscripcion estado,
-            DateTime? fechaFin,
-            DateTime? fechaFinGracia,
-            DateTime nowUtc)
-        {
-            if (estado == EstadoSuscripcion.Activa)
-            {
-                if (!fechaFin.HasValue || fechaFin.Value >= nowUtc)
-                    return true;
-                return fechaFinGracia.HasValue && fechaFinGracia.Value >= nowUtc;
-            }
-            if (estado == EstadoSuscripcion.Morosa)
-                return fechaFinGracia.HasValue && fechaFinGracia.Value >= nowUtc;
-            return false;
         }
     }
 }

@@ -24,8 +24,25 @@ namespace LuxuryApp.Models.WhatsApp
         [MaxLength(10)]
         public string? AddonCode { get; set; }
 
+        /// <summary>Motivo/nota del acceso manual (obligatorio al otorgar/revocar). Reutilizado como razón.</summary>
         [MaxLength(2000)]
         public string? ManualAssignmentObservation { get; set; }
+
+        // ── Acceso manual/cortesía/canje (solo aplica cuando AddonCode = WA400/WA800/WA1200) ──
+
+        /// <summary>Tipo de acceso manual (cortesía/canje/interno/prueba/otro).</summary>
+        public LuxuryApp.Models.SaaS.ManualWhatsAppGrantType ManualGrantType { get; set; } =
+            LuxuryApp.Models.SaaS.ManualWhatsAppGrantType.Courtesy;
+
+        /// <summary>Acceso manual permanente (sin vencimiento). Si false, usar ManualGrantExpiresOn.</summary>
+        public bool ManualGrantIndefinite { get; set; }
+
+        /// <summary>Fecha de vencimiento del acceso manual temporal (fin del día Costa Rica).</summary>
+        [DataType(DataType.Date)]
+        public DateTime? ManualGrantExpiresOn { get; set; }
+
+        /// <summary>Confirmación explícita para hacer override sobre un add-on TiloPay activo (no cancela TiloPay).</summary>
+        public bool ManualGrantAllowOverride { get; set; }
 
         // ── Programación de confirmaciones ──
         [MaxLength(40)]

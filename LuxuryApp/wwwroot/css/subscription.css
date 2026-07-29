@@ -160,6 +160,8 @@
 .sub-summary-foot { font-size: .82rem; color: var(--private-muted-text); }
 .sub-summary-foot a, .sub-state-meta a { color: var(--private-chart-accent); text-decoration: none; }
 .sub-summary-foot a:hover { text-decoration: underline; }
+.sub-summary-foot--warn { color: var(--private-chart-warning, #d97706); }
+.sub-summary-foot--warn i { margin-right: .2rem; }
 
 /* ── Grids de cards (planes y paquetes) ── */
 .plan-grid, .pkg-grid {

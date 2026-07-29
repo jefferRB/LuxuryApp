@@ -483,14 +483,9 @@ namespace LuxuryApp.Services.SaaS
         {
             ArgumentNullException.ThrowIfNull(plan);
 
-            var addonWasPersisted = true;
             var addon = await _db.TenantSubscriptionAddons
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(current => current.TenantId == tenantId, cancellationToken);
-            if (addon is null)
-            {
-                addonWasPersisted = false;
-            }
 
             var nowUtc = GetUtcNow();
             var isSameAddonPlan = addon is not null &&
@@ -528,6 +523,17 @@ namespace LuxuryApp.Services.SaaS
             addon.PlanId = plan.Id;
             addon.AddonCode = plan.Codigo ?? plan.Nombre;
             addon.Estado = EstadoSuscripcion.Activa;
+            // Un pago recurrente confirmado marca el add-on como pagado por TiloPay. Si el tenant venía
+            // de un acceso manual y ahora PAGA de verdad, pasa a ProviderRecurring y se limpia el rastro
+            // de grant manual (la dirección inversa —provider→manual automático— jamás ocurre).
+            addon.BillingSource = WhatsAppAddonBillingSource.ProviderRecurring;
+            addon.ManualGrantType = null;
+            addon.ManualGrantReason = null;
+            addon.ManualGrantExpiresAtUtc = null;
+            addon.IsManualGrantIndefinite = false;
+            addon.RevokedAtUtc = null;
+            addon.RevokedByUserId = null;
+            addon.RevocationReason = null;
             addon.TilopayRecurringPlanId = tilopayRecurringPlanId;
             addon.ProviderSubscriptionId = providerSubscriberId ?? addon.ProviderSubscriptionId;
             addon.ProviderTransactionId = providerTransactionId ?? addon.ProviderTransactionId;
@@ -564,105 +570,77 @@ namespace LuxuryApp.Services.SaaS
                 addon.ProviderCancelledAtUtc = null;
             }
 
-            var settings = await _db.TenantWhatsAppSettings
-                .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(current => current.TenantId == tenantId, cancellationToken);
-            var effectiveDailyLimit = ResolveWhatsAppDailyMessageLimit(
-                addon,
-                settings?.DailyMessageLimit ?? TenantWhatsAppSettings.DefaultDailyMessageLimit);
-
-            if (settings is null)
-            {
-                settings = new TenantWhatsAppSettings
-                {
-                    TenantId = tenantId,
-                    CreatedAtUtc = nowUtc
-                };
-                _db.TenantWhatsAppSettings.Add(settings);
-            }
-
-            settings.DailyMessageLimit = effectiveDailyLimit;
-            settings.TimeZoneId = string.IsNullOrWhiteSpace(settings.TimeZoneId)
-                ? TenantWhatsAppSettings.DefaultTimeZoneId
-                : settings.TimeZoneId;
-
-            if (!addonWasPersisted || !isSameAddonPlan)
-            {
-                settings.IsEnabled = true;
-                settings.SendConfirmationOnCreate = true;
-                settings.SendReminderThreeHoursBefore = true;
-            }
-
-            settings.UpdatedAtUtc = nowUtc;
-
+            // Opción A (entitlement ≠ configuración): comprar/renovar el paquete recurrente crea o
+            // actualiza SOLO el add-on comercial (cuota mensual = TenantSubscriptionAddon.MonthlyMessageLimit).
+            // NO se crea ni se habilita TenantWhatsAppSettings: la integración técnica de WhatsApp
+            // (IsEnabled, throttle diario, horarios) se configura EXPLÍCITAMENTE desde "Configurar
+            // WhatsApp" (/WhatsApp → UpdateSettingsAsync). Así, comprar el paquete nunca dispara envíos
+            // automáticos ni pisa la configuración existente del cliente al renovar.
             await _db.SaveChangesAsync(cancellationToken);
         }
 
-        public async Task AssignManualWhatsAppAddonAsync(
+        /// <summary>
+        /// Otorga un ACCESO MANUAL de WhatsApp (cortesía/canje/interno/prueba) desde plataforma. Es un
+        /// entitlement COMERCIAL (BillingSource=ManualGrant): no cobra por TiloPay, no llama a TiloPay,
+        /// y —por Opción A— NO toca TenantWhatsAppSettings (la configuración técnica se maneja aparte).
+        /// Protege los add-ons TiloPay pagados: si el tenant tiene uno ACTIVO no se reemplaza salvo
+        /// override explícito, y aún así TiloPay NO se cancela automáticamente (eso va por billing).
+        /// </summary>
+        public async Task<ManualWhatsAppGrantResult> GrantManualWhatsAppAddonAsync(
             Guid tenantId,
-            string? addonCode,
-            string assignedByUserId,
-            string? observation,
-            bool sendConfirmationOnCreate,
-            bool sendReminderThreeHoursBefore,
+            string addonCode,
+            ManualWhatsAppGrantType grantType,
+            string reason,
+            bool isIndefinite,
+            DateTime? expiresAtUtc,
+            string grantedByUserId,
+            bool allowOverrideProviderRecurring,
             CancellationToken cancellationToken = default)
         {
+            if (string.IsNullOrWhiteSpace(addonCode) ||
+                !PlanCodes.WhatsAppAddons.Contains(addonCode, StringComparer.OrdinalIgnoreCase))
+            {
+                return new ManualWhatsAppGrantResult(ManualWhatsAppGrantOutcome.Invalid, $"Código de paquete WhatsApp no válido: {addonCode}.");
+            }
+
+            if (string.IsNullOrWhiteSpace(reason))
+            {
+                return new ManualWhatsAppGrantResult(ManualWhatsAppGrantOutcome.Invalid, "El motivo/nota del acceso manual es obligatorio.");
+            }
+
+            if (!isIndefinite && expiresAtUtc is null)
+            {
+                return new ManualWhatsAppGrantResult(ManualWhatsAppGrantOutcome.Invalid, "Indica una fecha de vencimiento o marca el acceso como indefinido.");
+            }
+
             var nowUtc = GetUtcNow();
-            var revoking = string.IsNullOrWhiteSpace(addonCode) ||
-                           addonCode.Equals("NONE", StringComparison.OrdinalIgnoreCase);
+            var plan = await _db.Planes
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Codigo == addonCode && p.Activo, cancellationToken)
+                ?? throw new InvalidOperationException($"Plan {addonCode} no encontrado o inactivo en la BD.");
 
             var addon = await _db.TenantSubscriptionAddons
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(a => a.TenantId == tenantId, cancellationToken);
 
-            _logger.LogInformation(
-                "AssignManualWhatsAppAddon. TenantId {TenantId}. AssignedBy {UserId}. PreviousAddonCode {Prev}. PreviousEstado {PrevEstado}. NewAddonCode {New}.",
-                tenantId,
-                assignedByUserId,
-                addon?.AddonCode,
-                addon?.Estado,
-                revoking ? "NONE" : addonCode);
-
-            // Si el add-on previo tenía un suscriptor recurrente en TiloPay, revocarlo o cambiarlo
-            // manualmente NO lo cancela en el proveedor: se deja pendiente para que la reconciliación
-            // (o la plataforma) lo dé de baja verificado. Evita que un add-on "revocado" siga cobrando.
-            var previousRecurringSubscriberId = addon?.ProviderSubscriptionId;
-            var previousRecurringPlanId = addon?.TilopayRecurringPlanId;
-
-            if (revoking)
+            var overridingProvider = false;
+            if (addon is not null)
             {
-                if (addon is not null)
+                var current = ResolveWhatsAppEntitlement(addon);
+                if (current.Source == WhatsAppAddonBillingSource.ProviderRecurring && current.IsEffective)
                 {
-                    addon.Estado = EstadoSuscripcion.Cancelada;
-                    addon.FechaCancelacionUtc = nowUtc;
-                    addon.FechaFin = nowUtc;
-                    StashManualPendingProviderCancellation(addon, previousRecurringSubscriberId, previousRecurringPlanId);
-                    addon.UpdatedAtUtc = nowUtc;
+                    if (!allowOverrideProviderRecurring)
+                    {
+                        return new ManualWhatsAppGrantResult(
+                            ManualWhatsAppGrantOutcome.BlockedProviderRecurringActive,
+                            "Este tenant tiene un add-on WhatsApp pagado por TiloPay activo. Confirma el override explícitamente. TiloPay NO se cancela automáticamente: si corresponde, cancélalo desde el flujo de billing.");
+                    }
+
+                    overridingProvider = true;
                 }
-
-                await UpsertWhatsAppSettingsForManualAsync(
-                    tenantId,
-                    isEnabled: false,
-                    sendConfirmationOnCreate: false,
-                    sendReminderThreeHoursBefore: false,
-                    dailyLimit: TenantWhatsAppSettings.DefaultDailyMessageLimit,
-                    observation: observation,
-                    nowUtc: nowUtc,
-                    cancellationToken: cancellationToken);
-
-                await _db.SaveChangesAsync(cancellationToken);
-                return;
             }
 
-            if (!PlanCodes.WhatsAppAddons.Contains(addonCode!, StringComparer.OrdinalIgnoreCase))
-            {
-                throw new ArgumentException($"Código de paquete WhatsApp no válido: {addonCode}", nameof(addonCode));
-            }
-
-            var plan = await _db.Planes
-                .AsNoTracking()
-                .FirstOrDefaultAsync(p => p.Codigo == addonCode && p.Activo, cancellationToken)
-                ?? throw new InvalidOperationException($"Plan {addonCode} no encontrado o inactivo en la BD.");
+            var providerSubSuffix = MaskSuffix(addon?.ProviderSubscriptionId);
 
             if (addon is null)
             {
@@ -675,106 +653,118 @@ namespace LuxuryApp.Services.SaaS
                 _db.TenantSubscriptionAddons.Add(addon);
             }
 
+            var expires = isIndefinite ? (DateTime?)null : expiresAtUtc;
+
             addon.PlanId = plan.Id;
             addon.AddonCode = plan.Codigo!;
             addon.Estado = EstadoSuscripcion.Activa;
-            addon.TilopayRecurringPlanId = null;
-            addon.ProviderSubscriptionId = null;
-            addon.ProviderTransactionId = $"MANUAL-{addonCode}-{nowUtc:yyyyMMddHHmmss}";
+            addon.BillingSource = WhatsAppAddonBillingSource.ManualGrant;
+            addon.ManualGrantType = grantType;
+            addon.ManualGrantReason = Truncate(reason, 500);
+            addon.GrantedByUserId = grantedByUserId;
+            addon.GrantedAtUtc = nowUtc;
+            addon.IsManualGrantIndefinite = isIndefinite;
+            addon.ManualGrantExpiresAtUtc = expires;
+            addon.RevokedAtUtc = null;
+            addon.RevokedByUserId = null;
+            addon.RevocationReason = null;
             addon.PrecioMensual = null;
             addon.MonedaFacturacion = "CRC";
             addon.MonthlyMessageLimit = plan.LimiteMensajesMensual ?? 0;
             addon.FechaInicio = nowUtc;
-            addon.FechaFin = nowUtc.AddMonths(1);
-            addon.FechaProximoCobroUtc = nowUtc.AddMonths(1);
+            // Vigencia de display sincronizada con el grant (indefinido → null). El acceso manual no cobra.
+            addon.FechaFin = expires;
+            addon.FechaProximoCobroUtc = null;
             addon.FechaFinGraciaUtc = null;
             addon.FechaCancelacionUtc = null;
-            // Un alta manual reemplaza cualquier cancelación de renovación previa.
             addon.CancelAtPeriodEnd = false;
             addon.CancellationEffectiveAtUtc = null;
             addon.CancellationRequestedByUserId = null;
             addon.CancellationReason = null;
-            // Si venía de un add-on recurrente, ese suscriptor queda huérfano en TiloPay: cancelar.
-            StashManualPendingProviderCancellation(addon, previousRecurringSubscriberId, previousRecurringPlanId);
-            addon.UpdatedAtUtc = nowUtc;
 
-            var dailyLimit = ResolveWhatsAppDailyMessageLimit(addonCode);
-            var isEnabled = sendConfirmationOnCreate || sendReminderThreeHoursBefore;
-
-            await UpsertWhatsAppSettingsForManualAsync(
-                tenantId,
-                isEnabled,
-                sendConfirmationOnCreate,
-                sendReminderThreeHoursBefore,
-                dailyLimit,
-                observation,
-                nowUtc,
-                cancellationToken);
-
-            await _db.SaveChangesAsync(cancellationToken);
-        }
-
-        private async Task UpsertWhatsAppSettingsForManualAsync(
-            Guid tenantId,
-            bool isEnabled,
-            bool sendConfirmationOnCreate,
-            bool sendReminderThreeHoursBefore,
-            int dailyLimit,
-            string? observation,
-            DateTime nowUtc,
-            CancellationToken cancellationToken)
-        {
-            var settings = await _db.TenantWhatsAppSettings
-                .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(s => s.TenantId == tenantId, cancellationToken);
-
-            if (settings is null)
+            if (overridingProvider)
             {
-                settings = new TenantWhatsAppSettings
-                {
-                    TenantId = tenantId,
-                    CreatedAtUtc = nowUtc,
-                    TimeZoneId = TenantWhatsAppSettings.DefaultTimeZoneId
-                };
-                _db.TenantWhatsAppSettings.Add(settings);
+                // Override explícito de un add-on TiloPay activo: NO tocamos TiloPay ni sus ids (se
+                // conservan como referencia histórica para que soporte pueda cancelar por billing).
+                // BillingSource=ManualGrant hace que el clasificador ya NO lo cuente como riesgo de dinero.
+                _logger.LogWarning(
+                    "Override manual de add-on TiloPay activo. TenantId {TenantId}. GrantedBy {UserId}. El suscriptor TiloPay {SubSuffix} pudo quedar activo; cancelar por billing si corresponde.",
+                    tenantId, grantedByUserId, providerSubSuffix);
+            }
+            else
+            {
+                // Alta/cambio manual limpio: MANUAL-... queda SOLO como referencia legacy; la lógica
+                // nunca depende de ese string (manda BillingSource).
+                addon.TilopayRecurringPlanId = null;
+                addon.ProviderSubscriptionId = null;
+                addon.ProviderTransactionId = $"MANUAL-{addonCode}-{nowUtc:yyyyMMddHHmmss}";
             }
 
-            settings.IsEnabled = isEnabled;
-            settings.SendConfirmationOnCreate = sendConfirmationOnCreate;
-            settings.SendReminderThreeHoursBefore = sendReminderThreeHoursBefore;
-            settings.DailyMessageLimit = dailyLimit;
-            settings.Notes = string.IsNullOrWhiteSpace(observation) ? settings.Notes : observation.Trim();
-            settings.TimeZoneId = string.IsNullOrWhiteSpace(settings.TimeZoneId)
-                ? TenantWhatsAppSettings.DefaultTimeZoneId
-                : settings.TimeZoneId;
-            settings.UpdatedAtUtc = nowUtc;
+            addon.UpdatedAtUtc = nowUtc;
+
+            await _db.SaveChangesAsync(cancellationToken);
+
+            var message = overridingProvider
+                ? $"Acceso manual {addonCode} otorgado por OVERRIDE. Atención: el suscriptor TiloPay {providerSubSuffix} pudo quedar activo; cancélalo desde billing si corresponde (no se canceló automáticamente)."
+                : $"Acceso manual {addonCode} otorgado.";
+            return new ManualWhatsAppGrantResult(ManualWhatsAppGrantOutcome.Granted, message);
         }
 
         /// <summary>
-        /// Deja el suscriptor recurrente ANTERIOR del add-on pendiente de cancelación en TiloPay
-        /// (presupuesto de reintentos fresco). Se usa cuando un alta/baja MANUAL reemplaza o revoca un
-        /// add-on que sí tenía suscriptor recurrente: cambiarlo localmente no lo cancela en el
-        /// proveedor. No-op si no había suscriptor recurrente. La baja verificada la hace el
-        /// AddonSubscriptionManager desde la reconciliación (o la plataforma).
+        /// Revoca el add-on WhatsApp del tenant. Solo para accesos MANUALES/legacy: un add-on TiloPay
+        /// ACTIVO no se revoca por aquí (se cancela desde el flujo de billing). Deja rastro
+        /// (RevokedAtUtc/By/Reason), no borra la fila y no toca TiloPay ni TenantWhatsAppSettings.
         /// </summary>
-        private static void StashManualPendingProviderCancellation(
-            TenantSubscriptionAddon addon,
-            string? previousSubscriberId,
-            int? previousRecurringPlanId)
+        public async Task<ManualWhatsAppGrantResult> RevokeWhatsAppAddonAsync(
+            Guid tenantId,
+            string revokedByUserId,
+            string? reason,
+            CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrWhiteSpace(previousSubscriberId))
+            var addon = await _db.TenantSubscriptionAddons
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(a => a.TenantId == tenantId, cancellationToken);
+
+            if (addon is null)
             {
-                return;
+                return new ManualWhatsAppGrantResult(ManualWhatsAppGrantOutcome.NoChange, "El tenant no tiene un add-on WhatsApp que revocar.");
             }
 
-            addon.PendingCancellationProviderSubscriptionId = previousSubscriberId;
-            addon.PendingCancellationTilopayRecurringPlanId = previousRecurringPlanId;
-            addon.ProviderCancellation = ProviderCancellationState.PendingManualCancellation;
-            addon.ProviderCancellationAttemptCount = 0;
-            addon.ProviderCancellationLastAttemptUtc = null;
-            addon.ProviderCancellationNextRetryUtc = null;
-            addon.ProviderCancelledAtUtc = null;
+            var entitlement = ResolveWhatsAppEntitlement(addon);
+            if (entitlement.Source == WhatsAppAddonBillingSource.ProviderRecurring && entitlement.IsEffective)
+            {
+                return new ManualWhatsAppGrantResult(
+                    ManualWhatsAppGrantOutcome.BlockedProviderRecurringActive,
+                    "Este add-on es pagado por TiloPay. Cancélalo desde el flujo de billing, no desde el acceso manual.");
+            }
+
+            var nowUtc = GetUtcNow();
+            addon.Estado = EstadoSuscripcion.Cancelada;
+            addon.RevokedAtUtc = nowUtc;
+            addon.RevokedByUserId = revokedByUserId;
+            addon.RevocationReason = Truncate(string.IsNullOrWhiteSpace(reason) ? "Revocado desde plataforma." : reason, 500);
+            addon.IsManualGrantIndefinite = false;
+            addon.ManualGrantExpiresAtUtc = nowUtc;
+            addon.FechaCancelacionUtc = nowUtc;
+            addon.FechaFin = nowUtc;
+            addon.UpdatedAtUtc = nowUtc;
+
+            await _db.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "Add-on WhatsApp revocado. TenantId {TenantId}. RevokedBy {UserId}. Source {Source}.",
+                tenantId, revokedByUserId, entitlement.Source);
+
+            return new ManualWhatsAppGrantResult(ManualWhatsAppGrantOutcome.Revoked, "Acceso WhatsApp revocado.");
         }
+
+        private static string Truncate(string value, int max) =>
+            value.Length <= max ? value : value[..max];
+
+        private static string MaskSuffix(string? reference) =>
+            string.IsNullOrWhiteSpace(reference)
+                ? "-"
+                : "…" + reference[^Math.Min(4, reference.Length)..];
 
         public async Task RegistrarPagoFallidoAddonAsync(
             Guid tenantId,
@@ -938,12 +928,16 @@ namespace LuxuryApp.Services.SaaS
                    effectiveStatus == EstadoSuscripcion.Morosa;
         }
 
-        public bool IsWhatsAppAddonActive(TenantSubscriptionAddon addon)
-        {
-            var effectiveStatus = GetEffectiveStatus(addon);
-            return effectiveStatus == EstadoSuscripcion.Activa ||
-                   effectiveStatus == EstadoSuscripcion.Morosa;
-        }
+        /// <summary>
+        /// Clasifica el add-on por su fuente comercial (ver <see cref="WhatsAppAddonEntitlementRules"/>):
+        /// si da acceso efectivo, si es riesgo de dinero, si es manual (vigente/vencido) o legacy.
+        /// ÚNICA fuente de verdad para send-gate, summary, health y plataforma.
+        /// </summary>
+        public WhatsAppAddonEntitlement ResolveWhatsAppEntitlement(TenantSubscriptionAddon addon) =>
+            WhatsAppAddonEntitlementRules.Classify(addon, GetUtcNow());
+
+        public bool IsWhatsAppAddonActive(TenantSubscriptionAddon addon) =>
+            ResolveWhatsAppEntitlement(addon).IsEffective;
 
         public async Task<int> GetWhatsAppUsageInCurrentPeriodAsync(
             Guid tenantId,

@@ -22,11 +22,11 @@ namespace LuxuryApp.Tests.TenantIsolation
         // ─── WA400 / WA800 / WA1200 con límites correctos ────────────────────────
 
         [Theory]
-        [InlineData(PlanCodes.WhatsApp400, 400, 15)]
-        [InlineData(PlanCodes.WhatsApp800, 800, 30)]
-        [InlineData(PlanCodes.WhatsApp1200, 1200, 45)]
+        [InlineData(PlanCodes.WhatsApp400, 400)]
+        [InlineData(PlanCodes.WhatsApp800, 800)]
+        [InlineData(PlanCodes.WhatsApp1200, 1200)]
         public async Task ActivarRecurrente_CreatesAddonWithCorrectLimits(
-            string addonCode, int expectedMonthlyLimit, int expectedDailyLimit)
+            string addonCode, int expectedMonthlyLimit)
         {
             var tenantId = Guid.NewGuid();
             var tenantProvider = new TestTenantProvider { TenantId = tenantId };
@@ -50,20 +50,21 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.NotNull(addon);
             Assert.Equal(EstadoSuscripcion.Activa, addon!.Estado);
             Assert.Equal(addonCode, addon.AddonCode);
+            // La cuota mensual comercial vive en el add-on (fuente de verdad del paquete vendido).
             Assert.Equal(expectedMonthlyLimit, addon.MonthlyMessageLimit);
 
+            // Opción A: comprar el paquete NO crea TenantWhatsAppSettings (entitlement ≠ configuración).
             var settings = await context.TenantWhatsAppSettings
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(s => s.TenantId == tenantId);
 
-            Assert.NotNull(settings);
-            Assert.Equal(expectedDailyLimit, settings!.DailyMessageLimit);
+            Assert.Null(settings);
         }
 
-        // ─── TenantId correcto en TenantWhatsAppSettings ─────────────────────────
+        // ─── Opción A: la activación NO crea TenantWhatsAppSettings ──────────────
 
         [Fact]
-        public async Task ActivarRecurrente_CreatesTenantWhatsAppSettingsWithCorrectTenantId()
+        public async Task ActivarRecurrente_DoesNotCreateTenantWhatsAppSettings_OptionA()
         {
             var tenantId = Guid.NewGuid();
             var tenantProvider = new TestTenantProvider { TenantId = tenantId };
@@ -80,18 +81,20 @@ namespace LuxuryApp.Tests.TenantIsolation
                 tenantId, plan, tilopayRecurringPlanId: 5831, providerSubscriberId: "sub-001",
                 providerTransactionId: "5126802");
 
+            // El paquete queda activo (entitlement) pero la integración técnica queda SIN configurar.
+            var addon = await context.TenantSubscriptionAddons
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(a => a.TenantId == tenantId);
+            Assert.NotNull(addon);
+            Assert.Equal(EstadoSuscripcion.Activa, addon!.Estado);
+
             var settings = await context.TenantWhatsAppSettings
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(s => s.TenantId == tenantId);
-
-            Assert.NotNull(settings);
-            Assert.Equal(tenantId, settings!.TenantId);
-            Assert.True(settings.IsEnabled);
-            Assert.True(settings.SendConfirmationOnCreate);
-            Assert.True(settings.SendReminderThreeHoursBefore);
+            Assert.Null(settings);
         }
 
-        // ─── Settings existentes: preserva preferencias del usuario ──────────────
+        // ─── Settings existentes: la activación NO los toca (preserva TODO) ──────
 
         [Fact]
         public async Task ActivarRecurrente_ExistingSettings_PreservesUserPreferences()
@@ -106,7 +109,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             await SeedActiveBusinessSubscriptionAsync(context, tenantId);
             var plan = await SeedWhatsAppPlanAsync(context, PlanCodes.WhatsApp400, 400);
 
-            // Seed existing settings with custom timezone
+            // Configuración previa del cliente (ya configuró WhatsApp).
             context.TenantWhatsAppSettings.Add(new TenantWhatsAppSettings
             {
                 TenantId = tenantId,
@@ -120,8 +123,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             await context.SaveChangesAsync();
 
             var svc = CreateSuscripcionService(context);
-            // Calling again with same plan: existing addon → isSameAddonPlan=false (no previous addon)
-            // so settings.IsEnabled/Send* get overridden to true. TimeZoneId is preserved.
+            // Opción A: renovar/activar el paquete NO debe tocar la configuración existente.
             await svc.ActivarAddonWhatsAppRecurrenteAsync(
                 tenantId, plan, tilopayRecurringPlanId: 5831, providerSubscriberId: "sub-001",
                 providerTransactionId: "5126802");
@@ -132,10 +134,11 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             Assert.NotNull(settings);
             Assert.Equal(tenantId, settings!.TenantId);
-            // TimeZoneId should be preserved (it was "America/New_York", not empty)
+            // TODO se preserva verbatim: zona horaria, límite diario y toggles del cliente.
             Assert.Equal("America/New_York", settings.TimeZoneId);
-            // DailyMessageLimit gets updated to match the addon code
-            Assert.Equal(15, settings.DailyMessageLimit); // WA400 = 15
+            Assert.Equal(5, settings.DailyMessageLimit);
+            Assert.False(settings.SendConfirmationOnCreate);
+            Assert.False(settings.SendReminderThreeHoursBefore);
         }
 
         // ─── Sin usuario autenticado: simula contexto de webhook ─────────────────
@@ -180,14 +183,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 tenantId, waPlan, tilopayRecurringPlanId: 5831, providerSubscriberId: "sub-001",
                 providerTransactionId: "5126802");
 
-            var settings = await context.TenantWhatsAppSettings
-                .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(s => s.TenantId == tenantId);
-
-            Assert.NotNull(settings);
-            Assert.Equal(tenantId, settings!.TenantId);
-            Assert.True(settings.IsEnabled);
-
+            // El add-on (ITenantEntity) se inserta correctamente con su TenantId aunque no haya usuario.
             var addon = await context.TenantSubscriptionAddons
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(a => a.TenantId == tenantId);
@@ -195,6 +191,12 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.NotNull(addon);
             Assert.Equal(tenantId, addon!.TenantId);
             Assert.Equal(EstadoSuscripcion.Activa, addon.Estado);
+
+            // Opción A: la activación no crea TenantWhatsAppSettings.
+            var settings = await context.TenantWhatsAppSettings
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(s => s.TenantId == tenantId);
+            Assert.Null(settings);
         }
 
         // ─── Idempotencia: duplicate repeat_payment_success ──────────────────────
@@ -229,7 +231,7 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
-        public async Task ActivarRecurrente_SecondCallSamePlan_DoesNotDuplicateTenantWhatsAppSettings()
+        public async Task ActivarRecurrente_SecondCallSamePlan_DoesNotCreateTenantWhatsAppSettings()
         {
             var tenantId = Guid.NewGuid();
             var tenantProvider = new TestTenantProvider { TenantId = tenantId };
@@ -245,12 +247,13 @@ namespace LuxuryApp.Tests.TenantIsolation
             await svc.ActivarAddonWhatsAppRecurrenteAsync(tenantId, plan, 5831, "sub-001", "txn-001");
             await svc.ActivarAddonWhatsAppRecurrenteAsync(tenantId, plan, 5831, "sub-001", "txn-002");
 
+            // Opción A: ninguna activación crea configuración (ni una, ni duplicada).
             var settingsList = await context.TenantWhatsAppSettings
                 .IgnoreQueryFilters()
                 .Where(s => s.TenantId == tenantId)
                 .ToListAsync();
 
-            Assert.Single(settingsList);
+            Assert.Empty(settingsList);
         }
 
         [Fact]
@@ -405,12 +408,11 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(800, addons[0].MonthlyMessageLimit);
             Assert.Equal(EstadoSuscripcion.Activa, addons[0].Estado);
 
+            // Opción A: el upgrade cambia el entitlement (cuota mensual del add-on) sin crear settings.
             var settings = await context.TenantWhatsAppSettings
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(s => s.TenantId == tenantId);
-
-            Assert.NotNull(settings);
-            Assert.Equal(30, settings!.DailyMessageLimit); // WA800 = 30
+            Assert.Null(settings);
         }
 
         // ─── Helpers ─────────────────────────────────────────────────────────────

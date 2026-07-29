@@ -296,8 +296,11 @@ namespace LuxuryApp.Tests.Billing
             Assert.Contains("PaymentInGrace", view, StringComparison.Ordinal);
             Assert.Contains("PaymentGraceExpired", view, StringComparison.Ordinal);
             Assert.Contains("PaymentSuspended", view, StringComparison.Ordinal);
-            Assert.Contains("Actualizar método de pago", view, StringComparison.Ordinal);
+            // En recuperación el botón es "Regularizar pago" (url_renew puede cobrar), no "actualizar tarjeta".
+            Assert.Contains("Regularizar pago", view, StringComparison.Ordinal);
             Assert.Contains("ActualizarTarjeta", view, StringComparison.Ordinal);
+            // Cuenta activa/vigente: NO se ofrece cambiar tarjeta en línea; se sugiere soporte.
+            Assert.Contains("ShouldContactSupportToChangeCard", view, StringComparison.Ordinal);
         }
 
         [Fact]

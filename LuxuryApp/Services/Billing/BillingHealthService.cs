@@ -204,6 +204,43 @@ namespace LuxuryApp.Services.Billing
         public int WhatsAppAddonMoneyRiskCount { get; init; }
 
         /// <summary>
+        /// AVISO INFORMATIVO (Opción A), NO riesgo de dinero: paquete comercial de WhatsApp activo
+        /// pero SIN configuración técnica persistida (no existe TenantWhatsAppSettings). El cobro es
+        /// correcto; solo falta que el cliente entre a "Configurar WhatsApp". No se envían mensajes.
+        /// </summary>
+        public int WhatsAppAddonsActiveWithoutConfiguration { get; init; }
+
+        /// <summary>
+        /// AVISO OPERATIVO (no riesgo de dinero): configuración de WhatsApp habilitada (IsEnabled)
+        /// pero SIN un add-on comercial vigente. El envío queda bloqueado por el gate de entitlement
+        /// (NoActiveWhatsAppAddon): el tenant configuró pero no tiene (o venció) el paquete.
+        /// </summary>
+        public int WhatsAppSettingsEnabledWithoutActiveAddon { get; init; }
+
+        // ── Clasificación por fuente del add-on (rule 10): dinero vs informativo vs operativo ──
+
+        /// <summary>RIESGO DE DINERO: add-ons ProviderRecurring ACTIVOS, recurrentes, SIN ProviderSubscriptionId.</summary>
+        public int PaidAddonsActiveWithoutProviderRisk { get; init; }
+
+        /// <summary>INFORMATIVO: accesos manuales (cortesía/canje/interno) vigentes. No es dinero.</summary>
+        public int ManualWhatsAppGrantsActive { get; init; }
+
+        /// <summary>ALERTA OPERATIVA: accesos manuales VENCIDOS pero con la fila aún activa (no envían, no cobran).</summary>
+        public int ManualWhatsAppGrantsExpiredStillActive { get; init; }
+
+        /// <summary>INFORMATIVO/LIMPIEZA: add-ons legacy/test con Estado activo (nunca son entitlement efectivo).</summary>
+        public int LegacyWhatsAppAddonsActive { get; init; }
+
+        /// <summary>ALERTA OPERATIVA: settings habilitados sin entitlement comercial EFECTIVO (envíos bloqueados).</summary>
+        public int WhatsAppSettingsEnabledWithoutEffectiveEntitlement { get; init; }
+
+        /// <summary>
+        /// Eventos de pago recurrente (success) que estaban SinRelacion y la reconciliación los cerró
+        /// contra la suscripción ya renovada por el proveedor (trazabilidad financiera), últimos 7 días.
+        /// </summary>
+        public int RenewalSuccessEventsReconciledLast7d { get; init; }
+
+        /// <summary>
         /// Config EFECTIVA de checkout por add-on (appsettings + env vars ya resueltas): HasCheckoutUrl
         /// enmascarado. Si algún add-on tiene HasCheckoutUrl=false, no se puede vender por checkout
         /// recurrente hasta cargar el hosted link real en TiloPay.
@@ -326,8 +363,28 @@ namespace LuxuryApp.Services.Billing
                 .IgnoreQueryFilters()
                 .AsNoTracking()
                 .ToListAsync(cancellationToken);
-            var activeAddonList = addons.Where(addon => _suscripcionService.IsWhatsAppAddonActive(addon)).ToList();
+            // Clasificación por fuente (ÚNICA fuente de verdad, sin strings mágicos). Separa el riesgo
+            // real de dinero (ProviderRecurring activo sin provider sub) de los accesos manuales/legacy.
+            var classifiedAddons = addons
+                .Select(addon => new { Addon = addon, Entitlement = _suscripcionService.ResolveWhatsAppEntitlement(addon) })
+                .ToList();
+            var activeAddonList = classifiedAddons.Where(x => x.Entitlement.IsEffective).Select(x => x.Addon).ToList();
             var activeAddons = activeAddonList.Count;
+
+            // ── Add-ons por fuente (rule 10): dinero vs informativo vs operativo ──
+            // RIESGO DE DINERO: recurrente pagado activo pero sin ProviderSubscriptionId.
+            var paidAddonsProviderRisk = classifiedAddons.Count(x => x.Entitlement.IsProviderRisk);
+            // Informativo: accesos manuales vigentes (cortesía/canje/interno).
+            var manualGrantsActive = classifiedAddons.Count(x => x.Entitlement.IsManualGrant && x.Entitlement.IsEffective);
+            // Alerta operativa: acceso manual VENCIDO pero la fila sigue Activa (no envía, no cobra).
+            var manualGrantsExpiredStillActive = classifiedAddons.Count(x => x.Entitlement.IsManualGrantExpired);
+            // Informativo/limpieza: add-ons legacy/test con Estado activo (nunca son entitlement efectivo).
+            var legacyAddonsActive = classifiedAddons.Count(x =>
+                x.Entitlement.IsLegacy && x.Addon.Estado == EstadoSuscripcion.Activa);
+            var effectiveEntitlementTenantIds = classifiedAddons
+                .Where(x => x.Entitlement.IsEffective)
+                .Select(x => x.Addon.TenantId)
+                .ToHashSet();
 
             // ── Add-on: métricas propias (sección separada del dinero-en-riesgo del base) ──
             var addonPendingProviderCancellation = addons.Count(addon =>
@@ -396,7 +453,38 @@ namespace LuxuryApp.Services.Billing
                     incident.Scope == PaymentIncidentScope.WhatsAppAddon &&
                     incident.Status == PaymentIncidentStatus.Open, cancellationToken);
 
-            var addonMoneyRisk = addonPendingProviderCancellation + addonDoubleActiveTenants;
+            // Riesgo de dinero del add-on: baja de suscriptor pendiente + doble activo + recurrente
+            // pagado activo SIN provider sub (paidAddonsProviderRisk). Los manuales/legacy NUNCA suman.
+            var addonMoneyRisk = addonPendingProviderCancellation + addonDoubleActiveTenants + paidAddonsProviderRisk;
+
+            // ── Opción A: entitlement ≠ configuración (avisos informativos, NO dinero-en-riesgo) ──
+            // Una fila por tenant (bajo volumen): se cruza en memoria con los add-ons activos.
+            var whatsAppSettingsByTenant = await _db.TenantWhatsAppSettings
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Select(s => new { s.TenantId, s.IsEnabled })
+                .ToListAsync(cancellationToken);
+            var activeAddonTenantIds = activeAddonList.Select(addon => addon.TenantId).ToHashSet();
+            var tenantsWithSettings = whatsAppSettingsByTenant.Select(s => s.TenantId).ToHashSet();
+
+            // Paquete activo pero sin configurar (no hay fila de settings): informativo, no envía nada.
+            var addonsActiveWithoutConfiguration = activeAddonTenantIds
+                .Count(tenantId => !tenantsWithSettings.Contains(tenantId));
+
+            // Configuración habilitada sin add-on vigente: operativo (los envíos quedan bloqueados por
+            // el gate de entitlement). No es dinero-en-riesgo.
+            var settingsEnabledWithoutActiveAddon = whatsAppSettingsByTenant
+                .Count(s => s.IsEnabled && !activeAddonTenantIds.Contains(s.TenantId));
+
+            // Igual que arriba pero contra el ENTITLEMENT EFECTIVO (incluye manuales vigentes): settings
+            // habilitados sin ningún acceso comercial efectivo ⇒ los envíos se bloquean. Operativo, no dinero.
+            var settingsEnabledWithoutEffectiveEntitlement = whatsAppSettingsByTenant
+                .Count(s => s.IsEnabled && !effectiveEntitlementTenantIds.Contains(s.TenantId));
+
+            var renewalSuccessEventsReconciled7d = await _db.PlatformAuditLogs
+                .CountAsync(log =>
+                    log.Action == PlatformAuditActions.PaymentEventReconciledByProviderRenewal &&
+                    log.CreatedAtUtc >= last7dUtc, cancellationToken);
 
             var pendingPayments = await _db.PagosSuscripcion.IgnoreQueryFilters()
                 .CountAsync(p => p.Estado == EstadoPagoProveedor.Pendiente, cancellationToken);
@@ -770,6 +858,14 @@ namespace LuxuryApp.Services.Billing
                 WhatsAppAddonsDoubleActiveTenants = addonDoubleActiveTenants,
                 WhatsAppAddonOpenPaymentIncidents = addonOpenPaymentIncidents,
                 WhatsAppAddonMoneyRiskCount = addonMoneyRisk,
+                WhatsAppAddonsActiveWithoutConfiguration = addonsActiveWithoutConfiguration,
+                WhatsAppSettingsEnabledWithoutActiveAddon = settingsEnabledWithoutActiveAddon,
+                PaidAddonsActiveWithoutProviderRisk = paidAddonsProviderRisk,
+                ManualWhatsAppGrantsActive = manualGrantsActive,
+                ManualWhatsAppGrantsExpiredStillActive = manualGrantsExpiredStillActive,
+                LegacyWhatsAppAddonsActive = legacyAddonsActive,
+                WhatsAppSettingsEnabledWithoutEffectiveEntitlement = settingsEnabledWithoutEffectiveEntitlement,
+                RenewalSuccessEventsReconciledLast7d = renewalSuccessEventsReconciled7d,
                 WhatsAppAddonCheckoutConfig = _checkoutInspector?.InspectAddons() ?? Array.Empty<ManagedPlanCheckoutStatus>(),
                 ActiveSubscriptions = active,
                 TrialSubscriptions = trial,

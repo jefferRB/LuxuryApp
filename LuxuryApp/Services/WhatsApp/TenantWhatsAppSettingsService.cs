@@ -223,6 +223,22 @@ namespace LuxuryApp.Services.WhatsApp
                     settings.DailyMessageLimit);
             }
 
+            // Entitlement ≠ configuración (Opción A): comprar el paquete crea el add-on comercial pero
+            // NO habilita envíos. Sin una configuración PERSISTIDA (TenantWhatsAppSettings) no se envía
+            // nada: el add-on activo sin configurar es un aviso operativo, no un permiso de envío. El
+            // snapshot sintético con defaults "habilitados" (Exists=false) es solo para prellenar la
+            // pantalla de configuración; jamás debe autorizar un envío real.
+            if (!settings.Exists)
+            {
+                return TenantWhatsAppSendDecision.Denied(
+                    WhatsAppErrorCodes.NotConfigured,
+                    "El paquete de WhatsApp está activo pero falta configurar la integración. Entra a \"Configurar WhatsApp\" y guarda para activar los envíos.",
+                    todayUsage,
+                    settings.DailyMessageLimit,
+                    monthlyUsage,
+                    monthlyLimit);
+            }
+
             if (!settings.IsEnabled)
             {
                 return TenantWhatsAppSendDecision.Denied(

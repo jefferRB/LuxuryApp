@@ -93,7 +93,63 @@ namespace LuxuryApp.Tests.Billing
             Assert.True(summary.CanAccessApp);
         }
 
-        private static async Task<BillingSubscriptionSummaryViewModel?> BuildAsync(ApplicationDbContext ctx, Guid tenantId)
+        [Fact]
+        public async Task Summary_ActiveAddonWithoutStoredSettings_FlagsNeedsConfiguration()
+        {
+            using var ctx = CreateContext(out var connection);
+            using var _ = connection;
+
+            var tenantId = Guid.NewGuid();
+            SeedSubscription(
+                ctx,
+                tenantId,
+                localEndUtc: DateTime.UtcNow.AddDays(20),
+                providerExpiresUtc: null,
+                providerRaw: null);
+
+            // Add-on activo (entitlement comercial) SIN configuración técnica persistida.
+            var addonPlan = new Plan
+            {
+                Id = Guid.NewGuid(),
+                Codigo = PlanCodes.WhatsApp400,
+                Nombre = "WhatsApp 400",
+                Moneda = "CRC",
+                PrecioMensual = 6000m,
+                LimiteMensajesMensual = 400,
+                Activo = true
+            };
+            ctx.Planes.Add(addonPlan);
+            ctx.TenantSubscriptionAddons.Add(new TenantSubscriptionAddon
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                PlanId = addonPlan.Id,
+                AddonCode = PlanCodes.WhatsApp400,
+                Estado = EstadoSuscripcion.Activa,
+                MonthlyMessageLimit = 400,
+                FechaInicio = DateTime.UtcNow.AddDays(-1),
+                FechaFin = DateTime.UtcNow.AddDays(29),
+                FechaProximoCobroUtc = DateTime.UtcNow.AddDays(29)
+            });
+            await ctx.SaveChangesAsync();
+
+            // El servicio de settings devuelve el snapshot sintético (Exists=false) del add-on sin configurar.
+            var snapshot = TenantWhatsAppSettingsSnapshot.CreateEnabledDefaultsForAddon(tenantId, 15);
+            var summary = await BuildAsync(ctx, tenantId, new SnapshotWhatsAppSettings(snapshot));
+
+            Assert.NotNull(summary);
+            Assert.True(summary!.HasWhatsAppAddon);
+            // Opción A: paquete activo pero "falta configurar WhatsApp"; la automatización NO cuenta como habilitada.
+            Assert.True(summary.WhatsAppAddonNeedsConfiguration);
+            Assert.False(summary.WhatsAppAutomationEnabled);
+            // La cuota mensual comercial se resuelve desde el add-on activo.
+            Assert.Equal(400, summary.WhatsAppMonthlyLimit);
+        }
+
+        private static async Task<BillingSubscriptionSummaryViewModel?> BuildAsync(
+            ApplicationDbContext ctx,
+            Guid tenantId,
+            ITenantWhatsAppSettingsService? settingsService = null)
         {
             var cache = new MemoryCache(new MemoryCacheOptions());
             var repeatOptions = CalculatorCatalog.BuildRepeatOptions();
@@ -101,7 +157,7 @@ namespace LuxuryApp.Tests.Billing
                 ctx, cache, new TenantCommercialAccessCache(cache), new FixedBusinessDateTimeProvider(),
                 Options.Create(repeatOptions), NullLogger<SuscripcionService>.Instance);
 
-            var service = new SubscriptionSummaryService(ctx, subscriptionService, new StubWhatsAppSettings());
+            var service = new SubscriptionSummaryService(ctx, subscriptionService, settingsService ?? new StubWhatsAppSettings());
             return await service.BuildAsync(tenantId);
         }
 
@@ -166,6 +222,28 @@ namespace LuxuryApp.Tests.Billing
                 Task.FromResult(0);
             public Task<bool> HasActiveWhatsAppAddonAsync(Guid tenantId, CancellationToken cancellationToken = default) =>
                 Task.FromResult(false);
+            public Task UpdateSettingsAsync(Guid tenantId, TenantWhatsAppSettingsUpdateDto dto, string? updatedByUserId, CancellationToken cancellationToken = default) =>
+                throw new InvalidOperationException();
+        }
+
+        /// <summary>Devuelve un snapshot fijo (para probar el estado "add-on activo sin configurar").</summary>
+        private sealed class SnapshotWhatsAppSettings : ITenantWhatsAppSettingsService
+        {
+            private readonly TenantWhatsAppSettingsSnapshot _snapshot;
+            public SnapshotWhatsAppSettings(TenantWhatsAppSettingsSnapshot snapshot) => _snapshot = snapshot;
+
+            public Task<TenantWhatsAppSettingsSnapshot> GetSettingsForTenantAsync(Guid tenantId, CancellationToken cancellationToken = default) =>
+                Task.FromResult(_snapshot);
+            public Task<TenantWhatsAppSettingsSnapshot> EnsureDefaultSettingsAsync(Guid tenantId, CancellationToken cancellationToken = default) =>
+                Task.FromResult(_snapshot);
+            public Task<bool> IsWhatsAppEnabledForTenantAsync(Guid tenantId, CancellationToken cancellationToken = default) =>
+                Task.FromResult(_snapshot.IsEnabled);
+            public Task<TenantWhatsAppSendDecision> CanSendNotificationAsync(Guid tenantId, string notificationType, long? reservedMessageLogId = null, CancellationToken cancellationToken = default) =>
+                throw new InvalidOperationException();
+            public Task<int> GetTodayUsageAsync(Guid tenantId, CancellationToken cancellationToken = default) =>
+                Task.FromResult(0);
+            public Task<bool> HasActiveWhatsAppAddonAsync(Guid tenantId, CancellationToken cancellationToken = default) =>
+                Task.FromResult(true);
             public Task UpdateSettingsAsync(Guid tenantId, TenantWhatsAppSettingsUpdateDto dto, string? updatedByUserId, CancellationToken cancellationToken = default) =>
                 throw new InvalidOperationException();
         }

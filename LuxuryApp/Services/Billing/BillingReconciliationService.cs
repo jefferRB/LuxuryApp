@@ -164,6 +164,14 @@ namespace LuxuryApp.Services.Billing
             // y detectar drift entre el estado local y el del proveedor (con HTTP, fuera de tx).
             await RunPhaseAsync("FinalizeCancelAtPeriodEnd", () => FinalizeCancelAtPeriodEndAsync(report, nowUtc, cancellationToken), cancellationToken);
             await RunPhaseAsync("SyncProviderLifecycleStatus", () => SyncProviderLifecycleStatusAsync(report, nowUtc, cancellationToken), cancellationToken);
+            // Sanar recuperaciones falsas: base en gracia/morosa cuyo proveedor ya está Active y
+            // renovado (el webhook success quedó SinRelacion). Cierra incidente y reactiva.
+            await RunPhaseAsync("HealRecoveredBaseSubscriptions", () => HealRecoveredBaseSubscriptionsAsync(report, nowUtc, cancellationToken), cancellationToken);
+            // Trazabilidad financiera: un repeat_payment_success que quedó SinRelacion (url_renew sin
+            // pending) se reconcilia contra la suscripción ya renovada por el proveedor. Corre DESPUÉS
+            // de sanar para cerrar en el mismo pase el evento de una base recién reactivada, y también
+            // atrapa las bases ya sanas de pases anteriores (el evento huérfano no depende de la gracia).
+            await RunPhaseAsync("ReconcileOrphanedRenewalSuccessEvents", () => ReconcileOrphanedRenewalSuccessEventsAsync(report, nowUtc, cancellationToken), cancellationToken);
             await RunPhaseAsync("OverdueRenewals", () => AlertOverdueRenewalsAsync(report, nowUtc, cancellationToken), cancellationToken);
             await RunPhaseAsync("ExpireStalePendings", () => ExpireStalePendingAttemptsAsync(report, nowUtc, cancellationToken), cancellationToken);
             await RunPhaseAsync("StaleManualReviews", () => AlertStaleManualReviewsAsync(report, nowUtc, cancellationToken), cancellationToken);
@@ -268,6 +276,18 @@ namespace LuxuryApp.Services.Billing
             await RunPhaseAsync(
                 "RetryPendingAddonCancellations",
                 () => RetryPendingAddonCancellationsAsync(report, cancellationToken),
+                cancellationToken);
+            // Sanar recuperaciones falsas también en el pase rápido: un cliente en falso "gracia"
+            // con el proveedor ya renovado no debe esperar 24h para verse Activa.
+            await RunPhaseAsync(
+                "HealRecoveredBaseSubscriptions",
+                () => HealRecoveredBaseSubscriptionsAsync(report, GetUtcNow(), cancellationToken),
+                cancellationToken);
+            // Cerrar la traza financiera del success huérfano también en el pase rápido: si el cliente
+            // regularizó por url_renew, el evento no debe quedar SinRelacion hasta el pase diario.
+            await RunPhaseAsync(
+                "ReconcileOrphanedRenewalSuccessEvents",
+                () => ReconcileOrphanedRenewalSuccessEventsAsync(report, GetUtcNow(), cancellationToken),
                 cancellationToken);
             report.FinishedUtc = GetUtcNow();
             return report;
@@ -2608,6 +2628,439 @@ namespace LuxuryApp.Services.Billing
         /// Alerta idempotente: no repite la misma alerta sobre la misma entidad dentro
         /// de la ventana de cooldown, para que el pase diario no llene la bitácora.
         /// </summary>
+        // ── Sanar recuperaciones falsas: provider Active + renovado, local en gracia/morosa ──────
+
+        /// <summary>
+        /// Repara el caso del webhook success que quedó SinRelacion: una suscripción BASE local en
+        /// gracia/morosa cuyo suscriptor en TiloPay está Active con expire vigente/avanzado. Verifica
+        /// SIEMPRE contra getSuscriptorRepeat (un estado local nunca basta). Si el proveedor confirma
+        /// Active + expire futuro: cierra el/los incidente(s) base abiertos, reactiva (Estado=Activa),
+        /// limpia PaymentRecoveryStatus/gracia, alinea FechaFin/próximo cobro/ProviderExpiresAtUtc con
+        /// el expire y audita. NUNCA degrada; si el proveedor no está Active o el expire ya venció, no
+        /// toca nada (podría ser una morosidad real). HTTP fuera de transacción.
+        /// </summary>
+        private async Task HealRecoveredBaseSubscriptionsAsync(
+            BillingReconciliationReport report,
+            DateTime nowUtc,
+            CancellationToken cancellationToken)
+        {
+            if (_adminService is null || !_adminService.IsEnabled)
+            {
+                return;
+            }
+
+            var candidates = await _db.Suscripciones
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(subscription =>
+                    subscription.Proveedor == PaymentProviderType.Tilopay &&
+                    subscription.TilopayRecurringPlanId != null &&
+                    subscription.ProviderSubscriptionId != null &&
+                    !subscription.CancelAtPeriodEnd &&
+                    (subscription.PaymentRecoveryStatus == "GraceActive" ||
+                     subscription.PaymentRecoveryStatus == "GraceExpired" ||
+                     subscription.Estado == EstadoSuscripcion.Morosa))
+                .Select(subscription => new
+                {
+                    subscription.Id,
+                    subscription.TenantId,
+                    subscription.TilopayRecurringPlanId,
+                    subscription.ProviderSubscriptionId,
+                    subscription.CodigoPlan
+                })
+                .ToListAsync(cancellationToken);
+
+            foreach (var candidate in candidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (candidate.TenantId == Guid.Empty || candidate.TilopayRecurringPlanId is not { } recurringPlanId)
+                {
+                    continue;
+                }
+
+                DetachAllTracked();
+
+                try
+                {
+                    // Verificación en el proveedor (HTTP fuera de tx): ¿Active con expire vigente?
+                    var subscribers = await _adminService.GetSuscriptorRepeatAsync(recurringPlanId, cancellationToken);
+                    var match = subscribers.FirstOrDefault(s =>
+                        string.Equals(s.SubscriberId, candidate.ProviderSubscriptionId, StringComparison.OrdinalIgnoreCase));
+
+                    if (match is null || !ProviderSubscriberStatusRules.IsProviderSubscriberActive(match.Status))
+                    {
+                        continue; // no aparece o no está Active: podría ser morosidad real, no sanar
+                    }
+
+                    var providerExpiry = match.ExpiresAtUtc;
+                    if (providerExpiry is { } expiry && expiry <= nowUtc)
+                    {
+                        continue; // expire ya vencido: no sanar
+                    }
+
+                    using var scope = _tenantExecutionContextAccessor.BeginScope(candidate.TenantId);
+                    var subscription = await _db.Suscripciones
+                        .IgnoreQueryFilters()
+                        .FirstOrDefaultAsync(s => s.Id == candidate.Id, cancellationToken);
+
+                    if (subscription is null)
+                    {
+                        continue;
+                    }
+
+                    // Reevaluar: pudo cambiar entre la lectura y ahora, o ya no ser recovery.
+                    var stillInRecovery =
+                        subscription.PaymentRecoveryStatus is "GraceActive" or "GraceExpired" ||
+                        subscription.Estado == EstadoSuscripcion.Morosa;
+                    if (!stillInRecovery || subscription.CancelAtPeriodEnd)
+                    {
+                        continue;
+                    }
+
+                    subscription.Estado = EstadoSuscripcion.Activa;
+                    subscription.PaymentRecoveryStatus = null;
+                    subscription.FechaFinGraciaUtc = null;
+                    subscription.LastPaymentFailedAtUtc = null;
+                    subscription.ProviderStatusRaw = Trim(ProviderSubscriberStatusRules.Sanitize(match.Status), 40);
+                    subscription.ProviderStatusLastSyncedUtc = nowUtc;
+
+                    if (providerExpiry is { } expiry2)
+                    {
+                        subscription.ProviderExpiresAtUtc = expiry2;
+                        subscription.ProviderExpiryRaw = match.ExpiresRaw;
+                        subscription.ProviderExpiryLastSyncedUtc = nowUtc;
+                        var effectiveEndUtc = SubscriptionEffectiveDates.GetEffectiveEndUtc(subscription.FechaFin, expiry2);
+                        subscription.FechaFin = effectiveEndUtc;
+                        subscription.FechaProximoCobroUtc = effectiveEndUtc;
+                    }
+
+                    subscription.FechaUltimoPagoUtc = nowUtc;
+                    subscription.FechaUltimaActualizacionUtc = nowUtc;
+                    subscription.MotivoEstado = "Recuperación sanada por reconciliación: el proveedor está Active y renovado (el webhook success quedó SinRelacion).";
+
+                    var openIncidents = await _db.SubscriptionPaymentIncidents
+                        .IgnoreQueryFilters()
+                        .Where(i =>
+                            i.TenantId == candidate.TenantId &&
+                            i.Scope == PaymentIncidentScope.BasePlan &&
+                            i.Status == PaymentIncidentStatus.Open &&
+                            i.TilopayRecurringPlanId == recurringPlanId)
+                        .ToListAsync(cancellationToken);
+
+                    foreach (var incident in openIncidents)
+                    {
+                        incident.Status = PaymentIncidentStatus.Resolved;
+                        incident.ResolvedAtUtc = nowUtc;
+                        incident.UpdatedAtUtc = nowUtc;
+                    }
+
+                    _db.PlatformAuditLogs.Add(new PlatformAuditLog
+                    {
+                        Id = Guid.NewGuid(),
+                        ActorUserId = "system",
+                        ActorEmail = "system",
+                        Action = PlatformAuditActions.PaymentRecoveryResolvedByProviderRenewal,
+                        EntityType = PlatformAuditEntityTypes.Subscription,
+                        EntityId = subscription.Id.ToString(),
+                        TenantId = candidate.TenantId,
+                        Reason = Trim(
+                            $"Recuperación sanada: proveedor Active, expire {match.ExpiresRaw ?? "-"}. Plan {candidate.CodigoPlan}. " +
+                            $"Incidentes cerrados {openIncidents.Count}. SuscriptorSuffix {SensitiveDataMasker.MaskReference(candidate.ProviderSubscriptionId)}.",
+                            500),
+                        CreatedAtUtc = nowUtc
+                    });
+
+                    await _db.SaveChangesAsync(cancellationToken);
+                    _accessCache?.Invalidate(candidate.TenantId);
+                    report.RecoveredSubscriptionsHealed++;
+
+                    _logger.LogInformation(
+                        "Suscripción base sanada por reconciliación (provider Active + renovado). TenantId {TenantId}. Plan {PlanCode}.",
+                        candidate.TenantId, candidate.CodigoPlan);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    DetachAllTracked();
+                    _logger.LogError(
+                        ex,
+                        "No se pudo sanar la suscripción en recuperación. TenantId {TenantId}. Se continúa.",
+                        candidate.TenantId);
+                }
+            }
+        }
+
+        // ── Reconciliación de eventos success huérfanos (trazabilidad financiera) ─────
+
+        /// <summary>
+        /// Cierra la traza financiera de un repeat_payment_success que quedó SinRelacion: un cobro
+        /// real por url_renew (renovación/regularización de un suscriptor EXISTENTE, sin pending local)
+        /// que el webhook no supo correlacionar. Si el proveedor confirma que el ÚNICO suscriptor
+        /// local ACTIVO de ese plan recurrente está Active y renovado más allá de la fecha del cobro,
+        /// se marca el evento ReconciliadoPorProveedor y —si no existía— se registra el PagoSuscripcion
+        /// Confirmado del cobro (para que el ingreso quede auditado localmente). NUNCA toca fechas de la
+        /// suscripción (no extiende: la renovación ya la aplicó el proveedor / la sanación) y es
+        /// idempotente por transactionId. Verifica SIEMPRE contra getSuscriptorRepeat (un estado local
+        /// nunca basta). Ambiguo (0 o &gt;1 suscriptor local activo del plan) ⇒ no se toca, porque no se
+        /// puede atribuir el cobro huérfano con seguridad sin el id_suscriptor/correo (redactado en el
+        /// payload) del evento. HTTP fuera de transacción.
+        /// </summary>
+        private async Task ReconcileOrphanedRenewalSuccessEventsAsync(
+            BillingReconciliationReport report,
+            DateTime nowUtc,
+            CancellationToken cancellationToken)
+        {
+            if (_adminService is null || !_adminService.IsEnabled)
+            {
+                return; // sin verificación contra el proveedor no se reconcilia a ciegas
+            }
+
+            // Candidatos: eventos success no procesados que quedaron SinRelacion con datos suficientes
+            // para verificar (plan recurrente, transacción y monto). El tipo se filtra en memoria.
+            var candidates = await _db.EventosPago
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(e =>
+                    !e.Procesado &&
+                    e.EstadoProcesamiento == "SinRelacion" &&
+                    e.TilopayRecurringPlanId != null &&
+                    e.ProviderTransactionId != null &&
+                    e.Monto != null)
+                .Select(e => new
+                {
+                    e.Id,
+                    e.Tipo,
+                    e.TilopayRecurringPlanId,
+                    e.ProviderTransactionId,
+                    e.ProviderSubscriberId,
+                    e.Monto,
+                    e.Moneda,
+                    e.ReferenciaExterna,
+                    e.FechaRecepcionUtc
+                })
+                .ToListAsync(cancellationToken);
+
+            foreach (var candidate in candidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (!IsRecurringPaymentSuccessEventType(candidate.Tipo) ||
+                    candidate.TilopayRecurringPlanId is not { } recurringPlanId ||
+                    string.IsNullOrWhiteSpace(candidate.ProviderTransactionId))
+                {
+                    continue;
+                }
+
+                DetachAllTracked();
+
+                try
+                {
+                    // Único suscriptor local ACTIVO de ese plan recurrente (base), con id de proveedor.
+                    // 0 o >1 ⇒ no se puede atribuir el cobro huérfano con seguridad ⇒ no se toca.
+                    var localMatches = await _db.Suscripciones
+                        .IgnoreQueryFilters()
+                        .AsNoTracking()
+                        .Where(s =>
+                            s.Proveedor == PaymentProviderType.Tilopay &&
+                            s.TilopayRecurringPlanId == recurringPlanId &&
+                            s.ProviderSubscriptionId != null &&
+                            s.Estado == EstadoSuscripcion.Activa)
+                        .Select(s => new { s.Id, s.TenantId, s.PlanId, s.ProviderSubscriptionId, s.CodigoPlan })
+                        .Take(2)
+                        .ToListAsync(cancellationToken);
+
+                    if (localMatches.Count != 1)
+                    {
+                        continue;
+                    }
+
+                    var local = localMatches[0];
+                    if (local.TenantId == Guid.Empty || string.IsNullOrWhiteSpace(local.ProviderSubscriptionId))
+                    {
+                        continue;
+                    }
+
+                    // Verificación en el proveedor: el suscriptor ligado a la suscripción local debe
+                    // estar Active con expire posterior al cobro (prueba de que ESTE cobro lo renovó).
+                    var subscribers = await _adminService.GetSuscriptorRepeatAsync(recurringPlanId, cancellationToken);
+                    var match = subscribers.FirstOrDefault(s =>
+                        string.Equals(s.SubscriberId, local.ProviderSubscriptionId, StringComparison.OrdinalIgnoreCase));
+
+                    if (match is null || !ProviderSubscriberStatusRules.IsProviderSubscriberActive(match.Status))
+                    {
+                        continue; // no aparece o no está Active: no atribuir el cobro
+                    }
+
+                    // Si viene expire, debe cubrir la fecha del cobro. Sin expire, basta el Active verificado.
+                    if (match.ExpiresAtUtc is { } expiry && expiry <= candidate.FechaRecepcionUtc)
+                    {
+                        continue;
+                    }
+
+                    await ReconcileOneOrphanedEventAsync(
+                        local.TenantId,
+                        candidate.Id,
+                        local.PlanId,
+                        local.ProviderSubscriptionId!,
+                        local.CodigoPlan,
+                        recurringPlanId,
+                        candidate.ProviderTransactionId!,
+                        candidate.ProviderSubscriberId,
+                        candidate.Monto ?? 0m,
+                        candidate.Moneda,
+                        candidate.ReferenciaExterna,
+                        candidate.FechaRecepcionUtc,
+                        match.ExpiresRaw,
+                        report,
+                        cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    DetachAllTracked();
+                    _logger.LogError(
+                        ex,
+                        "No se pudo reconciliar el evento success huérfano {EventId}; se continúa.",
+                        candidate.Id);
+                }
+            }
+        }
+
+        private async Task ReconcileOneOrphanedEventAsync(
+            Guid tenantId,
+            Guid eventId,
+            Guid planId,
+            string providerSubscriptionId,
+            string? planCode,
+            int recurringPlanId,
+            string providerTransactionId,
+            string? eventProviderSubscriberId,
+            decimal amount,
+            string? currency,
+            string? providerReference,
+            DateTime chargeReceivedUtc,
+            string? providerExpiryRaw,
+            BillingReconciliationReport report,
+            CancellationToken cancellationToken)
+        {
+            using var scope = _tenantExecutionContextAccessor.BeginScope(tenantId);
+
+            // Reevaluar el evento bajo el registro tracked: pudo procesarse entre la lectura y ahora.
+            var evento = await _db.EventosPago
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(e => e.Id == eventId, cancellationToken);
+
+            if (evento is null || evento.Procesado || evento.EstadoProcesamiento != "SinRelacion")
+            {
+                return; // idempotente: ya reconciliado/procesado por otra vía
+            }
+
+            var nowUtc = GetUtcNow();
+
+            // Idempotencia del PAGO: si ya existe un PagoSuscripcion con ese transactionId, se reutiliza
+            // (nunca se duplica). Si no, se registra uno Confirmado para que el ingreso quede auditado.
+            // Se crea Confirmado a propósito: un replay futuro de ese transactionId lo detecta la guarda
+            // de idempotencia del webhook (MatchesConfirmedAttempt ⇒ "Duplicado"), sin extender de nuevo.
+            var existingPayment = await _db.PagosSuscripcion
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(
+                    p => p.TenantId == tenantId &&
+                         p.Proveedor == PaymentProviderType.Tilopay &&
+                         p.ProviderTransactionId == providerTransactionId,
+                    cancellationToken);
+
+            var paymentWasCreated = false;
+            if (existingPayment is null)
+            {
+                existingPayment = new PagoSuscripcion
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = tenantId,
+                    PlanId = planId,
+                    Proveedor = PaymentProviderType.Tilopay,
+                    Estado = EstadoPagoProveedor.Confirmado,
+                    ReferenciaInterna = $"RECON-{Guid.NewGuid():N}"[..20],
+                    ProviderReference = string.IsNullOrWhiteSpace(providerReference) ? providerTransactionId : providerReference,
+                    ProviderTransactionId = providerTransactionId,
+                    TilopayRecurringPlanId = recurringPlanId,
+                    ProviderSubscriberId = string.IsNullOrWhiteSpace(eventProviderSubscriberId)
+                        ? providerSubscriptionId
+                        : eventProviderSubscriberId,
+                    Descripcion = "Renovacion recurrente reconciliada (webhook success SinRelacion).",
+                    Monto = amount,
+                    Moneda = string.IsNullOrWhiteSpace(currency) ? "CRC" : currency,
+                    ProviderResultCode = "1",
+                    ProviderResultMessage = Trim(
+                        "Cobro recurrente reconciliado por la reconciliación: el proveedor confirmó el suscriptor Active y renovado. El webhook success había quedado SinRelacion.",
+                        300),
+                    FechaCreacionUtc = chargeReceivedUtc,
+                    FechaConfirmacionUtc = chargeReceivedUtc,
+                    FechaActualizacionUtc = nowUtc
+                };
+                _db.PagosSuscripcion.Add(existingPayment);
+                paymentWasCreated = true;
+            }
+
+            evento.Procesado = true;
+            evento.EstadoProcesamiento = "ReconciliadoPorProveedor";
+            evento.TenantId = tenantId;
+            evento.PlanId = planId;
+            evento.PagoSuscripcionId = existingPayment.Id;
+            evento.ProviderSubscriberId = string.IsNullOrWhiteSpace(evento.ProviderSubscriberId)
+                ? providerSubscriptionId
+                : evento.ProviderSubscriberId;
+            evento.FechaProcesamientoUtc = nowUtc;
+            evento.Error = null;
+
+            _db.PlatformAuditLogs.Add(new PlatformAuditLog
+            {
+                Id = Guid.NewGuid(),
+                ActorUserId = "system",
+                ActorEmail = "system",
+                Action = PlatformAuditActions.PaymentEventReconciledByProviderRenewal,
+                EntityType = PlatformAuditEntityTypes.Billing,
+                EntityId = eventId.ToString(),
+                TenantId = tenantId,
+                Reason = Trim(
+                    $"Evento success SinRelacion reconciliado contra la suscripción renovada. Plan {planCode}. " +
+                    $"TxnSuffix {SensitiveDataMasker.MaskReference(providerTransactionId)}. " +
+                    $"SuscriptorSuffix {SensitiveDataMasker.MaskReference(providerSubscriptionId)}. Expire {providerExpiryRaw ?? "-"}. " +
+                    $"Monto {amount:0.00} {(string.IsNullOrWhiteSpace(currency) ? "CRC" : currency)}. " +
+                    (paymentWasCreated
+                        ? "Se registró el PagoSuscripcion Confirmado del cobro."
+                        : "El PagoSuscripcion ya existía; solo se ligó el evento."),
+                    500),
+                CreatedAtUtc = nowUtc
+            });
+
+            await _db.SaveChangesAsync(cancellationToken);
+            DetachAllTracked();
+
+            report.RenewalSuccessEventsReconciled++;
+
+            _logger.LogInformation(
+                "Evento success huérfano reconciliado. TenantId {TenantId}. EventId {EventId}. PaymentCreated {PaymentCreated}. Plan {PlanCode}.",
+                tenantId, eventId, paymentWasCreated, planCode);
+        }
+
+        /// <summary>Tipos de evento que representan un pago recurrente EXITOSO (espeja SaaSPaymentService).</summary>
+        private static bool IsRecurringPaymentSuccessEventType(string? eventType)
+        {
+            if (string.IsNullOrWhiteSpace(eventType))
+            {
+                return false;
+            }
+
+            var normalized = eventType.Trim().ToLowerInvariant().Replace('-', '_').Replace('.', '_');
+            return normalized is "repeat_payment_success" or "repeat_payment_paid";
+        }
+
         private async Task<bool> TryAddAlertAsync(
             BillingReconciliationReport report,
             string entityType,

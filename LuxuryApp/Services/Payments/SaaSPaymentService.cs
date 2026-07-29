@@ -2483,6 +2483,26 @@ namespace LuxuryApp.Services.Payments
                 }
             }
 
+            // ── Success SIN pending: renovación / regularización vía url_renew ──────────────
+            // Un repeat_payment_success puede llegar SIN checkout pendiente local: url_renew cobra a un
+            // suscriptor EXISTENTE (renovación o pago de regularización). No se puede exigir un pending.
+            // Se correlaciona de forma SEGURA contra la suscripción/add-on existente por
+            // (plan interno, recurringPlanId, email→tenant) y se VERIFICA con el proveedor
+            // (getSuscriptorRepeat). Ambiguo o no verificable ⇒ ManualReview (nunca degradar una
+            // suscripción activa ni activar a ciegas).
+            if (isPaymentSuccessEvent &&
+                recurringPlanId.HasValue &&
+                planId.HasValue &&
+                !string.IsNullOrWhiteSpace(webhook.CustomerEmail))
+            {
+                var renewalMatch = await TryCorrelateExistingSubscriptionRenewalAsync(
+                    webhook, planId.Value, recurringPlanId.Value, cancellationToken);
+                if (renewalMatch is not null)
+                {
+                    return renewalMatch;
+                }
+            }
+
             if (isPaymentSuccessEvent)
             {
                 return RecurringCorrelationResolution.Unmatched(
@@ -2491,6 +2511,117 @@ namespace LuxuryApp.Services.Payments
 
             return RecurringCorrelationResolution.Unmatched(
                 "Tilopay no envio datos suficientes para correlacionar el webhook recurrente con un tenant.");
+        }
+
+        /// <summary>
+        /// Correlaciona un repeat_payment_success SIN pending local contra la suscripción/add-on
+        /// EXISTENTE del tenant (renovación/regularización vía url_renew). Reglas: correo → exactamente
+        /// un tenant; ese tenant tiene exactamente UNA suscripción/add-on con (planId, recurringPlanId);
+        /// y el proveedor lo confirma (getSuscriptorRepeat: un suscriptor para plan/correo). Cualquier
+        /// ambigüedad o falta de verificación ⇒ ManualReview. Devuelve null si no hay tenant/suscripción
+        /// candidata (deja que el caller marque Unmatched, sin inventar correlación).
+        /// La idempotencia de replays la cubren las ramas byReference/byTransaction de arriba: tras el
+        /// primer procesamiento existe un intento confirmado con ese transactionId.
+        /// </summary>
+        private async Task<RecurringCorrelationResolution?> TryCorrelateExistingSubscriptionRenewalAsync(
+            PaymentProviderWebhookData webhook,
+            Guid planId,
+            int recurringPlanId,
+            CancellationToken cancellationToken)
+        {
+            var candidateTenantIds = await _db.AppUsuario
+                .IgnoreQueryFilters()
+                .Where(user => user.TenantId != Guid.Empty && user.Email == webhook.CustomerEmail)
+                .Select(user => user.TenantId)
+                .Distinct()
+                .Take(3)
+                .ToListAsync(cancellationToken);
+
+            if (candidateTenantIds.Count == 0)
+            {
+                return null;
+            }
+
+            if (candidateTenantIds.Count > 1)
+            {
+                return RecurringCorrelationResolution.Manual(
+                    "Pago recurrente exitoso sin pending: el correo coincide con múltiples tenants. Revisión manual.");
+            }
+
+            var tenantId = candidateTenantIds[0];
+
+            var baseMatches = await _db.Suscripciones
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .CountAsync(subscription =>
+                    subscription.TenantId == tenantId &&
+                    subscription.PlanId == planId &&
+                    subscription.TilopayRecurringPlanId == recurringPlanId,
+                    cancellationToken);
+
+            var addonMatches = await _db.TenantSubscriptionAddons
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .CountAsync(addon =>
+                    addon.TenantId == tenantId &&
+                    addon.PlanId == planId &&
+                    addon.TilopayRecurringPlanId == recurringPlanId,
+                    cancellationToken);
+
+            var totalMatches = baseMatches + addonMatches;
+            if (totalMatches == 0)
+            {
+                return null;
+            }
+
+            if (totalMatches > 1)
+            {
+                return RecurringCorrelationResolution.Manual(
+                    "Pago recurrente exitoso sin pending: coincide con más de una suscripción/add-on del mismo plan. Revisión manual.");
+            }
+
+            // Verificación con el proveedor (preferida): debe existir un suscriptor para (plan, correo).
+            if (_tilopayRepeatAdminService is not null && _tilopayRepeatAdminService.IsEnabled)
+            {
+                Tilopay.SubscriberResolutionResult resolution;
+                try
+                {
+                    resolution = await _tilopayRepeatAdminService.ResolveSubscriberAsync(
+                        recurringPlanId, webhook.CustomerEmail, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "No se pudo verificar el suscriptor para correlacionar un success sin pending. RecurringPlanId {RecurringPlanId}.",
+                        recurringPlanId);
+                    return RecurringCorrelationResolution.Manual(
+                        "Pago recurrente exitoso sin pending: no se pudo verificar el suscriptor en el proveedor. Revisión manual.");
+                }
+
+                switch (resolution.Status)
+                {
+                    case Tilopay.SubscriberResolutionStatus.Found:
+                        break; // el proveedor confirma un suscriptor para el plan/correo
+                    case Tilopay.SubscriberResolutionStatus.Ambiguous:
+                        return RecurringCorrelationResolution.Manual(
+                            "Pago recurrente exitoso sin pending: el proveedor devuelve múltiples suscriptores para el plan/correo. Revisión manual.");
+                    default:
+                        return RecurringCorrelationResolution.Manual(
+                            "Pago recurrente exitoso sin pending: el proveedor no confirma un suscriptor para el plan/correo. Revisión manual.");
+                }
+            }
+
+            _logger.LogInformation(
+                "Success recurrente sin pending correlacionado con suscripción/add-on existente. TenantId {TenantId}. PlanId {PlanId}. RecurringPlanId {RecurringPlanId}.",
+                tenantId, planId, recurringPlanId);
+
+            return new RecurringCorrelationResolution(
+                tenantId,
+                planId,
+                PaymentAttempt: null,
+                Status: RecurringCorrelationStatus.Matched,
+                ManualReviewReason: null);
         }
 
         private async Task<PagoSuscripcion> EnsureRecurringPaymentAttemptAsync(

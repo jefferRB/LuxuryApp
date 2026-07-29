@@ -271,6 +271,29 @@ namespace LuxuryApp.Models.Platform
         /// <summary>Pago recurrente exitoso posterior: el incidente abierto se resolvió y se limpió la gracia.</summary>
         public const string SubscriptionPaymentRecoveryResolved = "SubscriptionPaymentRecoveryResolved";
 
+        /// <summary>
+        /// Un repeat_payment_success SIN pending local (renovación/regularización vía url_renew) se
+        /// correlacionó con la suscripción existente (plan/email + verificación en el proveedor) y
+        /// activó/renovó la suscripción, cerrando el incidente. Distinto del éxito con pending normal.
+        /// </summary>
+        public const string PaymentRecoveryResolvedByWebhookSuccess = "PaymentRecoveryResolvedByWebhookSuccess";
+
+        /// <summary>
+        /// La reconciliación sanó una suscripción base local en gracia/morosa cuyo proveedor está
+        /// Active con expire vigente/avanzado (el webhook success había quedado SinRelacion): cerró el
+        /// incidente, reactivó y alineó fechas con el expire del proveedor.
+        /// </summary>
+        public const string PaymentRecoveryResolvedByProviderRenewal = "PaymentRecoveryResolvedByProviderRenewal";
+
+        /// <summary>
+        /// Trazabilidad financiera: un EventoPago de pago recurrente exitoso (repeat_payment_success)
+        /// que había quedado SinRelacion se reconcilió contra la suscripción ya renovada/verificada en
+        /// el proveedor. El evento pasó a ReconciliadoPorProveedor y, si no existía, se registró el
+        /// PagoSuscripcion (Confirmado) del cobro para que el ingreso quede auditado localmente. NO
+        /// extiende la suscripción (ya estaba renovada) ni duplica pagos (idempotente por transactionId).
+        /// </summary>
+        public const string PaymentEventReconciledByProviderRenewal = "PaymentEventReconciledByProviderRenewal";
+
         /// <summary>La gracia venció sin pago. Con AutoSuspend=true se suspende; con false solo se marca.</summary>
         public const string SubscriptionPaymentGraceExpired = "SubscriptionPaymentGraceExpired";
 

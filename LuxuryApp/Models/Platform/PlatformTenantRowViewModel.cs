@@ -37,5 +37,15 @@ namespace LuxuryApp.Models.Platform
         public bool WhatsAppAddonIsManual { get; init; }
         public DateTime? WhatsAppAddonFechaFin { get; init; }
         public int? WhatsAppAddonMonthlyLimit { get; init; }
+
+        /// <summary>Origen del add-on (ProviderRecurring / ManualGrant / Legacy) para el modal de plataforma.</summary>
+        public LuxuryApp.Models.SaaS.WhatsAppAddonBillingSource WhatsAppAddonSource { get; init; }
+        public bool WhatsAppAddonManualIndefinite { get; init; }
+        public DateTime? WhatsAppAddonManualExpiresAtUtc { get; init; }
+        public bool WhatsAppAddonManualExpired { get; init; }
+        public bool WhatsAppAddonProviderRisk { get; init; }
+
+        /// <summary>Existe una fila de add-on TiloPay ACTIVA (para exigir confirmación de override manual).</summary>
+        public bool WhatsAppHasActiveProviderAddon { get; init; }
     }
 }

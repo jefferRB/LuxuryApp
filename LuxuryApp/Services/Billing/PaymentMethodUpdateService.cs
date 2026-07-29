@@ -139,6 +139,7 @@ namespace LuxuryApp.Services.Billing
                     s.TilopayRecurringPlanId,
                     s.ProviderSubscriptionId,
                     s.Estado,
+                    s.PaymentRecoveryStatus,
                     s.CancelAtPeriodEnd,
                     s.CancellationEffectiveAtUtc,
                     s.FechaFin,
@@ -174,6 +175,17 @@ namespace LuxuryApp.Services.Billing
                 return PaymentMethodUpdateResult.Fail(
                     "Tu suscripción está cancelada. Iniciá una nueva suscripción para continuar.",
                     requiresNewCheckout: true);
+            }
+
+            // url_renew de TiloPay COBRA/renueva al suscriptor: NO es "actualizar tarjeta" sin cobro.
+            // Solo se permite desde el cliente cuando hay un pago por regularizar (recovery). En una
+            // cuenta activa/vigente se bloquea con mensaje controlado (evita el cobro sorpresa).
+            var inRecovery = subscription.Estado == EstadoSuscripcion.Morosa ||
+                             subscription.PaymentRecoveryStatus is "GraceActive" or "GraceExpired" or "Suspended";
+            if (!inRecovery)
+            {
+                return PaymentMethodUpdateResult.Fail(
+                    "Para cambiar la tarjeta sin adelantar un cobro, contactá soporte. Este enlace regulariza un pago pendiente y solo está disponible cuando tenés un cobro por resolver.");
             }
 
             return await GenerateForPlanAsync(tenantId, recurringPlanId, email, "base", actorUserId, actorEmail, cancellationToken);

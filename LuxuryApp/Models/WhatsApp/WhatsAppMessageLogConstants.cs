@@ -54,6 +54,13 @@ namespace LuxuryApp.Models.WhatsApp
         public const string SubscriptionRequired = "SubscriptionRequired";
         public const string NoActiveWhatsAppAddon = "NoActiveWhatsAppAddon";
         public const string NoActiveBaseSubscription = "NoActiveBaseSubscription";
+
+        /// <summary>
+        /// El tenant tiene el paquete comercial (add-on) activo pero AÚN no configuró la integración
+        /// de WhatsApp (no existe TenantWhatsAppSettings). Comprar el paquete NO habilita envíos:
+        /// hay que entrar a "Configurar WhatsApp" y guardar. Es un aviso operativo, no un cobro fallido.
+        /// </summary>
+        public const string NotConfigured = "NotConfigured";
         public const string MonthlyLimitExceeded = "MonthlyLimitExceeded";
         public const string InsufficientBalance = "InsufficientBalance";
         public const string UserDisabled = "UserDisabled";

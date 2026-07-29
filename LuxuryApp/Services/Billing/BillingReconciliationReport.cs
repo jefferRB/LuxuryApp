@@ -105,6 +105,19 @@ namespace LuxuryApp.Services.Billing
         /// <summary>Add-ons de WhatsApp ACTIVOS con el plan base cancelado/vencido (alerta, nunca se tocan).</summary>
         public int AddonsWithoutActiveBaseAlerted { get; set; }
 
+        /// <summary>
+        /// Suscripciones base en gracia/morosa que se SANARON porque el proveedor está Active y
+        /// renovado (el webhook success había quedado SinRelacion): incidente cerrado + reactivadas.
+        /// </summary>
+        public int RecoveredSubscriptionsHealed { get; set; }
+
+        /// <summary>
+        /// Eventos de pago recurrente exitoso que estaban SinRelacion y se reconciliaron contra la
+        /// suscripción ya renovada por el proveedor (trazabilidad financiera): evento marcado
+        /// ReconciliadoPorProveedor + PagoSuscripcion Confirmado registrado si no existía.
+        /// </summary>
+        public int RenewalSuccessEventsReconciled { get; set; }
+
         public double DurationMs => (FinishedUtc - StartedUtc).TotalMilliseconds;
 
         public bool HasFindings =>
@@ -137,6 +150,12 @@ namespace LuxuryApp.Services.Billing
             // Un suscriptor de add-on que nadie está cancelando (API apagado) es dinero en riesgo;
             // un add-on activo sin plan base es un estado que debe resolverse. Ambos son hallazgos.
             AddonCancellationsPendingProviderDisabled > 0 ||
-            AddonsWithoutActiveBaseAlerted > 0;
+            AddonsWithoutActiveBaseAlerted > 0 ||
+            // Sanar una recuperación falsa es un hallazgo: hubo un webhook success que quedó
+            // SinRelacion y dejó la suscripción en gracia siendo que el proveedor ya había renovado.
+            RecoveredSubscriptionsHealed > 0 ||
+            // Reconciliar un success huérfano también es un hallazgo: hubo un cobro real que quedó
+            // sin ligar a su suscripción y ahora se cerró la traza financiera.
+            RenewalSuccessEventsReconciled > 0;
     }
 }

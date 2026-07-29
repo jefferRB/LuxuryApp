@@ -687,6 +687,7 @@
                     <div class="modal-body px-4">
                         <div class="row g-3">
                             <div class="col-12">
+                                <p class="platform-section-kicker mb-1">Configuración técnica (envíos)</p>
                                 <label class="platform-toggle-tile">
                                     <input class="form-check-input" type="checkbox" name="whatsappSettings.IsEnabled" value="true" checked="@tenant.WhatsAppEnabled" />
                                     <input type="hidden" name="whatsappSettings.IsEnabled" value="false" />
@@ -736,15 +737,38 @@
                             </div>
                             <div class="col-12">
                                 <hr class="my-1" />
-                                <p class="platform-section-kicker mb-2">Paquete WhatsApp</p>
-                                <div class="d-flex align-items-center gap-2 mb-2">
+                                <p class="platform-section-kicker mb-2">Acceso comercial (paquete WhatsApp)</p>
+                                <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
                                     @if (!string.IsNullOrEmpty(tenant.WhatsAppAddonCode))
                                     {
                                         <span class="badge bg-success">@tenant.WhatsAppAddonCode</span>
-                                        <small class="text-muted">@(tenant.WhatsAppAddonIsManual ? "Manual" : "Tilopay")</small>
-                                        @if (tenant.WhatsAppAddonFechaFin.HasValue)
+                                        @switch (tenant.WhatsAppAddonSource)
                                         {
-                                            <small class="text-muted">— vigente hasta @tenant.WhatsAppAddonFechaFin.Value.ToString("dd/MM/yyyy")</small>
+                                            case LuxuryApp.Models.SaaS.WhatsAppAddonBillingSource.ProviderRecurring:
+                                                <span class="badge bg-primary">TiloPay recurrente</span>
+                                                @if (tenant.WhatsAppAddonProviderRisk)
+                                                {
+                                                    <span class="badge bg-danger">sin suscriptor — riesgo de dinero</span>
+                                                }
+                                                break;
+                                            case LuxuryApp.Models.SaaS.WhatsAppAddonBillingSource.ManualGrant:
+                                                <span class="badge bg-info text-dark">Manual / Canje</span>
+                                                @if (tenant.WhatsAppAddonManualIndefinite)
+                                                {
+                                                    <small class="text-muted">— vigencia: indefinido</small>
+                                                }
+                                                else if (tenant.WhatsAppAddonManualExpiresAtUtc.HasValue)
+                                                {
+                                                    <small class="text-muted">— vigente hasta @tenant.WhatsAppAddonManualExpiresAtUtc.Value.ToString("dd/MM/yyyy")</small>
+                                                }
+                                                break;
+                                            case LuxuryApp.Models.SaaS.WhatsAppAddonBillingSource.Legacy:
+                                                <span class="badge bg-secondary">Legacy</span>
+                                                break;
+                                        }
+                                        @if (tenant.WhatsAppAddonManualExpired)
+                                        {
+                                            <span class="badge bg-warning text-dark">acceso manual vencido</span>
                                         }
                                         @if (tenant.WhatsAppAddonMonthlyLimit.HasValue)
                                         {
@@ -753,31 +777,77 @@
                                     }
                                     else
                                     {
-                                        <span class="badge bg-danger">Sin paquete activo</span>
+                                        <span class="badge bg-danger">Sin acceso comercial vigente</span>
                                     }
                                 </div>
+                                @if (tenant.WhatsAppHasActiveProviderAddon)
+                                {
+                                    <div class="alert alert-warning py-2 px-3 small mb-2">
+                                        Este cliente tiene un paquete <strong>pagado por TiloPay</strong>. Los cambios de paquete pagado
+                                        van por el flujo de <strong>billing/checkout</strong>. Otorgar acceso manual aquí es un
+                                        <strong>override</strong>: marca la confirmación abajo. TiloPay <strong>no</strong> se cancela
+                                        automáticamente (cancélalo desde billing si corresponde).
+                                    </div>
+                                }
                             </div>
                             <div class="col-12">
-                                <label class="form-label platform-form-label" for="addonCodeSelect-@tenant.TenantId">Cambiar paquete</label>
+                                <label class="form-label platform-form-label" for="addonCodeSelect-@tenant.TenantId">Otorgar / cambiar acceso manual</label>
                                 <select class="form-select"
                                         id="addonCodeSelect-@tenant.TenantId"
                                         name="whatsappSettings.AddonCode">
-                                    <option value="">Sin cambio de paquete</option>
-                                    <option value="NONE">Ninguno (revocar paquete actual)</option>
-                                    <option value="WA400">WhatsApp 400 — 400 msgs/mes · 15/dia</option>
-                                    <option value="WA800">WhatsApp 800 — 800 msgs/mes · 30/dia</option>
-                                    <option value="WA1200">WhatsApp 1200 — 1200 msgs/mes · 45/dia</option>
+                                    <option value="">Sin cambio</option>
+                                    <option value="NONE">Revocar acceso manual actual</option>
+                                    <option value="WA400">WhatsApp 400 — 400 msgs/mes (manual)</option>
+                                    <option value="WA800">WhatsApp 800 — 800 msgs/mes (manual)</option>
+                                    <option value="WA1200">WhatsApp 1200 — 1200 msgs/mes (manual)</option>
                                 </select>
+                                <small class="text-muted">Un paquete pagado por TiloPay se gestiona desde billing, no aquí.</small>
+                            </div>
+                            <div class="col-12 platform-manual-grant" id="manualGrantBlock-@tenant.TenantId" style="display:none">
+                                <div class="row g-2">
+                                    <div class="col-md-6">
+                                        <label class="form-label platform-form-label">Tipo de acceso</label>
+                                        <select class="form-select" name="whatsappSettings.ManualGrantType">
+                                            <option value="Courtesy">Cortesía</option>
+                                            <option value="Barter">Canje</option>
+                                            <option value="Internal">Interno</option>
+                                            <option value="Trial">Prueba</option>
+                                            <option value="Other">Otro</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label platform-form-label">Vigencia</label>
+                                        <label class="platform-toggle-tile mb-1">
+                                            <input class="form-check-input manual-indefinite" type="checkbox"
+                                                   name="whatsappSettings.ManualGrantIndefinite" value="true" />
+                                            <input type="hidden" name="whatsappSettings.ManualGrantIndefinite" value="false" />
+                                            <span>Indefinido (permanente)</span>
+                                        </label>
+                                        <input class="form-control manual-expires" type="date"
+                                               name="whatsappSettings.ManualGrantExpiresOn" />
+                                    </div>
+                                    @if (tenant.WhatsAppHasActiveProviderAddon)
+                                    {
+                                        <div class="col-12">
+                                            <label class="platform-toggle-tile">
+                                                <input class="form-check-input" type="checkbox"
+                                                       name="whatsappSettings.ManualGrantAllowOverride" value="true" />
+                                                <input type="hidden" name="whatsappSettings.ManualGrantAllowOverride" value="false" />
+                                                <span>Confirmo override sobre el paquete TiloPay activo (no cancela TiloPay)</span>
+                                            </label>
+                                        </div>
+                                    }
+                                </div>
                             </div>
                             <div class="col-12" id="observationBlock-@tenant.TenantId" style="display:none">
                                 <label class="form-label platform-form-label">
-                                    Observacion / motivo <span class="text-danger">*</span>
+                                    Motivo / nota <span class="text-danger">*</span>
                                 </label>
                                 <textarea class="form-control"
                                           name="whatsappSettings.ManualAssignmentObservation"
                                           rows="2"
                                           maxlength="2000"
-                                          placeholder="Motivo del cambio manual..."></textarea>
+                                          placeholder="Motivo del acceso manual (canje con Luxe, cortesía, etc.)..."></textarea>
                             </div>
                         </div>
                     </div>
@@ -799,14 +869,35 @@
     <script>
         document.querySelectorAll('[id^="addonCodeSelect-"]').forEach(function (sel) {
             var tenantId = sel.id.replace('addonCodeSelect-', '');
-            var block = document.getElementById('observationBlock-' + tenantId);
-            if (!block) return;
-            sel.addEventListener('change', function () {
-                var show = sel.value !== '';
-                block.style.display = show ? 'block' : 'none';
-                var ta = block.querySelector('textarea');
-                if (ta) ta.required = show;
-            });
+            var obsBlock = document.getElementById('observationBlock-' + tenantId);
+            var grantBlock = document.getElementById('manualGrantBlock-' + tenantId);
+            var applyState = function () {
+                var value = sel.value;
+                var isGrant = value !== '' && value !== 'NONE';
+                var needsReason = value !== '';
+                if (obsBlock) {
+                    obsBlock.style.display = needsReason ? 'block' : 'none';
+                    var ta = obsBlock.querySelector('textarea');
+                    if (ta) ta.required = needsReason;
+                }
+                if (grantBlock) {
+                    grantBlock.style.display = isGrant ? 'block' : 'none';
+                }
+            };
+            sel.addEventListener('change', applyState);
+            applyState();
+        });
+        // La fecha de vencimiento se deshabilita cuando el acceso manual es indefinido.
+        document.querySelectorAll('.platform-manual-grant').forEach(function (block) {
+            var indefinite = block.querySelector('.manual-indefinite');
+            var expires = block.querySelector('.manual-expires');
+            if (!indefinite || !expires) return;
+            var sync = function () {
+                expires.disabled = indefinite.checked;
+                if (indefinite.checked) { expires.value = ''; }
+            };
+            indefinite.addEventListener('change', sync);
+            sync();
         });
     </script>
 }

@@ -32,6 +32,41 @@ namespace LuxuryApp.Models.SaaS
 
         public int MonthlyMessageLimit { get; set; }
 
+        // ── Origen/fuente comercial del add-on (formalización de manuales/cortesía/canje) ──
+        // BillingSource es la señal AUTORITATIVA: nunca inferir "manual" de ProviderTransactionId
+        // 'MANUAL-...' ni de "TilopayRecurringPlanId is null". Ver [[WhatsAppAddonEntitlementRules]].
+
+        /// <summary>Origen del add-on: pagado por TiloPay, acceso manual de plataforma, o legacy/test.</summary>
+        public WhatsAppAddonBillingSource BillingSource { get; set; } = WhatsAppAddonBillingSource.ProviderRecurring;
+
+        /// <summary>Tipo de acceso manual (solo aplica cuando BillingSource = ManualGrant).</summary>
+        public ManualWhatsAppGrantType? ManualGrantType { get; set; }
+
+        /// <summary>Motivo/observación del acceso manual (obligatorio al otorgar desde plataforma).</summary>
+        [MaxLength(500)]
+        public string? ManualGrantReason { get; set; }
+
+        /// <summary>UserId del SuperAdmin/plataforma que otorgó el acceso manual.</summary>
+        [MaxLength(450)]
+        public string? GrantedByUserId { get; set; }
+
+        public DateTime? GrantedAtUtc { get; set; }
+
+        /// <summary>Vigencia del acceso manual (null = sin fecha; usar IsManualGrantIndefinite para "permanente").</summary>
+        public DateTime? ManualGrantExpiresAtUtc { get; set; }
+
+        /// <summary>El acceso manual es permanente (sin vencimiento). Para acuerdos fijos como Luxe/canje.</summary>
+        public bool IsManualGrantIndefinite { get; set; }
+
+        // ── Revocación del acceso manual (deja rastro; no borra la fila) ──
+        public DateTime? RevokedAtUtc { get; set; }
+
+        [MaxLength(450)]
+        public string? RevokedByUserId { get; set; }
+
+        [MaxLength(500)]
+        public string? RevocationReason { get; set; }
+
         public DateTime FechaInicio { get; set; } = DateTime.UtcNow;
 
         public DateTime? FechaFin { get; set; }

@@ -12,12 +12,13 @@
         _ => "sub-state--muted"
     };
 
-    // Botón reutilizable "Actualizar método de pago" (POST con CSRF a la ruta existente
-    // ActualizarTarjeta, que delega en PaymentMethodUpdateService y redirige a la recurrentUrl).
-    Func<object?, Microsoft.AspNetCore.Html.IHtmlContent> updatePaymentButton = @<form asp-action="ActualizarTarjeta" method="post" class="d-inline">
+    // Botón "Regularizar pago" (SOLO para estados de recuperación / impago): usa url_renew de TiloPay,
+    // que puede realizar un COBRO INMEDIATO. No es "actualizar tarjeta": el copy lo deja explícito.
+    Func<object?, Microsoft.AspNetCore.Html.IHtmlContent> regularizePaymentButton = @<form asp-action="ActualizarTarjeta" method="post" class="d-inline"
+            onsubmit="return confirm('Vas a pagar/regularizar tu suscripción ahora. TiloPay puede cobrar de inmediato con tu método de pago. ¿Continuar?');">
         @Html.AntiForgeryToken()
         <button type="submit" class="sub-btn sub-btn--primary">
-            <i class="bi bi-credit-card"></i> Actualizar método de pago
+            <i class="bi bi-credit-card"></i> Regularizar pago
         </button>
     </form>;
 }
@@ -80,7 +81,7 @@
             </div>
             @if (Model.RecurrentUpdateAvailable)
             {
-                <div class="mt-2">@updatePaymentButton(null)</div>
+                <div class="mt-2">@regularizePaymentButton(null)</div>
             }
         </div>
     }
@@ -93,7 +94,7 @@
             </div>
             @if (Model.RecurrentUpdateAvailable)
             {
-                <div class="mt-2">@updatePaymentButton(null)</div>
+                <div class="mt-2">@regularizePaymentButton(null)</div>
             }
         </div>
     }
@@ -106,7 +107,7 @@
             </div>
             @if (Model.RecurrentUpdateAvailable)
             {
-                <div class="mt-2">@updatePaymentButton(null)</div>
+                <div class="mt-2">@regularizePaymentButton(null)</div>
             }
         </div>
     }
@@ -164,11 +165,15 @@
             }
         </div>
         <div class="sub-state-action">
-            @* En estado de recuperación, el botón vive en el banner (arriba) para no duplicarlo.
-               En estado normal (recurrente activa/morosa) se ofrece igual la actualización de pago. *@
-            @if (sub?.CanUpdatePaymentMethod == true && sub.HasPaymentRecoveryBanner == false && Model.RecurrentUpdateAvailable)
+            @* En estado de recuperación, el botón "Regularizar pago" vive en el banner (arriba).
+               En estado ACTIVO/vigente NO se ofrece actualizar tarjeta en línea: url_renew de TiloPay
+               COBRA/renueva de inmediato (no es update-only). Se indica contactar soporte. *@
+            @if (sub?.ShouldContactSupportToChangeCard == true && Model.RecurrentUpdateAvailable)
             {
-                @updatePaymentButton(null)
+                <div class="sub-hint sub-hint--muted">
+                    <i class="bi bi-info-circle"></i>
+                    Para cambiar la tarjeta sin adelantar un cobro, <a href="mailto:soporte@luxurycloud.app">contactá soporte</a>.
+                </div>
             }
             @if (!(sub?.CanReactivateRenewal == true) && !(sub?.IsRenewalPaused == true) && !(sub?.PaymentSuspended == true))
             {
@@ -212,7 +217,36 @@
             @if (sub?.HasWhatsAppAddon == true)
             {
                 <strong class="sub-summary-value">@sub.WhatsAppAddonName</strong>
-                @if (sub.WhatsAppAddonCancelAtPeriodEnd)
+                @if (sub.WhatsAppManualGrantExpired)
+                {
+                    <span class="sub-summary-foot sub-summary-foot--warn">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        Acceso manual <strong>vencido</strong> — sin envíos hasta renovar el acceso.
+                    </span>
+                }
+                else if (sub.WhatsAppAddonIsManualGrant)
+                {
+                    var vigencia = sub.WhatsAppManualGrantIndefinite
+                        ? "indefinido"
+                        : "vigente hasta " + (sub.WhatsAppManualGrantExpiresDisplay ?? "—");
+                    <span class="sub-summary-foot">
+                        Acceso manual/canje · @vigencia
+                        @if (sub.WhatsAppAddonNeedsConfiguration)
+                        {
+                            <text> · <strong>falta configurar</strong></text>
+                        }
+                        · <a asp-controller="WhatsApp" asp-action="Index">Configurar</a>
+                    </span>
+                }
+                else if (sub.WhatsAppAddonNeedsConfiguration)
+                {
+                    <span class="sub-summary-foot sub-summary-foot--warn">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        Paquete activo · <strong>falta configurar WhatsApp</strong> ·
+                        <a asp-controller="WhatsApp" asp-action="Index">Configurar WhatsApp</a>
+                    </span>
+                }
+                else if (sub.WhatsAppAddonCancelAtPeriodEnd)
                 {
                     <span class="sub-summary-foot">No se renovará · activo hasta @(sub.WhatsAppAddonEndsDisplay ?? "el fin del período") · <a asp-controller="WhatsApp" asp-action="Index">Configurar</a></span>
                 }

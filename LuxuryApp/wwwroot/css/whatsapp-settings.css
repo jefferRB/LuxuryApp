@@ -77,6 +77,10 @@
     color: var(--private-muted-text);
 }
 
+.wa-addon-note--warn {
+    color: var(--private-chart-warning, #d97706);
+}
+
 /* ── Cards ── */
 .wa-card {
     background: var(--private-surface-bg);

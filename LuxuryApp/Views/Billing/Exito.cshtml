@@ -354,11 +354,20 @@
                             </div>
                         }
 
-                        @if (Model.MaxFuncionarios.HasValue)
+                        @* Límite de funcionarios: SOLO para el plan base, nunca para un add-on de WhatsApp. *@
+                        @if (!Model.EsAddon && Model.MaxFuncionarios.HasValue)
                         {
                             <div class="checkout-meta-card">
                                 <dt>Limite de funcionarios</dt>
                                 <dd>@Model.MaxFuncionarios.Value</dd>
+                            </div>
+                        }
+
+                        @if (Model.EsAddon && Model.MensajesMensuales.HasValue)
+                        {
+                            <div class="checkout-meta-card">
+                                <dt>Mensajes por mes</dt>
+                                <dd>@Model.MensajesMensuales.Value</dd>
                             </div>
                         }
 
@@ -378,6 +387,19 @@
                             </div>
                         }
                     </dl>
+
+                    @* Plan base con impago: sección SEPARADA del comprobante del add-on (no se mezcla). *@
+                    @if (Model.EsAddon && Model.BaseRequiereAtencion)
+                    {
+                        <div class="checkout-status checkout-state-pending" role="alert">
+                            <div class="checkout-status-mark">!</div>
+                            <div>
+                                <div class="checkout-status-eyebrow">Tu plan base requiere atención</div>
+                                <p class="checkout-status-detail mb-2">@(Model.BaseAtencionMensaje ?? "Tu plan base tiene un pago pendiente.")</p>
+                                <a class="btn btn-sm checkout-btn-accent" href="/Billing/Suscripcion">Ir a mi suscripción</a>
+                            </div>
+                        </div>
+                    }
 
                     <div class="checkout-actions">
                         @if (!string.IsNullOrWhiteSpace(primaryActionUrl))

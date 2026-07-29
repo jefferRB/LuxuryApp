@@ -187,6 +187,13 @@ namespace LuxuryApp.Controllers.Platform
                     WhatsAppAddonIsManual = whatsApp.AddonIsManual,
                     WhatsAppAddonFechaFin = whatsApp.AddonFechaFin,
                     WhatsAppAddonMonthlyLimit = whatsApp.AddonMonthlyLimit,
+                    WhatsAppAddonSource = whatsApp.AddonSource,
+                    WhatsAppAddonManualIndefinite = whatsApp.AddonManualIndefinite,
+                    WhatsAppAddonManualExpiresAtUtc = whatsApp.AddonManualExpiresAtUtc,
+                    WhatsAppAddonManualExpired = whatsApp.AddonManualExpired,
+                    WhatsAppAddonProviderRisk = whatsApp.AddonProviderRisk,
+                    WhatsAppHasActiveProviderAddon = whatsApp.AddonActive &&
+                        whatsApp.AddonSource == LuxuryApp.Models.SaaS.WhatsAppAddonBillingSource.ProviderRecurring,
                     Health = health,
                     Citas30d = usage.Citas30d,
                     Cobros30d = usage.Cobros30d,
@@ -407,12 +414,30 @@ namespace LuxuryApp.Controllers.Platform
                 return NotFound();
             }
 
-            if (!string.IsNullOrWhiteSpace(whatsappSettings.AddonCode))
+            // ── ACCESO COMERCIAL (entitlement): otorgar / revocar acceso manual ──
+            // Separado de la configuración técnica (settings). El acceso manual NUNCA llama a TiloPay
+            // y NO crea settings (Opción A). Un paquete TiloPay se gestiona por billing, no por aquí.
+            var actorUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "platform";
+            var addonAction = (whatsappSettings.AddonCode ?? string.Empty).Trim();
+
+            if (!string.IsNullOrWhiteSpace(addonAction))
             {
                 if (string.IsNullOrWhiteSpace(whatsappSettings.ManualAssignmentObservation))
                 {
-                    TempData["PlatformError"] = "La observacion es obligatoria al cambiar el paquete WhatsApp.";
+                    TempData["PlatformError"] = "El motivo/nota es obligatorio para otorgar o revocar el acceso WhatsApp manual.";
                     return RedirectToAction(nameof(Tenants));
+                }
+
+                var isRevoke = addonAction.Equals("NONE", StringComparison.OrdinalIgnoreCase);
+                ManualWhatsAppGrantResult grantResult = new(ManualWhatsAppGrantOutcome.NoChange, string.Empty);
+
+                DateTime? expiresAtUtc = null;
+                if (!isRevoke && !whatsappSettings.ManualGrantIndefinite && whatsappSettings.ManualGrantExpiresOn is { } expiresOn)
+                {
+                    // Fin del día en Costa Rica (UTC-6) de la fecha elegida.
+                    expiresAtUtc = new DateTimeOffset(
+                        expiresOn.Date.AddDays(1).AddTicks(-1),
+                        TimeSpan.FromHours(-6)).UtcDateTime;
                 }
 
                 await _tenantExecutionService.RunForTenantAsync(
@@ -420,32 +445,66 @@ namespace LuxuryApp.Controllers.Platform
                     async (serviceProvider, scopedTenantId, ct) =>
                     {
                         var svc = serviceProvider.GetRequiredService<SuscripcionService>();
-                        await svc.AssignManualWhatsAppAddonAsync(
-                            scopedTenantId,
-                            whatsappSettings.AddonCode,
-                            User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "platform",
-                            whatsappSettings.ManualAssignmentObservation,
-                            whatsappSettings.SendConfirmationOnCreate,
-                            whatsappSettings.SendReminderThreeHoursBefore,
-                            ct);
+                        grantResult = isRevoke
+                            ? await svc.RevokeWhatsAppAddonAsync(
+                                scopedTenantId,
+                                actorUserId,
+                                whatsappSettings.ManualAssignmentObservation,
+                                ct)
+                            : await svc.GrantManualWhatsAppAddonAsync(
+                                scopedTenantId,
+                                addonAction,
+                                whatsappSettings.ManualGrantType,
+                                whatsappSettings.ManualAssignmentObservation!,
+                                whatsappSettings.ManualGrantIndefinite,
+                                expiresAtUtc,
+                                actorUserId,
+                                whatsappSettings.ManualGrantAllowOverride,
+                                ct);
                     },
                     cancellationToken);
+
+                if (!grantResult.Success)
+                {
+                    TempData["PlatformError"] = grantResult.Message;
+                    return RedirectToAction(nameof(Tenants));
+                }
+
+                var tenantNameForGrant = await _context.Tenants
+                    .AsNoTracking()
+                    .Where(tenant => tenant.Id == tenantId)
+                    .Select(tenant => tenant.Nombre)
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                await SafeAuditAsync(new PlatformAuditEntry
+                {
+                    Action = PlatformAuditActions.WhatsAppSettingsUpdated,
+                    EntityType = PlatformAuditEntityTypes.WhatsAppAddon,
+                    EntityId = tenantId.ToString(),
+                    TenantId = tenantId,
+                    TenantName = tenantNameForGrant,
+                    Reason = isRevoke
+                        ? $"Acceso manual WhatsApp REVOCADO. {whatsappSettings.ManualAssignmentObservation}"
+                        : $"Acceso manual WhatsApp {addonAction} ({whatsappSettings.ManualGrantType}, {(whatsappSettings.ManualGrantIndefinite ? "indefinido" : "hasta " + whatsappSettings.ManualGrantExpiresOn?.ToString("yyyy-MM-dd"))}). {whatsappSettings.ManualAssignmentObservation}"
+                }, cancellationToken);
+
+                TempData["PlatformSuccess"] = grantResult.Message;
+                return RedirectToAction(nameof(Tenants));
             }
-            else
-            {
-                await _tenantExecutionService.RunForTenantAsync(
-                    tenantId,
-                    async (serviceProvider, scopedTenantId, ct) =>
-                    {
-                        var settingsService = serviceProvider.GetRequiredService<ITenantWhatsAppSettingsService>();
-                        await settingsService.UpdateSettingsAsync(
-                            scopedTenantId,
-                            whatsappSettings,
-                            User.FindFirstValue(ClaimTypes.NameIdentifier),
-                            ct);
-                    },
-                    cancellationToken);
-            }
+
+            // ── CONFIGURACIÓN TÉCNICA (settings): IsEnabled, límite diario, horarios ──
+            await _tenantExecutionService.RunForTenantAsync(
+                tenantId,
+                async (serviceProvider, scopedTenantId, ct) =>
+                {
+                    var settingsService = serviceProvider.GetRequiredService<ITenantWhatsAppSettingsService>();
+                    await settingsService.UpdateSettingsAsync(
+                        scopedTenantId,
+                        whatsappSettings,
+                        actorUserId,
+                        ct);
+                },
+                cancellationToken);
 
             var tenantNameForAudit = await _context.Tenants
                 .AsNoTracking()
@@ -460,9 +519,7 @@ namespace LuxuryApp.Controllers.Platform
                 EntityId = tenantId.ToString(),
                 TenantId = tenantId,
                 TenantName = tenantNameForAudit,
-                Reason = string.IsNullOrWhiteSpace(whatsappSettings.AddonCode)
-                    ? null
-                    : $"Addon: {whatsappSettings.AddonCode}. {whatsappSettings.ManualAssignmentObservation}"
+                Reason = null
             }, cancellationToken);
 
             TempData["PlatformSuccess"] = "Configuracion WhatsApp del tenant actualizada.";

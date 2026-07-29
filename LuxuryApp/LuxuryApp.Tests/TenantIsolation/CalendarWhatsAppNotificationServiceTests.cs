@@ -21,20 +21,28 @@ namespace LuxuryApp.Tests.TenantIsolation
     public class CalendarWhatsAppNotificationServiceTests
     {
         [Fact]
-        public async Task QueueConfirmation_WhenTenantHasNoStoredSettings_ShouldUseAddonDefaultsAndCreatePendingOutboundMessage()
+        public async Task QueueConfirmation_WhenAddonActiveButNoStoredSettings_ShouldNotQueue_OptionA()
         {
-            using var fixture = await Fixture.CreateAsync();
+            // Opción A: comprar el paquete crea el add-on comercial pero NO habilita envíos. Sin una
+            // configuración persistida (TenantWhatsAppSettings) no se debe encolar/enviar nada; el mensaje
+            // queda en un estado de "saltado por configuración", no Pending.
+            using var fixture = await Fixture.CreateAsync(seedEnabledSettings: false);
             var cita = await fixture.SeedCitaAsync();
 
             await fixture.Notifications.QueueAppointmentConfirmationAsync(cita.Id);
 
-            var message = await fixture.Context.WhatsAppMessageLogs.SingleAsync();
+            // El snapshot sintético sigue exponiendo defaults "habilitados" para prellenar la pantalla
+            // de configuración, pero eso NO autoriza el envío: no hay fila persistida.
             var settings = await fixture.Settings.GetSettingsForTenantAsync(fixture.TenantId);
-            Assert.Equal(WhatsAppMessageStatuses.Pending, message.Status);
-            Assert.True(settings.IsEnabled);
-            Assert.True(settings.SendConfirmationOnCreate);
-            Assert.True(settings.SendReminderThreeHoursBefore);
-            Assert.Equal(15, settings.DailyMessageLimit);
+            Assert.False(settings.Exists);
+            Assert.Empty(fixture.Context.TenantWhatsAppSettings);
+
+            var message = await fixture.Context.WhatsAppMessageLogs.SingleOrDefaultAsync();
+            if (message is not null)
+            {
+                Assert.NotEqual(WhatsAppMessageStatuses.Pending, message.Status);
+                Assert.Equal(WhatsAppMessageStatuses.SkippedConfiguration, message.Status);
+            }
         }
 
         [Fact]
@@ -966,7 +974,12 @@ namespace LuxuryApp.Tests.TenantIsolation
                 bool seedActiveAddon = true,
                 bool seedActiveBaseSubscription = true,
                 int addonMonthlyLimit = 400,
-                DateTime? addonEndsUtc = null)
+                DateTime? addonEndsUtc = null,
+                // Opción A: comprar el add-on ya no habilita envíos por sí solo. Estos tests validan la
+                // programación/envío/consumo de un tenant YA CONFIGURADO, así que por defecto persisten
+                // una configuración habilitada con los MISMOS valores efectivos que antes daba el snapshot
+                // sintético del add-on (WA400 → diario 15). Los tests de "sin configurar" pasan false.
+                bool seedEnabledSettings = true)
             {
                 var tenantId = Guid.NewGuid();
                 var tenantProvider = new TestTenantProvider { TenantId = tenantId };
@@ -1073,6 +1086,23 @@ namespace LuxuryApp.Tests.TenantIsolation
                         CreatedAtUtc = FixedNowUtc,
                         UpdatedAtUtc = FixedNowUtc
                     });
+
+                    if (seedEnabledSettings)
+                    {
+                        // Configuración técnica persistida (tenant ya configuró WhatsApp). El límite diario
+                        // replica el default del add-on WA400 (15) para no alterar los asserts existentes.
+                        context.TenantWhatsAppSettings.Add(new TenantWhatsAppSettings
+                        {
+                            TenantId = tenantId,
+                            IsEnabled = true,
+                            SendConfirmationOnCreate = true,
+                            SendReminderThreeHoursBefore = true,
+                            DailyMessageLimit = 15,
+                            TimeZoneId = TenantWhatsAppSettings.DefaultTimeZoneId,
+                            CreatedAtUtc = FixedNowUtc,
+                            UpdatedAtUtc = FixedNowUtc
+                        });
+                    }
                 }
 
                 await context.SaveChangesAsync();

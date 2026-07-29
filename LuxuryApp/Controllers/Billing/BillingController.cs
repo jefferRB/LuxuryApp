@@ -1034,12 +1034,86 @@ namespace LuxuryApp.Controllers
             }
 
             var suscripcion = await FindCurrentSubscriptionAsync(user.TenantId);
-
             var pollAttemptNormalized = Math.Max(0, pollAttempt);
-            var suscripcionActiva = suscripcion is not null && _suscripcionService.CanAccessApp(suscripcion);
-            var confirmadoPorWebhook = pago?.Estado == EstadoPagoProveedor.Confirmado || suscripcionActiva;
+
+            // Scope-aware: si el pago corresponde a un ADD-ON de WhatsApp, el retorno muestra los datos
+            // del ADD-ON (paquete, mensajes mensuales, su vigencia/estado), NUNCA los del plan base
+            // (funcionarios/estado base). El estado base en recovery se muestra en una sección aparte.
+            var esAddon = pago is not null &&
+                (_tilopayRepeatOptions.FindByRecurringPlanId(pago.TilopayRecurringPlanId)?.IsAddon == true ||
+                 (pago.Plan?.Codigo is { } addonCode &&
+                  PlanCodes.WhatsAppAddons.Contains(addonCode, StringComparer.OrdinalIgnoreCase)));
+
+            if (esAddon)
+            {
+                var addon = await _context.TenantSubscriptionAddons
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .Include(a => a.Plan)
+                    .Where(a => a.TenantId == user.TenantId)
+                    .OrderByDescending(a => a.UpdatedAtUtc)
+                    .FirstOrDefaultAsync();
+
+                // "Activo" en el retorno = LOCAL SANO: el add-on quedó con estado efectivo Activa (no
+                // Morosa/gracia). No basta "puede enviar" (Morosa puede) — el retorno no debe mentir.
+                var addonLocalSano = addon is not null &&
+                    _suscripcionService.GetEffectiveStatus(addon) == EstadoSuscripcion.Activa;
+                var addonAprobadoProveedor = addonLocalSano || IsProviderApproved(code, description);
+                var addonRequiereConsulta = pago is not null && addonAprobadoProveedor && !addonLocalSano;
+                var addonDebeAuto = addonRequiereConsulta && pollAttemptNormalized < CheckoutAutoRefreshMaxAttempts;
+
+                var baseEnRecovery = suscripcion is not null &&
+                    (suscripcion.Estado == EstadoSuscripcion.Morosa ||
+                     suscripcion.PaymentRecoveryStatus is "GraceActive" or "GraceExpired" or "Suspended");
+
+                var addonModel = new ResultadoCheckoutViewModel
+                {
+                    Referencia = requestedReference,
+                    CodigoProveedor = code,
+                    DescripcionProveedor = description,
+                    EsAddon = true,
+                    NombrePlan = addon?.Plan?.Nombre ?? pago?.Plan?.Nombre,
+                    EstadoPago = pago?.Estado,
+                    EstadoSuscripcion = addon is null ? null : _suscripcionService.GetEffectiveStatus(addon),
+                    VigenciaHastaUtc = addon?.FechaFin,
+                    ProximoCobroUtc = addon?.FechaProximoCobroUtc,
+                    MaxFuncionarios = null, // el add-on NO tiene límite de funcionarios
+                    MensajesMensuales = addon is null
+                        ? null
+                        : (addon.MonthlyMessageLimit > 0 ? addon.MonthlyMessageLimit : addon.Plan?.LimiteMensajesMensual),
+                    PagoAprobadoPorProveedor = addonAprobadoProveedor,
+                    ConfirmadoPorWebhook = addonLocalSano,
+                    SuscripcionActiva = addonLocalSano,
+                    DebeAutoActualizar = addonDebeAuto,
+                    SegundosAutoActualizacion = addonDebeAuto ? CheckoutAutoRefreshSeconds : 0,
+                    UrlActualizacion = addonRequiereConsulta
+                        ? BuildCheckoutRefreshUrl(orderNumber, reference, code, description, pollAttemptNormalized + 1)
+                        : null,
+                    BaseRequiereAtencion = baseEnRecovery,
+                    BaseAtencionMensaje = baseEnRecovery
+                        ? "Tu plan base tiene un pago pendiente. Regularizalo desde tu suscripción para no perder acceso al SaaS."
+                        : null
+                };
+
+                ApplyAddonCheckoutMessaging(addonModel);
+                ApplyCheckoutActionLinks(addonModel);
+                return View("Exito", addonModel);
+            }
+
+            // ── Plan base ──
+            var effectiveStatus = suscripcion is null
+                ? (EstadoSuscripcion?)null
+                : _suscripcionService.GetEffectiveStatus(suscripcion);
+            // LOCAL SANO = estado EFECTIVO Activa y SIN estado de recuperación. No basta "puede acceder"
+            // (Morosa/gracia puede acceder pero NO está sano): así el retorno no muestra "confirmado y
+            // activa" cuando en realidad está Morosa / en gracia / SinRelacion.
+            var localSano = suscripcion is not null &&
+                            effectiveStatus == EstadoSuscripcion.Activa &&
+                            string.IsNullOrEmpty(suscripcion.PaymentRecoveryStatus);
+            var suscripcionActiva = localSano;
+            var confirmadoPorWebhook = localSano;
             var pagoAprobadoPorProveedor = confirmadoPorWebhook || IsProviderApproved(code, description);
-            var requiereConsulta = pago is not null && pagoAprobadoPorProveedor && !confirmadoPorWebhook;
+            var requiereConsulta = pago is not null && pagoAprobadoPorProveedor && !suscripcionActiva;
             var requiereRevisionRecurrente = pago is not null &&
                                              pago.TilopayRecurringPlanId.HasValue &&
                                              !suscripcionActiva &&
@@ -1053,7 +1127,7 @@ namespace LuxuryApp.Controllers
                 DescripcionProveedor = description,
                 NombrePlan = pago?.Plan?.Nombre ?? suscripcion?.Plan?.Nombre,
                 EstadoPago = pago?.Estado,
-                EstadoSuscripcion = suscripcion?.Estado,
+                EstadoSuscripcion = effectiveStatus,
                 VigenciaHastaUtc = suscripcion?.FechaFin,
                 ProximoCobroUtc = suscripcion?.FechaProximoCobroUtc,
                 MaxFuncionarios = suscripcion?.MaxFuncionarios ?? suscripcion?.Plan?.MaxFuncionarios,
@@ -1072,6 +1146,29 @@ namespace LuxuryApp.Controllers
             ApplyCheckoutActionLinks(model);
 
             return View("Exito", model);
+        }
+
+        /// <summary>Mensajería del retorno de un ADD-ON de WhatsApp (paquete), separada de la del plan base.</summary>
+        private static void ApplyAddonCheckoutMessaging(ResultadoCheckoutViewModel model)
+        {
+            if (model.SuscripcionActiva)
+            {
+                model.MensajePrincipal = "¡Tu paquete de WhatsApp quedó activo!";
+                model.MensajeSecundario = "Ya podés usar las automatizaciones de WhatsApp según el límite mensual de tu paquete.";
+                return;
+            }
+
+            if (model.PagoAprobadoPorProveedor)
+            {
+                model.MensajePrincipal = "Tilopay aprobó tu pago. Estamos activando tu paquete de WhatsApp.";
+                model.MensajeSecundario = model.DebeAutoActualizar
+                    ? $"Esta pantalla se actualizará automáticamente en {model.SegundosAutoActualizacion} segundos."
+                    : "Pulsá Actualizar estado para consultar el resultado final.";
+                return;
+            }
+
+            model.MensajePrincipal = "Recibimos tu pago del paquete de WhatsApp. Esperando la confirmación del proveedor.";
+            model.MensajeSecundario = "Mantendremos esta referencia ligada a tu cuenta hasta completar la activación.";
         }
 
         [HttpGet]

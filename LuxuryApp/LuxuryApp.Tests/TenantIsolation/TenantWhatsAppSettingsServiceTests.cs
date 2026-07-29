@@ -174,12 +174,44 @@ namespace LuxuryApp.Tests.TenantIsolation
             await SeedTenantAsync(context, tenantId);
             await SeedActiveBaseSubscriptionAsync(context, tenantId);
             await SeedActiveAddonAsync(context, tenantId, addonCode, addonName, monthlyPrice, monthlyLimit);
+            // Opción A: para enviar hace falta configuración persistida y habilitada.
+            await service.UpdateSettingsAsync(
+                tenantId,
+                new TenantWhatsAppSettingsUpdateDto { IsEnabled = true, DailyMessageLimit = 30 },
+                "platform-user");
 
             var decision = await service.CanSendNotificationAsync(tenantId, WhatsAppNotificationTypes.Confirmation);
 
             Assert.True(decision.CanSend);
             Assert.Equal(0, decision.MonthlyUsage);
+            // La cuota mensual se resuelve desde el add-on activo (fuente comercial), no desde settings.
             Assert.Equal(monthlyLimit, decision.MonthlyMessageLimit);
+        }
+
+        [Fact]
+        public async Task CanSendNotificationAsync_WithActiveAddonButNoStoredSettings_ShouldDenyNotConfigured()
+        {
+            // Opción A: comprar el paquete crea el add-on comercial pero NO habilita envíos. Sin una
+            // configuración persistida (TenantWhatsAppSettings) el envío se bloquea con NotConfigured.
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var disposableContext = context;
+            using var disposableConnection = connection;
+            var service = CreateService(context, tenantProvider);
+
+            await SeedTenantAsync(context, tenantId);
+            await SeedActiveBaseSubscriptionAsync(context, tenantId);
+            await SeedActiveAddonAsync(context, tenantId, PlanCodes.WhatsApp400, "WhatsApp 400", 6000m, 400);
+
+            var decision = await service.CanSendNotificationAsync(tenantId, WhatsAppNotificationTypes.Confirmation);
+
+            Assert.False(decision.CanSend);
+            Assert.Equal(WhatsAppErrorCodes.NotConfigured, decision.ErrorCode);
+            // El add-on activo debe seguir exponiendo la cuota mensual comercial en la decisión.
+            Assert.Equal(400, decision.MonthlyMessageLimit);
+            // No hay fila de settings persistida.
+            Assert.Empty(context.TenantWhatsAppSettings);
         }
 
         [Fact]
@@ -241,6 +273,11 @@ namespace LuxuryApp.Tests.TenantIsolation
             await SeedTenantAsync(context, tenantId);
             await SeedActiveBaseSubscriptionAsync(context, tenantId);
             await SeedActiveAddonAsync(context, tenantId, PlanCodes.WhatsApp400, "WhatsApp 400", 6000m, 1);
+            // Opción A: configuración persistida y habilitada; el bloqueo debe ser por saldo mensual.
+            await service.UpdateSettingsAsync(
+                tenantId,
+                new TenantWhatsAppSettingsUpdateDto { IsEnabled = true, DailyMessageLimit = 30 },
+                "platform-user");
 
             context.WhatsAppMessageLogs.Add(CreateLog(
                 tenantId,
@@ -763,6 +800,11 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             await SeedExemptTenantWithForcedPlanAsync(context, tenantId);
             await SeedActiveAddonAsync(context, tenantId);
+            // Opción A: el tenant exento ya configuró WhatsApp (settings persistidos y habilitados).
+            await service.UpdateSettingsAsync(
+                tenantId,
+                new TenantWhatsAppSettingsUpdateDto { IsEnabled = true, DailyMessageLimit = 30 },
+                "platform-user");
 
             var decision = await service.CanSendNotificationAsync(tenantId, WhatsAppNotificationTypes.Confirmation);
 
@@ -843,6 +885,11 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             await SeedExemptTenantWithForcedPlanAsync(context, tenantId);
             await SeedActiveAddonAsync(context, tenantId, PlanCodes.WhatsApp400, "WhatsApp 400", 6000m, monthlyLimit: 1);
+            // Opción A: settings persistidos y habilitados; el bloqueo debe ser por saldo, no por config.
+            await service.UpdateSettingsAsync(
+                tenantId,
+                new TenantWhatsAppSettingsUpdateDto { IsEnabled = true, DailyMessageLimit = 30 },
+                "platform-user");
 
             context.WhatsAppMessageLogs.Add(CreateLog(
                 tenantId,

@@ -99,9 +99,10 @@ namespace LuxuryApp.Models.SaaS
             : null;
 
         /// <summary>
-        /// Se puede ofrecer "Actualizar método de pago": suscripción recurrente TiloPay con acceso
-        /// (Activa/Morosa) o suspendida por impago (para reactivar), sin renovación cancelada ni pausa.
-        /// El servicio valida además dominio/estado y, si no aplica, responde con un mensaje seguro.
+        /// (Obsoleta para la UI de cuenta ACTIVA) Se conserva por compatibilidad de tests/plataforma.
+        /// OJO: url_renew de TiloPay COBRA/RENUEVA al usarse en una cuenta vigente, no es update-only,
+        /// así que NO debe ofrecerse como "actualizar tarjeta" en estado activo. Usar
+        /// <see cref="CanRegularizePayment"/> (recovery) o <see cref="ShouldContactSupportToChangeCard"/>.
         /// </summary>
         public bool CanUpdatePaymentMethod =>
             IsRecurringTilopay &&
@@ -110,6 +111,29 @@ namespace LuxuryApp.Models.SaaS
             (Status == EstadoSuscripcion.Activa ||
              Status == EstadoSuscripcion.Morosa ||
              Status == EstadoSuscripcion.Suspendida);
+
+        /// <summary>
+        /// La cuenta está en RECUPERACIÓN (impago): url_renew se usa para REGULARIZAR / PAGAR AHORA y
+        /// puede realizar un cobro inmediato. Solo se ofrece en estados de recuperación (gracia, gracia
+        /// vencida, suspendida por impago o morosa), NUNCA en una cuenta activa/vigente.
+        /// </summary>
+        public bool CanRegularizePayment =>
+            IsRecurringTilopay &&
+            !CancelAtPeriodEnd &&
+            !IsRenewalPaused &&
+            (HasPaymentRecoveryBanner || Status == EstadoSuscripcion.Morosa);
+
+        /// <summary>
+        /// Cuenta activa/vigente recurrente: NO se ofrece "actualizar tarjeta" en línea porque
+        /// url_renew puede COBRAR de inmediato (no es update-only). Se sugiere contactar soporte para
+        /// cambiar la tarjeta sin adelantar cobro. Se corrige cuando exista un endpoint update-only real.
+        /// </summary>
+        public bool ShouldContactSupportToChangeCard =>
+            IsRecurringTilopay &&
+            !CancelAtPeriodEnd &&
+            !IsRenewalPaused &&
+            !CanRegularizePayment &&
+            (Status == EstadoSuscripcion.Activa || Status == EstadoSuscripcion.Trial);
 
         // Fechas de CÁLCULO (UTC, efectivas = max(local, proveedor)): úsalas para lógica, no para mostrar.
         public DateTime? CurrentPeriodEndUtc { get; init; }
@@ -136,6 +160,14 @@ namespace LuxuryApp.Models.SaaS
         public bool WhatsAppAutomationEnabled { get; init; }
         public bool SendAppointmentConfirmations { get; init; }
         public bool SendAppointmentReminders { get; init; }
+
+        /// <summary>
+        /// Opción A: el paquete comercial de WhatsApp está activo pero AÚN no se configuró la
+        /// integración técnica (no existe TenantWhatsAppSettings persistido). La UI debe invitar a
+        /// "Configurar WhatsApp"; mientras tanto no se envían mensajes automáticos. No es riesgo de
+        /// dinero: el paquete está bien cobrado, solo falta habilitar los envíos.
+        /// </summary>
+        public bool WhatsAppAddonNeedsConfiguration { get; init; }
 
         // Programación configurable (Fase 1).
         public int ConfirmationHoursBefore { get; init; } = 24;
@@ -165,6 +197,20 @@ namespace LuxuryApp.Models.SaaS
 
         /// <summary>El add-on es recurrente (tiene suscriptor TiloPay): condición para cancelar/cambiar en línea.</summary>
         public bool WhatsAppAddonIsRecurring { get; init; }
+
+        // ── Acceso manual/cortesía/canje (BillingSource = ManualGrant), distinto de un paquete TiloPay ──
+
+        /// <summary>El add-on es un ACCESO MANUAL de plataforma (cortesía/canje/interno), no un pago TiloPay.</summary>
+        public bool WhatsAppAddonIsManualGrant { get; init; }
+
+        /// <summary>El acceso manual es indefinido (sin vencimiento).</summary>
+        public bool WhatsAppManualGrantIndefinite { get; init; }
+
+        /// <summary>Vigencia del acceso manual temporal (fecha Tica), null si es indefinido.</summary>
+        public string? WhatsAppManualGrantExpiresDisplay { get; init; }
+
+        /// <summary>El acceso manual está VENCIDO: no habilita envíos; hay que renovarlo desde plataforma.</summary>
+        public bool WhatsAppManualGrantExpired { get; init; }
 
         /// <summary>La renovación del add-on ya fue cancelada: sigue activo hasta la fecha efectiva, sin nuevos cobros.</summary>
         public bool WhatsAppAddonCancelAtPeriodEnd { get; init; }
