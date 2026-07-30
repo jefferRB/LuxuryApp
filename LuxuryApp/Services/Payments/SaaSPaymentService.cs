@@ -34,6 +34,7 @@ namespace LuxuryApp.Services.Payments
         private readonly Billing.IAddonSubscriptionManager? _addonSubscriptionManager;
         private readonly Billing.IPlanChangeLateApplicationService? _planChangeLateApplicationService;
         private readonly Billing.IPaymentRecoveryService? _paymentRecovery;
+        private readonly Billing.IAddonProviderAuditService? _addonProviderAudit;
         private readonly OpcionesTilopayRepeatAdmin _tilopayRepeatAdminOptions;
 
         public SaaSPaymentService(
@@ -53,7 +54,8 @@ namespace LuxuryApp.Services.Payments
             Billing.IProviderSubscriptionManager? providerSubscriptionManager = null,
             Billing.IPlanChangeLateApplicationService? planChangeLateApplicationService = null,
             Billing.IPaymentRecoveryService? paymentRecovery = null,
-            Billing.IAddonSubscriptionManager? addonSubscriptionManager = null)
+            Billing.IAddonSubscriptionManager? addonSubscriptionManager = null,
+            Billing.IAddonProviderAuditService? addonProviderAudit = null)
         {
             _db = db;
             _providerResolver = providerResolver;
@@ -71,6 +73,7 @@ namespace LuxuryApp.Services.Payments
             _addonSubscriptionManager = addonSubscriptionManager;
             _planChangeLateApplicationService = planChangeLateApplicationService;
             _paymentRecovery = paymentRecovery;
+            _addonProviderAudit = addonProviderAudit;
             _tilopayRepeatAdminOptions = tilopayRepeatAdminOptions?.Value ?? new OpcionesTilopayRepeatAdmin();
         }
 
@@ -1303,9 +1306,18 @@ namespace LuxuryApp.Services.Payments
                     await _db.SaveChangesAsync(cancellationToken);
                 }
 
-                await MarkEventForManualReviewAsync(
-                    evento,
-                    correlation.ManualReviewReason ?? "No fue posible correlacionar el webhook recurrente con un tenant de forma segura.",
+                var manualReviewReason = correlation.ManualReviewReason ??
+                    "No fue posible correlacionar el webhook recurrente con un tenant de forma segura.";
+
+                await MarkEventForManualReviewAsync(evento, manualReviewReason, cancellationToken);
+
+                // El rechazo dejó el estado local intacto, pero TiloPay pudo haber activado igual el
+                // suscriptor del plan destino. Preguntar (post-commit) si quedó doble cobro montado.
+                await ProbeAddonProviderAfterRejectionAsync(
+                    resolvedPlan.IsAddon,
+                    correlation.TenantId,
+                    FirstNonEmpty(webhook.CustomerEmail, correlation.PaymentAttempt?.ClienteEmail),
+                    manualReviewReason,
                     cancellationToken);
 
                 return new PaymentWebhookProcessingResult
@@ -1494,6 +1506,13 @@ namespace LuxuryApp.Services.Payments
                                 addonAutoActivation.Reason ?? "El add-on de WhatsApp requiere revision manual antes de activarse.",
                                 cancellationToken);
 
+                            await ProbeAddonProviderAfterRejectionAsync(
+                                resolvedPlan.IsAddon,
+                                tenantId,
+                                FirstNonEmpty(webhook.CustomerEmail, paymentAttempt.ClienteEmail),
+                                addonAutoActivation.Reason ?? "activación del add-on bloqueada",
+                                cancellationToken);
+
                             return new PaymentWebhookProcessingResult
                             {
                                 EventId = webhook.EventId,
@@ -1504,11 +1523,57 @@ namespace LuxuryApp.Services.Payments
                         }
                     }
 
+                    // ── CAPTURA: "aprobada" NO es "cobrada" ────────────────────────────────────
+                    // TiloPay puede autorizar un monto de verificación y reversarlo (caso compra2:
+                    // ₡459 "Aprobada no capturada" + "Re-…" anulada, con code=1 y "Transaccion
+                    // aprobada" en el webhook). Activar con eso sería regalar el add-on.
+                    var settlement = RecurringPaymentSettlementRules.Evaluate(webhook);
+                    if (!settlement.IsSettled)
+                    {
+                        var settlementReason = BuildSettlementRejectionReason(webhook, settlement);
+
+                        paymentAttempt.Estado = EstadoPagoProveedor.ManualReview;
+                        paymentAttempt.ProviderResultCode = "MANUAL_REVIEW";
+                        paymentAttempt.ProviderResultMessage = Trim(settlementReason, 300);
+                        paymentAttempt.UltimoPayloadProveedor = RedactSensitivePayload(payload);
+                        paymentAttempt.FechaActualizacionUtc = DateTime.UtcNow;
+
+                        evento.TenantId = correlation.TenantId;
+                        evento.PlanId = internalPlan.Id;
+                        evento.PagoSuscripcionId = paymentAttempt.Id;
+                        evento.ProviderTransactionId = paymentAttempt.ProviderTransactionId;
+
+                        await MarkEventForManualReviewAsync(evento, settlementReason, cancellationToken);
+                        await AuditNotCapturedRecurringPaymentAsync(tenantId, paymentAttempt.Id, settlementReason, cancellationToken);
+
+                        await ProbeAddonProviderAfterRejectionAsync(
+                            resolvedPlan.IsAddon,
+                            tenantId,
+                            FirstNonEmpty(webhook.CustomerEmail, paymentAttempt.ClienteEmail),
+                            settlementReason,
+                            cancellationToken);
+
+                        return new PaymentWebhookProcessingResult
+                        {
+                            EventId = webhook.EventId,
+                            Reference = webhook.Reference,
+                            IsProcessed = false,
+                            Message = "Webhook recurrente pendiente de revision manual por transaccion sin captura."
+                        };
+                    }
+
                     if (!webhook.Amount.HasValue || webhook.Amount.Value <= 0m)
                     {
                         await MarkEventForManualReviewAsync(
                             evento,
                             "Tilopay no envio un monto aprobado util para el pago recurrente.",
+                            cancellationToken);
+
+                        await ProbeAddonProviderAfterRejectionAsync(
+                            resolvedPlan.IsAddon,
+                            tenantId,
+                            FirstNonEmpty(webhook.CustomerEmail, paymentAttempt.ClienteEmail),
+                            "monto ausente en el webhook",
                             cancellationToken);
 
                         return new PaymentWebhookProcessingResult
@@ -1538,6 +1603,13 @@ namespace LuxuryApp.Services.Payments
 
                         await MarkEventForManualReviewAsync(
                             evento,
+                            unexpectedAmountReason,
+                            cancellationToken);
+
+                        await ProbeAddonProviderAfterRejectionAsync(
+                            resolvedPlan.IsAddon,
+                            tenantId,
+                            FirstNonEmpty(webhook.CustomerEmail, paymentAttempt.ClienteEmail),
                             unexpectedAmountReason,
                             cancellationToken);
 
@@ -2662,6 +2734,107 @@ namespace LuxuryApp.Services.Payments
             _db.PagosSuscripcion.Add(intento);
             await _db.SaveChangesAsync(cancellationToken);
             return intento;
+        }
+
+        /// <summary>Motivo legible del rechazo por captura, enriquecido con las señales del proveedor.</summary>
+        private static string BuildSettlementRejectionReason(
+            PaymentProviderWebhookData webhook,
+            RecurringSettlementAssessment settlement)
+        {
+            var reason = settlement.Verdict == RecurringSettlementVerdict.VoidedOrReversed
+                ? "El webhook recurrente corresponde a una transaccion ANULADA/REVERSADA."
+                : "El webhook recurrente corresponde a una transaccion APROBADA PERO NO CAPTURADA.";
+
+            var detail = settlement.Reason;
+            var preAuthHint = RecurringPaymentSettlementRules.LooksLikePreAuthorizationOrder(webhook.ProviderOrderNumber)
+                ? " La orden trae la marca de pre-autorizacion del proveedor."
+                : string.Empty;
+
+            return $"{reason} {detail}{preAuthHint} No se activa nada: requiere revision manual.";
+        }
+
+        /// <summary>Deja rastro en plataforma del rechazo por captura (es dinero que NO entró).</summary>
+        private async Task AuditNotCapturedRecurringPaymentAsync(
+            Guid tenantId,
+            Guid paymentId,
+            string reason,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                _db.PlatformAuditLogs.Add(new Models.Platform.PlatformAuditLog
+                {
+                    Id = Guid.NewGuid(),
+                    ActorUserId = "system",
+                    ActorEmail = "system",
+                    Action = Models.Platform.PlatformAuditActions.RecurringPaymentRejectedNotCaptured,
+                    EntityType = Models.Platform.PlatformAuditEntityTypes.Billing,
+                    EntityId = paymentId.ToString(),
+                    TenantId = tenantId,
+                    Reason = Trim(reason, 500)!,
+                    CreatedAtUtc = DateTime.UtcNow
+                });
+
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "No se pudo auditar el rechazo por captura. TenantId {TenantId}.", tenantId);
+            }
+        }
+
+        /// <summary>
+        /// Tras RECHAZAR un webhook de add-on (monto, captura, correlación o activación bloqueada),
+        /// pregunta a TiloPay cuántos suscriptores de add-on puede cobrarle al tenant.
+        ///
+        /// Rechazar protege el estado LOCAL pero no deshace lo que el proveedor ya hizo: en el caso
+        /// compra2 el rechazo fue correcto y aun así TiloPay quedó con WA400 y WA800 activos. Sin
+        /// este sondeo el tablero mostraba riesgo 0 con doble cobro montado en el proveedor.
+        ///
+        /// Post-commit, HTTP fuera de toda transacción, best-effort: nunca rompe el webhook.
+        /// </summary>
+        private async Task ProbeAddonProviderAfterRejectionAsync(
+            bool isAddon,
+            Guid? tenantId,
+            string? customerEmail,
+            string reason,
+            CancellationToken cancellationToken)
+        {
+            if (!isAddon ||
+                tenantId is not { } resolvedTenantId ||
+                resolvedTenantId == Guid.Empty ||
+                _addonProviderAudit is null ||
+                !_addonProviderAudit.IsEnabled)
+            {
+                return;
+            }
+
+            try
+            {
+                var audit = await _addonProviderAudit.AuditAsync(
+                    resolvedTenantId,
+                    customerEmail,
+                    source: "webhook-rejected",
+                    auditAction: Models.Platform.PlatformAuditActions.AddonProviderDoubleActiveAfterRejectedWebhook,
+                    cancellationToken);
+
+                if (audit.HasDoubleActive)
+                {
+                    _logger.LogCritical(
+                        "Webhook de add-on rechazado y TiloPay quedó con {Count} suscriptores COBRABLES. TenantId {TenantId}. Motivo del rechazo {Reason}. Detalle {Detail}.",
+                        audit.ChargeableCount,
+                        resolvedTenantId,
+                        reason,
+                        audit.Detail);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "El sondeo del proveedor tras rechazar el webhook del add-on falló. TenantId {TenantId}.",
+                    resolvedTenantId);
+            }
         }
 
         private async Task<AddonAutomaticActivationValidation> ValidateAddonAutomaticActivationAsync(

@@ -31,6 +31,8 @@ namespace LuxuryApp.Models.Identity
         [StringLength(100)]
         public string? AccessCode { get; set; }
 
+        public string? CompanyWebsite { get; set; }
+
         public Guid? SelectedPlanId { get; set; }
 
         public Guid? CurrentContractDocumentId { get; set; }

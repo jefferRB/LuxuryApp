@@ -1667,22 +1667,34 @@ namespace LuxuryApp.Tests.TenantIsolation
         private static BillingController CreateBillingController(
             ProyectoIdentity.Datos.ApplicationDbContext context,
             UserManager<AppUsuario> userManager,
-            LuxuryApp.Services.SaaS.ISubscriptionPricingCatalog? pricingCatalog = null) =>
-            new(
+            LuxuryApp.Services.SaaS.ISubscriptionPricingCatalog? pricingCatalog = null)
+        {
+            var subscriptionService = CreateSubscriptionService(context);
+            var summaryCache = new MemoryCache(new MemoryCacheOptions());
+            var summaryAccessCache = new TenantCommercialAccessCache(summaryCache);
+            var summaryClock = new FixedBusinessDateTimeProvider();
+            var summaryAccessResolver = new TenantCommercialAccessResolver(
+                context,
+                summaryCache,
+                summaryAccessCache,
+                subscriptionService,
+                summaryClock);
+
+            return new BillingController(
                 NullLogger<BillingController>.Instance,
                 context,
                 null!,
-                CreateSubscriptionService(context),
+                subscriptionService,
                 null!,
                 null!,
                 null!,
                 null!,
                 userManager,
                 null!,
-                new LuxuryApp.Services.SaaS.SubscriptionSummaryService(context, CreateSubscriptionService(context), null!),
+                new LuxuryApp.Services.SaaS.SubscriptionSummaryService(context, subscriptionService, null!, summaryAccessResolver),
                 pricingCatalog ?? new LuxuryApp.Services.SaaS.SubscriptionPricingCatalog(Options.Create(new TilopayRepeatOptions())),
                 new LuxuryApp.Services.SaaS.PlanChangeService(context, NullLogger<LuxuryApp.Services.SaaS.PlanChangeService>.Instance),
-                new LuxuryApp.Services.SaaS.PlanChangeDecisionService(context, CreateSubscriptionService(context)),
+                new LuxuryApp.Services.SaaS.PlanChangeDecisionService(context, subscriptionService),
                 new LuxuryApp.Tests.Support.TestWebHostEnvironment(),
                 Options.Create(new OpcionesTilopay()),
                 Options.Create(new OpcionesPago()),
@@ -1694,7 +1706,9 @@ namespace LuxuryApp.Tests.TenantIsolation
                     context,
                     new DisabledTilopayRepeatAdminService(),
                     new FixedBusinessDateTimeProvider(),
-                    NullLogger<LuxuryApp.Services.Billing.PaymentMethodUpdateService>.Instance));
+                    NullLogger<LuxuryApp.Services.Billing.PaymentMethodUpdateService>.Instance,
+                    new FakeTenantOwnerResolver()));
+        }
 
         private static LuxuryApp.Services.SaaS.ISubscriptionPricingCatalog CreateCalculatorCatalog()
         {

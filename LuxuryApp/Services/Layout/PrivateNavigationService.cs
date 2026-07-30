@@ -112,6 +112,27 @@ namespace LuxuryApp.Services.Layout
                     Icon = "bi-window",
                     Highlight = false
                 });
+
+                // Bloqueos recurrentes de horario (almuerzo, limpieza...). Es configuración de
+                // agenda, por eso vive junto a los demás ajustes del negocio y no en el menú principal.
+                secondaryItems.Add(new NavigationMenuItemViewModel
+                {
+                    Text = "Bloqueos de horario",
+                    Controller = "BloqueosRecurrentes",
+                    Action = "Index",
+                    Icon = "bi-clock-history",
+                    Highlight = false
+                });
+
+                // Inversionistas: reparto de la ganancia del negocio. Solo administradores.
+                secondaryItems.Add(new NavigationMenuItemViewModel
+                {
+                    Text = "Inversionistas",
+                    Controller = "Inversionistas",
+                    Action = "Index",
+                    Icon = "bi-people-fill",
+                    Highlight = false
+                });
             }
 
             // Resumen Ejecutivo Mensual: función administrada EXCLUSIVAMENTE por el super admin

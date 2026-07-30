@@ -6,6 +6,16 @@ using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Services.Platform
 {
+    /// <summary>
+    /// Metricas cross-tenant para la consola de plataforma.
+    ///
+    /// CONTRATO platform-safe: TODAS las queries usan <c>IgnoreQueryFilters()</c> mas un filtro
+    /// EXPLICITO por los TenantId solicitados. Nunca dependen de <c>CurrentTenantId</c> (el tenant
+    /// del super admin logueado), asi que abrir la ficha de un tenant devuelve los datos de ESE
+    /// tenant y no los del usuario de plataforma. Desactivar el query filter aqui es intencional y
+    /// es la razon por la que el filtro explicito es obligatorio en cada query: si se agrega una
+    /// metrica nueva sin <c>tenantIds.Contains(...)</c>, se filtran datos de todos los tenants.
+    /// </summary>
     public sealed class PlatformMetricsService : IPlatformMetricsService
     {
         private readonly ApplicationDbContext _context;
@@ -19,6 +29,15 @@ namespace LuxuryApp.Services.Platform
             IReadOnlyList<Guid> tenantIds,
             CancellationToken cancellationToken = default)
         {
+            // Guid.Empty nunca identifica un tenant real y, si se colara al filtro, produciria
+            // conteos vacios que se leerian como "el tenant no tiene actividad". Fail-fast.
+            if (tenantIds.Any(tenantId => tenantId == Guid.Empty))
+            {
+                throw new ArgumentException(
+                    "Las metricas de plataforma requieren TenantId explicitos; Guid.Empty no es valido.",
+                    nameof(tenantIds));
+            }
+
             if (tenantIds.Count == 0)
                 return new Dictionary<Guid, PlatformTenantUsageViewModel>();
 

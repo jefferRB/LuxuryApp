@@ -9,6 +9,7 @@
     {
         TenantCommercialAccessMode.Exempt   => "Exento",
         TenantCommercialAccessMode.Internal => "Interno",
+        TenantCommercialAccessMode.PendingVerification => "Pendiente verificacion",
         _                                   => "Requiere suscripcion"
     };
 
@@ -16,6 +17,7 @@
     {
         TenantCommercialAccessMode.Exempt   => "platform-badge-success",
         TenantCommercialAccessMode.Internal => "platform-badge-blue",
+        TenantCommercialAccessMode.PendingVerification => "platform-badge-warning",
         _                                   => "platform-badge-warning"
     };
 
@@ -81,6 +83,17 @@
                     <span class="platform-badge platform-badge-blue">
                         <i class="bi bi-diagram-3"></i>
                         @Model.EffectivePlanName
+                        @if (Model.EffectiveEmployeeLimit.HasValue)
+                        {
+                            <text> · @Model.EffectiveEmployeeLimit func.</text>
+                        }
+                    </span>
+                }
+                @if (Model.IsForcedByPlatform)
+                {
+                    <span class="platform-badge platform-badge-neutral">
+                        <i class="bi bi-hand-index"></i>
+                        Plan forzado por plataforma
                     </span>
                 }
                 @if (Model.Billing.IsTrial)
@@ -126,6 +139,35 @@
     {
         <div class="platform-alert-stack">
             <div class="alert alert-success platform-alert mb-0">@platformSuccess</div>
+        </div>
+    }
+
+    @* Alertas OPERATIVAS (no billing): inconsistencias detectadas al resolver el estado
+       comercial y el contacto principal. Se muestran; nunca se corrigen en silencio. *@
+    @if (Model.CommercialWarnings.Count > 0 || Model.OwnerWarnings.Count > 0 || Model.ExceedsEmployeeLimit)
+    {
+        <div class="platform-alert-stack">
+            <div class="alert alert-warning platform-alert mb-0">
+                <strong><i class="bi bi-exclamation-triangle"></i> Revisar configuración</strong>
+                <ul class="mb-0 mt-2">
+                    @if (Model.ExceedsEmployeeLimit)
+                    {
+                        <li>
+                            El tenant tiene <strong>@Model.ActiveFuncionarios funcionarios activos</strong> y su plan
+                            efectivo permite <strong>@Model.EffectiveEmployeeLimit</strong>. No se pueden agregar más
+                            hasta ajustar el plan o desactivar funcionarios.
+                        </li>
+                    }
+                    @foreach (var warning in Model.CommercialWarnings)
+                    {
+                        <li>@warning</li>
+                    }
+                    @foreach (var warning in Model.OwnerWarnings)
+                    {
+                        <li>@warning</li>
+                    }
+                </ul>
+            </div>
         </div>
     }
 
@@ -255,7 +297,39 @@
                                     <span>@Model.OwnerName · </span>
                                 }
                                 @(Model.OwnerEmail ?? "No disponible")
+                                @* De donde salio el contacto: no se presenta un funcionario como si fuera el dueño. *@
+                                <div>
+                                    <span class="platform-badge @(Model.Owner?.OwnerIsFallback == true ? "platform-badge-warning" : "platform-badge-neutral")">
+                                        @TenantOwnerResolution.DescribeSource(Model.OwnerSource)
+                                    </span>
+                                </div>
                             </dd>
+                            @if (Model.Owner is { } ownerInfo)
+                            {
+                                @if (ownerInfo.AdditionalAdmins.Count > 0)
+                                {
+                                    <dt>Otros administradores</dt>
+                                    <dd>
+                                        @foreach (var admin in ownerInfo.AdditionalAdmins)
+                                        {
+                                            <div>@(admin.Email ?? admin.UserId) @(admin.State ? null : "(inactivo)")</div>
+                                        }
+                                    </dd>
+                                }
+                                @if (ownerInfo.Funcionarios.Count > 0)
+                                {
+                                    <dt>Cuentas de funcionario</dt>
+                                    <dd>
+                                        @foreach (var funcionario in ownerInfo.Funcionarios)
+                                        {
+                                            <div>
+                                                @(funcionario.Email ?? funcionario.UserId)
+                                                <span class="platform-badge platform-badge-neutral ms-1">Funcionario</span>
+                                            </div>
+                                        }
+                                    </dd>
+                                }
+                            }
                             <dt>Fecha de registro</dt>
                             <dd>@Model.FechaCreacion.ToString("yyyy-MM-dd")</dd>
                             <dt>Estado del tenant</dt>
@@ -269,6 +343,40 @@
                                 <span class="platform-badge @ModeBadgeClass(Model.CommercialAccessMode)">
                                     @DescribeMode(Model.CommercialAccessMode)
                                 </span>
+                            </dd>
+                            @* Plan EFECTIVO: la fuente unica con la que la app opera. Puede diferir del
+                               plan de la pestaña Facturación (fila de Suscripciones) y ahí se avisa. *@
+                            <dt>Plan efectivo</dt>
+                            <dd>
+                                @(Model.EffectivePlanName ?? "Sin plan efectivo")
+                                @if (!string.IsNullOrWhiteSpace(Model.EffectivePlanCode))
+                                {
+                                    <span class="platform-badge platform-badge-neutral ms-1">@Model.EffectivePlanCode</span>
+                                }
+                                <div class="platform-table-meta">@Model.CommercialReason</div>
+                            </dd>
+                            <dt>Funcionarios</dt>
+                            <dd class="@(Model.ExceedsEmployeeLimit ? "text-danger-emphasis" : null)">
+                                @Model.ActiveFuncionarios /
+                                @(Model.EffectiveEmployeeLimit?.ToString() ?? (Model.CanAccessApp ? "ilimitado" : "—"))
+                                <span class="platform-table-meta">
+                                    (límite del plan efectivo@(Model.IsForcedByPlatform ? ", forzado por plataforma" : ""))
+                                </span>
+                            </dd>
+                            <dt>Fuente de cobro</dt>
+                            <dd>
+                                @(Model.AccessBillingSource switch
+                                {
+                                    TenantAccessBillingSource.ProviderRecurring => "TiloPay (recurrente)",
+                                    TenantAccessBillingSource.Manual => "Manual / exento (no se cobra)",
+                                    TenantAccessBillingSource.PromotionalGrant => "Trial / código promocional",
+                                    TenantAccessBillingSource.Legacy => "Suscripción legacy",
+                                    _ => "Sin fuente de cobro"
+                                })
+                                @if (!string.IsNullOrWhiteSpace(Model.ProviderSubscriptionId))
+                                {
+                                    <div class="platform-table-meta">Suscriptor: @Model.ProviderSubscriptionId</div>
+                                }
                             </dd>
                             @if (!string.IsNullOrWhiteSpace(Model.CommercialNotes))
                             {
@@ -334,8 +442,33 @@
                                 </a>
                             </div>
                         </div>
+                        @* El plan EFECTIVO manda sobre la fila de Suscripciones. Cuando el acceso lo
+                           otorga plataforma se dice explicitamente, para no leer esta tarjeta como
+                           si fuera lo que define el limite y el acceso del tenant. *@
+                        @if (Model.IsForcedByPlatform)
+                        {
+                            <div class="alert alert-info platform-alert">
+                                <strong><i class="bi bi-info-circle"></i> Acceso otorgado por plataforma.</strong>
+                                El plan con el que la app opera es
+                                <strong>@Model.EffectivePlanName</strong>
+                                (@(Model.EffectiveEmployeeLimit?.ToString() ?? "sin límite de") funcionarios),
+                                no se cobra por TiloPay. Lo de abajo es el historial de suscripción del tenant.
+                            </div>
+                        }
                         <dl class="platform-ficha-dl">
-                            <dt>Plan</dt>
+                            <dt>Plan efectivo</dt>
+                            <dd>
+                                <strong>@(Model.EffectivePlanName ?? "Sin plan efectivo")</strong>
+                                @if (!string.IsNullOrWhiteSpace(Model.EffectivePlanCode))
+                                {
+                                    <span class="platform-badge platform-badge-neutral ms-1">@Model.EffectivePlanCode</span>
+                                }
+                                <div class="platform-table-meta">
+                                    Límite de funcionarios: @Model.ActiveFuncionarios /
+                                    @(Model.EffectiveEmployeeLimit?.ToString() ?? (Model.CanAccessApp ? "ilimitado" : "—"))
+                                </div>
+                            </dd>
+                            <dt>Plan de la suscripción</dt>
                             <dd>@(Model.Billing.ActivePlanName ?? "Sin plan activo")</dd>
                             @if (!string.IsNullOrWhiteSpace(Model.Billing.ActivePlanCode))
                             {
@@ -651,10 +784,11 @@
                         <h2 class="platform-section-title">Usuarios del negocio</h2>
                         <p class="platform-section-copy">
                             Total: @Model.TotalUsersCount usuario(s).
-                            @if (Model.TotalUsersCount > 10)
+                            @if (Model.TotalUsersCount > Model.Users.Count)
                             {
-                                <text> Mostrando los 10 principales.</text>
+                                <text> Mostrando @Model.Users.Count.</text>
                             }
+                            <text> Orden: owner, administradores, otras cuentas, funcionarios.</text>
                         </p>
                     </div>
                     <div class="platform-toolbar">
@@ -691,7 +825,15 @@
                                 {
                                     <tr>
                                         <td>
-                                            <div class="platform-table-title">@(string.IsNullOrWhiteSpace(user.Name) ? user.Email : user.Name)</div>
+                                            <div class="platform-table-title">
+                                                @(string.IsNullOrWhiteSpace(user.Name) ? user.Email : user.Name)
+                                                @if (user.IsOwner)
+                                                {
+                                                    <span class="platform-badge platform-badge-success ms-1">
+                                                        <i class="bi bi-star-fill"></i> Contacto principal
+                                                    </span>
+                                                }
+                                            </div>
                                             <div class="platform-table-meta">@user.Email</div>
                                         </td>
                                         <td>
@@ -701,6 +843,25 @@
                                                     <span class="platform-badge platform-badge-dark">
                                                         <i class="bi bi-shield-lock"></i> SuperAdmin
                                                     </span>
+                                                }
+                                                @* Clasificacion resuelta contra AspNetUserRoles, no texto libre. *@
+                                                @switch (user.Kind)
+                                                {
+                                                    case TenantUserKind.Administrador:
+                                                        <span class="platform-badge platform-badge-blue">
+                                                            <i class="bi bi-person-gear"></i> Administrador
+                                                        </span>
+                                                        break;
+                                                    case TenantUserKind.Funcionario:
+                                                        <span class="platform-badge platform-badge-neutral">
+                                                            <i class="bi bi-person-workspace"></i> Funcionario
+                                                        </span>
+                                                        break;
+                                                    default:
+                                                        <span class="platform-badge platform-badge-warning">
+                                                            <i class="bi bi-question-circle"></i> Sin rol claro
+                                                        </span>
+                                                        break;
                                                 }
                                                 @if (!string.IsNullOrWhiteSpace(user.Roles))
                                                 {

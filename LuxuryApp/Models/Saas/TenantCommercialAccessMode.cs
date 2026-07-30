@@ -4,6 +4,7 @@ namespace LuxuryApp.Models.SaaS
     {
         RequiresSubscription = 0,
         Exempt = 1,
-        Internal = 2
+        Internal = 2,
+        PendingVerification = 3
     }
 }

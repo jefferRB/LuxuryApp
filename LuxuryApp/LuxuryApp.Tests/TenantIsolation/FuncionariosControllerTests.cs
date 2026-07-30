@@ -646,12 +646,19 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             if (planId.HasValue)
             {
+                var maxFuncionarios = context.Planes
+                    .IgnoreQueryFilters()
+                    .Where(plan => plan.Id == planId.Value)
+                    .Select(plan => plan.MaxFuncionarios)
+                    .SingleOrDefault();
+
                 controller.HttpContext.Items["TenantCommercialAccess"] = new TenantCommercialAccessResult
                 {
                     CanAccessApp = true,
                     TenantId = tenantId,
                     EffectivePlanId = planId.Value,
-                    EffectivePlanName = "Full"
+                    EffectivePlanName = "Full",
+                    EffectiveEmployeeLimit = maxFuncionarios
                 };
             }
 

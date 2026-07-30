@@ -501,6 +501,20 @@ namespace LuxuryApp.Services.Platform
             });
 
             // Tenants con más de 3 reservas online sin atender.
+            var pendingRegistrationQuery = _context.Tenants
+                .AsNoTracking()
+                .Where(t => t.CommercialAccessMode == TenantCommercialAccessMode.PendingVerification);
+            queues.Add(new MissionControlQueueViewModel
+            {
+                Key = "pending-registrations",
+                Label = "Registros pendientes / sospechosos",
+                Count = await pendingRegistrationQuery.CountAsync(ct),
+                OldestItemUtc = await pendingRegistrationQuery
+                    .Select(t => (DateTime?)t.FechaCreacion).MinAsync(ct),
+                LinkUrl = "/Platform/Tenants",
+                IsMoneyRelated = false
+            });
+
             queues.Add(new MissionControlQueueViewModel
             {
                 Key = "unattended-bookings",

@@ -6,7 +6,9 @@ using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Fiscal;
 using LuxuryApp.Models.Funcionarios;
+using LuxuryApp.Models.Horarios;
 using LuxuryApp.Models.Identity;
+using LuxuryApp.Models.Inversionistas;
 using LuxuryApp.Models.Legal;
 using LuxuryApp.Models.Notifications;
 using LuxuryApp.Models.Platform;
@@ -1024,6 +1026,289 @@ namespace ProyectoIdentity.Datos
                     .HasDatabaseName("IX_TenantMonthlyReportEmailLogs_CreatedAt");
             });
 
+            // ─────────────── Inversionistas y distribución de ganancias ───────────────
+
+            modelBuilder.Entity<TenantInvestor>(entity =>
+            {
+                entity.Property(investor => investor.Nombre).HasMaxLength(150).IsRequired();
+                entity.Property(investor => investor.Email).HasMaxLength(256).IsRequired();
+                entity.Property(investor => investor.Telefono).HasMaxLength(30);
+                entity.Property(investor => investor.NotasInternas).HasMaxLength(1000);
+                entity.Property(investor => investor.CreatedByUserId).HasMaxLength(450);
+                entity.Property(investor => investor.UpdatedByUserId).HasMaxLength(450);
+                entity.Property(investor => investor.Activo).HasDefaultValue(true);
+
+                entity.HasIndex(investor => new { investor.TenantId, investor.Activo })
+                    .HasDatabaseName("IX_TenantInvestors_TenantId_Activo");
+
+                // Un mismo correo no puede repetirse dentro del negocio (evita inversionistas duplicados).
+                entity.HasIndex(investor => new { investor.TenantId, investor.Email })
+                    .IsUnique()
+                    .HasDatabaseName("UX_TenantInvestors_TenantId_Email");
+            });
+
+            modelBuilder.Entity<InvestorAgreement>(entity =>
+            {
+                // decimal(9,4): permite porcentajes con 4 decimales (ej. 33,3333 %) sin perder exactitud.
+                entity.Property(agreement => agreement.ParticipacionPorcentaje).HasColumnType("decimal(9,4)");
+                entity.Property(agreement => agreement.Notas).HasMaxLength(1000);
+                entity.Property(agreement => agreement.CreatedByUserId).HasMaxLength(450);
+                entity.Property(agreement => agreement.UpdatedByUserId).HasMaxLength(450);
+                entity.Property(agreement => agreement.Activo).HasDefaultValue(true);
+
+                entity.HasOne(agreement => agreement.Investor)
+                    .WithMany(investor => investor.Acuerdos)
+                    .HasForeignKey(agreement => agreement.InvestorId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasIndex(agreement => new { agreement.TenantId, agreement.InvestorId })
+                    .HasDatabaseName("IX_InvestorAgreements_TenantId_InvestorId");
+
+                entity.HasIndex(agreement => new { agreement.TenantId, agreement.EffectiveFrom })
+                    .HasDatabaseName("IX_InvestorAgreements_TenantId_EffectiveFrom");
+
+                entity.HasIndex(agreement => new { agreement.TenantId, agreement.Activo, agreement.EffectiveFrom })
+                    .HasDatabaseName("IX_InvestorAgreements_TenantId_Activo_EffectiveFrom");
+            });
+
+            modelBuilder.Entity<InvestorProfitPolicy>(entity =>
+            {
+                entity.Property(policy => policy.UpdatedByUserId).HasMaxLength(450);
+                entity.Property(policy => policy.ExcluirIva).HasDefaultValue(true);
+                entity.Property(policy => policy.IncluirLiquidaciones).HasDefaultValue(true);
+
+                // Una política por negocio.
+                entity.HasIndex(policy => policy.TenantId)
+                    .IsUnique()
+                    .HasDatabaseName("UX_InvestorProfitPolicies_TenantId");
+            });
+
+            modelBuilder.Entity<InvestorPolicyExpenseCategory>(entity =>
+            {
+                entity.HasOne(link => link.Policy)
+                    .WithMany(policy => policy.CategoriasSeleccionadas)
+                    .HasForeignKey(link => link.PolicyId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(link => link.Categoria)
+                    .WithMany()
+                    .HasForeignKey(link => link.CategoriaId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasIndex(link => new { link.TenantId, link.PolicyId, link.CategoriaId })
+                    .IsUnique()
+                    .HasDatabaseName("UX_InvestorPolicyExpenseCategories_Policy_Categoria");
+            });
+
+            modelBuilder.Entity<InvestorStatement>(entity =>
+            {
+                foreach (var monto in new[]
+                         {
+                             nameof(InvestorStatement.IngresosCobrados),
+                             nameof(InvestorStatement.IvaExcluido),
+                             nameof(InvestorStatement.IngresosNetos),
+                             nameof(InvestorStatement.GastosElegibles),
+                             nameof(InvestorStatement.Liquidaciones),
+                             nameof(InvestorStatement.AjustesPositivos),
+                             nameof(InvestorStatement.AjustesNegativos),
+                             nameof(InvestorStatement.PerdidaArrastrada),
+                             nameof(InvestorStatement.PerdidaPendiente),
+                             nameof(InvestorStatement.GananciaDistribuible),
+                             nameof(InvestorStatement.ParticipacionCalculada),
+                             nameof(InvestorStatement.TotalPagado),
+                             nameof(InvestorStatement.SaldoPendiente)
+                         })
+                {
+                    entity.Property<decimal>(monto).HasColumnType("decimal(18,2)");
+                }
+
+                entity.Property(statement => statement.ParticipacionPorcentaje).HasColumnType("decimal(9,4)");
+                entity.Property(statement => statement.PoliticaVersion).HasMaxLength(300).IsRequired();
+                entity.Property(statement => statement.GeneradoPorUserId).HasMaxLength(450);
+                entity.Property(statement => statement.FinalizadoPorUserId).HasMaxLength(450);
+                entity.Property(statement => statement.AnuladoPorUserId).HasMaxLength(450);
+                entity.Property(statement => statement.ReabiertoPorUserId).HasMaxLength(450);
+                entity.Property(statement => statement.MotivoAnulacion).HasMaxLength(500);
+                entity.Property(statement => statement.MotivoReapertura).HasMaxLength(500);
+
+                entity.HasOne(statement => statement.Investor)
+                    .WithMany(investor => investor.Estados)
+                    .HasForeignKey(statement => statement.InvestorId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(statement => statement.Agreement)
+                    .WithMany()
+                    .HasForeignKey(statement => statement.AgreementId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasIndex(statement => new { statement.TenantId, statement.Estado })
+                    .HasDatabaseName("IX_InvestorStatements_TenantId_Estado");
+
+                entity.HasIndex(statement => new { statement.TenantId, statement.PeriodoInicio, statement.PeriodoFin })
+                    .HasDatabaseName("IX_InvestorStatements_TenantId_Periodo");
+
+                // Idempotencia de la generación: un solo estado vivo por inversionista y periodo.
+                // Los anulados (Estado = 5) quedan fuera para permitir regenerar tras una anulación.
+                entity.HasIndex(statement => new
+                    {
+                        statement.TenantId,
+                        statement.InvestorId,
+                        statement.PeriodoInicio,
+                        statement.PeriodoFin
+                    })
+                    .IsUnique()
+                    .HasFilter("[Estado] <> 5")
+                    .HasDatabaseName("UX_InvestorStatements_Investor_Periodo");
+            });
+
+            modelBuilder.Entity<InvestorStatementAdjustment>(entity =>
+            {
+                entity.Property(adjustment => adjustment.Monto).HasColumnType("decimal(18,2)");
+                entity.Property(adjustment => adjustment.Descripcion).HasMaxLength(300).IsRequired();
+                entity.Property(adjustment => adjustment.CreadoPorUserId).HasMaxLength(450);
+                entity.Property(adjustment => adjustment.CreadoPorEmail).HasMaxLength(256);
+
+                entity.HasOne(adjustment => adjustment.Statement)
+                    .WithMany(statement => statement.Ajustes)
+                    .HasForeignKey(adjustment => adjustment.StatementId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasIndex(adjustment => new { adjustment.TenantId, adjustment.StatementId })
+                    .HasDatabaseName("IX_InvestorStatementAdjustments_TenantId_StatementId");
+            });
+
+            modelBuilder.Entity<InvestorDistributionPayment>(entity =>
+            {
+                entity.Property(payment => payment.Monto).HasColumnType("decimal(18,2)");
+                entity.Property(payment => payment.MetodoPago).HasMaxLength(30).IsRequired();
+                entity.Property(payment => payment.Referencia).HasMaxLength(120);
+                entity.Property(payment => payment.Notas).HasMaxLength(500);
+                entity.Property(payment => payment.Motivo).HasMaxLength(300);
+                entity.Property(payment => payment.RegistradoPorUserId).HasMaxLength(450);
+                entity.Property(payment => payment.RegistradoPorEmail).HasMaxLength(256);
+
+                entity.HasOne(payment => payment.Statement)
+                    .WithMany(statement => statement.Pagos)
+                    .HasForeignKey(payment => payment.StatementId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasIndex(payment => new { payment.TenantId, payment.StatementId })
+                    .HasDatabaseName("IX_InvestorDistributionPayments_TenantId_StatementId");
+
+                entity.HasIndex(payment => new { payment.TenantId, payment.Fecha })
+                    .HasDatabaseName("IX_InvestorDistributionPayments_TenantId_Fecha");
+            });
+
+            modelBuilder.Entity<InvestorStatementEmailLog>(entity =>
+            {
+                entity.Property(log => log.RecipientEmail).HasMaxLength(256).IsRequired();
+                entity.Property(log => log.Subject).HasMaxLength(300).IsRequired();
+                entity.Property(log => log.TriggeredByUserId).HasMaxLength(450);
+                entity.Property(log => log.ProviderMessageId).HasMaxLength(200);
+                entity.Property(log => log.ErrorMessage).HasMaxLength(500);
+                entity.Property(log => log.ContentHash).HasMaxLength(64);
+
+                entity.HasOne(log => log.Statement)
+                    .WithMany()
+                    .HasForeignKey(log => log.StatementId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasIndex(log => new { log.TenantId, log.StatementId })
+                    .HasDatabaseName("IX_InvestorStatementEmailLogs_TenantId_StatementId");
+
+                // Anti-duplicado: un envío real exitoso por estado/destinatario/secuencia de reenvío.
+                // Status = 1 es Sent; IsTest = 0 deja libres las pruebas.
+                entity.HasIndex(log => new
+                    {
+                        log.TenantId,
+                        log.StatementId,
+                        log.RecipientEmail,
+                        log.ResendSequence
+                    })
+                    .IsUnique()
+                    .HasFilter("[IsTest] = 0 AND [Status] = 1")
+                    .HasDatabaseName("UX_InvestorStatementEmailLogs_RealSent");
+            });
+
+            // ─────────────── Bloqueos recurrentes de horario ───────────────
+
+            modelBuilder.Entity<RecurringScheduleRule>(entity =>
+            {
+                entity.Property(rule => rule.Nombre).HasMaxLength(100).IsRequired();
+                entity.Property(rule => rule.EtiquetaCalendario).HasMaxLength(60);
+                entity.Property(rule => rule.Motivo).HasMaxLength(60);
+                entity.Property(rule => rule.CreadoPorUserId).HasMaxLength(450);
+                entity.Property(rule => rule.ActualizadoPorUserId).HasMaxLength(450);
+                entity.Property(rule => rule.Activa).HasDefaultValue(true);
+                entity.Property(rule => rule.IncluirNuevosColaboradores).HasDefaultValue(true);
+
+                // Versionado: la regla anterior se conserva; la nueva apunta a ella.
+                entity.HasOne(rule => rule.ReglaOrigen)
+                    .WithMany()
+                    .HasForeignKey(rule => rule.ReglaOrigenId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasIndex(rule => new { rule.TenantId, rule.Activa })
+                    .HasDatabaseName("IX_RecurringScheduleRules_TenantId_Activa");
+
+                entity.HasIndex(rule => new { rule.TenantId, rule.VigenteDesde, rule.VigenteHasta })
+                    .HasDatabaseName("IX_RecurringScheduleRules_TenantId_Vigencia");
+            });
+
+            modelBuilder.Entity<RecurringScheduleRuleTarget>(entity =>
+            {
+                entity.HasOne(target => target.Rule)
+                    .WithMany(rule => rule.Colaboradores)
+                    .HasForeignKey(target => target.RuleId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(target => target.Funcionario)
+                    .WithMany()
+                    .HasForeignKey(target => target.FuncionarioId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasIndex(target => new { target.TenantId, target.RuleId, target.FuncionarioId })
+                    .IsUnique()
+                    .HasDatabaseName("UX_RecurringScheduleRuleTargets_Rule_Funcionario");
+
+                entity.HasIndex(target => new { target.TenantId, target.FuncionarioId })
+                    .HasDatabaseName("IX_RecurringScheduleRuleTargets_TenantId_FuncionarioId");
+            });
+
+            modelBuilder.Entity<RecurringScheduleException>(entity =>
+            {
+                entity.Property(exception => exception.Motivo).HasMaxLength(200);
+                entity.Property(exception => exception.CreadoPorUserId).HasMaxLength(450);
+
+                entity.HasOne(exception => exception.Rule)
+                    .WithMany(rule => rule.Excepciones)
+                    .HasForeignKey(exception => exception.RuleId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(exception => exception.Funcionario)
+                    .WithMany()
+                    .HasForeignKey(exception => exception.FuncionarioId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasIndex(exception => new { exception.TenantId, exception.RuleId, exception.Fecha })
+                    .HasDatabaseName("IX_RecurringScheduleExceptions_TenantId_Rule_Fecha");
+
+                // Una sola excepción por regla/fecha/colaborador. HasFilter(null) anula el filtro
+                // "IS NOT NULL" que EF agrega por defecto en columnas nullable: SQL Server trata
+                // NULL = NULL en índices únicos, así que así también queda protegida la excepción
+                // global ("todos ese día"), que es justamente FuncionarioId = NULL.
+                entity.HasIndex(exception => new
+                    {
+                        exception.TenantId,
+                        exception.RuleId,
+                        exception.Fecha,
+                        exception.FuncionarioId
+                    })
+                    .IsUnique()
+                    .HasFilter(null)
+                    .HasDatabaseName("UX_RecurringScheduleExceptions_Rule_Fecha_Funcionario");
+            });
+
             modelBuilder.Entity<PlatformAuditLog>(entity =>
             {
                 // Bitácora append-only cross-tenant. NO es ITenantEntity: queda fuera del RLS.
@@ -1121,6 +1406,15 @@ namespace ProyectoIdentity.Datos
                     .WithMany()
                     .HasForeignKey(addon => addon.PlanId)
                     .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<ProviderAddonAuditSnapshot>(entity =>
+            {
+                // Una foto vigente por tenant: el sondeo la sobrescribe.
+                entity.HasIndex(snapshot => snapshot.TenantId).IsUnique();
+                entity.HasIndex(snapshot => snapshot.HasDoubleActive)
+                    .HasDatabaseName("IX_ProviderAddonAuditSnapshots_HasDoubleActive");
+                entity.Property(snapshot => snapshot.Source).HasMaxLength(40).IsRequired();
             });
 
             modelBuilder.Entity<TenantCommercialAccessGrant>(entity =>
@@ -1678,11 +1972,28 @@ namespace ProyectoIdentity.Datos
         public DbSet<TenantMonthlyReportSettings> TenantMonthlyReportSettings { get; set; }
         public DbSet<TenantMonthlyReportEmailLog> TenantMonthlyReportEmailLogs { get; set; }
 
+        // Inversionistas y distribución de ganancias
+        public DbSet<TenantInvestor> TenantInvestors { get; set; }
+        public DbSet<InvestorAgreement> InvestorAgreements { get; set; }
+        public DbSet<InvestorProfitPolicy> InvestorProfitPolicies { get; set; }
+        public DbSet<InvestorPolicyExpenseCategory> InvestorPolicyExpenseCategories { get; set; }
+        public DbSet<InvestorStatement> InvestorStatements { get; set; }
+        public DbSet<InvestorStatementAdjustment> InvestorStatementAdjustments { get; set; }
+        public DbSet<InvestorDistributionPayment> InvestorDistributionPayments { get; set; }
+        public DbSet<InvestorStatementEmailLog> InvestorStatementEmailLogs { get; set; }
+
+        // Bloqueos recurrentes de horario
+        public DbSet<RecurringScheduleRule> RecurringScheduleRules { get; set; }
+        public DbSet<RecurringScheduleRuleTarget> RecurringScheduleRuleTargets { get; set; }
+        public DbSet<RecurringScheduleException> RecurringScheduleExceptions { get; set; }
+
         public DbSet<PlatformAuditLog> PlatformAuditLogs { get; set; }
         public DbSet<PlatformWorkerHeartbeat> PlatformWorkerHeartbeats { get; set; }
         public DbSet<PlatformCommercialSnapshot> PlatformCommercialSnapshots { get; set; }
         public DbSet<PlanChangeIntent> PlanChangeIntents { get; set; }
         public DbSet<SubscriptionPaymentIncident> SubscriptionPaymentIncidents { get; set; }
+
+        public DbSet<ProviderAddonAuditSnapshot> ProviderAddonAuditSnapshots { get; set; }
 
 
 

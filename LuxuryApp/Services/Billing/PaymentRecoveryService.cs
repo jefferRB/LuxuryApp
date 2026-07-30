@@ -141,6 +141,7 @@ namespace LuxuryApp.Services.Billing
         private readonly BillingPaymentRecoveryOptions _options;
         private readonly ITenantCommercialAccessCache? _accessCache;
         private readonly ILogger<PaymentRecoveryService> _logger;
+        private readonly ITenantOwnerResolver _ownerResolver;
 
         public PaymentRecoveryService(
             ApplicationDbContext db,
@@ -148,6 +149,7 @@ namespace LuxuryApp.Services.Billing
             IBusinessDateTimeProvider clock,
             IOptions<BillingPaymentRecoveryOptions> options,
             ILogger<PaymentRecoveryService> logger,
+            ITenantOwnerResolver ownerResolver,
             ITenantCommercialAccessCache? accessCache = null)
         {
             _db = db;
@@ -156,6 +158,7 @@ namespace LuxuryApp.Services.Billing
             _options = options.Value;
             _accessCache = accessCache;
             _logger = logger;
+            _ownerResolver = ownerResolver;
         }
 
         public async Task RegisterFailedPaymentAsync(
@@ -949,13 +952,9 @@ namespace LuxuryApp.Services.Billing
             return latestFailed is null || latestConfirmed >= latestFailed;
         }
 
+        /// <summary>Contacto del tenant por regla de owner (admin &gt; funcionario), no alfabético.</summary>
         private Task<string?> ResolveTenantEmailAsync(Guid tenantId, CancellationToken cancellationToken) =>
-            _db.Users
-                .AsNoTracking()
-                .Where(u => u.TenantId == tenantId && u.Email != null)
-                .OrderBy(u => u.Email)
-                .Select(u => u.Email)
-                .FirstOrDefaultAsync(cancellationToken);
+            _ownerResolver.ResolveOwnerEmailAsync(tenantId, cancellationToken);
 
         private PlatformAuditLog BuildAudit(string action, Guid tenantId, string entityId, string reason, DateTime nowUtc) =>
             new()

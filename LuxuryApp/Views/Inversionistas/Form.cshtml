@@ -1,0 +1,196 @@
+@using LuxuryApp.Models.Inversionistas
+@model InvestorFormViewModel
+
+@{
+    ViewData["Title"] = Model.EsEdicion ? "Editar inversionista" : "Nuevo inversionista";
+    var hasErrors = !ViewData.ModelState.IsValid
+        && ViewData.ModelState.Values.Any(v => v.Errors.Count > 0);
+    var disponible = Math.Max(100m - Model.ParticipacionOtros, 0m);
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/finance-modules.css" asp-append-version="true" />
+}
+
+<div class="finance-page-shell">
+
+    <div class="finance-hero">
+        <div class="finance-hero-left">
+            <span class="finance-badge">
+                <i class="bi bi-people-fill"></i>
+                Inversionistas
+            </span>
+            <h1 class="finance-title">@ViewData["Title"]</h1>
+            <p class="finance-subtitle">
+                Datos del inversionista y las condiciones de su participación en la ganancia.
+            </p>
+        </div>
+    </div>
+
+    <form asp-action="@(Model.EsEdicion ? "Editar" : "Crear")"
+          asp-route-id="@Model.Id"
+          method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="Id" />
+        <input type="hidden" asp-for="AcuerdoId" />
+
+        <div class="finance-form-body">
+
+            @if (hasErrors)
+            {
+                <div class="finance-validation-summary" role="alert">
+                    <div asp-validation-summary="All"></div>
+                </div>
+            }
+
+            <div class="finance-form-info-box">
+                <i class="bi bi-info-circle-fill"></i>
+                Otros acuerdos vigentes suman <strong>@Model.ParticipacionOtros.ToString("0.##") %</strong>,
+                así que acá podés asignar hasta <strong>@disponible.ToString("0.##") %</strong>.
+                Un inversionista no es un usuario del sistema: solo recibe su estado de cuenta por correo.
+            </div>
+
+            <div class="finance-form-grid">
+
+                <div class="finance-form-field">
+                    <label asp-for="Nombre" class="finance-form-label">
+                        Nombre <span class="finance-required">*</span>
+                    </label>
+                    <div class="finance-input-wrap">
+                        <span class="finance-input-icon"><i class="bi bi-person"></i></span>
+                        <input asp-for="Nombre" class="finance-form-control" autocomplete="off" />
+                    </div>
+                    <span asp-validation-for="Nombre" class="finance-field-error"></span>
+                </div>
+
+                <div class="finance-form-field">
+                    <label asp-for="Email" class="finance-form-label">
+                        Correo electrónico <span class="finance-required">*</span>
+                    </label>
+                    <div class="finance-input-wrap">
+                        <span class="finance-input-icon"><i class="bi bi-envelope"></i></span>
+                        <input asp-for="Email" class="finance-form-control" type="email" autocomplete="off" />
+                    </div>
+                    <span asp-validation-for="Email" class="finance-field-error"></span>
+                </div>
+
+                <div class="finance-form-field">
+                    <label asp-for="Telefono" class="finance-form-label">Teléfono (opcional)</label>
+                    <div class="finance-input-wrap">
+                        <span class="finance-input-icon"><i class="bi bi-telephone"></i></span>
+                        <input asp-for="Telefono" class="finance-form-control" autocomplete="off" />
+                    </div>
+                    <span asp-validation-for="Telefono" class="finance-field-error"></span>
+                </div>
+
+                <div class="finance-form-field">
+                    <label asp-for="ParticipacionPorcentaje" class="finance-form-label">
+                        Porcentaje de participación <span class="finance-required">*</span>
+                    </label>
+                    <div class="finance-input-wrap">
+                        <span class="finance-input-icon"><i class="bi bi-percent"></i></span>
+                        <input asp-for="ParticipacionPorcentaje"
+                               class="finance-form-control"
+                               type="number"
+                               step="0.01"
+                               min="0.01"
+                               max="100" />
+                    </div>
+                    <span asp-validation-for="ParticipacionPorcentaje" class="finance-field-error"></span>
+                </div>
+
+                <div class="finance-form-field">
+                    <label asp-for="Frecuencia" class="finance-form-label">Frecuencia</label>
+                    <div class="finance-input-wrap">
+                        <span class="finance-input-icon"><i class="bi bi-calendar-range"></i></span>
+                        <select asp-for="Frecuencia" class="finance-form-control"
+                                asp-items="Html.GetEnumSelectList<InvestorPayoutFrequency>()"></select>
+                    </div>
+                </div>
+
+                <div class="finance-form-field">
+                    <label asp-for="EffectiveFrom" class="finance-form-label">
+                        Vigente desde <span class="finance-required">*</span>
+                    </label>
+                    <div class="finance-input-wrap">
+                        <span class="finance-input-icon"><i class="bi bi-calendar3"></i></span>
+                        <input asp-for="EffectiveFrom" class="finance-form-control" type="date" />
+                    </div>
+                    <span asp-validation-for="EffectiveFrom" class="finance-field-error"></span>
+                    @if (Model.ProximoInicioPeriodo.HasValue)
+                    {
+                        <span class="finance-historial-help">
+                            Un cambio de porcentaje entra en vigor al inicio de un periodo.
+                            El próximo válido es el @Model.ProximoInicioPeriodo.Value.ToString("dd/MM/yyyy").
+                        </span>
+                    }
+                </div>
+
+                <div class="finance-form-field">
+                    <label asp-for="EffectiveTo" class="finance-form-label">Vigente hasta (opcional)</label>
+                    <div class="finance-input-wrap">
+                        <span class="finance-input-icon"><i class="bi bi-calendar-x"></i></span>
+                        <input asp-for="EffectiveTo" class="finance-form-control" type="date" />
+                    </div>
+                    <span asp-validation-for="EffectiveTo" class="finance-field-error"></span>
+                </div>
+
+                <div class="finance-form-field">
+                    <label asp-for="TratamientoPerdidas" class="finance-form-label">Tratamiento de pérdidas</label>
+                    <div class="finance-input-wrap">
+                        <span class="finance-input-icon"><i class="bi bi-graph-down"></i></span>
+                        <select asp-for="TratamientoPerdidas" class="finance-form-control">
+                            <option value="@((int)InvestorLossTreatment.NoDistribution)">
+                                Sin arrastre — una pérdida no pasa al siguiente periodo
+                            </option>
+                            <option value="@((int)InvestorLossTreatment.CarryForward)">
+                                Con arrastre — la pérdida se descuenta de ganancias futuras
+                            </option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="finance-form-full">
+                    <div class="finance-checkbox-group">
+                        <label class="finance-checkbox-item">
+                            <input asp-for="EnvioAutomatico" type="checkbox" />
+                            <span>Enviar el estado de cuenta automáticamente al cerrar el periodo</span>
+                        </label>
+                        <label class="finance-checkbox-item">
+                            <input asp-for="Activo" type="checkbox" />
+                            <span>Inversionista activo</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="finance-form-full">
+                    <label asp-for="Notas" class="finance-form-label">Notas del acuerdo</label>
+                    <textarea asp-for="Notas" class="finance-form-control finance-form-control--no-icon" rows="2"></textarea>
+                </div>
+
+                <div class="finance-form-full">
+                    <label asp-for="NotasInternas" class="finance-form-label">Notas internas</label>
+                    <textarea asp-for="NotasInternas" class="finance-form-control finance-form-control--no-icon" rows="2"></textarea>
+                    <span class="finance-historial-help">
+                        Las notas internas nunca se incluyen en el correo del inversionista.
+                    </span>
+                </div>
+            </div>
+
+            <div class="finance-form-footer">
+                <div class="finance-form-footer-left">
+                    <a asp-action="Index" class="finance-btn-back">
+                        <i class="bi bi-arrow-left"></i> Volver
+                    </a>
+                </div>
+                <button type="submit" class="finance-btn-save">
+                    <i class="bi bi-check2-circle"></i> Guardar
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

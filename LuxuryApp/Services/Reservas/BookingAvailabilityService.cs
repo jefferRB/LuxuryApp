@@ -1,6 +1,7 @@
 using LuxuryApp.Models.Reservas;
 using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Calendar;
+using LuxuryApp.Services.Horarios;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
@@ -11,15 +12,18 @@ namespace LuxuryApp.Services.Reservas
         private readonly ApplicationDbContext _context;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly IBookingCatalogService _catalogService;
+        private readonly IFuncionarioAvailabilityService _availabilityService;
 
         public BookingAvailabilityService(
             ApplicationDbContext context,
             IBusinessDateTimeProvider businessDateTimeProvider,
-            IBookingCatalogService catalogService)
+            IBookingCatalogService catalogService,
+            IFuncionarioAvailabilityService availabilityService)
         {
             _context = context;
             _businessDateTimeProvider = businessDateTimeProvider;
             _catalogService = catalogService;
+            _availabilityService = availabilityService;
         }
 
         public async Task<IReadOnlyList<string>> GetAvailableSlotsAsync(
@@ -247,7 +251,7 @@ namespace LuxuryApp.Services.Reservas
         }
 
         private static int? FindFreeCandidate(
-            Dictionary<int, List<(DateTime Inicio, DateTime Fin)>> busyByFuncionario,
+            Dictionary<int, List<BusyInterval>> busyByFuncionario,
             IReadOnlyList<int> candidatos,
             DateTime inicio,
             DateTime fin)
@@ -308,56 +312,30 @@ namespace LuxuryApp.Services.Reservas
             return compatibles;
         }
 
-        private Task<Dictionary<int, List<(DateTime Inicio, DateTime Fin)>>> LoadBusyIntervalsAsync(
+        private Task<Dictionary<int, List<BusyInterval>>> LoadBusyIntervalsAsync(
             IReadOnlyList<int> funcionarioIds,
             DateOnly fecha,
             CancellationToken cancellationToken) =>
             LoadBusyIntervalsRangeAsync(funcionarioIds, fecha, fecha, cancellationToken);
 
-        private async Task<Dictionary<int, List<(DateTime Inicio, DateTime Fin)>>> LoadBusyIntervalsRangeAsync(
+        /// <summary>
+        /// Ocupación del rango desde la ÚNICA fuente de disponibilidad: incluye citas, descansos y
+        /// bloqueos recurrentes. Así una reserva pública nunca puede caer en el almuerzo del equipo.
+        /// </summary>
+        private Task<Dictionary<int, List<BusyInterval>>> LoadBusyIntervalsRangeAsync(
             IReadOnlyList<int> funcionarioIds,
             DateOnly fechaInicio,
             DateOnly fechaFin,
-            CancellationToken cancellationToken)
-        {
-            // Rango amplio: incluye citas que empezaron el día anterior (duraciones largas)
-            // y cualquier cita dentro de la ventana solicitada. Una sola consulta para todo el rango.
-            var rangoInicio = fechaInicio.ToDateTime(TimeOnly.MinValue).AddDays(-1);
-            var rangoFin = fechaFin.ToDateTime(TimeOnly.MinValue).AddDays(1);
-
-            var citas = await _context.Citas
-                .AsNoTracking()
-                .Where(c =>
-                    funcionarioIds.Contains(c.FuncionarioId) &&
-                    c.FechaHoraCita >= rangoInicio &&
-                    c.FechaHoraCita < rangoFin)
-                .Select(c => new
-                {
-                    c.FuncionarioId,
-                    c.FechaHoraCita,
-                    Duracion = c.Tipo == "DESCANSO"
-                        ? (c.DuracionMinutos ?? CalendarCommandService.DefaultDurationMinutes)
-                        : (c.DuracionMinutos ?? (c.Servicio != null ? c.Servicio.DuracionMinutos : null) ?? CalendarCommandService.DefaultDurationMinutes)
-                })
-                .ToListAsync(cancellationToken);
-
-            var map = new Dictionary<int, List<(DateTime, DateTime)>>();
-            foreach (var cita in citas)
-            {
-                if (!map.TryGetValue(cita.FuncionarioId, out var lista))
-                {
-                    lista = new List<(DateTime, DateTime)>();
-                    map[cita.FuncionarioId] = lista;
-                }
-
-                lista.Add((cita.FechaHoraCita, cita.FechaHoraCita.AddMinutes(cita.Duracion)));
-            }
-
-            return map;
-        }
+            CancellationToken cancellationToken) =>
+            _availabilityService.GetBusyIntervalsAsync(
+                funcionarioIds,
+                fechaInicio,
+                fechaFin,
+                excludeCitaId: null,
+                cancellationToken);
 
         private static bool EstaLibre(
-            Dictionary<int, List<(DateTime Inicio, DateTime Fin)>> busyByFuncionario,
+            Dictionary<int, List<BusyInterval>> busyByFuncionario,
             IReadOnlyList<int> candidatos,
             DateTime inicio,
             DateTime fin)
@@ -374,7 +352,7 @@ namespace LuxuryApp.Services.Reservas
         }
 
         private static bool Solapa(
-            Dictionary<int, List<(DateTime Inicio, DateTime Fin)>> busyByFuncionario,
+            Dictionary<int, List<BusyInterval>> busyByFuncionario,
             int funcionarioId,
             DateTime inicio,
             DateTime fin)
@@ -384,15 +362,7 @@ namespace LuxuryApp.Services.Reservas
                 return false;
             }
 
-            foreach (var (ocupadoInicio, ocupadoFin) in ocupados)
-            {
-                if (inicio < ocupadoFin && fin > ocupadoInicio)
-                {
-                    return true;
-                }
-            }
-
-            return false;
+            return ocupados.Any(intervalo => intervalo.Solapa(inicio, fin));
         }
     }
 }

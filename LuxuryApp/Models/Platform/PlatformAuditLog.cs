@@ -55,6 +55,7 @@ namespace LuxuryApp.Models.Platform
         public const string DangerousActionPasswordFailed = "DangerousActionPasswordFailed";
         public const string DangerousActionBlocked = "DangerousActionBlocked";
         public const string TenantCommercialAccessUpdated = "TenantCommercialAccessUpdated";
+        public const string TenantPendingRegistrationExpired = "TenantPendingRegistrationExpired";
         public const string WhatsAppSettingsUpdated = "WhatsAppSettingsUpdated";
         public const string MetaDiagnosticExecuted = "MetaDiagnosticExecuted";
 
@@ -422,6 +423,77 @@ namespace LuxuryApp.Models.Platform
 
         /// <summary>Pago recurrente del add-on exitoso posterior: el incidente del add-on se resolvió y se limpió su gracia.</summary>
         public const string AddonPaymentRecoveryResolved = "AddonPaymentRecoveryResolved";
+
+        // ── Sondeo del proveedor tras un webhook de add-on RECHAZADO (caso compra2 2026-07-29) ──
+        // Rechazar el webhook protege el estado local, pero NO deshace lo que TiloPay ya hizo. Sin
+        // estas señales el sistema quedaba en falso verde con dos add-ons cobrables en el proveedor.
+
+        /// <summary>CRÍTICO: tras rechazar un webhook de add-on, TiloPay quedó con DOS suscriptores de add-on cobrables para el mismo tenant. Doble cobro real o inminente.</summary>
+        public const string AddonProviderDoubleActiveAfterRejectedWebhook = "AddonProviderDoubleActiveAfterRejectedWebhook";
+
+        /// <summary>Reconciliación: auditoría periódica del proveedor detectó más de un suscriptor de add-on cobrable para el tenant.</summary>
+        public const string AddonProviderDoubleActiveDetected = "AddonProviderDoubleActiveDetected";
+
+        /// <summary>El sondeo del proveedor no fue concluyente (API caído o status desconocido): NO se asume que el proveedor esté sano.</summary>
+        public const string AddonProviderAuditInconclusive = "AddonProviderAuditInconclusive";
+
+        /// <summary>Webhook recurrente rechazado por captura: autorización sin captura, anulación o reverso. NO es un cobro real.</summary>
+        public const string RecurringPaymentRejectedNotCaptured = "RecurringPaymentRejectedNotCaptured";
+
+        /// <summary>Add-on: el id_suscriptor se resolvió tarde en un cambio de paquete; se adoptó el nuevo y el anterior quedó pendiente de baja verificada.</summary>
+        public const string AddonSubscriberAdoptedAfterLateResolution = "AddonSubscriberAdoptedAfterLateResolution";
+
+        /// <summary>Reparación MANUAL del estado local de un add-on (Scripts/AddonDowngradeRepair.sql). Nunca confirma dinero: la baja del proveedor va por el flujo verificado.</summary>
+        public const string AddonProviderRepairApplied = "AddonProviderRepairApplied";
+
+        // ── Inversionistas y distribución de ganancias ──
+        // Todo lo que mueve dinero o congela un número queda auditado: la participación de un
+        // inversionista es un compromiso económico del negocio.
+
+        public const string InvestorCreated = "InvestorCreated";
+        public const string InvestorUpdated = "InvestorUpdated";
+
+        /// <summary>Cambio de porcentaje/frecuencia: se cerró el acuerdo anterior y nació una versión nueva.</summary>
+        public const string InvestorAgreementChanged = "InvestorAgreementChanged";
+
+        public const string InvestorPolicyUpdated = "InvestorPolicyUpdated";
+        public const string InvestorStatementGenerated = "InvestorStatementGenerated";
+        public const string InvestorStatementRecalculated = "InvestorStatementRecalculated";
+
+        /// <summary>El snapshot quedó congelado: a partir de acá editar cobros o gastos no lo cambia.</summary>
+        public const string InvestorStatementFinalized = "InvestorStatementFinalized";
+
+        public const string InvestorStatementVoided = "InvestorStatementVoided";
+
+        /// <summary>Reapertura explícita de un estado finalizado. Acción excepcional y siempre con motivo.</summary>
+        public const string InvestorStatementReopened = "InvestorStatementReopened";
+
+        public const string InvestorStatementSent = "InvestorStatementSent";
+        public const string InvestorStatementResent = "InvestorStatementResent";
+        public const string InvestorStatementAdjustmentAdded = "InvestorStatementAdjustmentAdded";
+        public const string InvestorStatementAdjustmentRemoved = "InvestorStatementAdjustmentRemoved";
+        public const string InvestorPaymentRegistered = "InvestorPaymentRegistered";
+
+        /// <summary>Corrección de un pago mal registrado (monto negativo compensatorio) con motivo obligatorio.</summary>
+        public const string InvestorPaymentReversed = "InvestorPaymentReversed";
+
+        // ── Bloqueos recurrentes de horario ──
+
+        public const string RecurringScheduleRuleCreated = "RecurringScheduleRuleCreated";
+
+        /// <summary>Edición de una regla vigente: se cerró la versión anterior y se creó una nueva hacia el futuro.</summary>
+        public const string RecurringScheduleRuleVersioned = "RecurringScheduleRuleVersioned";
+
+        public const string RecurringScheduleRuleUpdated = "RecurringScheduleRuleUpdated";
+        public const string RecurringScheduleRulePaused = "RecurringScheduleRulePaused";
+        public const string RecurringScheduleRuleResumed = "RecurringScheduleRuleResumed";
+        public const string RecurringScheduleRuleEnded = "RecurringScheduleRuleEnded";
+
+        /// <summary>La regla se activó sabiendo que hay citas existentes que coinciden. Las citas NO se tocaron.</summary>
+        public const string RecurringScheduleRuleActivatedWithConflicts = "RecurringScheduleRuleActivatedWithConflicts";
+
+        public const string RecurringScheduleExceptionCreated = "RecurringScheduleExceptionCreated";
+        public const string RecurringScheduleExceptionRemoved = "RecurringScheduleExceptionRemoved";
     }
 
     public static class PlatformAuditEntityTypes
@@ -433,5 +505,9 @@ namespace LuxuryApp.Models.Platform
         public const string PromotionalCode = "PromotionalCode";
         public const string CommercialSnapshot = "CommercialSnapshot";
         public const string WhatsAppAddon = "WhatsAppAddon";
+        public const string Investor = "Investor";
+        public const string InvestorPolicy = "InvestorPolicy";
+        public const string InvestorStatement = "InvestorStatement";
+        public const string RecurringScheduleRule = "RecurringScheduleRule";
     }
 }

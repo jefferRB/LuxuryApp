@@ -203,7 +203,12 @@
             <span class="sub-summary-icon"><i class="bi bi-credit-card-2-front"></i></span>
             <span class="sub-summary-label">Plan y estado</span>
             <strong class="sub-summary-value">@(sub?.PlanName ?? "Sin plan base")</strong>
-            <span class="sub-summary-foot">@(sub?.StatusLabel ?? "Sin suscripción")</span>
+            @* Acceso otorgado por plataforma (exento/interno): no hay estado de cobro que mostrar. *@
+            <span class="sub-summary-foot">
+                @(sub?.IsPlatformGrantedAccess == true
+                    ? "Acceso incluido (sin cobro)"
+                    : sub?.StatusLabel ?? "Sin suscripción")
+            </span>
         </div>
         <div class="sub-card sub-summary-card">
             <span class="sub-summary-icon"><i class="bi bi-people"></i></span>

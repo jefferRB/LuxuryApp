@@ -101,6 +101,7 @@ namespace LuxuryApp.Services.Billing
         private readonly ISubscriberResolutionService? _subscriberResolutionService;
         private readonly IProviderSubscriptionManager? _providerSubscriptionManager;
         private readonly IAddonSubscriptionManager? _addonSubscriptionManager;
+        private readonly IAddonProviderAuditService? _addonProviderAudit;
         private readonly IPlanChangeLateApplicationService? _planChangeLateApplicationService;
         private readonly IProviderExpirySyncService? _providerExpirySyncService;
         // Opcionales (patrón del módulo): DI los inyecta en producción; en tests con el ctor mínimo
@@ -126,7 +127,8 @@ namespace LuxuryApp.Services.Billing
             IProviderExpirySyncService? providerExpirySyncService = null,
             ITilopayRepeatAdminService? adminService = null,
             ITenantCommercialAccessCache? accessCache = null,
-            IAddonSubscriptionManager? addonSubscriptionManager = null)
+            IAddonSubscriptionManager? addonSubscriptionManager = null,
+            IAddonProviderAuditService? addonProviderAudit = null)
         {
             _db = db;
             _suscripcionService = suscripcionService;
@@ -137,6 +139,7 @@ namespace LuxuryApp.Services.Billing
             _subscriberResolutionService = subscriberResolutionService;
             _providerSubscriptionManager = providerSubscriptionManager;
             _addonSubscriptionManager = addonSubscriptionManager;
+            _addonProviderAudit = addonProviderAudit;
             _planChangeLateApplicationService = planChangeLateApplicationService;
             _providerExpirySyncService = providerExpirySyncService;
             _adminService = adminService;
@@ -192,6 +195,10 @@ namespace LuxuryApp.Services.Billing
             // alertar add-ons activos sin plan base. Independiente del plan base; nunca lo toca.
             await RunPhaseAsync("RetryPendingAddonCancellations", () => RetryPendingAddonCancellationsAsync(report, cancellationToken), cancellationToken);
             await RunPhaseAsync("AlertAddonsWithoutActiveBase", () => AlertAddonsWithoutActiveBaseAsync(report, cancellationToken), cancellationToken);
+            // Va AL FINAL: primero se intentan las bajas pendientes, y recién después se le pregunta
+            // a TiloPay cuántos add-ons puede cobrar realmente. Es lo único que detecta el doble
+            // suscriptor del proveedor cuando el estado local quedó impecable (caso compra2).
+            await RunPhaseAsync("AuditAddonProviderState", () => AuditAddonProviderStateAsync(report, cancellationToken), cancellationToken);
 
             report.FinishedUtc = GetUtcNow();
 
@@ -2354,6 +2361,104 @@ namespace LuxuryApp.Services.Billing
                         "Reintento de cancelación de suscriptor de add-on falló. TenantId {TenantId}. AddonId {AddonId}. Se continúa.",
                         candidate.TenantId,
                         candidate.Id);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Le pregunta a TiloPay cuántos suscriptores de add-on puede cobrarle a cada tenant con
+        /// add-on recurrente vivo, y deja el snapshot para BillingHealth/Mission Control.
+        ///
+        /// Es la única fase que puede ver el fallo del caso compra2: el estado local quedaba
+        /// perfecto (un WA800 activo) mientras TiloPay tenía WA400 y WA800 cobrables a la vez. Solo
+        /// LECTURA contra el proveedor: nunca cancela nada (eso lo decide un humano o
+        /// RetryPendingAddonCancellations con su verificación).
+        ///
+        /// Aislada por tenant y con tope por pase para no disparar la cuota del API admin.
+        /// </summary>
+        private async Task AuditAddonProviderStateAsync(
+            BillingReconciliationReport report,
+            CancellationToken cancellationToken)
+        {
+            if (_addonProviderAudit is null || !_addonProviderAudit.IsEnabled)
+            {
+                return;
+            }
+
+            var maxTenants = Math.Clamp(_options.MaxAddonProviderAuditsPerRun, 0, 200);
+            if (maxTenants == 0)
+            {
+                return;
+            }
+
+            // Solo tenants con add-on PAGADO por TiloPay: los manuales/cortesía (Luxe) no tienen
+            // suscriptor recurrente y preguntarle al proveedor por ellos no aporta nada.
+            var candidates = await _db.TenantSubscriptionAddons
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(addon =>
+                    addon.BillingSource == WhatsAppAddonBillingSource.ProviderRecurring &&
+                    (addon.Estado == EstadoSuscripcion.Activa ||
+                     addon.Estado == EstadoSuscripcion.Morosa ||
+                     addon.PendingCancellationProviderSubscriptionId != null))
+                .OrderBy(addon => addon.UpdatedAtUtc)
+                .Select(addon => addon.TenantId)
+                .Distinct()
+                .Take(maxTenants)
+                .ToListAsync(cancellationToken);
+
+            foreach (var tenantId in candidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (tenantId == Guid.Empty)
+                {
+                    continue;
+                }
+
+                DetachAllTracked();
+
+                try
+                {
+                    var audit = await _addonProviderAudit.AuditAsync(
+                        tenantId,
+                        customerEmail: null,
+                        source: "reconciliation",
+                        auditAction: PlatformAuditActions.AddonProviderDoubleActiveDetected,
+                        cancellationToken);
+
+                    if (!audit.Executed)
+                    {
+                        continue;
+                    }
+
+                    report.AddonProviderAudits++;
+
+                    if (audit.HasDoubleActive)
+                    {
+                        report.AddonProviderDoubleActiveDetected++;
+                        _logger.LogCritical(
+                            "Auditoría del proveedor: {Count} suscriptores de add-on COBRABLES para el tenant {TenantId}. Riesgo de doble cobro. {Detail}",
+                            audit.ChargeableCount,
+                            tenantId,
+                            audit.Detail);
+                    }
+                    else if (audit.IsInconclusive)
+                    {
+                        report.AddonProviderAuditsInconclusive++;
+                    }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    DetachAllTracked();
+                    _logger.LogError(
+                        ex,
+                        "La auditoría del proveedor del add-on falló para el tenant {TenantId}. Se continúa.",
+                        tenantId);
                 }
             }
         }

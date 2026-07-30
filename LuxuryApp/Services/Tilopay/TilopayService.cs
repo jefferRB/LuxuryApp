@@ -196,8 +196,34 @@ namespace LuxuryApp.Services.Tilopay
                 linkPayload?.codeDescription ??
                 TryReadFirstString(root, "codeDescription", "statusDescription", "status_description", "description", "response", "message")) ?? string.Empty;
 
-            var amount = TryReadFirstDecimal(root, "amount", "monto", "total");
-            var currency = NormalizeOptionalValue(TryReadFirstString(root, "currency", "moneda"));
+            // El monto se lee PRIORIZANDO el nivel raiz: la busqueda recursiva recorre las
+            // propiedades en orden y un "amount" anidado dentro de una propiedad anterior ganaria
+            // sobre el "amount" real del pago. Para el dinero eso no es aceptable.
+            var amount = TryReadFirstDecimalPreferringRoot(root, "amount", "monto", "total");
+            var currency = NormalizeOptionalValue(TryReadFirstStringPreferringRoot(root, "currency", "moneda"));
+
+            // Señales de CAPTURA (ver RecurringPaymentSettlementRules). Ausentes en la mayoria de
+            // payloads de TiloPay: por eso son nullables y nunca se asume "no capturado" sin señal.
+            var isCaptured = TryReadFirstBool(root, "captured", "isCaptured", "is_captured", "capturado");
+            var captureStatusRaw = NormalizeOptionalValue(TryReadFirstString(
+                root,
+                "capture_status",
+                "captureStatus",
+                "captureState",
+                "capture",
+                "estadoCaptura",
+                "estado_captura"));
+            var capturedAmount = TryReadFirstDecimalPreferringRoot(
+                root,
+                "captured_amount",
+                "capturedAmount",
+                "total_debitado",
+                "totalDebitado",
+                "totalDebited",
+                "debited_amount",
+                "debitedAmount",
+                "settled_amount",
+                "settledAmount");
             var orderHash = NormalizeOptionalValue(linkPayload?.orderHash) ?? NormalizeOptionalValue(TryReadFirstString(root, "orderHash", "order_hash"));
             var eventType = NormalizeOptionalValue(TryReadFirstString(root, "eventType", "event_type", "event", "type"));
 
@@ -237,6 +263,9 @@ namespace LuxuryApp.Services.Tilopay
                 CustomerEmail = customerEmail,
                 Amount = amount,
                 Currency = currency,
+                IsCaptured = isCaptured,
+                CapturedAmount = capturedAmount,
+                CaptureStatusRaw = captureStatusRaw,
                 IsRecurring = isRecurring,
                 RecurringModality = recurringModality,
                 RecurringFrequency = recurringFrequency,
@@ -582,14 +611,7 @@ namespace LuxuryApp.Services.Tilopay
             {
                 if (TryFindPropertyValue(root, propertyName, out var value))
                 {
-                    var normalized = value.ValueKind switch
-                    {
-                        JsonValueKind.String => value.GetString(),
-                        JsonValueKind.Number => value.ToString(),
-                        JsonValueKind.True => bool.TrueString,
-                        JsonValueKind.False => bool.FalseString,
-                        _ => null
-                    };
+                    var normalized = NormalizeScalar(value);
 
                     if (!string.IsNullOrWhiteSpace(normalized))
                     {
@@ -600,6 +622,16 @@ namespace LuxuryApp.Services.Tilopay
 
             return null;
         }
+
+        private static string? NormalizeScalar(JsonElement value) =>
+            value.ValueKind switch
+            {
+                JsonValueKind.String => value.GetString(),
+                JsonValueKind.Number => value.ToString(),
+                JsonValueKind.True => bool.TrueString,
+                JsonValueKind.False => bool.FalseString,
+                _ => null
+            };
 
         private static int? TryReadFirstInt(JsonElement root, params string[] propertyNames)
         {
@@ -658,6 +690,44 @@ namespace LuxuryApp.Services.Tilopay
             return decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
                 ? parsed
                 : null;
+        }
+
+        /// <summary>
+        /// Igual que <see cref="TryReadFirstDecimal"/> pero agotando primero el nivel RAIZ del
+        /// payload. Sin esto, un objeto anidado que traiga "amount" antes del "amount" real gana
+        /// por el recorrido en profundidad de <see cref="TryFindPropertyValue"/>.
+        /// </summary>
+        private static decimal? TryReadFirstDecimalPreferringRoot(JsonElement root, params string[] propertyNames)
+        {
+            var raw = TryReadFirstStringPreferringRoot(root, propertyNames);
+            return decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : null;
+        }
+
+        private static string? TryReadFirstStringPreferringRoot(JsonElement root, params string[] propertyNames)
+        {
+            if (root.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var propertyName in propertyNames)
+                {
+                    foreach (var property in root.EnumerateObject())
+                    {
+                        if (!string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        var normalized = NormalizeScalar(property.Value);
+                        if (!string.IsNullOrWhiteSpace(normalized))
+                        {
+                            return normalized;
+                        }
+                    }
+                }
+            }
+
+            return TryReadFirstString(root, propertyNames);
         }
 
         private static DateTime? TryReadFirstProviderDateUtc(JsonElement root, params string[] propertyNames)

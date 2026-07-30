@@ -4,23 +4,36 @@
     Layout = "_CheckoutReturnLayout";
     ViewData["Title"] = "Estado del pago";
 
-    var statusClass = Model.AccesoRestringido
+    @* Revisión manual y correlación fallida se evalúan ANTES del éxito: nunca deben pintarse en
+       verde. Un retorno que dice "confirmado" cuando el cambio no se aplicó es peor que un error. *@
+    var statusClass = Model.AccesoRestringido || Model.CorrelacionFallida
         ? "checkout-state-restricted"
-        : Model.SuscripcionActiva
-            ? "checkout-state-success"
-            : Model.PagoAprobadoPorProveedor
-                ? "checkout-state-processing"
-                : "checkout-state-pending";
+        : Model.EnRevisionManual
+            ? "checkout-state-pending"
+            : Model.SuscripcionActiva
+                ? "checkout-state-success"
+                : Model.PagoAprobadoPorProveedor
+                    ? "checkout-state-processing"
+                    : "checkout-state-pending";
 
     var statusEyebrow = Model.AccesoRestringido
         ? "Acceso restringido"
-        : Model.SuscripcionActiva
-            ? "Acceso habilitado"
-            : Model.PagoAprobadoPorProveedor
-                ? "Activando acceso"
-                : "Esperando confirmacion";
+        : Model.CorrelacionFallida
+            ? "No identificamos el pago"
+            : Model.EnRevisionManual
+                ? "Pago en revisión manual"
+                : Model.SuscripcionActiva
+                    ? "Acceso habilitado"
+                    : Model.PagoAprobadoPorProveedor
+                        ? "Activando acceso"
+                        : "Esperando confirmacion";
 
-    var paymentState = Model.EstadoPago?.ToString() ?? "Sin registro local";
+    var paymentState = Model.EstadoPago switch
+    {
+        LuxuryApp.Models.SaaS.EstadoPagoProveedor.ManualReview => "En revisión manual",
+        null => "Sin registro local",
+        _ => Model.EstadoPago.ToString()
+    };
     var subscriptionState = Model.EstadoSuscripcion?.ToString() ?? "Sin suscripcion asociada";
     var primaryActionLabel = Model.PrimaryActionLabel
         ?? (Model.AccesoRestringido
@@ -291,7 +304,11 @@
                 <div class="checkout-body">
                     <section class="checkout-status @statusClass" aria-live="polite">
                         <div class="checkout-status-mark">
-                            @(Model.AccesoRestringido ? "!" : Model.SuscripcionActiva ? "OK" : Model.PagoAprobadoPorProveedor ? "..." : "?")
+                            @(Model.AccesoRestringido || Model.CorrelacionFallida
+                                ? "!"
+                                : Model.EnRevisionManual
+                                    ? "!"
+                                    : Model.SuscripcionActiva ? "OK" : Model.PagoAprobadoPorProveedor ? "..." : "?")
                         </div>
                         <div>
                             <div class="checkout-status-eyebrow">@statusEyebrow</div>
@@ -387,6 +404,25 @@
                             </div>
                         }
                     </dl>
+
+                    @* Revisión manual: se dice explícitamente que NO se aplicó el cambio. *@
+                    @if (Model.EnRevisionManual)
+                    {
+                        <div class="checkout-status checkout-state-pending" role="alert">
+                            <div class="checkout-status-mark">!</div>
+                            <div>
+                                <div class="checkout-status-eyebrow">No se aplicó el cambio</div>
+                                <p class="checkout-status-detail mb-0">
+                                    Detectamos una diferencia entre lo que cobró el proveedor y lo que esperábamos cobrar,
+                                    así que no activamos nada automáticamente. Soporte ya tiene el caso.
+                                    @if (!string.IsNullOrWhiteSpace(Model.Referencia))
+                                    {
+                                        <span>Referencia: <strong>@Model.Referencia</strong>.</span>
+                                    }
+                                </p>
+                            </div>
+                        </div>
+                    }
 
                     @* Plan base con impago: sección SEPARADA del comprobante del add-on (no se mezcla). *@
                     @if (Model.EsAddon && Model.BaseRequiereAtencion)

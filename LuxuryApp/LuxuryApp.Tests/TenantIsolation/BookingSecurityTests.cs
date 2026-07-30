@@ -113,7 +113,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             tenantProvider.TenantId = tenantB;
             context.ChangeTracker.Clear();
 
-            var service = new BookingAvailabilityService(context, new FixedBusinessDateTimeProvider(), new BookingCatalogService(context));
+            var service = ControllerTestSupport.CreateBookingAvailabilityService(context, new FixedBusinessDateTimeProvider());
             var resolucion = await service.ResolveSlotAsync(
                 servicio.Id,
                 new DateTime(2026, 5, 27, 9, 0, 0),
@@ -198,7 +198,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             // Solo lunes laboral (bit 1). 2026-05-27 es miércoles.
             await SeedSettingsAsync(context, tenantProvider, workingMask: 0b0000010);
 
-            var service = new BookingAvailabilityService(context, new FixedBusinessDateTimeProvider(), new BookingCatalogService(context));
+            var service = ControllerTestSupport.CreateBookingAvailabilityService(context, new FixedBusinessDateTimeProvider());
             var resolucion = await service.ResolveSlotAsync(
                 servicio.Id,
                 new DateTime(2026, 5, 27, 9, 0, 0),
@@ -219,7 +219,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             await SeedFuncionarioAsync(context);
             await SeedSettingsAsync(context, tenantProvider, workingMask: 0b1111111, open: new TimeOnly(8, 0), close: new TimeOnly(12, 0));
 
-            var service = new BookingAvailabilityService(context, new FixedBusinessDateTimeProvider(), new BookingCatalogService(context));
+            var service = ControllerTestSupport.CreateBookingAvailabilityService(context, new FixedBusinessDateTimeProvider());
             // 13:00 está fuera de la jornada 08:00–12:00.
             var resolucion = await service.ResolveSlotAsync(
                 servicio.Id,
@@ -241,7 +241,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var funcionario = await SeedFuncionarioAsync(context);
             await SeedSettingsAsync(context, tenantProvider, workingMask: 0b1111111, open: new TimeOnly(8, 0), close: new TimeOnly(18, 0));
 
-            var service = new BookingAvailabilityService(context, new FixedBusinessDateTimeProvider(), new BookingCatalogService(context));
+            var service = ControllerTestSupport.CreateBookingAvailabilityService(context, new FixedBusinessDateTimeProvider());
             var resolucion = await service.ResolveSlotAsync(
                 servicio.Id,
                 new DateTime(2026, 5, 27, 9, 0, 0),

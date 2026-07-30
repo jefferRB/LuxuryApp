@@ -898,15 +898,19 @@ namespace LuxuryApp.Tests.Billing
 
                 h.Recovery = new PaymentRecoveryService(
                     context, tenantAccessor, clock, recoveryOptions,
-                    NullLogger<PaymentRecoveryService>.Instance, accessCache);
+                    NullLogger<PaymentRecoveryService>.Instance,
+                    new FakeTenantOwnerResolver(),
+                    accessCache);
 
                 h.Notifications = new PaymentRecoveryNotificationService(
                     context, tenantAccessor, clock, recoveryOptions, h.Email,
                     Options.Create(new PublicSiteOptions { PublicBaseUrl = "https://app.luxurycloud.app" }),
-                    NullLogger<PaymentRecoveryNotificationService>.Instance);
+                    NullLogger<PaymentRecoveryNotificationService>.Instance,
+                    new FakeTenantOwnerResolver());
 
                 h.MethodUpdate = new PaymentMethodUpdateService(
-                    context, h.Admin, clock, NullLogger<PaymentMethodUpdateService>.Instance);
+                    context, h.Admin, clock, NullLogger<PaymentMethodUpdateService>.Instance,
+                    new FakeTenantOwnerResolver());
 
                 h.Health = new BillingHealthService(context, h.SubscriptionService);
 

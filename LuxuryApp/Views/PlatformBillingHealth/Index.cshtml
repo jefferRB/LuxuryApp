@@ -522,6 +522,48 @@
                         </li>
                     </ul>
 
+                    @* Estado REAL en TiloPay. Lo local no puede verlo: en el caso compra2 el tablero
+                       decía riesgo 0 con WA400 y WA800 cobrables a la vez en el proveedor. *@
+                    <div class="d-flex justify-content-between align-items-center gap-2 mt-3 mb-2">
+                        <h3 class="h6 text-uppercase text-muted mb-0">Estado real en TiloPay (última auditoría del proveedor)</h3>
+                        <form asp-action="AuditAddonProvider" method="post" class="d-flex gap-2 align-items-center">
+                            <input type="text" name="tenantId" class="form-control form-control-sm" style="max-width: 20rem;"
+                                   placeholder="TenantId a auditar" required />
+                            <button type="submit" class="btn btn-sm btn-outline-secondary text-nowrap"
+                                    title="Solo lectura contra getSuscriptorRepeat: no cancela nada.">
+                                Auditar proveedor
+                            </button>
+                        </form>
+                    </div>
+                    @if (Model.LastProviderAddonAuditUtc is null)
+                    {
+                        <div class="alert alert-warning py-2 mb-0 small">
+                            Nunca se auditó el proveedor: el verde de arriba <strong>no está verificado contra TiloPay</strong>.
+                            Corré la reconciliación para poblar el snapshot.
+                        </div>
+                    }
+                    else
+                    {
+                        <ul class="list-group list-group-flush">
+                            <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                Tenants con DOBLE add-on cobrable en TiloPay (debe ser 0)
+                                <span class="badge @(Model.ProviderDoubleActiveWhatsAppAddonTenants > 0 ? "text-bg-danger" : "text-bg-success")">@Model.ProviderDoubleActiveWhatsAppAddonTenants</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                Máx. suscriptores de add-on cobrables en un tenant (debe ser 1)
+                                <span class="badge @(Model.ProviderMaxActiveAddonSubscribersByTenant > 1 ? "text-bg-danger" : "text-bg-success")">@Model.ProviderMaxActiveAddonSubscribersByTenant</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                Auditorías no concluyentes (no se declara sano)
+                                <span class="badge @CountBadge(Model.ProviderWhatsAppAddonAuditInconclusiveTenants)">@Model.ProviderWhatsAppAddonAuditInconclusiveTenants</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                Última auditoría del proveedor (UTC)
+                                <span class="text-muted small">@Model.LastProviderAddonAuditUtc.Value.ToString("yyyy-MM-dd HH:mm")</span>
+                            </li>
+                        </ul>
+                    }
+
                     @if (Model.WhatsAppAddonCheckoutConfig.Any())
                     {
                         <h3 class="h6 text-uppercase text-muted mt-3 mb-2">Config de checkout (efectiva) por add-on</h3>

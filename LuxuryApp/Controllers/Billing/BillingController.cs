@@ -1,7 +1,8 @@
-using System.Net;
+﻿using System.Net;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.Marketing;
 using LuxuryApp.Models.SaaS;
+using LuxuryApp.Services.Billing;
 using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.Payments;
 using LuxuryApp.Services.PublicSite;
@@ -22,6 +23,9 @@ namespace LuxuryApp.Controllers
     {
         private const int CheckoutAutoRefreshSeconds = 4;
         private const int CheckoutAutoRefreshMaxAttempts = 5;
+
+        /// <summary>Ventana para ligar un retorno sin referencia a un intento reciente del tenant.</summary>
+        private const int CheckoutReturnCorrelationWindowHours = 3;
 
         private readonly ILogger<BillingController> _logger;
         private readonly ApplicationDbContext _context;
@@ -1033,8 +1037,51 @@ namespace LuxuryApp.Controllers
                     "Este retorno de pago no pertenece a la cuenta autenticada. Ingresa con la cuenta que inicio el checkout.");
             }
 
+            // Sin match por referencia, el retorno NO puede caer al plan base: el cliente pudo haber
+            // comprado un add-on y mostrarle "suscripción activa" del plan base es un éxito falso
+            // (caso compra2). Se intenta recuperar el intento reciente del propio tenant; si hay uno
+            // solo, ese es el scope real. Si hay varios o ninguno, se marca correlación fallida.
+            var correlacionFallida = false;
+            if (pago is null)
+            {
+                var recientes = await FindRecentTenantCheckoutAttemptsAsync(user.TenantId);
+                if (recientes.Count == 1)
+                {
+                    pago = recientes[0];
+
+                    _logger.LogInformation(
+                        "Billing/Exito recupero el scope por intento reciente del tenant. TenantId {TenantId}. PaymentId {PaymentId}. RequestedReferenceSuffix {RequestedReferenceSuffix}.",
+                        user.TenantId,
+                        pago.Id,
+                        SensitiveDataMasker.MaskReference(requestedReference));
+                }
+                else
+                {
+                    // "Correlación fallida" solo si el cliente REALMENTE viene de un checkout: o el
+                    // proveedor mandó señales de retorno, o hay varios intentos recientes y no se
+                    // puede adivinar cuál. Entrar a esta pantalla sin nada pendiente (p. ej. desde
+                    // un favorito con la suscripción ya activa) no es un error y no debe alarmar.
+                    var vieneDeCheckout = !string.IsNullOrWhiteSpace(requestedReference) ||
+                                          !string.IsNullOrWhiteSpace(orderNumber) ||
+                                          !string.IsNullOrWhiteSpace(code) ||
+                                          recientes.Count > 1;
+
+                    if (vieneDeCheckout)
+                    {
+                        correlacionFallida = true;
+
+                        _logger.LogWarning(
+                            "Billing/Exito no pudo correlacionar el retorno con ningun pago local. TenantId {TenantId}. RequestedReferenceSuffix {RequestedReferenceSuffix}. CandidatosRecientes {Candidatos}.",
+                            user.TenantId,
+                            SensitiveDataMasker.MaskReference(requestedReference),
+                            recientes.Count);
+                    }
+                }
+            }
+
             var suscripcion = await FindCurrentSubscriptionAsync(user.TenantId);
             var pollAttemptNormalized = Math.Max(0, pollAttempt);
+            var enRevisionManual = pago?.Estado == EstadoPagoProveedor.ManualReview;
 
             // Scope-aware: si el pago corresponde a un ADD-ON de WhatsApp, el retorno muestra los datos
             // del ADD-ON (paquete, mensajes mensuales, su vigencia/estado), NUNCA los del plan base
@@ -1056,9 +1103,14 @@ namespace LuxuryApp.Controllers
 
                 // "Activo" en el retorno = LOCAL SANO: el add-on quedó con estado efectivo Activa (no
                 // Morosa/gracia). No basta "puede enviar" (Morosa puede) — el retorno no debe mentir.
-                var addonLocalSano = addon is not null &&
+                // En REVISIÓN MANUAL nunca hay éxito: el add-on puede seguir Activa con el paquete
+                // ANTERIOR (compra2 seguía en WA800 tras el intento fallido de bajar a WA400), así
+                // que mostrar "quedó activo" haría creer que el cambio se aplicó.
+                var addonLocalSano = !enRevisionManual &&
+                    addon is not null &&
                     _suscripcionService.GetEffectiveStatus(addon) == EstadoSuscripcion.Activa;
-                var addonAprobadoProveedor = addonLocalSano || IsProviderApproved(code, description);
+                var addonAprobadoProveedor = !enRevisionManual &&
+                    (addonLocalSano || IsProviderApproved(code, description));
                 var addonRequiereConsulta = pago is not null && addonAprobadoProveedor && !addonLocalSano;
                 var addonDebeAuto = addonRequiereConsulta && pollAttemptNormalized < CheckoutAutoRefreshMaxAttempts;
 
@@ -1072,7 +1124,12 @@ namespace LuxuryApp.Controllers
                     CodigoProveedor = code,
                     DescripcionProveedor = description,
                     EsAddon = true,
-                    NombrePlan = addon?.Plan?.Nombre ?? pago?.Plan?.Nombre,
+                    EnRevisionManual = enRevisionManual,
+                    // El paquete que el cliente intentó comprar (el del PAGO), no el que tiene hoy:
+                    // en revisión manual el add-on local sigue siendo el anterior.
+                    NombrePlan = enRevisionManual
+                        ? (pago?.Plan?.Nombre ?? addon?.Plan?.Nombre)
+                        : (addon?.Plan?.Nombre ?? pago?.Plan?.Nombre),
                     EstadoPago = pago?.Estado,
                     EstadoSuscripcion = addon is null ? null : _suscripcionService.GetEffectiveStatus(addon),
                     VigenciaHastaUtc = addon?.FechaFin,
@@ -1107,12 +1164,18 @@ namespace LuxuryApp.Controllers
             // LOCAL SANO = estado EFECTIVO Activa y SIN estado de recuperación. No basta "puede acceder"
             // (Morosa/gracia puede acceder pero NO está sano): así el retorno no muestra "confirmado y
             // activa" cuando en realidad está Morosa / en gracia / SinRelacion.
-            var localSano = suscripcion is not null &&
+            // Con el pago en REVISIÓN MANUAL o sin correlación, el estado del plan base NO es la
+            // confirmación de lo que el cliente acaba de pagar: puede estar Activa por el ciclo
+            // anterior. Anunciarlo como éxito fue exactamente el falso verde del caso compra2.
+            var localSano = !enRevisionManual &&
+                            !correlacionFallida &&
+                            suscripcion is not null &&
                             effectiveStatus == EstadoSuscripcion.Activa &&
                             string.IsNullOrEmpty(suscripcion.PaymentRecoveryStatus);
             var suscripcionActiva = localSano;
             var confirmadoPorWebhook = localSano;
-            var pagoAprobadoPorProveedor = confirmadoPorWebhook || IsProviderApproved(code, description);
+            var pagoAprobadoPorProveedor = !enRevisionManual &&
+                                           (confirmadoPorWebhook || IsProviderApproved(code, description));
             var requiereConsulta = pago is not null && pagoAprobadoPorProveedor && !suscripcionActiva;
             var requiereRevisionRecurrente = pago is not null &&
                                              pago.TilopayRecurringPlanId.HasValue &&
@@ -1126,6 +1189,8 @@ namespace LuxuryApp.Controllers
                 CodigoProveedor = code,
                 DescripcionProveedor = description,
                 NombrePlan = pago?.Plan?.Nombre ?? suscripcion?.Plan?.Nombre,
+                EnRevisionManual = enRevisionManual,
+                CorrelacionFallida = correlacionFallida,
                 EstadoPago = pago?.Estado,
                 EstadoSuscripcion = effectiveStatus,
                 VigenciaHastaUtc = suscripcion?.FechaFin,
@@ -1149,27 +1214,8 @@ namespace LuxuryApp.Controllers
         }
 
         /// <summary>Mensajería del retorno de un ADD-ON de WhatsApp (paquete), separada de la del plan base.</summary>
-        private static void ApplyAddonCheckoutMessaging(ResultadoCheckoutViewModel model)
-        {
-            if (model.SuscripcionActiva)
-            {
-                model.MensajePrincipal = "¡Tu paquete de WhatsApp quedó activo!";
-                model.MensajeSecundario = "Ya podés usar las automatizaciones de WhatsApp según el límite mensual de tu paquete.";
-                return;
-            }
-
-            if (model.PagoAprobadoPorProveedor)
-            {
-                model.MensajePrincipal = "Tilopay aprobó tu pago. Estamos activando tu paquete de WhatsApp.";
-                model.MensajeSecundario = model.DebeAutoActualizar
-                    ? $"Esta pantalla se actualizará automáticamente en {model.SegundosAutoActualizacion} segundos."
-                    : "Pulsá Actualizar estado para consultar el resultado final.";
-                return;
-            }
-
-            model.MensajePrincipal = "Recibimos tu pago del paquete de WhatsApp. Esperando la confirmación del proveedor.";
-            model.MensajeSecundario = "Mantendremos esta referencia ligada a tu cuenta hasta completar la activación.";
-        }
+        private static void ApplyAddonCheckoutMessaging(ResultadoCheckoutViewModel model) =>
+            CheckoutReturnMessaging.ApplyAddon(model);
 
         [HttpGet]
         public async Task<IActionResult> CheckoutReturn(
@@ -1284,6 +1330,11 @@ namespace LuxuryApp.Controllers
                 return Task.FromResult(new List<PagoSuscripcion>());
             }
 
+            // CorrelationToken y ProviderTransactionId también correlacionan: en el checkout
+            // recurrente el token va en CorrelationToken (y en ProviderReference), y el retorno del
+            // hosted link puede volver solo con el orderNumber/transaction del proveedor. Sin
+            // CorrelationToken, Billing/CheckoutReturn resolvía la referencia por ese campo y luego
+            // aquí no encontraba nada: el retorno caía al plan base y mostraba un éxito falso.
             return _context.PagosSuscripcion
                 .IgnoreQueryFilters()
                 .AsNoTracking()
@@ -1292,8 +1343,35 @@ namespace LuxuryApp.Controllers
                     p => (!string.IsNullOrWhiteSpace(requestedReference) &&
                           (p.ReferenciaInterna == requestedReference ||
                            p.ProviderReference == requestedReference ||
-                           p.ProviderCheckoutId == requestedReference)) ||
+                           p.ProviderCheckoutId == requestedReference ||
+                           p.CorrelationToken == requestedReference ||
+                           p.ProviderTransactionId == requestedReference)) ||
                          (!string.IsNullOrWhiteSpace(checkoutId) && p.ProviderCheckoutId == checkoutId))
+                .OrderByDescending(p => p.FechaCreacionUtc)
+                .Take(2)
+                .ToListAsync();
+        }
+
+        /// <summary>
+        /// Último recurso de correlación del retorno: intentos de checkout RECIENTES del propio
+        /// tenant. Sirve para resolver el SCOPE (add-on vs plan base) cuando el proveedor vuelve
+        /// solo con su orderNumber. Se piden 2 a propósito: con más de un candidato no se adivina.
+        /// La ventana es corta para no ligar el retorno a una compra vieja.
+        /// </summary>
+        private Task<List<PagoSuscripcion>> FindRecentTenantCheckoutAttemptsAsync(Guid tenantId)
+        {
+            var cutoffUtc = DateTime.UtcNow.AddHours(-CheckoutReturnCorrelationWindowHours);
+
+            return _context.PagosSuscripcion
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Include(p => p.Plan)
+                .Where(p =>
+                    p.TenantId == tenantId &&
+                    p.FechaCreacionUtc >= cutoffUtc &&
+                    (p.Estado == EstadoPagoProveedor.Pendiente ||
+                     p.Estado == EstadoPagoProveedor.ManualReview ||
+                     p.Estado == EstadoPagoProveedor.Confirmado))
                 .OrderByDescending(p => p.FechaCreacionUtc)
                 .Take(2)
                 .ToListAsync();
@@ -1328,41 +1406,8 @@ namespace LuxuryApp.Controllers
         private static void ApplyCheckoutMessaging(
             ResultadoCheckoutViewModel model,
             PagoSuscripcion? pago,
-            string? requestedReference)
-        {
-            if (model.SuscripcionActiva)
-            {
-                model.MensajePrincipal = "Pago confirmado y suscripcion activa.";
-                model.MensajeSecundario = "Tu acceso ya esta habilitado para continuar dentro del sistema.";
-                return;
-            }
-
-            if (pago is null)
-            {
-                if (string.IsNullOrWhiteSpace(requestedReference))
-                {
-                    model.MensajePrincipal = "No pudimos confirmar automaticamente este pago.";
-                    model.MensajeSecundario = "Si ya pagaste, revisa el estado actual de tu suscripcion o intenta actualizar en unos segundos.";
-                    return;
-                }
-
-                model.MensajePrincipal = "No encontramos un pago asociado a esa referencia dentro de tu tenant.";
-                model.MensajeSecundario = "Verifica que ingresaste con la cuenta que inicio el checkout antes de volver a consultar.";
-                return;
-            }
-
-            if (model.PagoAprobadoPorProveedor)
-            {
-                model.MensajePrincipal = "Tilopay aprobo tu pago. Estamos activando tu suscripcion.";
-                model.MensajeSecundario = model.DebeAutoActualizar
-                    ? $"Esta pantalla se actualizara automaticamente en {model.SegundosAutoActualizacion} segundos."
-                    : "Pulsa Actualizar estado para consultar nuevamente el resultado final.";
-                return;
-            }
-
-            model.MensajePrincipal = "Tu pago fue recibido. Estamos esperando la confirmacion final del proveedor.";
-            model.MensajeSecundario = "Mantendremos esta referencia ligada a tu tenant hasta completar la activacion.";
-        }
+            string? requestedReference) =>
+            CheckoutReturnMessaging.ApplyBasePlan(model, hasLocalPayment: pago is not null, requestedReference);
 
         private void ApplyRecurringHostedLinkFallbackMessaging(
             ResultadoCheckoutViewModel model,

@@ -4,6 +4,7 @@ using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.WhatsApp;
+using LuxuryApp.Services.Horarios;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
@@ -20,17 +21,20 @@ namespace LuxuryApp.Services.Calendar
         private readonly ApplicationDbContext _context;
         private readonly ICalendarWhatsAppNotificationService _notificationService;
         private readonly VisitasAutomaticasService _visitasAutomaticasService;
+        private readonly IFuncionarioAvailabilityService _availabilityService;
         private readonly ILogger<CalendarCommandService> _logger;
 
         public CalendarCommandService(
             ApplicationDbContext context,
             ICalendarWhatsAppNotificationService notificationService,
             VisitasAutomaticasService visitasAutomaticasService,
+            IFuncionarioAvailabilityService availabilityService,
             ILogger<CalendarCommandService> logger)
         {
             _context = context;
             _notificationService = notificationService;
             _visitasAutomaticasService = visitasAutomaticasService;
+            _availabilityService = availabilityService;
             _logger = logger;
         }
 
@@ -719,6 +723,11 @@ namespace LuxuryApp.Services.Calendar
             return true;
         }
 
+        /// <summary>
+        /// Valida el horario contra la ÚNICA fuente de disponibilidad
+        /// (<see cref="IFuncionarioAvailabilityService"/>), que combina citas, descansos y bloqueos
+        /// recurrentes. Antes esta comprobación vivía duplicada acá y en reservas públicas.
+        /// </summary>
         private async Task EnsureNoOverlapAsync(
             int funcionarioId,
             DateTime inicio,
@@ -726,32 +735,17 @@ namespace LuxuryApp.Services.Calendar
             int? excludeCitaId,
             CancellationToken cancellationToken)
         {
-            var fin = inicio.AddMinutes(duracionMinutos);
-            var candidateRangeStart = inicio.Date.AddDays(-1);
+            var resultado = await _availabilityService.CheckAsync(
+                funcionarioId,
+                inicio,
+                duracionMinutos,
+                excludeCitaId,
+                cancellationToken);
 
-            var candidates = await _context.Citas
-                .AsNoTracking()
-                .Where(c =>
-                    c.FuncionarioId == funcionarioId &&
-                    (!excludeCitaId.HasValue || c.Id != excludeCitaId.Value) &&
-                    c.FechaHoraCita < fin &&
-                    c.FechaHoraCita >= candidateRangeStart)
-                .Select(c => new OverlapCandidate
-                {
-                    FechaHoraCita = c.FechaHoraCita,
-                    DuracionMinutos = c.Tipo == "DESCANSO"
-                        ? (c.DuracionMinutos ?? DefaultDurationMinutes)
-                        : (c.DuracionMinutos ?? (c.Servicio != null ? c.Servicio.DuracionMinutos : null) ?? DefaultDurationMinutes)
-                })
-                .ToListAsync(cancellationToken);
-
-            foreach (var candidate in candidates)
+            if (!resultado.Disponible)
             {
-                var candidateEnd = candidate.FechaHoraCita.AddMinutes(candidate.DuracionMinutos);
-                if (inicio < candidateEnd && fin > candidate.FechaHoraCita)
-                {
-                    throw new CalendarValidationException("Ya existe una cita o descanso en ese horario.");
-                }
+                throw new CalendarValidationException(
+                    resultado.Motivo ?? "Ya existe una cita o descanso en ese horario.");
             }
         }
 
@@ -963,13 +957,6 @@ namespace LuxuryApp.Services.Calendar
             bool WhatsAppConsentAtCreation,
             string? WhatsAppConsentSource,
             DateTime? WhatsAppConsentCapturedAtUtc);
-
-        private sealed class OverlapCandidate
-        {
-            public DateTime FechaHoraCita { get; init; }
-
-            public int DuracionMinutos { get; init; }
-        }
 
     }
 }

@@ -7,6 +7,7 @@ using LuxuryApp.Services.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
@@ -15,6 +16,7 @@ namespace LuxuryApp.Controllers
     [ApiController]
     [AllowAnonymous]
     [IgnoreAntiforgeryToken]
+    [EnableRateLimiting("Webhook")]
     [Route("api/webhooks/tilopay")]
     public class TilopayWebhookController : ControllerBase
     {

@@ -24,6 +24,20 @@ namespace LuxuryApp.Models.SaaS
 
         public string? BaseAtencionMensaje { get; set; }
 
+        /// <summary>
+        /// El pago quedó en REVISIÓN MANUAL en el proveedor/local: no se aplicó ningún cambio. Nunca
+        /// se muestra como éxito (caso compra2: el retorno decía "Pago confirmado y suscripción
+        /// activa" mostrando el plan BASE mientras el intento de add-on estaba en MANUAL_REVIEW).
+        /// </summary>
+        public bool EnRevisionManual { get; set; }
+
+        /// <summary>
+        /// No se pudo ligar este retorno a ningún intento de pago local. Es un ERROR explícito: sin
+        /// pago correlacionado no se puede afirmar nada sobre el resultado, y mucho menos mostrar el
+        /// estado del plan base como si fuera la confirmación de lo que el cliente acaba de comprar.
+        /// </summary>
+        public bool CorrelacionFallida { get; set; }
+
         public bool AccesoRestringido { get; set; }
         public bool PagoAprobadoPorProveedor { get; set; }
         public bool ConfirmadoPorWebhook { get; set; }

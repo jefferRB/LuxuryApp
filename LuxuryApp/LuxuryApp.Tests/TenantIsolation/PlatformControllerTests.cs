@@ -109,7 +109,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new NullPlatformMetricsService(),
                 new NullPlatformHealthService(),
                 new NullPlatformWhatsAppStatusService(),
-                new NullPlatformMissionControlService());
+                new NullPlatformMissionControlService(),
+                new FakeTenantOwnerResolver());
             ControllerTestSupport.AttachHttpContext(
                 controller,
                 ControllerTestSupport.BuildTenantPrincipal("platform-user", Guid.NewGuid(), isPlatformSuperAdmin: true));
@@ -175,7 +176,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new NullPlatformMetricsService(),
                 new NullPlatformHealthService(),
                 new NullPlatformWhatsAppStatusService(),
-                new NullPlatformMissionControlService());
+                new NullPlatformMissionControlService(),
+                new FakeTenantOwnerResolver());
             ControllerTestSupport.AttachHttpContext(
                 controller,
                 ControllerTestSupport.BuildTenantPrincipal("platform-user", Guid.NewGuid(), isPlatformSuperAdmin: true));
@@ -281,6 +283,194 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Contains($"{nameof(PlatformPromotionalCodesPageViewModel.CreateForm)}.{nameof(PlatformPromotionalCodeCreateViewModel.Codigo)}", controller.ModelState.Keys);
         }
 
+        // ── Guardado del plan base forzado (validacion server-side, no solo la UI) ──
+
+        [Theory]
+        [InlineData(PlanCodes.WhatsApp400)]
+        [InlineData(PlanCodes.WhatsApp800)]
+        [InlineData(PlanCodes.WhatsApp1200)]
+        public async Task UpdateTenantCommercialSettings_RechazaAddonWhatsAppComoPlanBase(string addonCode)
+        {
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(new TestTenantProvider());
+            using var _c = context;
+            using var _n = connection;
+
+            var tenantId = Guid.NewGuid();
+            var addonPlanId = Guid.NewGuid();
+
+            context.Tenants.Add(new Tenant { Id = tenantId, Nombre = "Tenant", Activo = true });
+            context.Planes.Add(new Plan
+            {
+                Id = addonPlanId,
+                Codigo = addonCode,
+                Nombre = $"WhatsApp {addonCode}",
+                Moneda = "CRC",
+                PrecioMensual = 6_000m,
+                LimiteMensajesMensual = 400,
+                Activo = true
+            });
+            await context.SaveChangesAsync();
+
+            var controller = CreateController(context, "platform-user-3");
+
+            var result = await controller.UpdateTenantCommercialSettings(
+                tenantId,
+                TenantCommercialAccessMode.Exempt,
+                addonPlanId,
+                commercialNotes: null,
+                CancellationToken.None);
+
+            Assert.IsType<RedirectToActionResult>(result);
+            var error = Assert.IsType<string>(controller.TempData["PlatformError"]);
+            Assert.Contains("no puede usarse como plan base forzado", error);
+
+            // Nada se persistio: el tenant sigue como estaba.
+            var reloaded = await context.Tenants.FindAsync(tenantId);
+            Assert.Equal(TenantCommercialAccessMode.RequiresSubscription, reloaded!.CommercialAccessMode);
+            Assert.Null(reloaded.ForcedPlanId);
+        }
+
+        [Fact]
+        public async Task UpdateTenantCommercialSettings_AceptaPlanBaseComercial()
+        {
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(new TestTenantProvider());
+            using var _c = context;
+            using var _n = connection;
+
+            var tenantId = Guid.NewGuid();
+            var planId = Guid.NewGuid();
+
+            context.Tenants.Add(new Tenant { Id = tenantId, Nombre = "Luxe", Activo = true });
+            context.Planes.Add(new Plan
+            {
+                Id = planId,
+                Codigo = "LC_M_05",
+                Nombre = "LuxuryCloud Mensual 5 funcionarios",
+                Moneda = "CRC",
+                PrecioMensual = 50_000m,
+                MaxFuncionarios = 5,
+                Activo = true
+            });
+            await context.SaveChangesAsync();
+
+            var controller = CreateController(context, "platform-user-4");
+
+            var result = await controller.UpdateTenantCommercialSettings(
+                tenantId,
+                TenantCommercialAccessMode.Exempt,
+                planId,
+                commercialNotes: "Canje",
+                CancellationToken.None);
+
+            Assert.IsType<RedirectToActionResult>(result);
+            Assert.Null(controller.TempData["PlatformError"]);
+
+            var reloaded = await context.Tenants.FindAsync(tenantId);
+            Assert.Equal(TenantCommercialAccessMode.Exempt, reloaded!.CommercialAccessMode);
+            Assert.Equal(planId, reloaded.ForcedPlanId);
+        }
+
+        [Fact]
+        public async Task UpdateTenantCommercialSettings_ElSelectorLegacyGanaSobreElComercial()
+        {
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(new TestTenantProvider());
+            using var _c = context;
+            using var _n = connection;
+
+            var tenantId = Guid.NewGuid();
+            var comercialPlanId = Guid.NewGuid();
+            var legacyPlanId = Guid.NewGuid();
+
+            context.Tenants.Add(new Tenant { Id = tenantId, Nombre = "Legacy", Activo = true });
+            context.Planes.Add(new Plan
+            {
+                Id = comercialPlanId, Codigo = "LC_M_02", Nombre = "Mensual 2",
+                Moneda = "CRC", PrecioMensual = 24_000m, MaxFuncionarios = 2, Activo = true
+            });
+            context.Planes.Add(new Plan
+            {
+                Id = legacyPlanId, Codigo = PlanCodes.Pro, Nombre = "Pro",
+                Moneda = "CRC", PrecioMensual = 35_000m, MaxFuncionarios = 7, Activo = true
+            });
+            await context.SaveChangesAsync();
+
+            var controller = CreateController(context, "platform-user-5");
+
+            var result = await controller.UpdateTenantCommercialSettings(
+                tenantId,
+                TenantCommercialAccessMode.Exempt,
+                comercialPlanId,
+                commercialNotes: null,
+                CancellationToken.None,
+                legacyForcedPlanId: legacyPlanId);
+
+            Assert.IsType<RedirectToActionResult>(result);
+            var reloaded = await context.Tenants.FindAsync(tenantId);
+            Assert.Equal(legacyPlanId, reloaded!.ForcedPlanId);
+
+            // La eleccion legacy se avisa explicitamente en lugar de pasar en silencio.
+            var success = Assert.IsType<string>(controller.TempData["PlatformSuccess"]);
+            Assert.Contains("legacy", success, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public async Task UpdateTenantCommercialSettings_NoPermiteMoverAPendienteDeVerificacion()
+        {
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(new TestTenantProvider());
+            using var _c = context;
+            using var _n = connection;
+
+            var tenantId = Guid.NewGuid();
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = "Ya verificado",
+                Activo = true,
+                CommercialAccessMode = TenantCommercialAccessMode.RequiresSubscription
+            });
+            await context.SaveChangesAsync();
+
+            var controller = CreateController(context, "platform-user-6");
+
+            var result = await controller.UpdateTenantCommercialSettings(
+                tenantId,
+                TenantCommercialAccessMode.PendingVerification,
+                forcedPlanId: null,
+                commercialNotes: null,
+                CancellationToken.None);
+
+            Assert.IsType<RedirectToActionResult>(result);
+            Assert.NotNull(controller.TempData["PlatformError"]);
+
+            var reloaded = await context.Tenants.FindAsync(tenantId);
+            Assert.Equal(TenantCommercialAccessMode.RequiresSubscription, reloaded!.CommercialAccessMode);
+        }
+
+        [Fact]
+        public async Task UpdateTenantCommercialSettings_ExentoSinPlanForzado_EsRechazado()
+        {
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(new TestTenantProvider());
+            using var _c = context;
+            using var _n = connection;
+
+            var tenantId = Guid.NewGuid();
+            context.Tenants.Add(new Tenant { Id = tenantId, Nombre = "Sin plan", Activo = true });
+            await context.SaveChangesAsync();
+
+            var controller = CreateController(context, "platform-user-7");
+
+            var result = await controller.UpdateTenantCommercialSettings(
+                tenantId,
+                TenantCommercialAccessMode.Exempt,
+                forcedPlanId: null,
+                commercialNotes: null,
+                CancellationToken.None);
+
+            Assert.IsType<RedirectToActionResult>(result);
+            var error = Assert.IsType<string>(controller.TempData["PlatformError"]);
+            Assert.Contains("requieren un plan forzado activo", error);
+        }
+
         private static PlatformController CreateController(ProyectoIdentity.Datos.ApplicationDbContext context, string userId)
         {
             var cache = new MemoryCache(new MemoryCacheOptions());
@@ -306,7 +496,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new NullPlatformMetricsService(),
                 new NullPlatformHealthService(),
                 new NullPlatformWhatsAppStatusService(),
-                new NullPlatformMissionControlService())
+                new NullPlatformMissionControlService(),
+                new FakeTenantOwnerResolver())
             {
                 ControllerContext = new ControllerContext
                 {
@@ -513,7 +704,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new NullPlatformMetricsService(),
                 new NullPlatformHealthService(),
                 new NullPlatformWhatsAppStatusService(),
-                new NullPlatformMissionControlService());
+                new NullPlatformMissionControlService(),
+                new FakeTenantOwnerResolver());
             ControllerTestSupport.AttachHttpContext(
                 controller,
                 ControllerTestSupport.BuildTenantPrincipal("platform-user", Guid.NewGuid(), isPlatformSuperAdmin: true));

@@ -38,6 +38,7 @@ namespace LuxuryApp.Services.Billing
         private readonly IPaymentRecoveryEmailSender _emailSender;
         private readonly PublicSiteOptions _publicSiteOptions;
         private readonly ILogger<PaymentRecoveryNotificationService> _logger;
+        private readonly ITenantOwnerResolver _ownerResolver;
 
         public PaymentRecoveryNotificationService(
             ApplicationDbContext db,
@@ -46,7 +47,8 @@ namespace LuxuryApp.Services.Billing
             IOptions<BillingPaymentRecoveryOptions> options,
             IPaymentRecoveryEmailSender emailSender,
             IOptions<PublicSiteOptions> publicSiteOptions,
-            ILogger<PaymentRecoveryNotificationService> logger)
+            ILogger<PaymentRecoveryNotificationService> logger,
+            ITenantOwnerResolver ownerResolver)
         {
             _db = db;
             _tenantExecutionContextAccessor = tenantExecutionContextAccessor;
@@ -55,6 +57,7 @@ namespace LuxuryApp.Services.Billing
             _emailSender = emailSender;
             _publicSiteOptions = publicSiteOptions.Value;
             _logger = logger;
+            _ownerResolver = ownerResolver;
         }
 
         public async Task<int> RunPendingNotificationsAsync(CancellationToken cancellationToken = default)
@@ -205,11 +208,9 @@ namespace LuxuryApp.Services.Billing
             var recipient = clienteEmail;
             if (string.IsNullOrWhiteSpace(recipient))
             {
-                recipient = await _db.Users.AsNoTracking()
-                    .Where(u => u.TenantId == tenantId && u.Email != null)
-                    .OrderBy(u => u.Email)
-                    .Select(u => u.Email)
-                    .FirstOrDefaultAsync(cancellationToken);
+                // Contacto por regla de owner (admin > funcionario). El orden alfabético anterior
+                // podía mandar un aviso de cobro fallido a una cuenta de funcionario.
+                recipient = await _ownerResolver.ResolveOwnerEmailAsync(tenantId, cancellationToken);
             }
 
             var tenantName = await _db.Tenants

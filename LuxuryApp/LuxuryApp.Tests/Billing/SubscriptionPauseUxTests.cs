@@ -119,8 +119,7 @@ namespace LuxuryApp.Tests.Billing
 
         private static string ReadView(params string[] relativeParts)
         {
-            var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-            var path = Path.Combine(new[] { repoRoot }.Concat(relativeParts).ToArray());
+            var path = TestProjectPaths.ProjectPath(relativeParts);
             Assert.True(File.Exists(path), $"No se encontró la vista: {path}");
             return File.ReadAllText(path);
         }
@@ -128,12 +127,15 @@ namespace LuxuryApp.Tests.Billing
         private static async Task<BillingSubscriptionSummaryViewModel?> BuildAsync(ApplicationDbContext ctx, Guid tenantId)
         {
             var cache = new MemoryCache(new MemoryCacheOptions());
+            var accessCache = new TenantCommercialAccessCache(cache);
+            var clock = new FixedBusinessDateTimeProvider();
             var repeatOptions = CalculatorCatalog.BuildRepeatOptions();
             var subscriptionService = new SuscripcionService(
-                ctx, cache, new TenantCommercialAccessCache(cache), new FixedBusinessDateTimeProvider(),
+                ctx, cache, accessCache, clock,
                 Options.Create(repeatOptions), NullLogger<SuscripcionService>.Instance);
 
-            var service = new SubscriptionSummaryService(ctx, subscriptionService, new StubWhatsAppSettings());
+            var accessResolver = new TenantCommercialAccessResolver(ctx, cache, accessCache, subscriptionService, clock);
+            var service = new SubscriptionSummaryService(ctx, subscriptionService, new StubWhatsAppSettings(), accessResolver);
             return await service.BuildAsync(tenantId);
         }
 

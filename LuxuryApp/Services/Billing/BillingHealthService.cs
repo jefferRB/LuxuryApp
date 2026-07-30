@@ -200,8 +200,25 @@ namespace LuxuryApp.Services.Billing
         /// <summary>Incidentes de recuperación de pago del ADD-ON abiertos (pago del add-on fallido en curso). Separado del base.</summary>
         public int WhatsAppAddonOpenPaymentIncidents { get; init; }
 
-        /// <summary>El número del add-on que importa: pendientes de cancelación + doble activo. Si es 0, no hay dinero-en-riesgo de add-on.</summary>
+        /// <summary>El número del add-on que importa: pendientes de cancelación + doble activo LOCAL + doble activo en el PROVEEDOR. Si es 0, no hay dinero-en-riesgo de add-on.</summary>
         public int WhatsAppAddonMoneyRiskCount { get; init; }
+
+        // ── Estado REAL del proveedor (última auditoría contra getSuscriptorRepeat) ──
+        // El estado local no puede ver un doble suscriptor en TiloPay: eso deja al tablero en falso
+        // verde. Estas métricas vienen del snapshot que escriben el sondeo post-rechazo del webhook
+        // y la reconciliación; se leen de BD, sin pegarle a TiloPay al cargar la pantalla.
+
+        /// <summary>Tenants con MÁS DE UN suscriptor de add-on COBRABLE en TiloPay. Doble cobro real o inminente: nunca puede coexistir con "riesgo 0".</summary>
+        public int ProviderDoubleActiveWhatsAppAddonTenants { get; init; }
+
+        /// <summary>Tenants cuya última auditoría del proveedor NO fue concluyente: no se puede afirmar que estén sanos.</summary>
+        public int ProviderWhatsAppAddonAuditInconclusiveTenants { get; init; }
+
+        /// <summary>Máximo de suscriptores de add-on cobrables en un solo tenant según el último sondeo (debe ser 1).</summary>
+        public int ProviderMaxActiveAddonSubscribersByTenant { get; init; }
+
+        /// <summary>Cuándo se auditó el proveedor por última vez. Null = nunca se preguntó: el verde no está verificado.</summary>
+        public DateTime? LastProviderAddonAuditUtc { get; init; }
 
         /// <summary>
         /// AVISO INFORMATIVO (Opción A), NO riesgo de dinero: paquete comercial de WhatsApp activo
@@ -431,8 +448,30 @@ namespace LuxuryApp.Services.Billing
                             .OrderByDescending(s => s.FechaUltimaActualizacionUtc ?? s.FechaInicio)
                             .First());
 
+                // El acceso base NO siempre viene de una fila de Suscripciones: un tenant exento o
+                // interno con plan forzado (caso Luxe: WA1200 ManualGrant + base exento) tiene acceso
+                // legitimo y no tiene suscripcion. Antes se contaba como "add-on sin plan base" y
+                // producia una alerta falsa. Se consulta el modo comercial explicitamente.
+                var platformGrantedTenants = (await _db.Tenants
+                        .AsNoTracking()
+                        .Where(tenant =>
+                            addonTenantIds.Contains(tenant.Id) &&
+                            tenant.Activo &&
+                            tenant.ForcedPlanId != null &&
+                            (tenant.CommercialAccessMode == TenantCommercialAccessMode.Exempt ||
+                             tenant.CommercialAccessMode == TenantCommercialAccessMode.Internal))
+                        .Select(tenant => tenant.Id)
+                        .ToListAsync(cancellationToken))
+                    .ToHashSet();
+
                 foreach (var addonTenantId in addonTenantIds)
                 {
+                    if (platformGrantedTenants.Contains(addonTenantId))
+                    {
+                        // Acceso base otorgado por plataforma: ni riesgo de dinero ni alerta operativa.
+                        continue;
+                    }
+
                     baseByTenant.TryGetValue(addonTenantId, out var baseSubscription);
                     var basePlanCode = baseSubscription?.CodigoPlan;
                     var isRealBase = baseSubscription is not null &&
@@ -453,9 +492,38 @@ namespace LuxuryApp.Services.Billing
                     incident.Scope == PaymentIncidentScope.WhatsAppAddon &&
                     incident.Status == PaymentIncidentStatus.Open, cancellationToken);
 
-            // Riesgo de dinero del add-on: baja de suscriptor pendiente + doble activo + recurrente
-            // pagado activo SIN provider sub (paidAddonsProviderRisk). Los manuales/legacy NUNCA suman.
-            var addonMoneyRisk = addonPendingProviderCancellation + addonDoubleActiveTenants + paidAddonsProviderRisk;
+            // ── Estado REAL del proveedor (no local): último sondeo de add-ons en TiloPay ──
+            // El estado local no puede ver esto. Caso compra2 (2026-07-29): local mostraba un solo
+            // add-on WA800 sano mientras TiloPay tenía WA400 (393795) y WA800 (394655) cobrables a
+            // la vez. Mientras el snapshot diga doble activo, este tablero NO puede decir riesgo 0.
+            var providerAuditSnapshots = await _db.ProviderAddonAuditSnapshots
+                .AsNoTracking()
+                .Select(snapshot => new
+                {
+                    snapshot.TenantId,
+                    snapshot.HasDoubleActive,
+                    snapshot.IsInconclusive,
+                    snapshot.ActiveAddonSubscriberCount,
+                    snapshot.CapturedAtUtc
+                })
+                .ToListAsync(cancellationToken);
+
+            var providerDoubleActiveAddonTenants = providerAuditSnapshots.Count(s => s.HasDoubleActive);
+            var providerAddonAuditInconclusiveTenants = providerAuditSnapshots.Count(s => s.IsInconclusive);
+            var providerActiveAddonSubscribersMax = providerAuditSnapshots.Count == 0
+                ? 0
+                : providerAuditSnapshots.Max(s => s.ActiveAddonSubscriberCount);
+            var lastProviderAddonAuditUtc = providerAuditSnapshots.Count == 0
+                ? (DateTime?)null
+                : providerAuditSnapshots.Max(s => s.CapturedAtUtc);
+
+            // Riesgo de dinero del add-on: baja de suscriptor pendiente + doble activo LOCAL + doble
+            // activo en el PROVEEDOR + recurrente pagado activo SIN provider sub
+            // (paidAddonsProviderRisk). Los manuales/legacy NUNCA suman.
+            var addonMoneyRisk = addonPendingProviderCancellation +
+                                 addonDoubleActiveTenants +
+                                 providerDoubleActiveAddonTenants +
+                                 paidAddonsProviderRisk;
 
             // ── Opción A: entitlement ≠ configuración (avisos informativos, NO dinero-en-riesgo) ──
             // Una fila por tenant (bajo volumen): se cruza en memoria con los add-ons activos.
@@ -858,6 +926,10 @@ namespace LuxuryApp.Services.Billing
                 WhatsAppAddonsDoubleActiveTenants = addonDoubleActiveTenants,
                 WhatsAppAddonOpenPaymentIncidents = addonOpenPaymentIncidents,
                 WhatsAppAddonMoneyRiskCount = addonMoneyRisk,
+                ProviderDoubleActiveWhatsAppAddonTenants = providerDoubleActiveAddonTenants,
+                ProviderWhatsAppAddonAuditInconclusiveTenants = providerAddonAuditInconclusiveTenants,
+                ProviderMaxActiveAddonSubscribersByTenant = providerActiveAddonSubscribersMax,
+                LastProviderAddonAuditUtc = lastProviderAddonAuditUtc,
                 WhatsAppAddonsActiveWithoutConfiguration = addonsActiveWithoutConfiguration,
                 WhatsAppSettingsEnabledWithoutActiveAddon = settingsEnabledWithoutActiveAddon,
                 PaidAddonsActiveWithoutProviderRisk = paidAddonsProviderRisk,

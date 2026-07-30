@@ -9,21 +9,30 @@ namespace LuxuryApp.Services.SaaS
     /// Implementacion extraida desde BillingController.BuildCurrentSubscriptionSummaryAsync.
     /// Mantiene exactamente el mismo calculo (queries tenant-safe con IgnoreQueryFilters +
     /// filtro explicito por TenantId) para no alterar el comportamiento existente.
+    ///
+    /// EXCEPCION deliberada: el limite de funcionarios ya NO se lee de la fila de Suscripciones.
+    /// Antes se calculaba aqui como <c>subscription?.MaxFuncionarios ?? subscription?.Plan?.MaxFuncionarios</c>,
+    /// lo que ignoraba <c>Tenant.ForcedPlanId</c>: un tenant exento con plan forzado LC_M_03 veia
+    /// el limite de su suscripcion vieja (7) mientras el enforcement de FuncionariosController
+    /// usaba el plan forzado (3). Ahora ambos leen del mismo resolver.
     /// </summary>
     public sealed class SubscriptionSummaryService : ISubscriptionSummaryService
     {
         private readonly ApplicationDbContext _context;
         private readonly SuscripcionService _suscripcionService;
         private readonly ITenantWhatsAppSettingsService _tenantWhatsAppSettingsService;
+        private readonly ITenantCommercialAccessResolver _accessResolver;
 
         public SubscriptionSummaryService(
             ApplicationDbContext context,
             SuscripcionService suscripcionService,
-            ITenantWhatsAppSettingsService tenantWhatsAppSettingsService)
+            ITenantWhatsAppSettingsService tenantWhatsAppSettingsService,
+            ITenantCommercialAccessResolver accessResolver)
         {
             _context = context;
             _suscripcionService = suscripcionService;
             _tenantWhatsAppSettingsService = tenantWhatsAppSettingsService;
+            _accessResolver = accessResolver;
         }
 
         public async Task<BillingSubscriptionSummaryViewModel?> BuildAsync(
@@ -48,7 +57,13 @@ namespace LuxuryApp.Services.SaaS
                 .ThenByDescending(a => a.CreatedAtUtc)
                 .FirstOrDefaultAsync(cancellationToken);
 
-            if (subscription is null && addon is null)
+            // Estado comercial efectivo: unica fuente del plan/limite mostrados. Para un tenant
+            // exento/interno esto resuelve el PLAN FORZADO; para un tenant pagado, su suscripcion.
+            var access = await _accessResolver.ResolveAsync(tenantId, cancellationToken: cancellationToken);
+
+            // Un tenant exento con plan forzado y sin fila de Suscripciones (caso Luxe) igual debe
+            // ver su plan y su limite: antes esta rama devolvia null y la cuenta mostraba "0 / ∞".
+            if (subscription is null && addon is null && !access.IsForcedByPlatform)
             {
                 return null;
             }
@@ -90,12 +105,22 @@ namespace LuxuryApp.Services.SaaS
 
             return new BillingSubscriptionSummaryViewModel
             {
-                PlanName = subscription?.Plan?.Nombre,
-                PlanCode = subscription?.CodigoPlan ?? subscription?.Plan?.Codigo,
+                // Plan mostrado = plan EFECTIVO. Con acceso forzado por plataforma manda el plan
+                // forzado; en el camino pagado normal coincide con la suscripcion (mismo valor que antes).
+                PlanName = access.IsForcedByPlatform
+                    ? access.EffectivePlanName
+                    : subscription?.Plan?.Nombre,
+                PlanCode = access.IsForcedByPlatform
+                    ? access.EffectivePlanCode
+                    : subscription?.CodigoPlan ?? subscription?.Plan?.Codigo,
                 Status = subscriptionStatus,
                 StatusLabel = ResolveStatusLabel(subscriptionStatus),
                 StatusTone = ResolveStatusTone(subscriptionStatus),
-                CanAccessApp = subscription is not null && _suscripcionService.CanAccessApp(subscription),
+                IsPlatformGrantedAccess = access.IsForcedByPlatform,
+                PlatformAccessReason = access.IsForcedByPlatform ? access.Reason : null,
+                CanAccessApp = access.IsForcedByPlatform
+                    ? access.CanAccessApp
+                    : subscription is not null && _suscripcionService.CanAccessApp(subscription),
                 IsInGracePeriod = subscriptionStatus == EstadoSuscripcion.Morosa,
                 CancelAtPeriodEnd = subscription?.CancelAtPeriodEnd ?? false,
                 IsRecurringTilopay = subscription is not null &&
@@ -132,7 +157,9 @@ namespace LuxuryApp.Services.SaaS
                 GracePeriodEndsDisplay = subscription?.FechaFinGraciaUtc is { } graceUtc
                     ? Billing.SubscriptionDisplayDates.Format(DateOnly.FromDateTime(graceUtc))
                     : null,
-                MaxFuncionarios = subscription?.MaxFuncionarios ?? subscription?.Plan?.MaxFuncionarios,
+                // Limite EFECTIVO desde el resolver unico (respeta plan forzado). Ya no se lee de
+                // la fila de Suscripciones, que es lo que producia "limite 7" con plan forzado de 3.
+                MaxFuncionarios = access.EffectiveEmployeeLimit,
                 ActiveFuncionarios = activeFuncionarios,
                 WhatsAppAddonName = showWhatsAppAddonCard ? addon?.Plan?.Nombre ?? addon?.AddonCode : null,
                 WhatsAppAddonCode = showWhatsAppAddonCard ? addon?.AddonCode ?? addon?.Plan?.Codigo : null,

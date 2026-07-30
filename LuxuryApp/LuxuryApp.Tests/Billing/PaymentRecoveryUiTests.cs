@@ -4,6 +4,7 @@ using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Billing;
 using LuxuryApp.Services.Identity;
+using LuxuryApp.Tests.Support;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
@@ -355,8 +356,7 @@ namespace LuxuryApp.Tests.Billing
 
         private static string ReadView(params string[] relativeParts)
         {
-            var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-            var path = Path.Combine(new[] { repoRoot }.Concat(relativeParts).ToArray());
+            var path = TestProjectPaths.ProjectPath(relativeParts);
             Assert.True(File.Exists(path), $"No se encontró la vista: {path}");
             return File.ReadAllText(path);
         }

@@ -1,0 +1,127 @@
+@using LuxuryApp.Models.Inversionistas
+@model InvestorCalculationBreakdownViewModel
+
+@*
+    Desglose completo del cálculo. Se reutiliza en la vista previa y en el detalle del estado.
+    Regla de producto: nunca se muestra solo el número final; el dueño tiene que poder ver
+    exactamente qué reduce la ganancia.
+*@
+
+<div class="finance-form-body">
+    <div class="finance-form-info-box">
+        <i class="bi bi-info-circle-fill"></i>
+        Así se arma la <strong>ganancia distribuible</strong>: ingresos realmente cobrados sin IVA,
+        menos gastos operativos y liquidaciones del equipo, más o menos ajustes autorizados.
+    </div>
+
+    <table class="finance-table">
+        <tbody>
+            <tr>
+                <td>Ingresos cobrados (sin IVA)</td>
+                <td class="finance-monto-income">₡ @Model.IngresosNetos.ToString("N2")</td>
+            </tr>
+            @if (Model.IvaExcluido > 0m)
+            {
+                <tr>
+                    <td>
+                        <span class="svc-sub">IVA excluido del cálculo</span>
+                    </td>
+                    <td><span class="svc-sub">₡ @Model.IvaExcluido.ToString("N2")</span></td>
+                </tr>
+            }
+            <tr>
+                <td>Gastos operativos</td>
+                <td class="finance-monto-expense">− ₡ @Model.GastosElegibles.ToString("N2")</td>
+            </tr>
+            <tr>
+                <td>Liquidaciones del equipo</td>
+                <td class="finance-monto-expense">− ₡ @Model.Liquidaciones.ToString("N2")</td>
+            </tr>
+            @if (Model.AjustesPositivos > 0m)
+            {
+                <tr>
+                    <td>Ajustes a favor</td>
+                    <td class="finance-monto-income">+ ₡ @Model.AjustesPositivos.ToString("N2")</td>
+                </tr>
+            }
+            @if (Model.AjustesNegativos > 0m)
+            {
+                <tr>
+                    <td>Ajustes en contra</td>
+                    <td class="finance-monto-expense">− ₡ @Model.AjustesNegativos.ToString("N2")</td>
+                </tr>
+            }
+            @if (Model.PerdidaArrastrada > 0m)
+            {
+                <tr>
+                    <td>Pérdida de periodos anteriores</td>
+                    <td class="finance-monto-expense">− ₡ @Model.PerdidaArrastrada.ToString("N2")</td>
+                </tr>
+            }
+            <tr>
+                <td><strong>Ganancia distribuible</strong></td>
+                <td><strong>₡ @Model.GananciaDistribuible.ToString("N2")</strong></td>
+            </tr>
+            <tr>
+                <td>Participación del inversionista</td>
+                <td>@Model.ParticipacionPorcentaje.ToString("0.##") %</td>
+            </tr>
+            <tr>
+                <td><strong>Monto correspondiente</strong></td>
+                <td class="finance-monto-income"><strong>₡ @Model.ParticipacionCalculada.ToString("N2")</strong></td>
+            </tr>
+        </tbody>
+    </table>
+
+    @if (Model.PerdidaPendiente > 0m)
+    {
+        <div class="svc-alert svc-alert--danger" role="status">
+            Queda una <strong>pérdida pendiente de ₡ @Model.PerdidaPendiente.ToString("N2")</strong>
+            que se descontará de las ganancias de los próximos periodos.
+        </div>
+    }
+
+    @if (Model.GastosPorCategoria.Any())
+    {
+        <details class="finance-historial-section">
+            <summary>Ver gastos por categoría</summary>
+            <table class="finance-table">
+                <thead>
+                    <tr>
+                        <th>Categoría</th>
+                        <th>Monto</th>
+                        <th>¿Reduce la ganancia?</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var linea in Model.GastosPorCategoria)
+                    {
+                        <tr>
+                            <td>@linea.CategoriaNombre</td>
+                            <td>₡ @linea.Monto.ToString("N2")</td>
+                            <td>
+                                @if (linea.Incluido)
+                                {
+                                    <span class="svc-status svc-status--active">
+                                        <span class="svc-dot svc-dot--green"></span> Sí
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="svc-sub" title="@linea.MotivoExclusion">
+                                        No — @linea.MotivoExclusion
+                                    </span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </details>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Model.PoliticaVersion))
+    {
+        <p class="finance-historial-help">Fórmula aplicada: @Model.PoliticaVersion</p>
+    }
+</div>

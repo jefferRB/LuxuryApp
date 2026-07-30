@@ -9,6 +9,7 @@ using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.Identity;
 using LuxuryApp.Services.Platform;
 using LuxuryApp.Services.PublicSite;
+using LuxuryApp.Services.SaaS;
 using LuxuryApp.Services.Security;
 using LuxuryApp.Services.Tenant;
 using Microsoft.AspNetCore.Authentication;
@@ -16,6 +17,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -35,6 +37,10 @@ namespace LuxuryApp.Controllers.Identity
         private readonly IWebHostEnvironment _environment;
         private readonly IAccountEmailService _accountEmailService;
         private readonly ITenantDisplayNameService _tenantDisplayNameService;
+        private readonly RegistrationSecurityService _registrationSecurityService;
+        private readonly TurnstileVerificationService _turnstileVerificationService;
+        private readonly RegistrationSecurityOptions _registrationSecurityOptions;
+        private readonly ITenantCommercialAccessCache _accessCache;
         private readonly ILogger<AccountsController> _logger;
 
         public AccountsController(
@@ -48,6 +54,10 @@ namespace LuxuryApp.Controllers.Identity
             IWebHostEnvironment environment,
             IAccountEmailService accountEmailService,
             ITenantDisplayNameService tenantDisplayNameService,
+            RegistrationSecurityService registrationSecurityService,
+            TurnstileVerificationService turnstileVerificationService,
+            IOptions<RegistrationSecurityOptions> registrationSecurityOptions,
+            ITenantCommercialAccessCache accessCache,
             ILogger<AccountsController> logger)
         {
             _userManager = userManager;
@@ -60,6 +70,10 @@ namespace LuxuryApp.Controllers.Identity
             _environment = environment;
             _accountEmailService = accountEmailService;
             _tenantDisplayNameService = tenantDisplayNameService;
+            _registrationSecurityService = registrationSecurityService;
+            _turnstileVerificationService = turnstileVerificationService;
+            _registrationSecurityOptions = registrationSecurityOptions.Value;
+            _accessCache = accessCache;
             _logger = logger;
         }
 
@@ -76,6 +90,7 @@ namespace LuxuryApp.Controllers.Identity
         {
             ViewData["ReturnUrl"] = returnurl;
             ViewData["SelectedPlanName"] = await _publicSiteContentService.GetPlanNameAsync(selectedPlanId, cancellationToken);
+            PopulateRegistrationSecurityViewData();
             var model = new RegistroViewModel
             {
                 SelectedPlanId = selectedPlanId
@@ -88,6 +103,7 @@ namespace LuxuryApp.Controllers.Identity
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AllowAnonymous]
+        [EnableRateLimiting("Registration")]
         public async Task<IActionResult> Registro(
             RegistroViewModel model,
             string? returnurl = null,
@@ -95,6 +111,33 @@ namespace LuxuryApp.Controllers.Identity
         {
             ViewData["ReturnUrl"] = returnurl;
             ViewData["SelectedPlanName"] = await _publicSiteContentService.GetPlanNameAsync(model.SelectedPlanId, cancellationToken);
+            PopulateRegistrationSecurityViewData();
+            var clientIp = ContractRequestMetadataResolver.ResolveClientIp(HttpContext);
+            var normalizedEmail = RegistrationSecurityService.NormalizeEmail(model.Email);
+            var registrationRateLimit = _registrationSecurityService.CheckRateLimit(
+                RegistrationSecurityActions.Registration,
+                clientIp,
+                normalizedEmail);
+
+            if (!registrationRateLimit.Allowed)
+            {
+                return RateLimitedView(model);
+            }
+
+            if (Request.HasFormContentType && _registrationSecurityService.IsHoneypotTriggered(Request.Form))
+            {
+                _logger.LogWarning(
+                    "Registro rechazado por honeypot. TraceIdentifier {TraceIdentifier}. IpPresent {IpPresent}. MaskedEmail {MaskedEmail}.",
+                    HttpContext.TraceIdentifier,
+                    !string.IsNullOrWhiteSpace(clientIp),
+                    SensitiveDataMasker.MaskEmail(model.Email));
+
+                return RedirectToAction(nameof(ConfirmacionRegistro));
+            }
+
+            model.Email = normalizedEmail;
+            model.Name = RegistrationSecurityService.NormalizeBusinessName(model.Name);
+
             var currentContractDocumentIdBeforePopulate = model.CurrentContractDocumentId;
             var contractAcceptanceFieldName = nameof(RegistroViewModel.AcceptCurrentContract);
             var postedFormKeys = Request.HasFormContentType
@@ -116,6 +159,19 @@ namespace LuxuryApp.Controllers.Identity
             if (!model.HasCurrentContract)
             {
                 ModelState.AddModelError(string.Empty, "No hay un contrato vigente configurado en este momento. Contacta soporte.");
+            }
+
+            var registrationValidation = _registrationSecurityService.ValidateRegistration(model.Email, model.Name);
+            foreach (var error in registrationValidation.Errors)
+            {
+                ModelState.AddModelError(error.FieldName, error.Message);
+            }
+
+            if (!await ValidateTurnstileAsync(cancellationToken))
+            {
+                ModelState.AddModelError(
+                    string.Empty,
+                    "No pudimos validar la proteccion anti-abuso. Intenta nuevamente.");
             }
 
             LogDevelopmentRegistrationContractTrace(
@@ -145,6 +201,7 @@ namespace LuxuryApp.Controllers.Identity
                         PhoneNumber = model.PhoneNumber,
                         AccessCode = model.AccessCode,
                         AcceptCurrentContract = model.AcceptCurrentContract,
+                        RequiresEmailConfirmation = _registrationSecurityOptions.RequireEmailConfirmation,
                         SubmittedContractDocumentId = model.CurrentContractDocumentId,
                         ContractIpAddress = ContractRequestMetadataResolver.ResolveClientIp(HttpContext),
                         ContractUserAgent = ContractRequestMetadataResolver.ResolveUserAgent(HttpContext)
@@ -161,6 +218,16 @@ namespace LuxuryApp.Controllers.Identity
                     }
 
                     return View(model);
+                }
+
+                if (provisioning.RequiresEmailConfirmation)
+                {
+                    await SendRegistrationConfirmationEmailAsync(
+                        provisioning.User,
+                        model.SelectedPlanId,
+                        cancellationToken);
+
+                    return RedirectToAction(nameof(ConfirmacionRegistro));
                 }
 
                 await _signInManager.SignInAsync(provisioning.User, isPersistent: false);
@@ -217,6 +284,81 @@ namespace LuxuryApp.Controllers.Identity
 
         [HttpGet]
         [AllowAnonymous]
+        public IActionResult ConfirmacionRegistro() => View();
+
+        [HttpGet]
+        [AllowAnonymous]
+        public async Task<IActionResult> ConfirmarEmail(
+            string? userId,
+            string? token,
+            Guid? selectedPlanId = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(token))
+            {
+                return EmailConfirmationView(success: false);
+            }
+
+            var user = await _userManager.FindByIdAsync(userId);
+            if (user is null)
+            {
+                return EmailConfirmationView(success: false);
+            }
+
+            IdentityResult result;
+            if (user.EmailConfirmed)
+            {
+                result = IdentityResult.Success;
+            }
+            else
+            {
+                string decodedToken;
+                try
+                {
+                    decodedToken = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(token));
+                }
+                catch (Exception ex) when (ex is FormatException or ArgumentException)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Token de confirmacion de correo con formato invalido. UserId {UserId}. TenantId {TenantId}.",
+                        user.Id,
+                        user.TenantId);
+
+                    return EmailConfirmationView(success: false);
+                }
+
+                result = await _userManager.ConfirmEmailAsync(user, decodedToken);
+            }
+
+            if (!result.Succeeded)
+            {
+                _logger.LogWarning(
+                    "Confirmacion de correo fallida. UserId {UserId}. TenantId {TenantId}.",
+                    user.Id,
+                    user.TenantId);
+
+                return EmailConfirmationView(success: false);
+            }
+
+            await MarkPendingTenantAsEmailConfirmedAsync(user, cancellationToken);
+            await _signInManager.SignInAsync(user, isPersistent: false);
+
+            TempData["Mensaje"] = "Correo confirmado. Ya puedes continuar con tu plan.";
+
+            if (selectedPlanId.HasValue && selectedPlanId.Value != Guid.Empty)
+            {
+                return RedirectToAction(
+                    "ContinuarCheckout",
+                    "Billing",
+                    new { planId = selectedPlanId.Value });
+            }
+
+            return RedirectToAction("Planes", "Billing");
+        }
+
+        [HttpGet]
+        [AllowAnonymous]
         public IActionResult Acceso(string? returnurl = null)
         {
             ViewData["ReturnUrl"] = returnurl;
@@ -228,12 +370,26 @@ namespace LuxuryApp.Controllers.Identity
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AllowAnonymous]
-        public async Task<IActionResult> Acceso(AccesoViewModel model, string? returnurl = null)
+        [EnableRateLimiting("Authentication")]
+        public async Task<IActionResult> Acceso(
+            AccesoViewModel model,
+            string? returnurl = null,
+            CancellationToken cancellationToken = default)
         {
             ViewData["ReturnUrl"] = returnurl;
             var safeReturnUrl = Url.IsLocalUrl(returnurl)
                 ? returnurl!
                 : Url.Content("~/") ?? "/";
+
+            var loginRateLimit = _registrationSecurityService.CheckRateLimit(
+                RegistrationSecurityActions.Login,
+                ContractRequestMetadataResolver.ResolveClientIp(HttpContext),
+                model.Email);
+
+            if (!loginRateLimit.Allowed)
+            {
+                return RateLimitedView(model);
+            }
 
             if (!ModelState.IsValid)
             {
@@ -256,6 +412,20 @@ namespace LuxuryApp.Controllers.Identity
 
             if (result.Succeeded)
             {
+                if (await RequiresEmailConfirmationAsync(usuario, cancellationToken))
+                {
+                    _logger.LogWarning(
+                        "Intento de acceso con correo no confirmado. UserId {UserId}. TenantId {TenantId}.",
+                        usuario.Id,
+                        usuario.TenantId);
+
+                    await Task.Delay(250, cancellationToken);
+                    ModelState.AddModelError(
+                        string.Empty,
+                        "Debes confirmar tu correo antes de continuar. Revisa tu bandeja de entrada.");
+                    return View(model);
+                }
+
                 if (!usuario.State)
                 {
                     _logger.LogWarning(
@@ -492,10 +662,21 @@ namespace LuxuryApp.Controllers.Identity
         [HttpPost]
         [ValidateAntiForgeryToken]
         [AllowAnonymous]
+        [EnableRateLimiting("PasswordReset")]
         public async Task<IActionResult> OlvidoPassword(
             OlvidoPasswordViewModel model,
             CancellationToken cancellationToken)
         {
+            var resetRateLimit = _registrationSecurityService.CheckRateLimit(
+                RegistrationSecurityActions.ForgotPassword,
+                ContractRequestMetadataResolver.ResolveClientIp(HttpContext),
+                model.Email);
+
+            if (!resetRateLimit.Allowed)
+            {
+                return RateLimitedView(model);
+            }
+
             if (!ModelState.IsValid)
             {
                 return View(model);
@@ -728,6 +909,125 @@ namespace LuxuryApp.Controllers.Identity
             model.CurrentContractTitle = activeContract.Title;
             model.CurrentContractVersion = activeContract.VersionNumber;
             model.CurrentContractEffectiveFromUtc = activeContract.EffectiveFromUtc;
+        }
+
+        private void PopulateRegistrationSecurityViewData()
+        {
+            var siteKey = _turnstileVerificationService.IsEnabled &&
+                !string.IsNullOrWhiteSpace(_turnstileVerificationService.SiteKey)
+                    ? _turnstileVerificationService.SiteKey
+                    : null;
+
+            ViewData["TurnstileSiteKey"] = siteKey;
+        }
+
+        private async Task<bool> ValidateTurnstileAsync(CancellationToken cancellationToken)
+        {
+            if (!_turnstileVerificationService.IsEnabled)
+            {
+                return true;
+            }
+
+            var token = Request.HasFormContentType
+                ? Request.Form[_turnstileVerificationService.ResponseFieldName].ToString()
+                : null;
+
+            try
+            {
+                return await _turnstileVerificationService.VerifyAsync(
+                    token,
+                    ContractRequestMetadataResolver.ResolveClientIp(HttpContext),
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No fue posible validar Turnstile.");
+                return false;
+            }
+        }
+
+        private async Task SendRegistrationConfirmationEmailAsync(
+            AppUsuario user,
+            Guid? selectedPlanId,
+            CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(user.Email))
+            {
+                throw new InvalidOperationException("No se puede enviar confirmacion sin email.");
+            }
+
+            var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+            var encodedToken = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(token));
+            var confirmationUrl = Url.Action(
+                nameof(ConfirmarEmail),
+                "Accounts",
+                new { userId = user.Id, token = encodedToken, selectedPlanId },
+                Request.Scheme)!;
+
+            await _accountEmailService.SendEmailConfirmationEmailAsync(
+                user.Email,
+                user.Name ?? user.UserName ?? "Usuario",
+                confirmationUrl,
+                cancellationToken);
+        }
+
+        private async Task MarkPendingTenantAsEmailConfirmedAsync(
+            AppUsuario user,
+            CancellationToken cancellationToken)
+        {
+            if (user.TenantId == Guid.Empty)
+            {
+                return;
+            }
+
+            var tenant = await _context.Tenants
+                .FirstOrDefaultAsync(currentTenant => currentTenant.Id == user.TenantId, cancellationToken);
+
+            if (tenant is null || tenant.CommercialAccessMode != TenantCommercialAccessMode.PendingVerification)
+            {
+                return;
+            }
+
+            tenant.CommercialAccessMode = TenantCommercialAccessMode.RequiresSubscription;
+            tenant.CommercialNotes = "Correo confirmado; pendiente de seleccion/pago de plan.";
+            tenant.CommercialUpdatedUtc = DateTime.UtcNow;
+            tenant.CommercialUpdatedByUserId = user.Id;
+
+            await _context.SaveChangesAsync(cancellationToken);
+            _accessCache.Invalidate(user.TenantId);
+        }
+
+        private async Task<bool> RequiresEmailConfirmationAsync(
+            AppUsuario user,
+            CancellationToken cancellationToken)
+        {
+            if (user.EmailConfirmed || user.TenantId == Guid.Empty)
+            {
+                return false;
+            }
+
+            return await _context.Tenants
+                .AsNoTracking()
+                .AnyAsync(
+                    tenant => tenant.Id == user.TenantId &&
+                              tenant.CommercialAccessMode == TenantCommercialAccessMode.PendingVerification,
+                    cancellationToken);
+        }
+
+        private IActionResult EmailConfirmationView(bool success)
+        {
+            ViewData["EmailConfirmationSucceeded"] = success;
+            return View("ConfirmacionEmail");
+        }
+
+        private IActionResult RateLimitedView(object model)
+        {
+            Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            ModelState.AddModelError(
+                string.Empty,
+                "Demasiados intentos. Espera unos minutos e intenta nuevamente.");
+
+            return View(model);
         }
 
         private bool NormalizeContractAcceptance(RegistroViewModel model)

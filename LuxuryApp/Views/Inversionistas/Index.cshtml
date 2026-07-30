@@ -1,0 +1,211 @@
+@using LuxuryApp.Models.Inversionistas
+@model InvestorsIndexViewModel
+
+@{
+    ViewData["Title"] = "Inversionistas";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/finance-modules.css" asp-append-version="true" />
+}
+
+<div class="finance-page-shell">
+
+    <div class="finance-hero">
+        <div class="finance-hero-left">
+            <span class="finance-badge">
+                <i class="bi bi-people-fill"></i>
+                Socios del negocio
+            </span>
+            <h1 class="finance-title">Inversionistas</h1>
+            <p class="finance-subtitle">
+                Definí quién participa de la ganancia, con qué porcentaje y cada cuánto recibe su estado de cuenta.
+            </p>
+        </div>
+
+        <div class="finance-kpi-grid">
+            <div class="finance-kpi-card">
+                <div class="finance-kpi-icon finance-kpi-icon-violet">
+                    <i class="bi bi-pie-chart"></i>
+                </div>
+                <div>
+                    <span class="finance-kpi-label">Participación asignada</span>
+                    <span class="finance-kpi-value finance-kpi-value-violet">
+                        @Model.ParticipacionTotalVigente.ToString("0.##") %
+                    </span>
+                </div>
+            </div>
+
+            <div class="finance-kpi-card">
+                <div class="finance-kpi-icon finance-kpi-icon-orange">
+                    <i class="bi bi-wallet2"></i>
+                </div>
+                <div>
+                    <span class="finance-kpi-label">Saldo pendiente</span>
+                    <span class="finance-kpi-value finance-kpi-value-orange">
+                        ₡ @Model.SaldoPendienteTotal.ToString("N2")
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (TempData["Mensaje"] is string mensaje)
+    {
+        <div class="svc-alert svc-alert--success" role="status">@mensaje</div>
+    }
+
+    @if (TempData["Error"] is string error)
+    {
+        <div class="svc-alert svc-alert--danger" role="alert">@error</div>
+    }
+
+    <div class="finance-actions">
+        <a asp-action="Crear" class="finance-btn-primary">
+            <i class="bi bi-plus-circle"></i> Nuevo inversionista
+        </a>
+        <a asp-action="Estados" class="finance-btn-secondary">
+            <i class="bi bi-file-earmark-text"></i> Estados de cuenta
+        </a>
+        <a asp-action="Politica" class="finance-btn-secondary">
+            <i class="bi bi-sliders"></i> Cómo se calcula la ganancia
+        </a>
+    </div>
+
+    <div class="finance-form-info-box">
+        <i class="bi bi-info-circle-fill"></i>
+        La <strong>ganancia distribuible</strong> parte de los ingresos realmente cobrados sin IVA y le resta
+        los gastos operativos y las liquidaciones del equipo. Los pagos que le hagas a un inversionista
+        <strong>no</strong> vuelven a reducir esa ganancia.
+    </div>
+
+    @if (Model.ParticipacionTotalVigente > 100m)
+    {
+        <div class="svc-alert svc-alert--danger" role="alert">
+            La participación asignada supera el 100 %. Revisá los acuerdos vigentes.
+        </div>
+    }
+
+    <div class="finance-table-desktop">
+        <table class="finance-table">
+            <thead>
+                <tr>
+                    <th>Nombre</th>
+                    <th>Correo</th>
+                    <th>Porcentaje vigente</th>
+                    <th>Frecuencia</th>
+                    <th>Estado</th>
+                    <th>Próximo reporte</th>
+                    <th>Saldo pendiente</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (Model.TieneInversionistas)
+                {
+                    foreach (var inversionista in Model.Inversionistas)
+                    {
+                        <tr>
+                            <td>@inversionista.Nombre</td>
+                            <td>@inversionista.Email</td>
+                            <td>
+                                @if (inversionista.PorcentajeVigente.HasValue)
+                                {
+                                    <span class="finance-method-badge">@inversionista.PorcentajeVigente.Value.ToString("0.##") %</span>
+                                }
+                                else
+                                {
+                                    <span class="svc-sub">Sin acuerdo vigente</span>
+                                }
+                            </td>
+                            <td>@inversionista.FrecuenciaTexto</td>
+                            <td>
+                                <span class="svc-status @(inversionista.Activo ? "svc-status--active" : "svc-status--inactive")">
+                                    <span class="svc-dot @(inversionista.Activo ? "svc-dot--green" : "svc-dot--gray")"></span>
+                                    @inversionista.EstadoTexto
+                                </span>
+                            </td>
+                            <td>@(inversionista.ProximoReporte ?? "—")</td>
+                            <td class="finance-monto-expense">₡ @inversionista.SaldoPendiente.ToString("N2")</td>
+                            <td>
+                                <div class="finance-actions-cell">
+                                    <a asp-action="VistaPrevia" asp-route-id="@inversionista.Id" class="finance-btn-row-edit">
+                                        <i class="bi bi-calculator"></i> Vista previa
+                                    </a>
+                                    <a asp-action="Editar" asp-route-id="@inversionista.Id" class="finance-btn-row-edit">
+                                        <i class="bi bi-pencil"></i> Editar
+                                    </a>
+                                    <form asp-action="CambiarEstado" asp-route-id="@inversionista.Id" method="post" class="finance-btn-danger-form">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="activo" value="@((!inversionista.Activo).ToString().ToLowerInvariant())" />
+                                        <button type="submit" class="svc-act-btn svc-act-btn--toggle">
+                                            <i class="bi bi-power"></i> @(inversionista.Activo ? "Desactivar" : "Activar")
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+                else
+                {
+                    <tr>
+                        <td colspan="8">
+                            <div class="finance-empty-state">
+                                <div class="finance-empty-icon"><i class="bi bi-people"></i></div>
+                                <p class="finance-empty-title">Todavía no hay inversionistas</p>
+                                <p class="finance-empty-subtitle">
+                                    Agregá un inversionista y definí qué porcentaje de la ganancia le corresponde.
+                                </p>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="finance-mobile-list">
+        @foreach (var inversionista in Model.Inversionistas)
+        {
+            <div class="finance-mobile-card">
+                <div class="finance-mobile-card-header">
+                    <span class="finance-mobile-card-date">
+                        <i class="bi bi-person"></i> @inversionista.Nombre
+                    </span>
+                    <span class="finance-mobile-card-monto">
+                        @(inversionista.PorcentajeVigente?.ToString("0.##") ?? "—") %
+                    </span>
+                </div>
+
+                <div class="finance-mobile-card-body">
+                    <div class="finance-mobile-card-row">
+                        <span class="finance-mobile-card-row-label">Correo</span>
+                        <span class="finance-mobile-card-row-value">@inversionista.Email</span>
+                    </div>
+                    <div class="finance-mobile-card-row">
+                        <span class="finance-mobile-card-row-label">Frecuencia</span>
+                        <span class="finance-mobile-card-row-value">@inversionista.FrecuenciaTexto</span>
+                    </div>
+                    <div class="finance-mobile-card-row">
+                        <span class="finance-mobile-card-row-label">Próximo reporte</span>
+                        <span class="finance-mobile-card-row-value">@(inversionista.ProximoReporte ?? "—")</span>
+                    </div>
+                    <div class="finance-mobile-card-row">
+                        <span class="finance-mobile-card-row-label">Saldo pendiente</span>
+                        <span class="finance-mobile-card-row-value">₡ @inversionista.SaldoPendiente.ToString("N2")</span>
+                    </div>
+                </div>
+
+                <div class="finance-mobile-card-footer">
+                    <a asp-action="VistaPrevia" asp-route-id="@inversionista.Id" class="finance-btn-row-edit">
+                        <i class="bi bi-calculator"></i> Vista previa
+                    </a>
+                    <a asp-action="Editar" asp-route-id="@inversionista.Id" class="finance-btn-row-edit">
+                        <i class="bi bi-pencil"></i> Editar
+                    </a>
+                </div>
+            </div>
+        }
+    </div>
+</div>

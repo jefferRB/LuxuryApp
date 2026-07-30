@@ -80,11 +80,145 @@ namespace LuxuryApp.Tests.Billing
             Assert.Equal(3, snapshot.ActiveWhatsAppAddons);
         }
 
-        private static async Task SeedAddonAsync(ApplicationDbContext context, Action<TenantSubscriptionAddon> configure)
+        /// <summary>
+        /// Caso Luxe: base EXENTO con plan forzado (no hay fila en Suscripciones) + add-on WhatsApp
+        /// ManualGrant indefinido. El acceso base es legitimo, asi que NO es riesgo de dinero y
+        /// tampoco cuenta como "add-on sin plan base" (regla 11), que era la alerta falsa.
+        /// </summary>
+        [Fact]
+        public async Task Build_ExemptTenantWithForcedPlan_ManualAddon_NoEsRiesgoNiAddonSinBase()
         {
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(new TestTenantProvider());
+            using var _c = context;
+            using var _n = connection;
+
             var tenantId = Guid.NewGuid();
+            var basePlanId = Guid.NewGuid();
+
+            context.Planes.Add(new Plan
+            {
+                Id = basePlanId,
+                Codigo = "LC_M_05",
+                Nombre = "LuxuryCloud Mensual 5 funcionarios",
+                Moneda = "CRC",
+                PrecioMensual = 50_000m,
+                MaxFuncionarios = 5,
+                Activo = true
+            });
+
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = "Luxe",
+                Activo = true,
+                CommercialAccessMode = TenantCommercialAccessMode.Exempt,
+                ForcedPlanId = basePlanId,
+                CommercialNotes = "Canje / acceso manual"
+            });
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            await SeedAddonAsync(context, addon =>
+            {
+                addon.BillingSource = WhatsAppAddonBillingSource.ManualGrant;
+                addon.IsManualGrantIndefinite = true;
+                addon.FechaFin = null;
+                addon.ProviderSubscriptionId = null;
+                addon.TilopayRecurringPlanId = null;
+            }, tenantId, addonCode: PlanCodes.WhatsApp1200);
+
+            var health = new BillingHealthService(context, CreateSuscripcionService(context));
+            var snapshot = await health.BuildAsync();
+
+            // Sin dinero en riesgo por ningun concepto de add-on.
+            Assert.Equal(0, snapshot.PaidAddonsActiveWithoutProviderRisk);
+            Assert.Equal(0, snapshot.WhatsAppAddonMoneyRiskCount);
+            // Regla 11: el acceso base otorgado por plataforma cuenta como base valida.
+            Assert.Equal(0, snapshot.WhatsAppAddonsWithoutActiveBase);
+            // El acceso manual sigue siendo visible como informativo.
+            Assert.Equal(1, snapshot.ManualWhatsAppGrantsActive);
+            Assert.Equal(0, snapshot.ManualWhatsAppGrantsExpiredStillActive);
+        }
+
+        /// <summary>
+        /// Contraprueba de la regla 11: un tenant que REQUIERE suscripcion y no la tiene sigue
+        /// contando como add-on sin plan base. La excepcion es solo para exento/interno con plan forzado.
+        /// </summary>
+        [Fact]
+        public async Task Build_TenantSinSuscripcionNiExencion_SigueContandoComoAddonSinBase()
+        {
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(new TestTenantProvider());
+            using var _c = context;
+            using var _n = connection;
+
+            await SeedAddonAsync(context, addon =>
+            {
+                addon.BillingSource = WhatsAppAddonBillingSource.ManualGrant;
+                addon.IsManualGrantIndefinite = true;
+                addon.FechaFin = null;
+                addon.ProviderSubscriptionId = null;
+                addon.TilopayRecurringPlanId = null;
+            });
+
+            var health = new BillingHealthService(context, CreateSuscripcionService(context));
+            var snapshot = await health.BuildAsync();
+
+            Assert.Equal(1, snapshot.WhatsAppAddonsWithoutActiveBase);
+            Assert.Equal(0, snapshot.WhatsAppAddonMoneyRiskCount);
+        }
+
+        /// <summary>
+        /// Un tenant exento SIN plan forzado no tiene acceso base valido: la excepcion de la regla 11
+        /// exige plan forzado, no solo el modo comercial.
+        /// </summary>
+        [Fact]
+        public async Task Build_TenantExentoSinPlanForzado_SigueContandoComoAddonSinBase()
+        {
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(new TestTenantProvider());
+            using var _c = context;
+            using var _n = connection;
+
+            var tenantId = Guid.NewGuid();
+            context.Tenants.Add(new Tenant
+            {
+                Id = tenantId,
+                Nombre = "Exento mal configurado",
+                Activo = true,
+                CommercialAccessMode = TenantCommercialAccessMode.Exempt,
+                ForcedPlanId = null
+            });
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            await SeedAddonAsync(context, addon =>
+            {
+                addon.BillingSource = WhatsAppAddonBillingSource.ManualGrant;
+                addon.IsManualGrantIndefinite = true;
+                addon.FechaFin = null;
+                addon.ProviderSubscriptionId = null;
+                addon.TilopayRecurringPlanId = null;
+            }, tenantId);
+
+            var health = new BillingHealthService(context, CreateSuscripcionService(context));
+            var snapshot = await health.BuildAsync();
+
+            Assert.Equal(1, snapshot.WhatsAppAddonsWithoutActiveBase);
+        }
+
+        private static async Task SeedAddonAsync(
+            ApplicationDbContext context,
+            Action<TenantSubscriptionAddon> configure,
+            Guid? existingTenantId = null,
+            string addonCode = PlanCodes.WhatsApp400)
+        {
+            var tenantId = existingTenantId ?? Guid.NewGuid();
             var planId = Guid.NewGuid();
-            context.Tenants.Add(new Tenant { Id = tenantId, Nombre = "T", Activo = true });
+
+            if (existingTenantId is null)
+            {
+                context.Tenants.Add(new Tenant { Id = tenantId, Nombre = "T", Activo = true });
+            }
+
             context.Planes.Add(new Plan
             {
                 Id = planId,
@@ -103,7 +237,7 @@ namespace LuxuryApp.Tests.Billing
                 Id = Guid.NewGuid(),
                 TenantId = tenantId,
                 PlanId = planId,
-                AddonCode = PlanCodes.WhatsApp400,
+                AddonCode = addonCode,
                 Estado = EstadoSuscripcion.Activa,
                 MonthlyMessageLimit = 400,
                 FechaInicio = NowUtc.AddDays(-2),

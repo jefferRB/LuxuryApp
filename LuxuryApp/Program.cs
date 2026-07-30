@@ -23,6 +23,7 @@ using LuxuryApp.Services.PublicSite;
 using LuxuryApp.Services.Productos;
 using LuxuryApp.Services.Reservas;
 using LuxuryApp.Services.SaaS;
+using LuxuryApp.Services.Security;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Services.Tilopay;
 using LuxuryApp.Services.WhatsApp;
@@ -179,18 +180,37 @@ builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-    options.AddPolicy("PublicBooking", httpContext =>
+    static System.Threading.RateLimiting.RateLimitPartition<string> FixedWindow(
+        HttpContext httpContext,
+        string policyName,
+        int permitLimit,
+        TimeSpan window)
     {
         var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida";
         return System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: ip,
+            partitionKey: $"{policyName}:{ip}",
             factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
             {
-                PermitLimit = 60,
-                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = permitLimit,
+                Window = window,
                 QueueLimit = 0
             });
-    });
+    }
+
+    options.AddPolicy("PublicBooking", httpContext =>
+        FixedWindow(httpContext, "public-booking", 60, TimeSpan.FromMinutes(1)));
+
+    options.AddPolicy("Registration", httpContext =>
+        FixedWindow(httpContext, "registration", 5, TimeSpan.FromMinutes(10)));
+
+    options.AddPolicy("Authentication", httpContext =>
+        FixedWindow(httpContext, "authentication", 20, TimeSpan.FromMinutes(5)));
+
+    options.AddPolicy("PasswordReset", httpContext =>
+        FixedWindow(httpContext, "password-reset", 5, TimeSpan.FromMinutes(15)));
+
+    options.AddPolicy("Webhook", httpContext =>
+        FixedWindow(httpContext, "webhook", 120, TimeSpan.FromMinutes(1)));
 });
 
 builder.Services.Configure<OpcionesPago>(builder.Configuration.GetSection("Payments"));
@@ -201,6 +221,14 @@ builder.Services.Configure<BusinessDateTimeOptions>(builder.Configuration.GetSec
 builder.Services.Configure<MetaWhatsAppOptions>(builder.Configuration.GetSection(MetaWhatsAppOptions.SectionName));
 builder.Services.Configure<LuxuryApp.Services.Account.AccountEmailOptions>(
     builder.Configuration.GetSection(LuxuryApp.Services.Account.AccountEmailOptions.SectionName));
+builder.Services.Configure<RegistrationSecurityOptions>(
+    builder.Configuration.GetSection(RegistrationSecurityOptions.SectionName));
+builder.Services.AddSingleton<RegistrationSecurityService>();
+builder.Services.AddHttpClient<TurnstileVerificationService>(client =>
+{
+    client.BaseAddress = new Uri("https://challenges.cloudflare.com/");
+    client.Timeout = TimeSpan.FromSeconds(5);
+});
 // URL pública oficial (clave raíz "PublicBaseUrl" / env var PublicBaseUrl). Centraliza los
 // enlaces absolutos de correos/procesos de fondo; nunca usa el host del request ni ngrok.
 builder.Services.Configure<LuxuryApp.Services.Common.PublicSiteOptions>(builder.Configuration);
@@ -315,6 +343,34 @@ builder.Services.AddScoped<IBookingSettingsService, BookingSettingsService>();
 builder.Services.AddScoped<IPublicBookingService, PublicBookingService>();
 builder.Services.AddScoped<IBookingRequestService, BookingRequestService>();
 builder.Services.AddScoped<IFuncionarioPhotoStorageService, FuncionarioPhotoStorageService>();
+
+// Bloqueos recurrentes de horario. IFuncionarioAvailabilityService es la ÚNICA fuente de
+// disponibilidad: la consumen el calendario (crear/editar/mover/redimensionar) y las reservas
+// públicas, para que no existan dos criterios distintos de "está ocupado".
+builder.Services.AddScoped<LuxuryApp.Services.Horarios.IFuncionarioAvailabilityService,
+    LuxuryApp.Services.Horarios.FuncionarioAvailabilityService>();
+builder.Services.AddScoped<LuxuryApp.Services.Horarios.IRecurringScheduleService,
+    LuxuryApp.Services.Horarios.RecurringScheduleService>();
+
+// Inversionistas y distribución de ganancias. El cálculo vive en InvestorProfitCalculationService
+// y reutiliza el motor fiscal + liquidaciones existentes; no hay lógica financiera en controladores.
+builder.Services.AddScoped<LuxuryApp.Services.Inversionistas.IInvestorService,
+    LuxuryApp.Services.Inversionistas.InvestorService>();
+builder.Services.AddScoped<LuxuryApp.Services.Inversionistas.IInvestorProfitCalculationService,
+    LuxuryApp.Services.Inversionistas.InvestorProfitCalculationService>();
+builder.Services.AddScoped<LuxuryApp.Services.Inversionistas.IInvestorStatementService,
+    LuxuryApp.Services.Inversionistas.InvestorStatementService>();
+builder.Services.AddScoped<LuxuryApp.Services.Inversionistas.IInvestorStatementDocumentService,
+    LuxuryApp.Services.Inversionistas.InvestorStatementDocumentService>();
+builder.Services.AddScoped<LuxuryApp.Services.Inversionistas.IInvestorStatementPdfService,
+    LuxuryApp.Services.Inversionistas.InvestorStatementPdfService>();
+builder.Services.AddSingleton<LuxuryApp.Services.Inversionistas.IInvestorStatementEmailRenderer,
+    LuxuryApp.Services.Inversionistas.InvestorStatementEmailRenderer>();
+builder.Services.AddScoped<LuxuryApp.Services.Inversionistas.IInvestorStatementEmailSender,
+    LuxuryApp.Services.Inversionistas.InvestorStatementEmailSender>();
+builder.Services.AddScoped<LuxuryApp.Services.Inversionistas.IInvestorStatementEmailService,
+    LuxuryApp.Services.Inversionistas.InvestorStatementEmailService>();
+
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHostedService<ReminderWorker>();
 builder.Services.AddScoped<VisitasAutomaticasService>();
@@ -336,6 +392,9 @@ builder.Services.AddScoped<LuxuryApp.Services.SaaS.IPlanChangeService, LuxuryApp
 builder.Services.AddScoped<LuxuryApp.Services.SaaS.IPlanChangeDecisionService, LuxuryApp.Services.SaaS.PlanChangeDecisionService>();
 builder.Services.AddSingleton<ITenantCommercialAccessCache, TenantCommercialAccessCache>();
 builder.Services.AddScoped<ITenantCommercialAccessResolver, TenantCommercialAccessResolver>();
+// Contacto principal del tenant (admin > funcionario). Fuente unica: no debe quedar ningun
+// OrderBy(email).First() resolviendo "el correo del tenant" en otro servicio.
+builder.Services.AddScoped<LuxuryApp.Services.Tenant.ITenantOwnerResolver, LuxuryApp.Services.Tenant.TenantOwnerResolver>();
 builder.Services.AddScoped<IPromotionalCodeService, PromotionalCodeService>();
 builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformAuditService, LuxuryApp.Services.Platform.PlatformAuditService>();
 builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformUserAdminService, LuxuryApp.Services.Platform.PlatformUserAdminService>();
@@ -368,6 +427,7 @@ builder.Services.AddScoped<LuxuryApp.Services.Billing.IBillingReconciliationServ
 builder.Services.AddScoped<LuxuryApp.Services.Billing.IBillingHealthService, LuxuryApp.Services.Billing.BillingHealthService>();
 builder.Services.AddScoped<LuxuryApp.Services.Billing.IPaymentRecoveryService, LuxuryApp.Services.Billing.PaymentRecoveryService>();
 builder.Services.AddScoped<LuxuryApp.Services.Billing.IPaymentMethodUpdateService, LuxuryApp.Services.Billing.PaymentMethodUpdateService>();
+builder.Services.AddScoped<IPendingTenantExpirationService, PendingTenantExpirationService>();
 // Correo real de recuperación (Resend) + servicio de notificación que respeta SendEmailNotifications.
 builder.Services.AddScoped<LuxuryApp.Services.Billing.IPaymentRecoveryEmailSender, LuxuryApp.Services.Billing.PaymentRecoveryEmailSender>();
 builder.Services.AddScoped<LuxuryApp.Services.Billing.IPaymentRecoveryNotificationService, LuxuryApp.Services.Billing.PaymentRecoveryNotificationService>();
@@ -378,6 +438,7 @@ builder.Services.AddHostedService<LuxuryApp.Workers.PlanChangeCancellationRetryW
 builder.Services.AddHostedService<LuxuryApp.Workers.SubscriptionLifecycleWorker>();
 // Worker de recuperación de pago: cierra gracias vencidas (dry-run salvo AutoSuspendAfterGrace=true).
 builder.Services.AddHostedService<LuxuryApp.Workers.PaymentRecoveryWorker>();
+builder.Services.AddHostedService<LuxuryApp.Workers.PendingTenantExpirationWorker>();
 
 // Cliente admin de TiloPay Repeat: resuelve id_suscriptor y gestiona el suscriptor del proveedor.
 // Deshabilitado por defecto (TilopayRepeatAdmin:Enabled=false): el flujo de compra actual no cambia.
@@ -394,6 +455,10 @@ builder.Services.AddScoped<LuxuryApp.Services.Billing.IProviderSubscriptionManag
 // Cancelación SALIENTE del suscriptor del add-on de WhatsApp (Strategy B en cambio de paquete +
 // cascada del plan base). Manual-safe: verifica contra TiloPay o deja pendiente + alerta.
 builder.Services.AddScoped<LuxuryApp.Services.Billing.IAddonSubscriptionManager, LuxuryApp.Services.Billing.AddonSubscriptionManager>();
+// Auditoría SOLO LECTURA del proveedor: cuántos add-ons de WhatsApp puede cobrarle TiloPay al
+// tenant. Se dispara tras rechazar un webhook de add-on y desde la reconciliación; deja snapshot
+// para que BillingHealth no muestre verde cuando el proveedor tiene doble cobro montado.
+builder.Services.AddScoped<LuxuryApp.Services.Billing.IAddonProviderAuditService, LuxuryApp.Services.Billing.AddonProviderAuditService>();
 // Diagnóstico de config EFECTIVA de checkout (appsettings + env vars): HasCheckoutUrl por add-on,
 // enmascarado (nunca la URL/token). Log de arranque + visible en Mission Control.
 builder.Services.AddSingleton<LuxuryApp.Services.Billing.IManagedPlanCheckoutInspector, LuxuryApp.Services.Billing.ManagedPlanCheckoutInspector>();

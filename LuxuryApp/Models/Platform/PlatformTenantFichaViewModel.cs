@@ -6,13 +6,42 @@ namespace LuxuryApp.Models.Platform
     {
         public Guid TenantId { get; init; }
         public string TenantName { get; init; } = string.Empty;
+        // ── Contacto principal (regla determinista: admin > funcionario) ──
         public string? OwnerEmail { get; init; }
         public string? OwnerName { get; init; }
+        public TenantOwnerSource OwnerSource { get; init; }
+        public IReadOnlyList<string> OwnerWarnings { get; init; } = Array.Empty<string>();
+
+        /// <summary>Resolucion completa: owner, admins adicionales, funcionarios y advertencias.</summary>
+        public TenantOwnerResolution? Owner { get; init; }
+
         public DateTime FechaCreacion { get; init; }
         public bool Activo { get; init; }
 
+        // ── Estado comercial EFECTIVO (misma fuente que la app del cliente) ──
         public bool CanAccessApp { get; init; }
         public string? EffectivePlanName { get; init; }
+        public string? EffectivePlanCode { get; init; }
+        public PlanCatalogKind EffectivePlanKind { get; init; }
+
+        /// <summary>Limite de funcionarios efectivo. Null = ilimitado o sin plan resuelto.</summary>
+        public int? EffectiveEmployeeLimit { get; init; }
+
+        public int ActiveFuncionarios { get; init; }
+
+        public bool ExceedsEmployeeLimit =>
+            EffectiveEmployeeLimit.HasValue && ActiveFuncionarios > EffectiveEmployeeLimit.Value;
+
+        /// <summary>El plan efectivo viene de un plan forzado por plataforma, no de un cobro.</summary>
+        public bool IsForcedByPlatform { get; init; }
+
+        public TenantAccessBillingSource AccessBillingSource { get; init; }
+        public string? ProviderSubscriptionId { get; init; }
+        public DateTime? NextBillingDateUtc { get; init; }
+
+        /// <summary>Inconsistencias comerciales detectadas. Se muestran como alerta operativa.</summary>
+        public IReadOnlyList<string> CommercialWarnings { get; init; } = Array.Empty<string>();
+
         public string? CommercialReason { get; init; }
         public TenantCommercialAccessMode CommercialAccessMode { get; init; }
         public string? CommercialNotes { get; init; }
@@ -101,6 +130,12 @@ namespace LuxuryApp.Models.Platform
         public bool State { get; init; }
         public string? Roles { get; init; }
         public bool IsPlatformSuperAdmin { get; init; }
+
+        /// <summary>Clasificacion funcional resuelta contra AspNetUserRoles (no texto libre).</summary>
+        public TenantUserKind Kind { get; init; }
+
+        /// <summary>Es el contacto principal del tenant segun la regla de owner.</summary>
+        public bool IsOwner { get; init; }
     }
 
     // ─── Auditoría preview ───────────────────────────────────────────────────────

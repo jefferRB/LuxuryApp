@@ -1206,50 +1206,64 @@ namespace LuxuryApp.Controllers.Funcionarios
             }
         }
 
+        /// <summary>
+        /// Enforcement del limite de funcionarios. Lee el limite EFECTIVO del resolver de acceso
+        /// comercial (mismo campo que muestra /Billing/Suscripcion), de modo que un tenant exento
+        /// con plan forzado LC_M_03 se valide contra 3 y no contra el MaxFuncionarios de una fila
+        /// de Suscripciones vieja.
+        /// </summary>
         private async Task<(bool IsAllowed, string Message)> ValidateActiveFuncionarioCapacityAsync()
         {
-            var plan = await ResolvePlanAsync();
-            if (plan == null && !UserIsPlatformSuperAdmin())
+            if (UserIsPlatformSuperAdmin())
+            {
+                return (true, string.Empty);
+            }
+
+            var access = ResolveCommercialAccess();
+            if (access is null)
             {
                 return (false, "No fue posible resolver el acceso comercial del tenant para validar el limite de funcionarios.");
             }
 
-            if (plan?.MaxFuncionarios.HasValue == true)
+            var limit = access.EffectiveEmployeeLimit;
+            if (!limit.HasValue)
             {
-                var totalActivos = await _context.Funcionarios
-                    .AsNoTracking()
-                    .CountAsync(f => f.Activo);
-
-                if (totalActivos >= plan.MaxFuncionarios.Value)
+                // Sin plan efectivo resuelto no se puede validar (fail-closed); con plan efectivo y
+                // limite null el plan es ilimitado y se permite.
+                if (!access.HasEffectivePlan)
                 {
-                    _logger.LogWarning(
-                        "Limite de funcionarios excedido. PlanId {PlanId}. PlanNombre {PlanNombre}. MaxFuncionarios {MaxFuncionarios}. TotalActivos {TotalActivos}.",
-                        plan.Id,
-                        plan.Nombre,
-                        plan.MaxFuncionarios.Value,
-                        totalActivos);
-
-                    return (false, $"Tu plan actual permite hasta {plan.MaxFuncionarios.Value} funcionarios. Para agregar mas, actualiza tu plan.");
+                    return (false, "No fue posible resolver el plan efectivo del tenant para validar el limite de funcionarios.");
                 }
+
+                return (true, string.Empty);
+            }
+
+            var totalActivos = await _context.Funcionarios
+                .AsNoTracking()
+                .CountAsync(f => f.Activo);
+
+            if (totalActivos >= limit.Value)
+            {
+                _logger.LogWarning(
+                    "Limite de funcionarios excedido. PlanId {PlanId}. PlanNombre {PlanNombre}. Forzado {Forzado}. MaxFuncionarios {MaxFuncionarios}. TotalActivos {TotalActivos}.",
+                    access.EffectivePlanId,
+                    access.EffectivePlanName,
+                    access.IsForcedByPlatform,
+                    limit.Value,
+                    totalActivos);
+
+                return (false, $"Tu plan actual permite hasta {limit.Value} funcionarios. Para agregar mas, actualiza tu plan.");
             }
 
             return (true, string.Empty);
         }
 
-        private async Task<Plan?> ResolvePlanAsync()
+        private TenantCommercialAccessResult? ResolveCommercialAccess()
         {
-            if (UserIsPlatformSuperAdmin())
-            {
-                return null;
-            }
-
             if (HttpContext.Items.TryGetValue("TenantCommercialAccess", out var rawAccess) &&
-                rawAccess is TenantCommercialAccessResult access &&
-                access.EffectivePlanId.HasValue)
+                rawAccess is TenantCommercialAccessResult access)
             {
-                return await _context.Planes
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(p => p.Id == access.EffectivePlanId.Value);
+                return access;
             }
 
             _logger.LogWarning(

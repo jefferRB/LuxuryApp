@@ -7,6 +7,7 @@ using LuxuryApp.Services.Calendar;
 using LuxuryApp.Services.Comprobantes;
 using LuxuryApp.Services.Finanzas;
 using LuxuryApp.Services.Fiscal;
+using LuxuryApp.Services.Horarios;
 using LuxuryApp.Services.WhatsApp;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -25,6 +26,7 @@ namespace LuxuryApp.Controllers.Calendar
         private readonly ITenantWhatsAppFeatureService _tenantWhatsAppFeatureService;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ICobroFiscalPreviewService _cobroFiscalPreviewService;
+        private readonly IFuncionarioAvailabilityService _availabilityService;
 
         public CalendarController(
             ICalendarCommandService calendarCommandService,
@@ -34,7 +36,8 @@ namespace LuxuryApp.Controllers.Calendar
             IComprobanteCobroService comprobanteService,
             ITenantWhatsAppFeatureService tenantWhatsAppFeatureService,
             IBusinessDateTimeProvider businessDateTimeProvider,
-            ICobroFiscalPreviewService cobroFiscalPreviewService)
+            ICobroFiscalPreviewService cobroFiscalPreviewService,
+            IFuncionarioAvailabilityService availabilityService)
         {
             _calendarCommandService = calendarCommandService;
             _calendarQueryService = calendarQueryService;
@@ -44,6 +47,7 @@ namespace LuxuryApp.Controllers.Calendar
             _tenantWhatsAppFeatureService = tenantWhatsAppFeatureService;
             _businessDateTimeProvider = businessDateTimeProvider;
             _cobroFiscalPreviewService = cobroFiscalPreviewService;
+            _availabilityService = availabilityService;
         }
 
         public async Task<IActionResult> Index(CancellationToken cancellationToken)
@@ -288,6 +292,41 @@ namespace LuxuryApp.Controllers.Calendar
 
             var citas = await _calendarQueryService.GetAppointmentsByDayAsync(parsedDate, cancellationToken);
             return Ok(citas);
+        }
+
+        /// <summary>
+        /// Bloqueos recurrentes del día (almuerzo, limpieza...). Se devuelven aparte de las citas
+        /// para que el calendario los pinte como bloques de agenda y nunca se confundan con una
+        /// cita de cliente. La fuente de verdad es la regla; acá solo se expanden sus ocurrencias.
+        /// </summary>
+        [HttpGet("Calendar/GetBloqueosRecurrentes")]
+        public async Task<IActionResult> GetBloqueosRecurrentes(string date, CancellationToken cancellationToken)
+        {
+            if (!TryParseLocalDate(date, out var parsedDate))
+            {
+                return BadRequest("La fecha solicitada no es valida.");
+            }
+
+            var fecha = DateOnly.FromDateTime(parsedDate);
+            var bloqueos = await _availabilityService.GetRecurringBlocksAsync(
+                fecha,
+                fecha,
+                funcionarioIds: null,
+                cancellationToken);
+
+            return Ok(bloqueos
+                .OrderBy(bloqueo => bloqueo.Inicio)
+                .Select(bloqueo => new
+                {
+                    reglaId = bloqueo.RuleId,
+                    funcionarioId = bloqueo.FuncionarioId,
+                    titulo = bloqueo.Titulo,
+                    motivo = bloqueo.Motivo,
+                    inicio = bloqueo.Inicio.ToString("yyyy-MM-ddTHH:mm:ss"),
+                    duracionMinutos = bloqueo.DuracionMinutos,
+                    esExcepcion = bloqueo.EsExcepcion,
+                    origen = "BLOQUEO_RECURRENTE"
+                }));
         }
 
         [HttpGet("Calendar/GetById/{id}")]

@@ -106,7 +106,26 @@ namespace LuxuryApp.Tests.Support
                 context,
                 notificationService ?? new NoOpCalendarWhatsAppNotificationService(),
                 new VisitasAutomaticasService(context, BusinessDateTimeProvider),
+                CreateAvailabilityService(context),
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<CalendarCommandService>.Instance);
+
+        /// <summary>
+        /// Fuente única de disponibilidad (citas + bloqueos recurrentes). La usan el calendario y
+        /// las reservas públicas: en tests se construye igual que en producción.
+        /// </summary>
+        public static LuxuryApp.Services.Horarios.IFuncionarioAvailabilityService CreateAvailabilityService(
+            ProyectoIdentity.Datos.ApplicationDbContext context) =>
+            new LuxuryApp.Services.Horarios.FuncionarioAvailabilityService(context);
+
+        public static LuxuryApp.Services.Reservas.IBookingAvailabilityService CreateBookingAvailabilityService(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            LuxuryApp.Services.BusinessTime.IBusinessDateTimeProvider? clock = null,
+            LuxuryApp.Services.Reservas.IBookingCatalogService? catalog = null) =>
+            new LuxuryApp.Services.Reservas.BookingAvailabilityService(
+                context,
+                clock ?? BusinessDateTimeProvider,
+                catalog ?? new LuxuryApp.Services.Reservas.BookingCatalogService(context),
+                CreateAvailabilityService(context));
 
         public static ICalendarQueryService CreateCalendarQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
             new CalendarQueryService(context, BusinessDateTimeProvider);
@@ -286,6 +305,9 @@ namespace LuxuryApp.Tests.Support
     internal sealed class NoOpAccountEmailService : LuxuryApp.Services.Account.IAccountEmailService
     {
         public Task SendPasswordResetEmailAsync(string toEmail, string displayName, string resetLink, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task SendEmailConfirmationEmailAsync(string toEmail, string displayName, string confirmationLink, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
 
         public Task SendFuncionarioInvitationEmailAsync(string toEmail, string displayName, string setPasswordLink, string businessName, CancellationToken cancellationToken = default) =>

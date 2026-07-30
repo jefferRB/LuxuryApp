@@ -119,7 +119,7 @@ namespace LuxuryApp.Tests.TenantIsolation
         private static PublicBookingService BuildPublicService(ApplicationDbContext context)
         {
             var catalog = new BookingCatalogService(context);
-            var availability = new BookingAvailabilityService(context, new FixedBusinessDateTimeProvider(), catalog);
+            var availability = ControllerTestSupport.CreateBookingAvailabilityService(context, new FixedBusinessDateTimeProvider(), catalog);
             return new PublicBookingService(
                 context,
                 new NoOpBookingSettingsService(),

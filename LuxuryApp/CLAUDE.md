@@ -135,6 +135,8 @@ Current/important modules include:
 - Configuración / Cuenta
 - WhatsApp add-on features
 - Subscription / plans / tenant onboarding
+- Inversionistas y distribución de ganancias
+- Bloqueos recurrentes de horario
 
 ## WhatsApp Add-on Rules
 
@@ -170,6 +172,79 @@ For expenses:
 - Avoid extra database queries if the loaded model already contains the needed data.
 - Keep desktop layout stable unless the task explicitly asks to change desktop.
 - Mobile layout should be clean and not have strange empty spaces.
+
+## Investor Distribution Rules (Inversionistas)
+
+Módulo multi-tenant para repartir la ganancia del negocio entre inversionistas. Ningún dato es
+específico de un tenant: funciona para cualquiera.
+
+Entidades (`Models/Inversionistas`, todas `ITenantEntity`):
+`TenantInvestor`, `InvestorAgreement`, `InvestorProfitPolicy` (+ `InvestorPolicyExpenseCategory`),
+`InvestorStatement`, `InvestorStatementAdjustment`, `InvestorDistributionPayment`,
+`InvestorStatementEmailLog`.
+
+Fórmula única (`InvestorProfitCalculationService`):
+
+```
+ingresos cobrados sin IVA − gastos elegibles − liquidaciones ± ajustes − pérdida anterior
+= ganancia distribuible;   ganancia distribuible × % = participación
+```
+
+Reglas que no se negocian:
+- Ingresos, IVA y liquidaciones se leen de `ILiquidacionSemanalService`, que ya usa el motor fiscal.
+  **Nunca** se recalcula IVA ni comisiones dentro del módulo.
+- Redondeo: `FiscalMath.Redondear` (2 decimales, half-even), igual que todo el sistema.
+- Se excluyen SIEMPRE de los gastos la categoría `Pago Funcionarios` (ya va en liquidaciones) y
+  `Distribución a inversionistas` (si contara, pagarle al inversionista reduciría su propia
+  participación).
+- Solo se cuentan cobros reales del periodo. Las citas nunca entran.
+
+Ciclo de vida del estado de cuenta:
+`Draft → Finalized → Sent → PartiallyPaid → Paid`, más `Voided`.
+- Solo `Draft` se recalcula y admite ajustes.
+- `Finalized` congela el snapshot: editar cobros o gastos históricos ya no lo mueve.
+- Correcciones posteriores: ajuste auditado, anulación, o reapertura explícita con motivo.
+- Finalización protegida con transacción `Serializable` + relectura (anti doble finalización).
+- Generación idempotente por índice único filtrado `(TenantId, InvestorId, Periodo) WHERE Estado <> Voided`.
+- Pagos: no se puede superar el saldo pendiente; una corrección crea un movimiento compensatorio
+  negativo con motivo, sin borrar el pago original.
+
+Acuerdos:
+- Los acuerdos activos que se solapan no pueden sumar más de 100 %.
+- Un cambio de porcentaje entra en vigor al **inicio de un periodo** financiero; a mitad se rechaza
+  con el mensaje que indica la fecha válida. Nunca se edita el acuerdo pasado: se cierra y se crea
+  una versión nueva.
+
+Seguridad: solo `Administrador`. Un inversionista **no** es usuario del sistema y no hay portal.
+Todo (creación, cambio de %, finalización, anulación, envío, ajustes, pagos) va a `PlatformAuditLog`.
+
+Correo y PDF: se generan SIEMPRE desde el snapshot finalizado, nunca recalculando. No incluyen
+nombres de clientes, datos de colaboradores ni información de otros inversionistas.
+
+## Recurring Schedule Rules (Bloqueos de horario)
+
+Bloques repetitivos de indisponibilidad (ej. almuerzo 1:00–2:00 p. m., lunes a sábado).
+
+Entidades (`Models/Horarios`): `RecurringScheduleRule`, `RecurringScheduleRuleTarget`,
+`RecurringScheduleException`.
+
+- **La regla es la fuente de verdad.** No se crean citas falsas ni se materializan ocurrencias:
+  `RecurringScheduleOccurrenceCalculator` las expande al vuelo (función pura).
+- **Disponibilidad única**: `IFuncionarioAvailabilityService` combina citas, descansos y bloqueos.
+  La consumen `CalendarCommandService` (crear/editar/mover/redimensionar) y
+  `BookingAvailabilityService` (reservas públicas). No debe existir una segunda validación de
+  solapamiento en ningún controlador.
+- **Zona horaria**: `HoraInicio`/`HoraFin` son hora LOCAL del negocio (America/Costa_Rica), igual
+  que `Cita.FechaHoraCita`. Nunca se guardan como UTC.
+- **Alcance global = dinámico**: con "todos los colaboradores" no se guarda una fila por
+  colaborador; un colaborador nuevo queda cubierto sin tocar la regla.
+- **Conflictos**: al crear/editar se buscan las citas que coinciden y se muestran. Las citas
+  existentes NUNCA se mueven, cancelan ni borran; la regla solo impide nuevas reservas. Activar con
+  conflictos exige confirmación y queda auditado.
+- **Cambios hacia el futuro**: editar una regla ya vigente cierra la versión anterior
+  (`VigenteHasta`) y crea una nueva enlazada por `ReglaOrigenId`. Eliminar es baja lógica.
+- **Excepciones** por fecha (y opcionalmente colaborador): omitir, cambiar horario o excluir a
+  alguien. Nunca modifican la regla general.
 
 ## Calendar Rules
 

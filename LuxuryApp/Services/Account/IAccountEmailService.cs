@@ -8,6 +8,12 @@ namespace LuxuryApp.Services.Account
             string resetLink,
             CancellationToken cancellationToken = default);
 
+        Task SendEmailConfirmationEmailAsync(
+            string toEmail,
+            string displayName,
+            string confirmationLink,
+            CancellationToken cancellationToken = default);
+
         /// <summary>
         /// Invitación al portal de funcionarios: el funcionario define su propia
         /// contraseña a través del enlace (token de restablecimiento).

@@ -1,0 +1,214 @@
+@using LuxuryApp.Models.Inversionistas
+@model InvestorStatementsPageViewModel
+
+@{
+    ViewData["Title"] = "Estados de cuenta";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/finance-modules.css" asp-append-version="true" />
+}
+
+<div class="finance-page-shell">
+
+    <div class="finance-hero">
+        <div class="finance-hero-left">
+            <span class="finance-badge">
+                <i class="bi bi-file-earmark-text"></i>
+                Inversionistas
+            </span>
+            <h1 class="finance-title">Estados de cuenta</h1>
+            <p class="finance-subtitle">Participación por periodo, pagos registrados y saldo pendiente.</p>
+        </div>
+
+        <div class="finance-kpi-grid">
+            <div class="finance-kpi-card">
+                <div class="finance-kpi-icon finance-kpi-icon-green">
+                    <i class="bi bi-cash-coin"></i>
+                </div>
+                <div>
+                    <span class="finance-kpi-label">Participaciones</span>
+                    <span class="finance-kpi-value finance-kpi-value-green">
+                        ₡ @Model.TotalParticipaciones.ToString("N2")
+                    </span>
+                </div>
+            </div>
+
+            <div class="finance-kpi-card">
+                <div class="finance-kpi-icon finance-kpi-icon-blue">
+                    <i class="bi bi-check2-circle"></i>
+                </div>
+                <div>
+                    <span class="finance-kpi-label">Pagado</span>
+                    <span class="finance-kpi-value finance-kpi-value-blue">
+                        ₡ @Model.TotalPagado.ToString("N2")
+                    </span>
+                </div>
+            </div>
+
+            <div class="finance-kpi-card">
+                <div class="finance-kpi-icon finance-kpi-icon-orange">
+                    <i class="bi bi-hourglass-split"></i>
+                </div>
+                <div>
+                    <span class="finance-kpi-label">Pendiente</span>
+                    <span class="finance-kpi-value finance-kpi-value-orange">
+                        ₡ @Model.TotalPendiente.ToString("N2")
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (TempData["Mensaje"] is string mensaje)
+    {
+        <div class="svc-alert svc-alert--success" role="status">@mensaje</div>
+    }
+
+    @if (TempData["Error"] is string error)
+    {
+        <div class="svc-alert svc-alert--danger" role="alert">@error</div>
+    }
+
+    <div class="finance-filters-panel">
+        <form asp-action="Estados" method="get" class="finance-filters-grid">
+            <div class="finance-filter-group">
+                <label class="finance-filter-label">Inversionista</label>
+                <select name="inversionistaId" class="finance-filter-select">
+                    <option value="">Todos</option>
+                    @foreach (var inversionista in Model.Inversionistas)
+                    {
+                        <option value="@inversionista.Id" selected="@(Model.FiltroInversionistaId == inversionista.Id)">
+                            @inversionista.Nombre
+                        </option>
+                    }
+                </select>
+            </div>
+
+            <div class="finance-filter-group">
+                <label class="finance-filter-label">Estado</label>
+                <select name="estado" class="finance-filter-select">
+                    <option value="">Todos</option>
+                    @foreach (var estado in Enum.GetValues<InvestorStatementStatus>())
+                    {
+                        <option value="@((int)estado)" selected="@(Model.FiltroEstado == estado)">
+                            @estado
+                        </option>
+                    }
+                </select>
+            </div>
+
+            <div class="finance-filter-group">
+                <label class="finance-filter-label">Desde</label>
+                <input type="date" name="desde" class="finance-filter-input"
+                       value="@Model.FiltroDesde?.ToString("yyyy-MM-dd")" />
+            </div>
+
+            <div class="finance-filter-group">
+                <label class="finance-filter-label">Hasta</label>
+                <input type="date" name="hasta" class="finance-filter-input"
+                       value="@Model.FiltroHasta?.ToString("yyyy-MM-dd")" />
+            </div>
+
+            <div class="finance-filter-group">
+                <button type="submit" class="finance-btn-primary">
+                    <i class="bi bi-funnel"></i> Filtrar
+                </button>
+                <a asp-action="Estados" class="finance-btn-clear">Limpiar</a>
+            </div>
+        </form>
+    </div>
+
+    <div class="finance-table-desktop">
+        <table class="finance-table">
+            <thead>
+                <tr>
+                    <th>Inversionista</th>
+                    <th>Periodo</th>
+                    <th>Ganancia distribuible</th>
+                    <th>%</th>
+                    <th>Participación</th>
+                    <th>Pagado</th>
+                    <th>Pendiente</th>
+                    <th>Estado</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (Model.Estados.Any())
+                {
+                    foreach (var estado in Model.Estados)
+                    {
+                        <tr>
+                            <td>@estado.InvestorNombre</td>
+                            <td>@estado.PeriodoEtiqueta</td>
+                            <td>₡ @estado.GananciaDistribuible.ToString("N2")</td>
+                            <td>@estado.ParticipacionPorcentaje.ToString("0.##") %</td>
+                            <td class="finance-monto-income">₡ @estado.ParticipacionCalculada.ToString("N2")</td>
+                            <td>₡ @estado.TotalPagado.ToString("N2")</td>
+                            <td class="finance-monto-expense">₡ @estado.SaldoPendiente.ToString("N2")</td>
+                            <td><span class="finance-method-badge">@estado.EstadoTexto</span></td>
+                            <td>
+                                <a asp-action="Estado" asp-route-id="@estado.Id" class="finance-btn-row-edit">
+                                    <i class="bi bi-eye"></i> Ver
+                                </a>
+                            </td>
+                        </tr>
+                    }
+                }
+                else
+                {
+                    <tr>
+                        <td colspan="9">
+                            <div class="finance-empty-state">
+                                <div class="finance-empty-icon"><i class="bi bi-file-earmark"></i></div>
+                                <p class="finance-empty-title">Sin estados de cuenta</p>
+                                <p class="finance-empty-subtitle">
+                                    Generá el primero desde la vista previa de un inversionista.
+                                </p>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="finance-mobile-list">
+        @foreach (var estado in Model.Estados)
+        {
+            <div class="finance-mobile-card">
+                <div class="finance-mobile-card-header">
+                    <span class="finance-mobile-card-date">
+                        <i class="bi bi-person"></i> @estado.InvestorNombre
+                    </span>
+                    <span class="finance-mobile-card-monto finance-mobile-card-monto-income">
+                        ₡ @estado.ParticipacionCalculada.ToString("N2")
+                    </span>
+                </div>
+
+                <div class="finance-mobile-card-body">
+                    <div class="finance-mobile-card-name">@estado.PeriodoEtiqueta</div>
+                    <div class="finance-mobile-card-row">
+                        <span class="finance-mobile-card-row-label">Estado</span>
+                        <span class="finance-mobile-card-row-value">@estado.EstadoTexto</span>
+                    </div>
+                    <div class="finance-mobile-card-row">
+                        <span class="finance-mobile-card-row-label">Pendiente</span>
+                        <span class="finance-mobile-card-row-value">₡ @estado.SaldoPendiente.ToString("N2")</span>
+                    </div>
+                </div>
+
+                <div class="finance-mobile-card-footer">
+                    <a asp-action="Estado" asp-route-id="@estado.Id" class="finance-btn-row-edit">
+                        <i class="bi bi-eye"></i> Ver
+                    </a>
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="finance-actions">
+        <a asp-action="Index" class="finance-btn-back"><i class="bi bi-arrow-left"></i> Volver</a>
+    </div>
+</div>

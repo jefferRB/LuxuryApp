@@ -1,3 +1,5 @@
+using LuxuryApp.Tests.Support;
+
 namespace LuxuryApp.Tests.TenantIsolation
 {
     public class TenantPublicPageViewSafetyTests
@@ -119,8 +121,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
         private static string ProjectPath(params string[] parts)
         {
-            var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-            return Path.Combine(new[] { root }.Concat(parts).ToArray());
+            return TestProjectPaths.ProjectPath(parts);
         }
     }
 }

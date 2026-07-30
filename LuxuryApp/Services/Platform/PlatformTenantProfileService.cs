@@ -2,6 +2,7 @@ using LuxuryApp.Models.Platform;
 using LuxuryApp.Models.Reservas;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.SaaS;
+using LuxuryApp.Services.Tenant;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
@@ -14,19 +15,22 @@ namespace LuxuryApp.Services.Platform
         private readonly IPlatformMetricsService _metricsService;
         private readonly IPlatformHealthService _healthService;
         private readonly IPlatformWhatsAppStatusService _whatsAppStatusService;
+        private readonly ITenantOwnerResolver _ownerResolver;
 
         public PlatformTenantProfileService(
             ApplicationDbContext context,
             ITenantCommercialAccessResolver accessResolver,
             IPlatformMetricsService metricsService,
             IPlatformHealthService healthService,
-            IPlatformWhatsAppStatusService whatsAppStatusService)
+            IPlatformWhatsAppStatusService whatsAppStatusService,
+            ITenantOwnerResolver ownerResolver)
         {
             _context = context;
             _accessResolver = accessResolver;
             _metricsService = metricsService;
             _healthService = healthService;
             _whatsAppStatusService = whatsAppStatusService;
+            _ownerResolver = ownerResolver;
         }
 
         public async Task<PlatformTenantFichaViewModel?> GetFichaAsync(
@@ -44,7 +48,11 @@ namespace LuxuryApp.Services.Platform
             // EF Core DbContext no es thread-safe: queries secuenciales
             var access = await _accessResolver.ResolveAsync(tenantId, cancellationToken: cancellationToken);
             var usage = await _metricsService.GetTenantUsageAsync(tenantId, cancellationToken);
-            var (ownerEmail, ownerName) = await GetOwnerAsync(tenantId, cancellationToken);
+            var owner = await _ownerResolver.ResolveAsync(tenantId, cancellationToken);
+            var activeFuncionarios = await _context.Funcionarios
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .CountAsync(funcionario => funcionario.TenantId == tenantId && funcionario.Activo, cancellationToken);
             var billing = await GetBillingAsync(tenantId, cancellationToken);
             var whatsAppState = await _whatsAppStatusService.GetSingleStatusAsync(tenantId, cancellationToken);
             var whatsApp = new PlatformTenantWhatsAppFichaViewModel
@@ -66,27 +74,52 @@ namespace LuxuryApp.Services.Platform
                 Notes = whatsAppState.Notes
             };
             var reservations = await GetReservationsAsync(tenantId, cancellationToken);
-            var (users, totalUsers) = await GetUsersPreviewAsync(tenantId, cancellationToken);
             var auditPreview = await GetAuditPreviewAsync(tenantId, cancellationToken);
 
             var health = _healthService.ComputeHealth(
                 access.CanAccessApp,
                 usage,
-                whatsApp.IsEnabled,
+                // Misma entrada que el listado de tenants: paquete efectivo Y automatizacion
+                // configurada. Antes la ficha pasaba solo SettingsEnabled y podia divergir.
+                whatsApp.AddonActive && whatsApp.IsEnabled,
                 whatsApp.HasRecentError,
                 billing.HasPendingCheckout,
                 billing.IsExpiringSoon);
+
+            // Incoherencia visible: el plan que muestra la facturacion (fila de Suscripciones) no es
+            // el plan con el que la app realmente opera (plan efectivo). Se reporta, no se esconde.
+            var commercialWarnings = access.Warnings.ToList();
+            if (access.IsForcedByPlatform &&
+                !string.IsNullOrWhiteSpace(billing.ActivePlanName) &&
+                !string.Equals(billing.ActivePlanName, access.EffectivePlanName, StringComparison.Ordinal))
+            {
+                commercialWarnings.Add(
+                    $"Facturacion muestra '{billing.ActivePlanName}' pero el plan EFECTIVO es " +
+                    $"'{access.EffectivePlanName}' (forzado por plataforma). El limite y el acceso salen del efectivo.");
+            }
 
             return new PlatformTenantFichaViewModel
             {
                 TenantId = tenantId,
                 TenantName = tenant.Nombre,
-                OwnerEmail = ownerEmail,
-                OwnerName = ownerName,
+                OwnerEmail = owner.OwnerEmail,
+                OwnerName = owner.OwnerName,
+                OwnerSource = owner.Source,
+                OwnerWarnings = owner.Warnings,
+                Owner = owner,
                 FechaCreacion = tenant.FechaCreacion,
                 Activo = tenant.Activo,
                 CanAccessApp = access.CanAccessApp,
                 EffectivePlanName = access.EffectivePlanName,
+                EffectivePlanCode = access.EffectivePlanCode,
+                EffectivePlanKind = access.EffectivePlanKind,
+                EffectiveEmployeeLimit = access.EffectiveEmployeeLimit,
+                ActiveFuncionarios = activeFuncionarios,
+                IsForcedByPlatform = access.IsForcedByPlatform,
+                AccessBillingSource = access.BillingSource,
+                ProviderSubscriptionId = access.ProviderSubscriptionId,
+                NextBillingDateUtc = access.NextBillingDateUtc,
+                CommercialWarnings = commercialWarnings,
                 CommercialReason = access.Reason,
                 CommercialAccessMode = tenant.CommercialAccessMode,
                 CommercialNotes = tenant.CommercialNotes,
@@ -95,21 +128,47 @@ namespace LuxuryApp.Services.Platform
                 Billing = billing,
                 WhatsApp = whatsApp,
                 Reservations = reservations,
-                Users = users,
-                TotalUsersCount = totalUsers,
+                Users = BuildUsersPreview(owner),
+                TotalUsersCount = owner.AllUsers.Count,
                 AuditPreview = auditPreview
             };
         }
 
-        private async Task<(string? email, string? name)> GetOwnerAsync(Guid tenantId, CancellationToken ct)
+        /// <summary>
+        /// Vista de usuarios de la ficha: el owner primero, luego el resto de administradores,
+        /// despues las cuentas de funcionario. Reutiliza la clasificacion ya resuelta por el
+        /// resolver de owner en vez de volver a consultar roles.
+        /// </summary>
+        private static IReadOnlyList<PlatformTenantUserPreviewViewModel> BuildUsersPreview(
+            TenantOwnerResolution owner)
         {
-            var owner = await _context.Users
-                .AsNoTracking()
-                .Where(u => u.TenantId == tenantId && !u.IsPlatformSuperAdmin)
-                .OrderBy(u => u.Email)
-                .Select(u => new { u.Email, u.Name })
-                .FirstOrDefaultAsync(ct);
-            return (owner?.Email, owner?.Name);
+            var ordered = new List<(TenantUserSummary User, bool IsOwner)>();
+
+            if (owner.Owner is not null)
+            {
+                ordered.Add((owner.Owner, true));
+            }
+
+            ordered.AddRange(owner.AdditionalAdmins.Select(user => (user, false)));
+            ordered.AddRange(owner.OtherUsers.Select(user => (user, false)));
+            ordered.AddRange(owner.Funcionarios
+                .Where(user => !ReferenceEquals(user, owner.Owner))
+                .Select(user => (user, false)));
+
+            return ordered
+                .Take(20)
+                .Select(entry => new PlatformTenantUserPreviewViewModel
+                {
+                    UserId = entry.User.UserId,
+                    Email = entry.User.Email ?? string.Empty,
+                    Name = entry.User.Name,
+                    State = entry.User.State,
+                    IsPlatformSuperAdmin = entry.User.IsPlatformSuperAdmin,
+                    Roles = entry.User.Roles.Count == 0 ? null : entry.User.RolesLabel,
+                    Kind = entry.User.Kind,
+                    IsOwner = entry.IsOwner
+                })
+                .ToList();
         }
 
         private async Task<PlatformTenantBillingFichaViewModel> GetBillingAsync(Guid tenantId, CancellationToken ct)
@@ -234,52 +293,6 @@ namespace LuxuryApp.Services.Platform
                 ConfirmationRate = rate,
                 LastRequestUtc = lastRequest
             };
-        }
-
-        private async Task<(IReadOnlyList<PlatformTenantUserPreviewViewModel> users, int total)> GetUsersPreviewAsync(
-            Guid tenantId, CancellationToken ct)
-        {
-            var total = await _context.Users
-                .AsNoTracking()
-                .CountAsync(u => u.TenantId == tenantId, ct);
-
-            var pageUsers = await _context.Users
-                .AsNoTracking()
-                .Where(u => u.TenantId == tenantId)
-                .OrderByDescending(u => u.State)
-                .ThenBy(u => u.Email)
-                .Take(10)
-                .Select(u => new { u.Id, u.Email, u.Name, u.State, u.IsPlatformSuperAdmin })
-                .ToListAsync(ct);
-
-            if (pageUsers.Count == 0)
-                return (Array.Empty<PlatformTenantUserPreviewViewModel>(), total);
-
-            var ids = pageUsers.Select(u => u.Id).ToList();
-            var rolesByUser = await _context.UserRoles
-                .AsNoTracking()
-                .Where(ur => ids.Contains(ur.UserId))
-                .Join(_context.Roles.AsNoTracking(),
-                    ur => ur.RoleId,
-                    r => r.Id,
-                    (ur, r) => new { ur.UserId, RoleName = r.Name ?? string.Empty })
-                .ToListAsync(ct);
-
-            var roleLookup = rolesByUser
-                .GroupBy(x => x.UserId)
-                .ToDictionary(g => g.Key, g => string.Join(", ", g.Select(x => x.RoleName)));
-
-            var users = pageUsers.Select(u => new PlatformTenantUserPreviewViewModel
-            {
-                UserId = u.Id,
-                Email = u.Email ?? string.Empty,
-                Name = u.Name,
-                State = u.State,
-                IsPlatformSuperAdmin = u.IsPlatformSuperAdmin,
-                Roles = roleLookup.TryGetValue(u.Id, out var roles) ? roles : null
-            }).ToList();
-
-            return (users, total);
         }
 
         private async Task<IReadOnlyList<PlatformTenantAuditPreviewViewModel>> GetAuditPreviewAsync(

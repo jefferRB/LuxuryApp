@@ -19,6 +19,20 @@ namespace LuxuryApp.Services.Payments
         public string? CustomerEmail { get; set; }
         public decimal? Amount { get; set; }
         public string? Currency { get; set; }
+
+        // ── Captura real del dinero (ver RecurringPaymentSettlementRules) ──────────────────
+        // "Aprobada" NO implica "capturada": TiloPay puede autorizar un monto de verificacion y
+        // reversarlo. Estos campos son NULL cuando el proveedor no manda la señal; en ese caso el
+        // veredicto es Settled y la defensa queda en el monto exacto + el sondeo del proveedor.
+
+        /// <summary>True/false SOLO si el proveedor lo dice explicitamente. Null = sin señal.</summary>
+        public bool? IsCaptured { get; set; }
+
+        /// <summary>Total realmente debitado, si el proveedor lo envia. 0 con Amount &gt; 0 = sin cobro.</summary>
+        public decimal? CapturedAmount { get; set; }
+
+        /// <summary>Estado de captura crudo del proveedor (para clasificar y auditar).</summary>
+        public string? CaptureStatusRaw { get; set; }
         public bool IsRecurring { get; set; }
         public string? RecurringModality { get; set; }
         public string? RecurringFrequency { get; set; }

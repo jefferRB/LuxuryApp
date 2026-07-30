@@ -17,10 +17,35 @@ namespace LuxuryApp.Models.Platform
         public TenantCommercialAccessMode CommercialAccessMode { get; init; }
         public Guid? ForcedPlanId { get; init; }
         public string? ForcedPlanName { get; init; }
+        // ── Contacto principal resuelto por regla (admin > funcionario), no alfabeticamente ──
         public string? OwnerEmail { get; init; }
+        public string? OwnerName { get; init; }
+        public TenantOwnerSource OwnerSource { get; init; }
+        public IReadOnlyList<string> OwnerWarnings { get; init; } = Array.Empty<string>();
+
+        /// <summary>True cuando el contacto mostrado no proviene de un administrador del tenant.</summary>
+        public bool OwnerIsFallback =>
+            OwnerSource is TenantOwnerSource.FallbackUsuarioActivo or TenantOwnerSource.FallbackFuncionario;
+
         public string? CommercialNotes { get; init; }
         public bool CanAccessApp { get; init; }
+
+        // ── Estado comercial EFECTIVO (mismo resolver que usa la app del cliente) ──
         public string? EffectivePlanName { get; init; }
+        public string? EffectivePlanCode { get; init; }
+        public PlanCatalogKind EffectivePlanKind { get; init; }
+        public int? EffectiveEmployeeLimit { get; init; }
+        public bool IsForcedByPlatform { get; init; }
+        public TenantAccessBillingSource AccessBillingSource { get; init; }
+        public IReadOnlyList<string> CommercialWarnings { get; init; } = Array.Empty<string>();
+
+        /// <summary>Funcionarios activos del tenant, para contrastar contra el limite efectivo.</summary>
+        public int ActiveFuncionarios { get; set; }
+
+        /// <summary>El tenant ya excedio el limite de su plan efectivo (config heredada o downgrade).</summary>
+        public bool ExceedsEmployeeLimit =>
+            EffectiveEmployeeLimit.HasValue && ActiveFuncionarios > EffectiveEmployeeLimit.Value;
+
         public string Reason { get; init; } = string.Empty;
         public bool WhatsAppEnabled { get; init; }
         public bool WhatsAppAddonActive { get; init; }

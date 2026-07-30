@@ -557,17 +557,44 @@ namespace LuxuryApp.Services.SaaS
             // reconciliación), nunca antes de confirmar el nuevo. Guarda: si el proveedor reutilizó el
             // mismo id (viejo == nuevo), no hay nada que cancelar.
             var newSubscriberId = addon.ProviderSubscriptionId;
+
+            // Un pago recurrente confirmado significa que el suscriptor VIGENTE está cobrando: se
+            // limpia cualquier estado de cancelación previo. Es obligatorio incluso al renovar el
+            // mismo paquete, porque tras una transición la fila arrastraba ProviderCancellation
+            // =Cancelled (que era del suscriptor VIEJO) y eso hacía que la cascada del plan base
+            // creyera que el actual ya estaba dado de baja.
+            addon.ProviderCancellation = ProviderCancellationState.NotRequired;
+            addon.ProviderCancellationSubscriptionId = null;
+            addon.ProviderCancelledAtUtc = null;
+
             if (!isSameAddonPlan &&
                 !string.IsNullOrWhiteSpace(previousSubscriberId) &&
                 !string.Equals(previousSubscriberId, newSubscriberId, StringComparison.OrdinalIgnoreCase))
             {
+                addon.PreviousProviderSubscriptionId = previousSubscriberId;
                 addon.PendingCancellationProviderSubscriptionId = previousSubscriberId;
                 addon.PendingCancellationTilopayRecurringPlanId = previousRecurringPlanId;
                 addon.ProviderCancellation = ProviderCancellationState.PendingManualCancellation;
                 addon.ProviderCancellationAttemptCount = 0;
                 addon.ProviderCancellationLastAttemptUtc = null;
                 addon.ProviderCancellationNextRetryUtc = null;
-                addon.ProviderCancelledAtUtc = null;
+            }
+            else if (!isSameAddonPlan &&
+                     !string.IsNullOrWhiteSpace(previousSubscriberId) &&
+                     previousRecurringPlanId.HasValue &&
+                     previousRecurringPlanId.Value != tilopayRecurringPlanId)
+            {
+                // CAMBIO de paquete SIN id_suscriptor en el webhook: el add-on ya apunta al plan
+                // nuevo pero conserva el suscriptor del viejo. No se puede stashear todavía (no
+                // sabemos cuál es el nuevo), así que se APARCA el plan recurrente anterior para que
+                // la resolución tardía (ISubscriberResolutionService) pueda adoptar el nuevo y
+                // verificar la baja del viejo contra getSuscriptorRepeat. Sin este dato la baja
+                // nunca sería verificable y el suscriptor viejo seguiría cobrando.
+                addon.PendingCancellationProviderSubscriptionId = null;
+                addon.PendingCancellationTilopayRecurringPlanId = previousRecurringPlanId;
+                addon.ProviderCancellationAttemptCount = 0;
+                addon.ProviderCancellationLastAttemptUtc = null;
+                addon.ProviderCancellationNextRetryUtc = null;
             }
 
             // Opción A (entitlement ≠ configuración): comprar/renovar el paquete recurrente crea o

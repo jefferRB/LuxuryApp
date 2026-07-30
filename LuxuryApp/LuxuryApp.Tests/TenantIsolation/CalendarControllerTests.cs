@@ -275,7 +275,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 },
                 ControllerTestSupport.BusinessDateTimeProvider,
                 ControllerTestSupport.CreateCobroFiscalPreviewService(
-                    context, new TestTenantProvider { TenantId = tenantId }));
+                    context, new TestTenantProvider { TenantId = tenantId }),
+                ControllerTestSupport.CreateAvailabilityService(context));
 
             ControllerTestSupport.AttachHttpContext(
                 controller,

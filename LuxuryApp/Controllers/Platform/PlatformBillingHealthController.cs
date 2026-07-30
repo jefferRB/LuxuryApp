@@ -15,13 +15,16 @@ namespace LuxuryApp.Controllers.Platform
     {
         private readonly IBillingHealthService _healthService;
         private readonly IBillingReconciliationService _reconciliationService;
+        private readonly IAddonProviderAuditService? _addonProviderAudit;
 
         public PlatformBillingHealthController(
             IBillingHealthService healthService,
-            IBillingReconciliationService reconciliationService)
+            IBillingReconciliationService reconciliationService,
+            IAddonProviderAuditService? addonProviderAudit = null)
         {
             _healthService = healthService;
             _reconciliationService = reconciliationService;
+            _addonProviderAudit = addonProviderAudit;
         }
 
         [HttpGet("")]
@@ -67,6 +70,63 @@ namespace LuxuryApp.Controllers.Platform
                         "Ese cambio de plan no tiene cancelación pendiente.",
                     _ => outcome.Message
                 };
+
+            return RedirectToAction(nameof(Index));
+        }
+
+        /// <summary>
+        /// Auditoría SOLO LECTURA del estado real de los add-ons de WhatsApp de un tenant en
+        /// TiloPay: cuántos suscriptores pueden cobrarle. NO cancela nada (esa decisión queda en el
+        /// flujo verificado de cancelación o en un humano); solo consulta getSuscriptorRepeat y deja
+        /// el snapshot + auditoría + incidente si detecta doble cobro.
+        ///
+        /// Es la herramienta que faltaba el 2026-07-29: el estado local de compra2 se veía sano
+        /// mientras TiloPay tenía WA400 y WA800 activos a la vez, y no había forma de verlo sin
+        /// entrar al panel del proveedor.
+        /// </summary>
+        [HttpPost("audit-addon-provider")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> AuditAddonProvider(
+            [FromForm] Guid tenantId,
+            CancellationToken cancellationToken)
+        {
+            if (tenantId == Guid.Empty)
+            {
+                TempData["Error"] = "Indicá un TenantId válido para auditar.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            if (_addonProviderAudit is null || !_addonProviderAudit.IsEnabled)
+            {
+                TempData["Error"] = "El API admin de TiloPay está deshabilitado: no se puede auditar el proveedor.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            var audit = await _addonProviderAudit.AuditAsync(
+                tenantId,
+                customerEmail: null,
+                source: "manual",
+                auditAction: Models.Platform.PlatformAuditActions.AddonProviderDoubleActiveDetected,
+                cancellationToken);
+
+            if (!audit.Executed)
+            {
+                TempData["Error"] = $"No se pudo auditar el proveedor: {audit.Detail}";
+            }
+            else if (audit.HasDoubleActive)
+            {
+                TempData["Error"] =
+                    $"CRÍTICO: TiloPay puede cobrar {audit.ChargeableCount} add-ons a este tenant. {audit.Detail}";
+            }
+            else if (audit.IsInconclusive)
+            {
+                TempData["Error"] = $"Auditoría NO concluyente (no se declara sano): {audit.Detail}";
+            }
+            else
+            {
+                TempData["Success"] =
+                    $"Auditoría OK: {audit.ChargeableCount} suscriptor(es) de add-on cobrable(s) en TiloPay. {audit.Detail}";
+            }
 
             return RedirectToAction(nameof(Index));
         }

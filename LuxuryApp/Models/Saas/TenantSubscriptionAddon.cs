@@ -108,7 +108,35 @@ namespace LuxuryApp.Models.SaaS
         /// <summary>Plan recurrente de TiloPay del suscriptor a cancelar (para verificar por getSuscriptorRepeat).</summary>
         public int? PendingCancellationTilopayRecurringPlanId { get; set; }
 
+        /// <summary>
+        /// Estado del trabajo de baja PENDIENTE (la cola de reintentos), no el estado del add-on.
+        /// OJO con <see cref="ProviderCancellationState.Cancelled"/>: por sí solo NO significa que el
+        /// suscriptor ACTUAL esté dado de baja — puede referirse al suscriptor ANTERIOR de una
+        /// transición de paquete. Para saber a quién se refiere hay que mirar
+        /// <see cref="ProviderCancellationSubscriptionId"/>; nunca interpretar este campo solo.
+        /// </summary>
         public ProviderCancellationState ProviderCancellation { get; set; } = ProviderCancellationState.NotRequired;
+
+        /// <summary>
+        /// A QUÉ suscriptor se refieren <see cref="ProviderCancellation"/> y
+        /// <see cref="ProviderCancelledAtUtc"/>. Sin esto, tras un cambio de paquete la fila ACTIVA
+        /// quedaba con ProviderCancellation=Cancelled (por la baja del suscriptor VIEJO) y la cascada
+        /// del plan base concluía que el actual ya estaba cancelado, dejándolo cobrando para siempre.
+        /// NULL en filas antiguas ⇒ se asume que NO corresponde al actual (lado seguro para el dinero).
+        /// </summary>
+        [MaxLength(100)]
+        public string? ProviderCancellationSubscriptionId { get; set; }
+
+        // ── Auditoría del suscriptor REEMPLAZADO en la última transición de paquete ──
+        // WA400→WA800→WA400 encadenado: deja rastro de a quién se dio de baja sin ensuciar los
+        // campos del suscriptor vigente. Solo auditoría; ninguna decisión de cobro los lee.
+
+        /// <summary>Suscriptor de TiloPay que este add-on reemplazó en la última transición.</summary>
+        [MaxLength(100)]
+        public string? PreviousProviderSubscriptionId { get; set; }
+
+        /// <summary>Cuándo se VERIFICÓ la baja del suscriptor reemplazado.</summary>
+        public DateTime? PreviousProviderCancelledAtUtc { get; set; }
 
         /// <summary>Intentos REALES contra TiloPay desde el último reinicio de presupuesto. Los skips no cuentan.</summary>
         public int ProviderCancellationAttemptCount { get; set; }

@@ -8,6 +8,7 @@ using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Contracts;
 using LuxuryApp.Services.PublicSite;
 using LuxuryApp.Services.SaaS;
+using LuxuryApp.Services.Security;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Tests.Support;
 using Microsoft.AspNetCore.Authentication;
@@ -16,6 +17,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -30,12 +32,12 @@ namespace LuxuryApp.Tests.TenantIsolation
     public class AccountsControllerRegistrationTests
     {
         [Fact]
-        public async Task RegistroPost_ShouldUseServerActiveContractWhenCheckboxIsAcceptedAndHiddenDocumentIsMissing()
+        public async Task RegistroPost_ShouldCreatePendingVerificationTenantWhenCheckboxIsAcceptedAndHiddenDocumentIsMissing()
         {
             await using var provider = await CreateServiceProviderAsync(hasActiveContract: true);
             using var scope = provider.CreateScope();
             var controller = CreateController(scope.ServiceProvider, CreateAcceptedContractForm());
-            var email = $"registro-{Guid.NewGuid():N}@test.local";
+            var email = "registro.owner@luxurytest.example";
 
             var result = await controller.Registro(
                 CreateRegistrationModel(email, acceptCurrentContract: false, currentContractDocumentId: null),
@@ -53,16 +55,50 @@ namespace LuxuryApp.Tests.TenantIsolation
                 $"Expected redirect but got {result.GetType().Name}. ModelStateErrors: {modelStateErrors}. UsersCreated: {usersCreated}. AcceptancesCreated: {acceptancesCreated}.");
 
             var redirect = Assert.IsType<RedirectToActionResult>(result);
-            Assert.Equal("Planes", redirect.ActionName);
-            Assert.Equal("Billing", redirect.ControllerName);
+            Assert.Equal("ConfirmacionRegistro", redirect.ActionName);
+            Assert.Null(redirect.ControllerName);
             Assert.True(controller.ModelState.IsValid);
 
             var activeContract = await dbContext.ContractDocuments.SingleAsync(document => document.IsActive);
             var user = await dbContext.Users.SingleAsync(user => user.Email == email);
+            var tenant = await dbContext.Tenants.SingleAsync(tenant => tenant.Id == user.TenantId);
             var acceptance = await dbContext.ContractAcceptanceRecords.SingleAsync();
+            var emailService = Assert.IsType<NoOpAccountEmailService>(
+                scope.ServiceProvider.GetRequiredService<IAccountEmailService>());
 
             Assert.Equal(activeContract.Id, acceptance.ContractDocumentId);
             Assert.Equal(user.Id, acceptance.UserId);
+            Assert.False(user.EmailConfirmed);
+            Assert.Equal(TenantCommercialAccessMode.PendingVerification, tenant.CommercialAccessMode);
+            Assert.Equal(1, emailService.ConfirmationEmailsSent);
+        }
+
+        [Fact]
+        public async Task ConfirmarEmail_ShouldActivatePendingTenantAndRedirectToPlans()
+        {
+            await using var provider = await CreateServiceProviderAsync(hasActiveContract: true);
+            using var scope = provider.CreateScope();
+            var controller = CreateController(scope.ServiceProvider, CreateAcceptedContractForm());
+            var email = "confirm.owner@luxurytest.example";
+
+            await controller.Registro(CreateRegistrationModel(email, acceptCurrentContract: false), returnurl: "/");
+
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<AppUsuario>>();
+            var user = await dbContext.Users.SingleAsync(currentUser => currentUser.Email == email);
+            var token = await userManager.GenerateEmailConfirmationTokenAsync(user);
+            var encodedToken = WebEncoders.Base64UrlEncode(System.Text.Encoding.UTF8.GetBytes(token));
+
+            var result = await controller.ConfirmarEmail(user.Id, encodedToken);
+
+            var redirect = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal("Planes", redirect.ActionName);
+            Assert.Equal("Billing", redirect.ControllerName);
+
+            var updatedUser = await dbContext.Users.SingleAsync(currentUser => currentUser.Id == user.Id);
+            var tenant = await dbContext.Tenants.SingleAsync(currentTenant => currentTenant.Id == user.TenantId);
+            Assert.True(updatedUser.EmailConfirmed);
+            Assert.Equal(TenantCommercialAccessMode.RequiresSubscription, tenant.CommercialAccessMode);
         }
 
         [Fact]
@@ -73,7 +109,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var controller = CreateController(scope.ServiceProvider, new FormCollection(new Dictionary<string, StringValues>()));
 
             var result = await controller.Registro(
-                CreateRegistrationModel($"noaccept-{Guid.NewGuid():N}@test.local", acceptCurrentContract: false),
+                CreateRegistrationModel("noaccept.owner@luxurytest.example", acceptCurrentContract: false),
                 returnurl: "/");
 
             Assert.IsType<ViewResult>(result);
@@ -95,7 +131,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var controller = CreateController(scope.ServiceProvider, CreateAcceptedContractForm());
 
             var result = await controller.Registro(
-                CreateRegistrationModel($"noactive-{Guid.NewGuid():N}@test.local", acceptCurrentContract: false),
+                CreateRegistrationModel("noactive.owner@luxurytest.example", acceptCurrentContract: false),
                 returnurl: "/");
 
             var view = Assert.IsType<ViewResult>(result);
@@ -173,6 +209,14 @@ namespace LuxuryApp.Tests.TenantIsolation
                 options.RegisteredRole = "Registrado";
                 options.CreateInitialSubscription = false;
             });
+            services.Configure<RegistrationSecurityOptions>(options =>
+            {
+                options.RequireEmailConfirmation = true;
+                options.EnableHoneypot = true;
+                options.BlockSuspiciousEmailPatterns = true;
+                options.Registration.IpPermitLimit = 100;
+                options.Registration.EmailPermitLimit = 100;
+            });
             services.AddDbContext<ApplicationDbContext>((serviceProvider, options) =>
             {
                 options.UseSqlite(serviceProvider.GetRequiredService<SqliteConnection>());
@@ -189,6 +233,11 @@ namespace LuxuryApp.Tests.TenantIsolation
             services.AddScoped<IContractService, ContractService>();
             services.AddScoped<TenantProvisioningService>();
             services.AddScoped<ITenantDisplayNameService, TenantDisplayNameService>();
+            services.AddSingleton<RegistrationSecurityService>();
+            services.AddHttpClient<TurnstileVerificationService>(client =>
+            {
+                client.BaseAddress = new Uri("https://challenges.cloudflare.com/");
+            });
             services.AddScoped<IPublicSiteContentService, FakePublicSiteContentService>();
             services.AddScoped<IAccountEmailService, NoOpAccountEmailService>();
 
@@ -213,8 +262,16 @@ namespace LuxuryApp.Tests.TenantIsolation
 
         private sealed class NoOpAccountEmailService : IAccountEmailService
         {
+            public int ConfirmationEmailsSent { get; private set; }
+
             public Task SendPasswordResetEmailAsync(string toEmail, string displayName, string resetLink, CancellationToken cancellationToken = default)
                 => Task.CompletedTask;
+
+            public Task SendEmailConfirmationEmailAsync(string toEmail, string displayName, string confirmationLink, CancellationToken cancellationToken = default)
+            {
+                ConfirmationEmailsSent++;
+                return Task.CompletedTask;
+            }
 
             public Task SendFuncionarioInvitationEmailAsync(string toEmail, string displayName, string setPasswordLink, string businessName, CancellationToken cancellationToken = default)
                 => Task.CompletedTask;

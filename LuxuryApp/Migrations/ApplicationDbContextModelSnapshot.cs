@@ -1191,6 +1191,186 @@ namespace LuxuryApp.Migrations
                     b.ToTable("Puestos");
                 });
 
+            modelBuilder.Entity("LuxuryApp.Models.Horarios.RecurringScheduleException", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CreadoPorUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateOnly>("Fecha")
+                        .HasColumnType("date");
+
+                    b.Property<int?>("FuncionarioId")
+                        .HasColumnType("int");
+
+                    b.Property<TimeOnly?>("HoraFinAlternativa")
+                        .HasColumnType("time");
+
+                    b.Property<TimeOnly?>("HoraInicioAlternativa")
+                        .HasColumnType("time");
+
+                    b.Property<string>("Motivo")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("RuleId")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Tipo")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FuncionarioId");
+
+                    b.HasIndex("RuleId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "RuleId", "Fecha")
+                        .HasDatabaseName("IX_RecurringScheduleExceptions_TenantId_Rule_Fecha");
+
+                    b.HasIndex("TenantId", "RuleId", "Fecha", "FuncionarioId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_RecurringScheduleExceptions_Rule_Fecha_Funcionario");
+
+                    b.ToTable("RecurringScheduleExceptions");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Horarios.RecurringScheduleRule", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Activa")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("ActualizadoPorUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int>("Alcance")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CreadoPorUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("DiasSemanaMask")
+                        .HasColumnType("int");
+
+                    b.Property<string>("EtiquetaCalendario")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<TimeOnly>("HoraFin")
+                        .HasColumnType("time");
+
+                    b.Property<TimeOnly>("HoraInicio")
+                        .HasColumnType("time");
+
+                    b.Property<bool>("IncluirNuevosColaboradores")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("Motivo")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int?>("ReglaOrigenId")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Tipo")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateOnly>("VigenteDesde")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("VigenteHasta")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReglaOrigenId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Activa")
+                        .HasDatabaseName("IX_RecurringScheduleRules_TenantId_Activa");
+
+                    b.HasIndex("TenantId", "VigenteDesde", "VigenteHasta")
+                        .HasDatabaseName("IX_RecurringScheduleRules_TenantId_Vigencia");
+
+                    b.ToTable("RecurringScheduleRules");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Horarios.RecurringScheduleRuleTarget", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("FuncionarioId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("RuleId")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FuncionarioId");
+
+                    b.HasIndex("RuleId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "FuncionarioId")
+                        .HasDatabaseName("IX_RecurringScheduleRuleTargets_TenantId_FuncionarioId");
+
+                    b.HasIndex("TenantId", "RuleId", "FuncionarioId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_RecurringScheduleRuleTargets_Rule_Funcionario");
+
+                    b.ToTable("RecurringScheduleRuleTargets");
+                });
+
             modelBuilder.Entity("LuxuryApp.Models.Identity.AppUsuario", b =>
                 {
                     b.Property<string>("Id")
@@ -1271,6 +1451,563 @@ namespace LuxuryApp.Migrations
                     b.HasIndex("TenantId");
 
                     b.ToTable("AspNetUsers", (string)null);
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Inversionistas.InvestorAgreement", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Activo")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateOnly>("EffectiveFrom")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("EffectiveTo")
+                        .HasColumnType("date");
+
+                    b.Property<bool>("EnvioAutomatico")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Frecuencia")
+                        .HasColumnType("int");
+
+                    b.Property<int>("InvestorId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Notas")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<decimal>("ParticipacionPorcentaje")
+                        .HasColumnType("decimal(9,4)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("TratamientoPerdidas")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InvestorId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "EffectiveFrom")
+                        .HasDatabaseName("IX_InvestorAgreements_TenantId_EffectiveFrom");
+
+                    b.HasIndex("TenantId", "InvestorId")
+                        .HasDatabaseName("IX_InvestorAgreements_TenantId_InvestorId");
+
+                    b.HasIndex("TenantId", "Activo", "EffectiveFrom")
+                        .HasDatabaseName("IX_InvestorAgreements_TenantId_Activo_EffectiveFrom");
+
+                    b.ToTable("InvestorAgreements");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Inversionistas.InvestorDistributionPayment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("EsReversion")
+                        .HasColumnType("bit");
+
+                    b.Property<DateOnly>("Fecha")
+                        .HasColumnType("date");
+
+                    b.Property<string>("MetodoPago")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<decimal>("Monto")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Motivo")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("Notas")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Referencia")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<string>("RegistradoPorEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("RegistradoPorUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int>("StatementId")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StatementId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Fecha")
+                        .HasDatabaseName("IX_InvestorDistributionPayments_TenantId_Fecha");
+
+                    b.HasIndex("TenantId", "StatementId")
+                        .HasDatabaseName("IX_InvestorDistributionPayments_TenantId_StatementId");
+
+                    b.ToTable("InvestorDistributionPayments");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Inversionistas.InvestorPolicyExpenseCategory", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CategoriaId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PolicyId")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CategoriaId");
+
+                    b.HasIndex("PolicyId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "PolicyId", "CategoriaId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_InvestorPolicyExpenseCategories_Policy_Categoria");
+
+                    b.ToTable("InvestorPolicyExpenseCategories");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Inversionistas.InvestorProfitPolicy", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BaseLiquidaciones")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("DiasEsperaGeneracion")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("EnvioAutomatico")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("ExcluirIva")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<int>("FrecuenciaPorDefecto")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("GeneracionAutomatica")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("HoraGeneracion")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IncluirLiquidaciones")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<int>("ModoCategoriasGasto")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("TratamientoPerdidasPorDefecto")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_InvestorProfitPolicies_TenantId");
+
+                    b.ToTable("InvestorProfitPolicies");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Inversionistas.InvestorStatement", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("AgreementId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("AjustesNegativos")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("AjustesPositivos")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime?>("AnuladoAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("AnuladoPorUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("EnviadoAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Estado")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("FechaCalculoUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("FinalizadoAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("FinalizadoPorUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int>("Frecuencia")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("GananciaDistribuible")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("GastosElegibles")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("GeneradoPorUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<decimal>("IngresosCobrados")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("IngresosNetos")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("InvestorId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("IvaExcluido")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("Liquidaciones")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("MotivoAnulacion")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("MotivoReapertura")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<decimal>("ParticipacionCalculada")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("ParticipacionPorcentaje")
+                        .HasColumnType("decimal(9,4)");
+
+                    b.Property<decimal>("PerdidaArrastrada")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("PerdidaPendiente")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateOnly>("PeriodoFin")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly>("PeriodoInicio")
+                        .HasColumnType("date");
+
+                    b.Property<string>("PoliticaVersion")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<DateTime?>("ReabiertoAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ReabiertoPorUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<decimal>("SaldoPendiente")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("TotalPagado")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgreementId");
+
+                    b.HasIndex("InvestorId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Estado")
+                        .HasDatabaseName("IX_InvestorStatements_TenantId_Estado");
+
+                    b.HasIndex("TenantId", "PeriodoInicio", "PeriodoFin")
+                        .HasDatabaseName("IX_InvestorStatements_TenantId_Periodo");
+
+                    b.HasIndex("TenantId", "InvestorId", "PeriodoInicio", "PeriodoFin")
+                        .IsUnique()
+                        .HasDatabaseName("UX_InvestorStatements_Investor_Periodo")
+                        .HasFilter("[Estado] <> 5");
+
+                    b.ToTable("InvestorStatements");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Inversionistas.InvestorStatementAdjustment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CreadoPorEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("CreadoPorUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Descripcion")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<decimal>("Monto")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("StatementId")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StatementId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "StatementId")
+                        .HasDatabaseName("IX_InvestorStatementAdjustments_TenantId_StatementId");
+
+                    b.ToTable("InvestorStatementAdjustments");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Inversionistas.InvestorStatementEmailLog", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<bool>("IsTest")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("ProviderMessageId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("RecipientEmail")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<int>("ResendSequence")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("SentAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("StatementId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TriggeredByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StatementId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "StatementId")
+                        .HasDatabaseName("IX_InvestorStatementEmailLogs_TenantId_StatementId");
+
+                    b.HasIndex("TenantId", "StatementId", "RecipientEmail", "ResendSequence")
+                        .IsUnique()
+                        .HasDatabaseName("UX_InvestorStatementEmailLogs_RealSent")
+                        .HasFilter("[IsTest] = 0 AND [Status] = 1");
+
+                    b.ToTable("InvestorStatementEmailLogs");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Inversionistas.TenantInvestor", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Activo")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("NotasInternas")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("Telefono")
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Activo")
+                        .HasDatabaseName("IX_TenantInvestors_TenantId_Activo");
+
+                    b.HasIndex("TenantId", "Email")
+                        .IsUnique()
+                        .HasDatabaseName("UX_TenantInvestors_TenantId_Email");
+
+                    b.ToTable("TenantInvestors");
                 });
 
             modelBuilder.Entity("LuxuryApp.Models.Legal.ContractAcceptanceRecord", b =>
@@ -3069,6 +3806,59 @@ namespace LuxuryApp.Migrations
                     b.ToTable("PromotionalCodeRedemptions");
                 });
 
+            modelBuilder.Entity("LuxuryApp.Models.SaaS.ProviderAddonAuditSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("ActiveAddonSubscriberCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ActiveRecurringPlanIds")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("ActiveSubscriberIds")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<DateTime>("CapturedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<bool>("HasDoubleActive")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsInconclusive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("LocalProviderSubscriptionId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("HasDoubleActive")
+                        .HasDatabaseName("IX_ProviderAddonAuditSnapshots_HasDoubleActive");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique();
+
+                    b.ToTable("ProviderAddonAuditSnapshots");
+                });
+
             modelBuilder.Entity("LuxuryApp.Models.SaaS.SubscriptionPaymentIncident", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3489,6 +4279,13 @@ namespace LuxuryApp.Migrations
                     b.Property<decimal?>("PrecioMensual")
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<DateTime?>("PreviousProviderCancelledAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PreviousProviderSubscriptionId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<int>("ProviderCancellation")
                         .HasColumnType("int");
 
@@ -3500,6 +4297,10 @@ namespace LuxuryApp.Migrations
 
                     b.Property<DateTime?>("ProviderCancellationNextRetryUtc")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("ProviderCancellationSubscriptionId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<DateTime?>("ProviderCancelledAtUtc")
                         .HasColumnType("datetime2");
@@ -4248,6 +5049,53 @@ namespace LuxuryApp.Migrations
                     b.Navigation("Funcionario");
                 });
 
+            modelBuilder.Entity("LuxuryApp.Models.Horarios.RecurringScheduleException", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Funcionarios.Funcionario", "Funcionario")
+                        .WithMany()
+                        .HasForeignKey("FuncionarioId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("LuxuryApp.Models.Horarios.RecurringScheduleRule", "Rule")
+                        .WithMany("Excepciones")
+                        .HasForeignKey("RuleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Funcionario");
+
+                    b.Navigation("Rule");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Horarios.RecurringScheduleRule", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Horarios.RecurringScheduleRule", "ReglaOrigen")
+                        .WithMany()
+                        .HasForeignKey("ReglaOrigenId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("ReglaOrigen");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Horarios.RecurringScheduleRuleTarget", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Funcionarios.Funcionario", "Funcionario")
+                        .WithMany()
+                        .HasForeignKey("FuncionarioId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("LuxuryApp.Models.Horarios.RecurringScheduleRule", "Rule")
+                        .WithMany("Colaboradores")
+                        .HasForeignKey("RuleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Funcionario");
+
+                    b.Navigation("Rule");
+                });
+
             modelBuilder.Entity("LuxuryApp.Models.Identity.AppUsuario", b =>
                 {
                     b.HasOne("LuxuryApp.Models.SaaS.Tenant", "Tenant")
@@ -4257,6 +5105,87 @@ namespace LuxuryApp.Migrations
                         .IsRequired();
 
                     b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Inversionistas.InvestorAgreement", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Inversionistas.TenantInvestor", "Investor")
+                        .WithMany("Acuerdos")
+                        .HasForeignKey("InvestorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Investor");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Inversionistas.InvestorDistributionPayment", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Inversionistas.InvestorStatement", "Statement")
+                        .WithMany("Pagos")
+                        .HasForeignKey("StatementId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Statement");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Inversionistas.InvestorPolicyExpenseCategory", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Finanzas.Categoria", "Categoria")
+                        .WithMany()
+                        .HasForeignKey("CategoriaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("LuxuryApp.Models.Inversionistas.InvestorProfitPolicy", "Policy")
+                        .WithMany("CategoriasSeleccionadas")
+                        .HasForeignKey("PolicyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Categoria");
+
+                    b.Navigation("Policy");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Inversionistas.InvestorStatement", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Inversionistas.InvestorAgreement", "Agreement")
+                        .WithMany()
+                        .HasForeignKey("AgreementId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("LuxuryApp.Models.Inversionistas.TenantInvestor", "Investor")
+                        .WithMany("Estados")
+                        .HasForeignKey("InvestorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Agreement");
+
+                    b.Navigation("Investor");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Inversionistas.InvestorStatementAdjustment", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Inversionistas.InvestorStatement", "Statement")
+                        .WithMany("Ajustes")
+                        .HasForeignKey("StatementId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Statement");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Inversionistas.InvestorStatementEmailLog", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Inversionistas.InvestorStatement", "Statement")
+                        .WithMany()
+                        .HasForeignKey("StatementId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Statement");
                 });
 
             modelBuilder.Entity("LuxuryApp.Models.Legal.ContractAcceptanceRecord", b =>
@@ -4703,6 +5632,32 @@ namespace LuxuryApp.Migrations
             modelBuilder.Entity("LuxuryApp.Models.Funcionarios.Puesto", b =>
                 {
                     b.Navigation("Funcionarios");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Horarios.RecurringScheduleRule", b =>
+                {
+                    b.Navigation("Colaboradores");
+
+                    b.Navigation("Excepciones");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Inversionistas.InvestorProfitPolicy", b =>
+                {
+                    b.Navigation("CategoriasSeleccionadas");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Inversionistas.InvestorStatement", b =>
+                {
+                    b.Navigation("Ajustes");
+
+                    b.Navigation("Pagos");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Inversionistas.TenantInvestor", b =>
+                {
+                    b.Navigation("Acuerdos");
+
+                    b.Navigation("Estados");
                 });
 
             modelBuilder.Entity("LuxuryApp.Models.Legal.ContractDocument", b =>

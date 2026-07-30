@@ -80,17 +80,20 @@ namespace LuxuryApp.Services.Billing
         private readonly ITilopayRepeatAdminService _adminService;
         private readonly IBusinessDateTimeProvider _clock;
         private readonly ILogger<PaymentMethodUpdateService> _logger;
+        private readonly Tenant.ITenantOwnerResolver _ownerResolver;
 
         public PaymentMethodUpdateService(
             ApplicationDbContext db,
             ITilopayRepeatAdminService adminService,
             IBusinessDateTimeProvider clock,
-            ILogger<PaymentMethodUpdateService> logger)
+            ILogger<PaymentMethodUpdateService> logger,
+            Tenant.ITenantOwnerResolver ownerResolver)
         {
             _db = db;
             _adminService = adminService;
             _clock = clock;
             _logger = logger;
+            _ownerResolver = ownerResolver;
         }
 
         public bool IsEnabled => _adminService.IsEnabled;
@@ -102,12 +105,9 @@ namespace LuxuryApp.Services.Billing
             CancellationToken cancellationToken = default)
         {
             // Correo del admin del tenant resuelto server-side (no se confía en el formulario).
-            var email = await _db.Users
-                .AsNoTracking()
-                .Where(u => u.TenantId == tenantId && u.Email != null)
-                .OrderBy(u => u.Email)
-                .Select(u => u.Email)
-                .FirstOrDefaultAsync(cancellationToken);
+            // El orden alfabético anterior podía elegir una cuenta de FUNCIONARIO por encima del
+            // administrador; ahora manda la regla de owner (admin > funcionario).
+            var email = await _ownerResolver.ResolveOwnerEmailAsync(tenantId, cancellationToken);
 
             return await GenerateUpdateUrlAsync(tenantId, email, actorUserId, actorEmail, cancellationToken);
         }
@@ -317,13 +317,9 @@ namespace LuxuryApp.Services.Billing
             return PaymentMethodUpdateResult.Ok(result.Url!, result.Contract, usedFallback);
         }
 
-        private async Task<string?> ResolveTenantEmailAsync(Guid tenantId, CancellationToken cancellationToken) =>
-            await _db.Users
-                .AsNoTracking()
-                .Where(u => u.TenantId == tenantId && u.Email != null)
-                .OrderBy(u => u.Email)
-                .Select(u => u.Email)
-                .FirstOrDefaultAsync(cancellationToken);
+        /// <summary>Contacto del tenant por regla de owner (admin &gt; funcionario), no alfabético.</summary>
+        private Task<string?> ResolveTenantEmailAsync(Guid tenantId, CancellationToken cancellationToken) =>
+            _ownerResolver.ResolveOwnerEmailAsync(tenantId, cancellationToken);
 
         /// <summary>Anti open-redirect: solo se acepta redirigir a HTTPS del dominio de TiloPay.</summary>
         private static bool IsSafeTilopayUrl(string? url)

@@ -130,7 +130,16 @@ namespace LuxuryApp.Services.Tenant
                     {
                         Nombre = BuildTenantName(name, email),
                         Activo = true,
-                        FechaCreacion = DateTime.UtcNow
+                        FechaCreacion = DateTime.UtcNow,
+                        CommercialAccessMode = request.RequiresEmailConfirmation
+                            ? TenantCommercialAccessMode.PendingVerification
+                            : TenantCommercialAccessMode.RequiresSubscription,
+                        CommercialNotes = request.RequiresEmailConfirmation
+                            ? "Registro pendiente de confirmacion de correo."
+                            : null,
+                        CommercialUpdatedUtc = request.RequiresEmailConfirmation
+                            ? DateTime.UtcNow
+                            : null
                     };
 
                     _context.Tenants.Add(tenant);
@@ -145,6 +154,7 @@ namespace LuxuryApp.Services.Tenant
                         Name = name,
                         PhoneNumber = phoneNumber,
                         State = true,
+                        EmailConfirmed = !request.RequiresEmailConfirmation,
                         TenantId = tenant.Id
                     };
 
@@ -253,6 +263,7 @@ namespace LuxuryApp.Services.Tenant
                         tenant.Id,
                         initialSubscriptionCreated,
                         promotionalAccessApplied,
+                        request.RequiresEmailConfirmation,
                         requiresPlanSelection: !access.CanAccessApp);
                 }
                 catch

@@ -55,6 +55,10 @@ namespace LuxuryApp.Services.SaaS
                     TenantId = tenantId,
                     EffectivePlanId = superAdminPlan?.Id,
                     EffectivePlanName = superAdminPlan?.Nombre,
+                    EffectivePlanCode = superAdminPlan?.Codigo,
+                    EffectivePlanKind = PlanCatalogRules.Classify(superAdminPlan),
+                    EffectiveEmployeeLimit = superAdminPlan?.MaxFuncionarios,
+                    BillingSource = TenantAccessBillingSource.Manual,
                     CommercialAccessMode = superAdminPlan is null
                         ? TenantCommercialAccessMode.RequiresSubscription
                         : TenantCommercialAccessMode.Internal,
@@ -98,6 +102,16 @@ namespace LuxuryApp.Services.SaaS
                     "El tenant se encuentra suspendido o inactivo.");
             }
 
+            if (tenant.CommercialAccessMode == TenantCommercialAccessMode.PendingVerification)
+            {
+                return Denied(
+                    tenantId,
+                    tenant.CommercialAccessMode,
+                    "Registro pendiente de confirmacion de correo.",
+                    hasCommercialHistory: false,
+                    forcedPlanId: tenant.ForcedPlanId);
+            }
+
             if (tenant.CommercialAccessMode == TenantCommercialAccessMode.Exempt ||
                 tenant.CommercialAccessMode == TenantCommercialAccessMode.Internal)
             {
@@ -107,7 +121,30 @@ namespace LuxuryApp.Services.SaaS
                     return Denied(
                         tenantId,
                         tenant.CommercialAccessMode,
-                        "El tenant tiene acceso comercial especial, pero no tiene un plan forzado valido.");
+                        "El tenant tiene acceso comercial especial, pero no tiene un plan forzado valido.",
+                        forcedPlanId: tenant.ForcedPlanId,
+                        warnings: forcedPlan is null
+                            ? new[] { "Modo comercial especial sin plan forzado: el tenant queda sin limite ni acceso." }
+                            : new[] { $"El plan forzado '{forcedPlan.Nombre}' esta INACTIVO en el catalogo." });
+                }
+
+                // El plan forzado define el limite efectivo. Se clasifica para detectar la
+                // configuracion invalida de haber forzado un add-on de WhatsApp como plan base
+                // (sin MaxFuncionarios), que la validacion server-side ya bloquea al guardar.
+                var forcedKind = PlanCatalogRules.Classify(forcedPlan);
+                var forcedWarnings = new List<string>();
+
+                if (!PlanCatalogRules.IsBasePlan(forcedKind))
+                {
+                    forcedWarnings.Add(
+                        $"El plan forzado '{forcedPlan.Nombre}' no es un plan base valido " +
+                        $"({PlanCatalogRules.DescribeKind(forcedKind)}). El limite de funcionarios no es confiable.");
+                }
+                else if (forcedKind == PlanCatalogKind.LegacyBase || forcedKind == PlanCatalogKind.Validation)
+                {
+                    forcedWarnings.Add(
+                        $"El plan forzado es {PlanCatalogRules.DescribeKind(forcedKind).ToLowerInvariant()} " +
+                        $"('{forcedPlan.Nombre}'). Migrar a un plan de la calculadora (LC_M_/LC_A_).");
                 }
 
                 return new TenantCommercialAccessResult
@@ -117,6 +154,16 @@ namespace LuxuryApp.Services.SaaS
                     TenantId = tenantId,
                     EffectivePlanId = forcedPlan.Id,
                     EffectivePlanName = forcedPlan.Nombre,
+                    EffectivePlanCode = forcedPlan.Codigo,
+                    EffectivePlanKind = forcedKind,
+                    // Un add-on forzado no aporta limite de funcionarios: se deja null y se advierte,
+                    // en vez de heredar el LimiteMensajesMensual como si fuera un cupo de personal.
+                    EffectiveEmployeeLimit = PlanCatalogRules.IsBasePlan(forcedKind)
+                        ? forcedPlan.MaxFuncionarios
+                        : null,
+                    IsForcedByPlatform = true,
+                    ForcedPlanId = tenant.ForcedPlanId,
+                    BillingSource = TenantAccessBillingSource.Manual,
                     CommercialAccessMode = tenant.CommercialAccessMode,
                     AccessSource = tenant.CommercialAccessMode == TenantCommercialAccessMode.Internal
                         ? TenantCommercialAccessSource.TenantInternal
@@ -124,7 +171,8 @@ namespace LuxuryApp.Services.SaaS
                     Reason = tenant.CommercialAccessMode == TenantCommercialAccessMode.Internal
                         ? "Tenant interno con acceso operativo."
                         : "Tenant exento con acceso patrocinado.",
-                    HasCommercialHistory = true
+                    HasCommercialHistory = true,
+                    Warnings = forcedWarnings
                 };
             }
 
@@ -144,6 +192,7 @@ namespace LuxuryApp.Services.SaaS
 
             if (grant is not null && grant.Plan is not null && grant.Plan.Activo)
             {
+                var grantKind = PlanCatalogRules.Classify(grant.Plan);
                 return new TenantCommercialAccessResult
                 {
                     CanAccessApp = true,
@@ -151,6 +200,13 @@ namespace LuxuryApp.Services.SaaS
                     TenantId = tenantId,
                     EffectivePlanId = grant.PlanId,
                     EffectivePlanName = grant.Plan.Nombre,
+                    EffectivePlanCode = grant.Plan.Codigo,
+                    EffectivePlanKind = grantKind,
+                    EffectiveEmployeeLimit = PlanCatalogRules.IsBasePlan(grantKind)
+                        ? grant.Plan.MaxFuncionarios
+                        : null,
+                    ForcedPlanId = tenant.ForcedPlanId,
+                    BillingSource = TenantAccessBillingSource.PromotionalGrant,
                     CommercialAccessMode = tenant.CommercialAccessMode,
                     AccessSource = TenantCommercialAccessSource.PromotionalGrant,
                     Reason = "Acceso comercial temporal activo.",
@@ -176,6 +232,35 @@ namespace LuxuryApp.Services.SaaS
                 var canAccessApp = _suscripcionService.CanAccessApp(suscripcion);
                 var isInGracePeriod = effectiveStatus == EstadoSuscripcion.Morosa;
 
+                // El plan efectivo del camino pagado es el de la suscripcion. El limite prioriza el
+                // snapshot de la suscripcion (lo que el cliente realmente compro) y cae al plan.
+                var subKind = PlanCatalogRules.Classify(suscripcion.Plan);
+                var subLimit = PlanCatalogRules.IsBasePlan(subKind)
+                    ? suscripcion.MaxFuncionarios ?? suscripcion.Plan.MaxFuncionarios
+                    : null;
+                var subWarnings = new List<string>();
+
+                if (!PlanCatalogRules.IsBasePlan(subKind))
+                {
+                    subWarnings.Add(
+                        $"La suscripcion base apunta a '{suscripcion.Plan.Nombre}' que no es un plan base " +
+                        $"({PlanCatalogRules.DescribeKind(subKind)}).");
+                }
+
+                // Plan forzado configurado pero en modo RequiresSubscription: no aplica. Se avisa
+                // para que plataforma no crea que el limite viene del plan que ve en el selector.
+                if (tenant.ForcedPlanId.HasValue)
+                {
+                    subWarnings.Add(
+                        "El tenant tiene un plan forzado configurado pero su modo comercial es " +
+                        "'Requiere suscripcion': manda la suscripcion pagada, el plan forzado se ignora.");
+                }
+
+                var subBillingSource = suscripcion.Proveedor == PaymentProviderType.Tilopay ||
+                                       suscripcion.TilopayRecurringPlanId.HasValue
+                    ? TenantAccessBillingSource.ProviderRecurring
+                    : TenantAccessBillingSource.Legacy;
+
                 if (canAccessApp)
                 {
                     return new TenantCommercialAccessResult
@@ -185,6 +270,13 @@ namespace LuxuryApp.Services.SaaS
                         TenantId = tenantId,
                         EffectivePlanId = suscripcion.PlanId,
                         EffectivePlanName = suscripcion.Plan.Nombre,
+                        EffectivePlanCode = suscripcion.CodigoPlan ?? suscripcion.Plan.Codigo,
+                        EffectivePlanKind = subKind,
+                        EffectiveEmployeeLimit = subLimit,
+                        ForcedPlanId = tenant.ForcedPlanId,
+                        BillingSource = subBillingSource,
+                        ProviderSubscriptionId = suscripcion.ProviderSubscriptionId,
+                        Warnings = subWarnings,
                         CommercialAccessMode = tenant.CommercialAccessMode,
                         AccessSource = effectiveStatus == EstadoSuscripcion.Trial
                             ? TenantCommercialAccessSource.SubscriptionTrial
@@ -217,6 +309,13 @@ namespace LuxuryApp.Services.SaaS
                     RequiresBilling = true,
                     EffectivePlanId = suscripcion.PlanId,
                     EffectivePlanName = suscripcion.Plan.Nombre,
+                    EffectivePlanCode = suscripcion.CodigoPlan ?? suscripcion.Plan.Codigo,
+                    EffectivePlanKind = subKind,
+                    EffectiveEmployeeLimit = subLimit,
+                    ForcedPlanId = tenant.ForcedPlanId,
+                    BillingSource = subBillingSource,
+                    ProviderSubscriptionId = suscripcion.ProviderSubscriptionId,
+                    Warnings = subWarnings,
                     Reason = effectiveStatus == EstadoSuscripcion.Suspendida
                         ? "La suscripcion vencio y ya supero el periodo de gracia."
                         : "El tenant no tiene acceso comercial activo.",
@@ -238,7 +337,8 @@ namespace LuxuryApp.Services.SaaS
                 tenantId,
                 tenant.CommercialAccessMode,
                 "El tenant no tiene acceso comercial activo.",
-                hasCommercialHistory);
+                hasCommercialHistory,
+                forcedPlanId: tenant.ForcedPlanId);
         }
 
         private async Task<Plan?> ResolvePlanAsync(Guid tenantId, CancellationToken cancellationToken)
@@ -267,7 +367,9 @@ namespace LuxuryApp.Services.SaaS
             Guid tenantId,
             TenantCommercialAccessMode commercialAccessMode,
             string reason,
-            bool hasCommercialHistory = false) =>
+            bool hasCommercialHistory = false,
+            Guid? forcedPlanId = null,
+            IReadOnlyList<string>? warnings = null) =>
             new()
             {
                 TenantId = tenantId,
@@ -276,7 +378,11 @@ namespace LuxuryApp.Services.SaaS
                 CanAccessApp = false,
                 RequiresBilling = commercialAccessMode == TenantCommercialAccessMode.RequiresSubscription,
                 Reason = reason,
-                HasCommercialHistory = hasCommercialHistory
+                HasCommercialHistory = hasCommercialHistory,
+                ForcedPlanId = forcedPlanId,
+                BillingSource = TenantAccessBillingSource.None,
+                EffectivePlanKind = PlanCatalogKind.Unknown,
+                Warnings = warnings ?? Array.Empty<string>()
             };
     }
 }

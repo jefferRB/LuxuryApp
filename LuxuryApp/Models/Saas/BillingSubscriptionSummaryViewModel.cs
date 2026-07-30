@@ -10,6 +10,16 @@ namespace LuxuryApp.Models.SaaS
         public bool CanAccessApp { get; init; }
         public bool IsInGracePeriod { get; init; }
 
+        /// <summary>
+        /// El acceso lo otorga plataforma (tenant exento/interno con plan forzado), no un cobro.
+        /// Cuando es true no hay proximo cobro ni cambio de plan por checkout: PlanName y
+        /// MaxFuncionarios vienen del plan forzado resuelto por el resolver de acceso comercial.
+        /// </summary>
+        public bool IsPlatformGrantedAccess { get; init; }
+
+        /// <summary>Razon del acceso otorgado por plataforma, para mostrarla en vez de un estado de cobro.</summary>
+        public string? PlatformAccessReason { get; init; }
+
         // ── Ciclo de vida: cancelación de renovación (cancel-at-period-end) ──
         /// <summary>La renovación ya fue cancelada: el acceso sigue hasta la fecha efectiva, sin nuevos cobros.</summary>
         public bool CancelAtPeriodEnd { get; init; }

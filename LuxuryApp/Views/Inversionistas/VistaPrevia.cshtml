@@ -1,0 +1,82 @@
+@using LuxuryApp.Models.Inversionistas
+@model InvestorStatementPreviewViewModel
+
+@{
+    ViewData["Title"] = $"Vista previa — {Model.InvestorNombre}";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/finance-modules.css" asp-append-version="true" />
+}
+
+<div class="finance-page-shell">
+
+    <div class="finance-hero">
+        <div class="finance-hero-left">
+            <span class="finance-badge">
+                <i class="bi bi-calculator"></i>
+                Vista previa del cálculo
+            </span>
+            <h1 class="finance-title">@Model.InvestorNombre</h1>
+            <p class="finance-subtitle">
+                Periodo @Model.PeriodoEtiqueta
+                (@Model.PeriodoInicio.ToString("dd/MM/yyyy") al @Model.PeriodoFin.ToString("dd/MM/yyyy"))
+            </p>
+        </div>
+    </div>
+
+    @if (TempData["Error"] is string error)
+    {
+        <div class="svc-alert svc-alert--danger" role="alert">@error</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Model.Advertencia))
+    {
+        <div class="svc-alert svc-alert--danger" role="status">@Model.Advertencia</div>
+    }
+
+    @if (Model.EstadoExistenteId.HasValue)
+    {
+        <div class="svc-alert svc-alert--success" role="status">
+            Ya existe un estado de cuenta para este periodo (@Model.EstadoExistenteTexto).
+            <a asp-action="Estado" asp-route-id="@Model.EstadoExistenteId.Value">Abrirlo</a>
+        </div>
+    }
+
+    <div class="finance-filters-panel">
+        <form asp-action="VistaPrevia" method="get" class="finance-filters-grid">
+            <input type="hidden" name="id" value="@Model.InvestorId" />
+            <div class="finance-filter-group">
+                <label class="finance-filter-label">Ver otro periodo (cualquier día del periodo)</label>
+                <input type="date"
+                       name="referencia"
+                       class="finance-filter-input"
+                       value="@Model.PeriodoInicio.ToString("yyyy-MM-dd")" />
+            </div>
+            <div class="finance-filter-group">
+                <button type="submit" class="finance-btn-primary">
+                    <i class="bi bi-search"></i> Ver
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <partial name="_DesgloseCalculo" model="Model.Desglose" />
+
+    <div class="finance-actions">
+        <a asp-action="Index" class="finance-btn-back">
+            <i class="bi bi-arrow-left"></i> Volver
+        </a>
+
+        @if (Model.TieneAcuerdoVigente && !Model.EstadoExistenteId.HasValue)
+        {
+            <form asp-action="Generar" asp-route-id="@Model.InvestorId" method="post">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="referencia" value="@Model.PeriodoInicio.ToString("yyyy-MM-dd")" />
+                <button type="submit" class="finance-btn-primary">
+                    <i class="bi bi-file-earmark-plus"></i> Generar estado de cuenta
+                </button>
+            </form>
+        }
+    </div>
+</div>

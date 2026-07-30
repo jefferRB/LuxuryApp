@@ -103,5 +103,13 @@ namespace LuxuryApp.Services.Billing
         /// vía getSuscriptorRepeat en el pase diario. Solo alerta, nunca suspende/cancela por su cuenta.
         /// </summary>
         public bool LifecycleProviderStatusSyncEnabled { get; set; } = true;
+
+        /// <summary>
+        /// Tope de tenants a los que se les audita el estado REAL de add-ons en TiloPay por pase.
+        /// La auditoría cuesta una llamada getSuscriptorRepeat por cada plan de add-on configurado,
+        /// así que el tope acota la cuota del API admin. 0 apaga la fase (nunca recomendado en
+        /// producción: es lo único que detecta el doble suscriptor del proveedor). Clamp [0, 200].
+        /// </summary>
+        public int MaxAddonProviderAuditsPerRun { get; set; } = 50;
     }
 }

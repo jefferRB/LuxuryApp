@@ -151,7 +151,24 @@
                         <tr>
                             <td>
                                 <div class="platform-table-title">@tenant.TenantName</div>
-                                <div class="platform-table-meta">@(tenant.OwnerEmail ?? "Sin usuario principal")</div>
+                                @* Contacto principal por regla determinista (admin > funcionario). Si el
+                                   dato NO viene de un administrador se marca en vez de mostrarlo como si lo fuera. *@
+                                <div class="platform-table-meta">
+                                    <i class="bi @(tenant.OwnerIsFallback ? "bi-exclamation-triangle" : "bi-person-badge")"></i>
+                                    @(tenant.OwnerEmail ?? "Sin usuario principal")
+                                </div>
+                                @if (tenant.OwnerIsFallback || tenant.OwnerWarnings.Count > 0)
+                                {
+                                    <div class="platform-table-meta">
+                                        <span class="platform-badge platform-badge-warning">
+                                            @TenantOwnerResolution.DescribeSource(tenant.OwnerSource)
+                                        </span>
+                                    </div>
+                                    foreach (var warning in tenant.OwnerWarnings)
+                                    {
+                                        <div class="platform-table-meta text-warning-emphasis">@warning</div>
+                                    }
+                                }
                                 @if (tenant.LastActivityUtc.HasValue)
                                 {
                                     <div class="platform-table-meta">
@@ -198,16 +215,49 @@
                                             <option value="@TenantCommercialAccessMode.RequiresSubscription" selected="@(tenant.CommercialAccessMode == TenantCommercialAccessMode.RequiresSubscription)">Requiere suscripcion</option>
                                             <option value="@TenantCommercialAccessMode.Exempt" selected="@(tenant.CommercialAccessMode == TenantCommercialAccessMode.Exempt)">Exento</option>
                                             <option value="@TenantCommercialAccessMode.Internal" selected="@(tenant.CommercialAccessMode == TenantCommercialAccessMode.Internal)">Interno</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-12 col-xl-4">
-                                        <select class="form-select form-select-sm" name="forcedPlanId" aria-label="Plan forzado">
-                                            <option value="" selected="@(!tenant.ForcedPlanId.HasValue)">Sin plan forzado</option>
-                                            @foreach (var plan in Model.AvailablePlans)
+                                            @if (tenant.CommercialAccessMode == TenantCommercialAccessMode.PendingVerification)
                                             {
-                                                <option value="@plan.Id" selected="@(tenant.ForcedPlanId == plan.Id)">@plan.Nombre</option>
+                                                <option value="@TenantCommercialAccessMode.PendingVerification" selected>Pendiente verificacion</option>
                                             }
                                         </select>
+                                    </div>
+                                    @{
+                                        var forcedIsAdvanced = tenant.ForcedPlanId.HasValue &&
+                                            Model.AdvancedPlanOptions.Any(plan => plan.Id == tenant.ForcedPlanId.Value);
+                                    }
+                                    <div class="col-12 col-xl-4">
+                                        @* SOLO planes base comerciales. Los paquetes WhatsApp (WA400/WA800/WA1200)
+                                           no aparecen aqui y el servidor los rechaza como plan base: se administran
+                                           en su propio control. Legacy/prueba viven en la seccion avanzada de abajo. *@
+                                        <select class="form-select form-select-sm" name="forcedPlanId" aria-label="Plan base forzado">
+                                            <option value="" selected="@(!tenant.ForcedPlanId.HasValue)">Sin plan forzado</option>
+                                            <optgroup label="Plan base comercial">
+                                                @foreach (var plan in Model.BasePlanOptions)
+                                                {
+                                                    <option value="@plan.Id" selected="@(tenant.ForcedPlanId == plan.Id)">
+                                                        @plan.Nombre — @(plan.MaxFuncionarios.HasValue ? $"{plan.MaxFuncionarios} func." : "ilimitado")
+                                                    </option>
+                                                }
+                                            </optgroup>
+                                            @if (forcedIsAdvanced)
+                                            {
+                                                @* El plan actual es legacy/prueba: se incluye seleccionado para que
+                                                   guardar sin tocarlo no lo borre. *@
+                                                <optgroup label="Actual (legacy / prueba)">
+                                                    @foreach (var plan in Model.AdvancedPlanOptions.Where(p => p.Id == tenant.ForcedPlanId))
+                                                    {
+                                                        <option value="@plan.Id" selected="selected">@plan.Nombre (legacy)</option>
+                                                    }
+                                                </optgroup>
+                                            }
+                                        </select>
+                                        @if (forcedIsAdvanced)
+                                        {
+                                            <div class="platform-table-meta text-warning-emphasis">
+                                                <i class="bi bi-exclamation-triangle"></i>
+                                                Plan legacy/prueba. Migrar a LC_M_/LC_A_.
+                                            </div>
+                                        }
                                     </div>
                                     <div class="col-12 col-xl-4">
                                         <input class="form-control form-control-sm" name="commercialNotes" placeholder="Notas internas" value="@tenant.CommercialNotes" />
@@ -218,6 +268,31 @@
                                             Guardar
                                         </button>
                                     </div>
+
+                                    @if (Model.AdvancedPlanOptions.Count > 0)
+                                    {
+                                        <div class="col-12">
+                                            @* Seccion avanzada colapsada: campo APARTE (legacyForcedPlanId). Si se elige
+                                               algo aqui, el servidor lo usa en lugar del selector comercial y lo audita
+                                               como eleccion legacy. Nombres distintos para no romper el model binding. *@
+                                            <details class="platform-advanced-plans" @(forcedIsAdvanced ? "open" : null)>
+                                                <summary class="platform-table-meta">
+                                                    <i class="bi bi-tools"></i>
+                                                    Planes legacy / prueba (avanzado)
+                                                </summary>
+                                                <div class="platform-table-meta mt-2">
+                                                    Sólo para migrar un tenant histórico. Queda registrado en auditoría.
+                                                </div>
+                                                <select class="form-select form-select-sm mt-2" name="legacyForcedPlanId" aria-label="Plan legacy o de prueba">
+                                                    <option value="">— No usar plan legacy —</option>
+                                                    @foreach (var plan in Model.AdvancedPlanOptions)
+                                                    {
+                                                        <option value="@plan.Id">@plan.Nombre (@(plan.Codigo ?? "sin codigo"))</option>
+                                                    }
+                                                </select>
+                                            </details>
+                                        </div>
+                                    }
                                 </form>
                             </td>
                             <td>
@@ -227,6 +302,44 @@
                                         <i class="bi @(tenant.CanAccessApp ? "bi-unlock" : "bi-lock")"></i>
                                         @(tenant.CanAccessApp ? "Con acceso" : "Sin acceso")
                                     </span>
+
+                                    @* Quien paga el acceso base. Manual/exento NUNCA es dinero en riesgo. *@
+                                    @if (tenant.CanAccessApp)
+                                    {
+                                        <span class="platform-badge @(tenant.AccessBillingSource == TenantAccessBillingSource.ProviderRecurring ? "platform-badge-blue" : "platform-badge-neutral")">
+                                            @(tenant.AccessBillingSource switch
+                                            {
+                                                TenantAccessBillingSource.ProviderRecurring => "Pagado TiloPay",
+                                                TenantAccessBillingSource.Manual => "Acceso manual",
+                                                TenantAccessBillingSource.PromotionalGrant => "Trial / promo",
+                                                TenantAccessBillingSource.Legacy => "Legacy",
+                                                _ => "Sin fuente"
+                                            })
+                                        </span>
+                                    }
+
+                                    @* Limite EFECTIVO: mismo valor que el enforcement y que /Billing/Suscripcion. *@
+                                    <div class="platform-table-meta @(tenant.ExceedsEmployeeLimit ? "text-danger-emphasis" : null)">
+                                        <i class="bi bi-people"></i>
+                                        Funcionarios: @tenant.ActiveFuncionarios /
+                                        @(tenant.EffectiveEmployeeLimit?.ToString() ?? (tenant.CanAccessApp ? "ilimitado" : "—"))
+                                        @if (tenant.ExceedsEmployeeLimit)
+                                        {
+                                            <span class="platform-badge platform-badge-danger ms-1">Excedido</span>
+                                        }
+                                    </div>
+
+                                    @if (!string.IsNullOrWhiteSpace(tenant.EffectivePlanCode))
+                                    {
+                                        <div class="platform-table-meta">@tenant.EffectivePlanCode</div>
+                                    }
+
+                                    @foreach (var warning in tenant.CommercialWarnings)
+                                    {
+                                        <div class="platform-table-meta text-warning-emphasis">
+                                            <i class="bi bi-exclamation-triangle"></i> @warning
+                                        </div>
+                                    }
                                 </div>
                             </td>
                             <td class="text-end">

@@ -33,7 +33,7 @@ namespace LuxuryApp.Tests.TenantIsolation
         [Fact]
         public void PrivateNavigation_DoesNotExposeResumenMensualToTenants()
         {
-            var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+            var repoRoot = TestProjectPaths.RepositoryRoot;
             var navFile = Path.Combine(repoRoot, "Services", "Layout", "PrivateNavigationService.cs");
 
             Assert.True(File.Exists(navFile), $"No se encontró {navFile}");

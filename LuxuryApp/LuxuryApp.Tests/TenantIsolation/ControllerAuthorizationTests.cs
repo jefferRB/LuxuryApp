@@ -30,7 +30,11 @@ namespace LuxuryApp.Tests.TenantIsolation
                 typeof(InformacionController),
                 typeof(ProductosController),
                 typeof(BillingController),
-                typeof(RolesController)
+                typeof(RolesController),
+                // Módulos nuevos: la participación de un inversionista y los bloqueos de agenda
+                // son configuración sensible del negocio, solo para administradores.
+                typeof(LuxuryApp.Controllers.Inversionistas.InversionistasController),
+                typeof(LuxuryApp.Controllers.Horarios.BloqueosRecurrentesController)
             };
 
             foreach (var controllerType in sensitiveControllers)

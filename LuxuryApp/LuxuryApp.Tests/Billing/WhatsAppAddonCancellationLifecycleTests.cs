@@ -101,9 +101,16 @@ namespace LuxuryApp.Tests.Billing
 
             var addon = await context.TenantSubscriptionAddons.IgnoreQueryFilters()
                 .SingleAsync(a => a.TenantId == tenantId);
-            Assert.Equal(ProviderCancellationState.Cancelled, addon.ProviderCancellation);
             Assert.Null(addon.PendingCancellationProviderSubscriptionId);
-            Assert.NotNull(addon.ProviderCancelledAtUtc);
+            // La baja fue del suscriptor VIEJO (huérfano de Strategy B): la fila ACTIVA no queda
+            // marcada como cancelada. Marcarla hacía que la cascada del plan base creyera que el
+            // suscriptor vigente ya no cobraba y lo dejara cobrando para siempre.
+            Assert.Equal(ProviderCancellationState.NotRequired, addon.ProviderCancellation);
+            Assert.Null(addon.ProviderCancelledAtUtc);
+            Assert.Null(addon.ProviderCancellationSubscriptionId);
+            // El reemplazo queda auditado aparte.
+            Assert.Equal("sub-001", addon.PreviousProviderSubscriptionId);
+            Assert.NotNull(addon.PreviousProviderCancelledAtUtc);
             // El suscriptor ACTUAL (nuevo) no se tocó.
             Assert.Equal("sub-002", addon.ProviderSubscriptionId);
             Assert.Equal(EstadoSuscripcion.Activa, addon.Estado);
@@ -266,8 +273,10 @@ namespace LuxuryApp.Tests.Billing
 
             var addon = await context.TenantSubscriptionAddons.IgnoreQueryFilters()
                 .SingleAsync(a => a.TenantId == tenantId);
-            Assert.Equal(ProviderCancellationState.Cancelled, addon.ProviderCancellation);
             Assert.Null(addon.PendingCancellationProviderSubscriptionId);
+            // Se canceló el ANTERIOR: la fila activa NO queda como "proveedor cancelado".
+            Assert.Equal(ProviderCancellationState.NotRequired, addon.ProviderCancellation);
+            Assert.Equal("sub-001", addon.PreviousProviderSubscriptionId);
             Assert.Equal("sub-002", addon.ProviderSubscriptionId); // el nuevo, intacto
             Assert.Equal(PlanCodes.WhatsApp800, addon.AddonCode);
         }
@@ -551,7 +560,8 @@ namespace LuxuryApp.Tests.Billing
             });
             return new PaymentRecoveryService(
                 context, accessor, new FixedBusinessDateTimeProvider(),
-                recoveryOptions, NullLogger<PaymentRecoveryService>.Instance);
+                recoveryOptions, NullLogger<PaymentRecoveryService>.Instance,
+                new FakeTenantOwnerResolver());
         }
 
         private static async Task<Guid> SeedTenantAndBaseAsync(ApplicationDbContext context, Guid tenantId)
@@ -635,7 +645,12 @@ namespace LuxuryApp.Tests.Billing
         }
 
         private static PaymentMethodUpdateService CreateMethodUpdateService(ApplicationDbContext context, FakeAddonAdmin admin) =>
-            new(context, admin, new FixedBusinessDateTimeProvider(), NullLogger<PaymentMethodUpdateService>.Instance);
+            new(
+                context,
+                admin,
+                new FixedBusinessDateTimeProvider(),
+                NullLogger<PaymentMethodUpdateService>.Instance,
+                new FakeTenantOwnerResolver());
 
         private static async Task SeedExpiredBaseAsync(ApplicationDbContext context, Guid tenantId)
         {

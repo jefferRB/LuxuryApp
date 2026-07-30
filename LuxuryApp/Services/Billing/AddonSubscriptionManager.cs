@@ -202,6 +202,7 @@ namespace LuxuryApp.Services.Billing
                 ScheduleLocalRenewalCancellation(addon, actorUserId, reason, effectiveEndUtc, nowUtc);
                 ClearPendingCancellation(addon);
                 addon.ProviderCancellation = ProviderCancellationState.Cancelled;
+                addon.ProviderCancellationSubscriptionId = subscriberId;
                 addon.ProviderCancelledAtUtc = nowUtc;
                 addon.UpdatedAtUtc = nowUtc;
             }
@@ -284,8 +285,25 @@ namespace LuxuryApp.Services.Billing
             if (outcome.Verified)
             {
                 ClearPendingCancellation(addon);
-                addon.ProviderCancellation = ProviderCancellationState.Cancelled;
-                addon.ProviderCancelledAtUtc = nowUtc;
+
+                if (isCurrentSubscriberCancellation)
+                {
+                    // La baja es del suscriptor VIGENTE: el estado de cancelación sí describe esta fila.
+                    addon.ProviderCancellation = ProviderCancellationState.Cancelled;
+                    addon.ProviderCancellationSubscriptionId = targetSubscriberId;
+                    addon.ProviderCancelledAtUtc = nowUtc;
+                }
+                else
+                {
+                    // Strategy B: se dio de baja el suscriptor ANTERIOR (huérfano). El add-on ACTIVO no
+                    // está cancelado — marcarlo como tal dejaba a la cascada del plan base creyendo que
+                    // el suscriptor vigente ya no cobraba. Va a los campos de auditoría del reemplazado.
+                    addon.ProviderCancellation = ProviderCancellationState.NotRequired;
+                    addon.ProviderCancellationSubscriptionId = null;
+                    addon.ProviderCancelledAtUtc = null;
+                    addon.PreviousProviderSubscriptionId = targetSubscriberId;
+                    addon.PreviousProviderCancelledAtUtc = nowUtc;
+                }
 
                 if (isCurrentSubscriberCancellation && !addon.CancelAtPeriodEnd)
                 {
@@ -374,8 +392,13 @@ namespace LuxuryApp.Services.Billing
 
                 // Deja pendiente la baja del suscriptor recurrente (si lo hay) SIEMPRE, aunque el API
                 // admin esté apagado: así la reconciliación/Mission Control lo alertan y reintentan.
+                // La baja solo se salta si está confirmada PARA EL SUSCRIPTOR VIGENTE. Comparar solo
+                // contra ProviderCancellation==Cancelled dejaba pasar el caso money-critical: tras un
+                // cambio de paquete (WA400→WA800) la fila activa quedaba Cancelled por la baja del
+                // suscriptor VIEJO, así que la cascada no daba de baja el WA800 y TiloPay seguía
+                // cobrándolo para siempre. Filas antiguas (id null) no se consideran cubiertas.
                 if (!string.IsNullOrWhiteSpace(addon.ProviderSubscriptionId) &&
-                    addon.ProviderCancellation != ProviderCancellationState.Cancelled)
+                    !IsCurrentSubscriberAlreadyCancelled(addon))
                 {
                     addon.PendingCancellationProviderSubscriptionId = addon.ProviderSubscriptionId;
                     addon.PendingCancellationTilopayRecurringPlanId = addon.TilopayRecurringPlanId;
@@ -536,6 +559,24 @@ namespace LuxuryApp.Services.Billing
                 addon.ProviderCancellationLastAttemptUtc = nowUtc;
                 addon.ProviderCancellationNextRetryUtc = nowUtc.Add(ResolveBackoff(addon.ProviderCancellationAttemptCount));
             }
+        }
+
+        /// <summary>
+        /// True SOLO con evidencia de que el suscriptor VIGENTE del add-on ya está dado de baja.
+        /// Un <see cref="ProviderCancellationState.Cancelled"/> sin
+        /// <see cref="TenantSubscriptionAddon.ProviderCancellationSubscriptionId"/> que coincida NO
+        /// cuenta: pudo quedar de la baja del suscriptor anterior en una transición de paquete.
+        /// </summary>
+        public static bool IsCurrentSubscriberAlreadyCancelled(TenantSubscriptionAddon addon)
+        {
+            ArgumentNullException.ThrowIfNull(addon);
+
+            return addon.ProviderCancellation == ProviderCancellationState.Cancelled &&
+                   !string.IsNullOrWhiteSpace(addon.ProviderSubscriptionId) &&
+                   string.Equals(
+                       addon.ProviderCancellationSubscriptionId?.Trim(),
+                       addon.ProviderSubscriptionId?.Trim(),
+                       StringComparison.OrdinalIgnoreCase);
         }
 
         private static void ClearPendingCancellation(TenantSubscriptionAddon addon)

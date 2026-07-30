@@ -13,6 +13,7 @@ using LuxuryApp.Services.Layout;
 using LuxuryApp.Services.Platform;
 using LuxuryApp.Services.PublicSite;
 using LuxuryApp.Services.SaaS;
+using LuxuryApp.Services.Security;
 using LuxuryApp.Services.Tenant;
 using LuxuryApp.Tests.Support;
 using Microsoft.AspNetCore.Antiforgery;
@@ -104,6 +105,11 @@ namespace LuxuryApp.Tests.Identity
                 options.CreateInitialSubscription = false;
             });
             services.Configure<TilopayRepeatOptions>(_ => { });
+            services.Configure<RegistrationSecurityOptions>(options =>
+            {
+                options.RequireEmailConfirmation = false;
+                options.Turnstile.Enabled = false;
+            });
 
             services
                 .AddIdentity<AppUsuario, IdentityRole>()
@@ -134,6 +140,8 @@ namespace LuxuryApp.Tests.Identity
             services.AddScoped<ITenantDisplayNameService, TenantDisplayNameService>();
             services.AddScoped<IPublicSiteContentService, EmptyPublicSiteContentService>();
             services.AddScoped<IAccountEmailService, NoopEmailService>();
+            services.AddSingleton<RegistrationSecurityService>();
+            services.AddHttpClient<TurnstileVerificationService>();
 
             // Dependencias de SeguridadController.
             services.AddScoped<IPlatformAuditService, NoopAuditService>();
@@ -596,6 +604,8 @@ namespace LuxuryApp.Tests.Identity
         private sealed class NoopEmailService : IAccountEmailService
         {
             public Task SendPasswordResetEmailAsync(string toEmail, string displayName, string resetLink, CancellationToken ct = default) =>
+                Task.CompletedTask;
+            public Task SendEmailConfirmationEmailAsync(string toEmail, string displayName, string confirmationLink, CancellationToken ct = default) =>
                 Task.CompletedTask;
             public Task SendFuncionarioInvitationEmailAsync(string toEmail, string displayName, string setPasswordLink, string businessName, CancellationToken ct = default) =>
                 Task.CompletedTask;

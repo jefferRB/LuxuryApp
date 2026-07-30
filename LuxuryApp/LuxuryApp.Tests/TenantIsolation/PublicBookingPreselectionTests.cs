@@ -92,7 +92,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             return new PublicBookingService(
                 context,
                 new NoOpBookingSettingsService(),
-                new BookingAvailabilityService(context, new FixedBusinessDateTimeProvider(), catalog),
+                ControllerTestSupport.CreateBookingAvailabilityService(context, new FixedBusinessDateTimeProvider(), catalog),
                 catalog,
                 new FixedBusinessDateTimeProvider(),
                 new FakeTenantWhatsAppFeatureService { IsEnabled = true },

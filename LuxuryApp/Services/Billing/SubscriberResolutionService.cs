@@ -140,6 +140,26 @@ namespace LuxuryApp.Services.Billing
             }
         }
 
+        /// <summary>
+        /// True cuando el add-on ya se movió al plan recurrente que se acaba de pagar pero sigue
+        /// guardando el suscriptor del paquete ANTERIOR (TiloPay no manda id_suscriptor en el
+        /// webhook). Solo entonces se adopta el resuelto: sin la coincidencia de plan no hay
+        /// evidencia de que el id guardado sea el viejo, y pisarlo sería peor que dejarlo.
+        /// </summary>
+        private static bool IsStaleAddonSubscriber(
+            TenantSubscriptionAddon addon,
+            SubscriberResolutionContext context,
+            TilopaySubscriber subscriber) =>
+            addon.TilopayRecurringPlanId == context.TilopayRecurringPlanId &&
+            addon.PendingCancellationTilopayRecurringPlanId.HasValue &&
+            addon.PendingCancellationTilopayRecurringPlanId.Value != context.TilopayRecurringPlanId &&
+            string.IsNullOrWhiteSpace(addon.PendingCancellationProviderSubscriptionId) &&
+            !string.IsNullOrWhiteSpace(subscriber.SubscriberId) &&
+            !string.Equals(
+                addon.ProviderSubscriptionId?.Trim(),
+                subscriber.SubscriberId.Trim(),
+                StringComparison.OrdinalIgnoreCase);
+
         private async Task<SubscriberPersistenceOutcome> PersistResolvedAsync(
             SubscriberResolutionContext context,
             TilopaySubscriber subscriber,
@@ -176,8 +196,48 @@ namespace LuxuryApp.Services.Billing
                     if (addon is not null && string.IsNullOrWhiteSpace(addon.ProviderSubscriptionId))
                     {
                         addon.ProviderSubscriptionId = subscriber.SubscriberId;
+                        addon.ProviderCancellation = ProviderCancellationState.NotRequired;
+                        addon.ProviderCancellationSubscriptionId = null;
+                        addon.ProviderCancelledAtUtc = null;
                         addon.UpdatedAtUtc = nowUtc;
                         changed = true;
+                    }
+                    else if (addon is not null && IsStaleAddonSubscriber(addon, context, subscriber))
+                    {
+                        // SUSCRIPTOR RESUELTO TARDE en un CAMBIO de paquete: TiloPay no manda
+                        // id_suscriptor en el webhook, así que la activación conservó el id ANTERIOR
+                        // mientras el plan recurrente ya era el nuevo. La fila quedaba apuntando al
+                        // suscriptor viejo: cancelarla habría dado de baja el paquete recién pagado y
+                        // el viejo habría seguido cobrando. Se adopta el resuelto y el anterior queda
+                        // pendiente de baja verificada (Strategy B), nunca al revés.
+                        var staleSubscriberId = addon.ProviderSubscriptionId;
+
+                        addon.ProviderSubscriptionId = subscriber.SubscriberId;
+                        addon.PendingCancellationProviderSubscriptionId = staleSubscriberId;
+                        // El plan recurrente del suscriptor viejo quedó APARCADO en la activación
+                        // (ActivarAddonWhatsAppRecurrenteAsync) justamente para poder verificar la
+                        // baja ahora: sin él, getSuscriptorRepeat no tiene contra qué verificar.
+                        addon.ProviderCancellation = ProviderCancellationState.PendingManualCancellation;
+                        addon.ProviderCancellationSubscriptionId = null;
+                        addon.ProviderCancelledAtUtc = null;
+                        addon.ProviderCancellationAttemptCount = 0;
+                        addon.ProviderCancellationLastAttemptUtc = null;
+                        addon.ProviderCancellationNextRetryUtc = null;
+                        addon.UpdatedAtUtc = nowUtc;
+                        changed = true;
+
+                        _db.PlatformAuditLogs.Add(new PlatformAuditLog
+                        {
+                            Id = Guid.NewGuid(),
+                            ActorUserId = "system",
+                            ActorEmail = "system",
+                            Action = PlatformAuditActions.AddonSubscriberAdoptedAfterLateResolution,
+                            EntityType = PlatformAuditEntityTypes.WhatsAppAddon,
+                            EntityId = addon.Id.ToString(),
+                            TenantId = context.TenantId,
+                            Reason = $"Add-on: el suscriptor del plan {context.TilopayRecurringPlanId} se resolvió tarde. Se adoptó {SensitiveDataMasker.MaskReference(subscriber.SubscriberId)} y el anterior {SensitiveDataMasker.MaskReference(staleSubscriberId)} queda pendiente de baja verificada.",
+                            CreatedAtUtc = nowUtc
+                        });
                     }
                 }
                 else

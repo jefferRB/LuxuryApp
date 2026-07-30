@@ -30,6 +30,7 @@ namespace LuxuryApp.Controllers.Platform
         private readonly IPlatformHealthService _healthService;
         private readonly IPlatformWhatsAppStatusService _whatsAppStatusService;
         private readonly IPlatformMissionControlService _missionControlService;
+        private readonly ITenantOwnerResolver _ownerResolver;
 
         public PlatformController(
             ApplicationDbContext context,
@@ -41,7 +42,8 @@ namespace LuxuryApp.Controllers.Platform
             IPlatformMetricsService metricsService,
             IPlatformHealthService healthService,
             IPlatformWhatsAppStatusService whatsAppStatusService,
-            IPlatformMissionControlService missionControlService)
+            IPlatformMissionControlService missionControlService,
+            ITenantOwnerResolver ownerResolver)
         {
             _context = context;
             _commercialAccessResolver = commercialAccessResolver;
@@ -53,6 +55,7 @@ namespace LuxuryApp.Controllers.Platform
             _healthService = healthService;
             _whatsAppStatusService = whatsAppStatusService;
             _missionControlService = missionControlService;
+            _ownerResolver = ownerResolver;
         }
 
         /// <summary>
@@ -88,8 +91,22 @@ namespace LuxuryApp.Controllers.Platform
             var plans = await _context.Planes
                 .AsNoTracking()
                 .Where(plan => plan.Activo)
-                .OrderBy(plan => plan.PrecioMensual)
                 .ToListAsync(cancellationToken);
+
+            // Selector de PLAN BASE forzado: solo planes que pueden definir un limite de
+            // funcionarios. Los add-ons WhatsApp quedan fuera por completo (tienen su propio
+            // control) y legacy/validacion van a una seccion avanzada colapsada.
+            var basePlans = plans
+                .Where(plan => PlanCatalogRules.Classify(plan) == PlanCatalogKind.BaseCommercial)
+                .OrderBy(PlanCatalogRules.SortKey)
+                .ThenBy(plan => plan.Nombre)
+                .ToList();
+
+            var advancedPlans = plans
+                .Where(plan => PlanCatalogRules.IsAdvancedOnly(plan))
+                .OrderBy(PlanCatalogRules.SortKey)
+                .ThenBy(plan => plan.Nombre)
+                .ToList();
 
             var tenants = await _context.Tenants
                 .AsNoTracking()
@@ -99,17 +116,9 @@ namespace LuxuryApp.Controllers.Platform
 
             var tenantIds = tenants.Select(t => t.Id).ToList();
 
-            // Batch: un solo query para el email del primer usuario por tenant (orden alfab.)
-            var ownersByTenant = await _context.Users
-                .AsNoTracking()
-                .Where(user => tenantIds.Contains(user.TenantId))
-                .GroupBy(user => user.TenantId)
-                .Select(group => new
-                {
-                    TenantId = group.Key,
-                    Email = group.OrderBy(user => user.Email).Select(user => user.Email).FirstOrDefault()
-                })
-                .ToDictionaryAsync(row => row.TenantId, row => row.Email, cancellationToken);
+            // Contacto principal por regla determinista (admin > funcionario). Reemplaza el
+            // OrderBy(email).First() que hacia ganar a un funcionario por orden alfabetico.
+            var ownersByTenant = await _ownerResolver.ResolveBatchAsync(tenantIds, cancellationToken);
 
             // Batch: todos los datos WhatsApp en 4 queries totales (no N scopes DI)
             var whatsAppByTenant = await _whatsAppStatusService.GetBatchStatusAsync(tenantIds, cancellationToken);
@@ -145,7 +154,9 @@ namespace LuxuryApp.Controllers.Platform
             var tenantRows = new List<PlatformTenantRowViewModel>(tenants.Count);
             foreach (var tenant in tenants)
             {
-                ownersByTenant.TryGetValue(tenant.Id, out var ownerEmail);
+                var owner = ownersByTenant.TryGetValue(tenant.Id, out var resolved)
+                    ? resolved
+                    : Models.SaaS.TenantOwnerResolution.Empty(tenant.Id);
                 var access = await _commercialAccessResolver.ResolveAsync(tenant.Id, cancellationToken: cancellationToken);
                 var whatsApp = whatsAppByTenant[tenant.Id];
                 usageByTenant.TryGetValue(tenant.Id, out var usage);
@@ -154,6 +165,9 @@ namespace LuxuryApp.Controllers.Platform
                 var health = _healthService.ComputeHealth(
                     access.CanAccessApp,
                     usage,
+                    // Misma definicion de "WhatsApp operativo" que usa la ficha: paquete efectivo
+                    // Y automatizacion configurada. Antes el listado y la ficha pasaban entradas
+                    // distintas y el mismo tenant podia pintar salud diferente en cada pantalla.
                     whatsApp.AddonActive && whatsApp.SettingsEnabled,
                     whatsApp.LastErrorCode is not null,
                     hasPendingCheckout: pendingCheckoutTenants.Contains(tenant.Id),
@@ -167,10 +181,19 @@ namespace LuxuryApp.Controllers.Platform
                     CommercialAccessMode = tenant.CommercialAccessMode,
                     ForcedPlanId = tenant.ForcedPlanId,
                     ForcedPlanName = tenant.ForcedPlan?.Nombre,
-                    OwnerEmail = ownerEmail,
+                    OwnerEmail = owner.OwnerEmail,
+                    OwnerName = owner.OwnerName,
+                    OwnerSource = owner.Source,
+                    OwnerWarnings = owner.Warnings,
                     CommercialNotes = tenant.CommercialNotes,
                     CanAccessApp = access.CanAccessApp,
                     EffectivePlanName = access.EffectivePlanName,
+                    EffectivePlanCode = access.EffectivePlanCode,
+                    EffectivePlanKind = access.EffectivePlanKind,
+                    EffectiveEmployeeLimit = access.EffectiveEmployeeLimit,
+                    IsForcedByPlatform = access.IsForcedByPlatform,
+                    AccessBillingSource = access.BillingSource,
+                    CommercialWarnings = access.Warnings,
                     Reason = access.Reason,
                     WhatsAppEnabled = whatsApp.SettingsEnabled,
                     WhatsAppAddonActive = whatsApp.AddonActive,
@@ -266,6 +289,21 @@ namespace LuxuryApp.Controllers.Platform
 
             var ownerByTenantId = tenantRows
                 .ToDictionary(row => row.TenantId, row => row.OwnerEmail, EqualityComparer<Guid>.Default);
+
+            var activeFuncionariosByTenant = await _context.Funcionarios
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(funcionario => tenantIds.Contains(funcionario.TenantId) && funcionario.Activo)
+                .GroupBy(funcionario => funcionario.TenantId)
+                .Select(group => new { TenantId = group.Key, Count = group.Count() })
+                .ToDictionaryAsync(row => row.TenantId, row => row.Count, cancellationToken);
+
+            foreach (var row in tenantRows)
+            {
+                row.ActiveFuncionarios = activeFuncionariosByTenant.TryGetValue(row.TenantId, out var count)
+                    ? count
+                    : 0;
+            }
 
             var pendingRecurringCheckouts = await _context.PagosSuscripcion
                 .IgnoreQueryFilters()
@@ -380,6 +418,8 @@ namespace LuxuryApp.Controllers.Platform
                 TotalActiveSubscriptions = totalActiveSubscriptions,
                 TotalPromotionalCodes = await _context.PromotionalCodes.CountAsync(cancellationToken),
                 AvailablePlans = plans,
+                BasePlanOptions = basePlans,
+                AdvancedPlanOptions = advancedPlans,
                 Tenants = tenantRows,
                 RecentUsers = recentUsers,
                 RecentPayments = recentPayments,
@@ -587,7 +627,8 @@ namespace LuxuryApp.Controllers.Platform
             TenantCommercialAccessMode commercialAccessMode,
             Guid? forcedPlanId,
             string? commercialNotes,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            Guid? legacyForcedPlanId = null)
         {
             var tenant = await _context.Tenants.FirstOrDefaultAsync(currentTenant => currentTenant.Id == tenantId, cancellationToken);
             if (tenant is null)
@@ -595,28 +636,71 @@ namespace LuxuryApp.Controllers.Platform
                 return NotFound();
             }
 
-            if (commercialAccessMode != TenantCommercialAccessMode.RequiresSubscription)
+            if (!Enum.IsDefined(commercialAccessMode))
             {
-                var hasValidPlan = forcedPlanId.HasValue &&
-                    await _context.Planes.AsNoTracking().AnyAsync(plan => plan.Id == forcedPlanId && plan.Activo, cancellationToken);
+                TempData["PlatformError"] = "Modo comercial no valido.";
+                return RedirectToAction(nameof(Tenants));
+            }
 
-                if (!hasValidPlan)
+            // PendingVerification pertenece al flujo de registro/confirmacion de correo. Mantenerlo
+            // es valido (guardar notas sin sacar al tenant del estado); MOVER un tenant ya
+            // verificado a "pendiente" desde plataforma no lo es: le cortaria el acceso sin razon.
+            if (commercialAccessMode == TenantCommercialAccessMode.PendingVerification &&
+                tenant.CommercialAccessMode != TenantCommercialAccessMode.PendingVerification)
+            {
+                TempData["PlatformError"] =
+                    "El modo 'Pendiente de verificacion' lo asigna el registro al confirmar el correo; no se puede establecer manualmente.";
+                return RedirectToAction(nameof(Tenants));
+            }
+
+            // El selector avanzado (legacyForcedPlanId) es un campo APARTE y gana cuando trae valor:
+            // asi el selector comercial nunca tiene que contener planes legacy/prueba.
+            var effectiveForcedPlanId = legacyForcedPlanId ?? forcedPlanId;
+
+            var requiresForcedPlan =
+                commercialAccessMode is TenantCommercialAccessMode.Exempt or TenantCommercialAccessMode.Internal;
+
+            Plan? selectedForcedPlan = null;
+            if (requiresForcedPlan)
+            {
+                selectedForcedPlan = effectiveForcedPlanId.HasValue
+                    ? await _context.Planes.AsNoTracking()
+                        .FirstOrDefaultAsync(plan => plan.Id == effectiveForcedPlanId.Value && plan.Activo, cancellationToken)
+                    : null;
+
+                if (selectedForcedPlan is null)
                 {
                     TempData["PlatformError"] = "Los tenants exentos o internos requieren un plan forzado activo.";
                     return RedirectToAction(nameof(Tenants));
                 }
+
+                // Un add-on de WhatsApp NO es un plan base: no tiene MaxFuncionarios, asi que
+                // forzarlo dejaba al tenant con limite de funcionarios indefinido. Se rechaza aqui
+                // (server-side) y no solo se oculta del selector.
+                var kind = PlanCatalogRules.Classify(selectedForcedPlan);
+                if (!PlanCatalogRules.IsBasePlan(kind))
+                {
+                    TempData["PlatformError"] =
+                        $"'{selectedForcedPlan.Nombre}' es {PlanCatalogRules.DescribeKind(kind).ToLowerInvariant()} " +
+                        "y no puede usarse como plan base forzado. Los paquetes de WhatsApp se administran en su propio control.";
+                    return RedirectToAction(nameof(Tenants));
+                }
             }
 
+            var previousMode = tenant.CommercialAccessMode;
+            var previousForcedPlanId = tenant.ForcedPlanId;
+
             tenant.CommercialAccessMode = commercialAccessMode;
-            tenant.ForcedPlanId = commercialAccessMode == TenantCommercialAccessMode.RequiresSubscription
-                ? null
-                : forcedPlanId;
+            tenant.ForcedPlanId = requiresForcedPlan ? effectiveForcedPlanId : null;
             tenant.CommercialNotes = string.IsNullOrWhiteSpace(commercialNotes) ? null : commercialNotes.Trim();
             tenant.CommercialUpdatedUtc = DateTime.UtcNow;
             tenant.CommercialUpdatedByUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
 
             await _context.SaveChangesAsync(cancellationToken);
             _accessCache.Invalidate(tenant.Id);
+
+            var selectedKind = PlanCatalogRules.Classify(selectedForcedPlan);
+            var isAdvancedChoice = selectedForcedPlan is not null && PlanCatalogRules.IsAdvancedOnly(selectedKind);
 
             await SafeAuditAsync(new PlatformAuditEntry
             {
@@ -625,15 +709,29 @@ namespace LuxuryApp.Controllers.Platform
                 EntityId = tenant.Id.ToString(),
                 TenantId = tenant.Id,
                 TenantName = tenant.Nombre,
+                BeforeJson = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    Mode = previousMode.ToString(),
+                    ForcedPlanId = previousForcedPlanId
+                }),
                 AfterJson = System.Text.Json.JsonSerializer.Serialize(new
                 {
                     Mode = commercialAccessMode.ToString(),
-                    ForcedPlanId = tenant.ForcedPlanId
+                    ForcedPlanId = tenant.ForcedPlanId,
+                    ForcedPlanCode = selectedForcedPlan?.Codigo,
+                    ForcedPlanKind = selectedKind.ToString(),
+                    // Marca explicita: se eligio un plan de la seccion avanzada (legacy/validacion),
+                    // no un plan comercial vigente de la calculadora.
+                    AdvancedLegacyChoice = isAdvancedChoice,
+                    EffectiveEmployeeLimit = selectedForcedPlan?.MaxFuncionarios
                 }),
                 Reason = tenant.CommercialNotes
             }, cancellationToken);
 
-            TempData["PlatformSuccess"] = "Configuracion comercial del tenant actualizada.";
+            TempData["PlatformSuccess"] = isAdvancedChoice
+                ? $"Configuracion comercial actualizada con un plan {PlanCatalogRules.DescribeKind(selectedKind).ToLowerInvariant()} " +
+                  $"('{selectedForcedPlan!.Nombre}'). Quedo registrado en auditoria; migrar a un plan LC_M_/LC_A_ cuando se pueda."
+                : "Configuracion comercial del tenant actualizada.";
             return RedirectToAction(nameof(Tenants));
         }
 

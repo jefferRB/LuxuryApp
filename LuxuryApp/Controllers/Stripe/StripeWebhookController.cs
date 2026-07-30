@@ -2,6 +2,7 @@ using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.SaaS;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 using Stripe;
@@ -11,6 +12,7 @@ namespace LuxuryApp.Controllers
     [ApiController]
     [AllowAnonymous]
     [IgnoreAntiforgeryToken]
+    [EnableRateLimiting("Webhook")]
     [Route("api/webhooks/stripe")]
     public class StripeWebhookController : ControllerBase
     {

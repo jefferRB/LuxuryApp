@@ -152,12 +152,19 @@ namespace LuxuryApp.Tests.Billing
             ITenantWhatsAppSettingsService? settingsService = null)
         {
             var cache = new MemoryCache(new MemoryCacheOptions());
+            var accessCache = new TenantCommercialAccessCache(cache);
+            var clock = new FixedBusinessDateTimeProvider();
             var repeatOptions = CalculatorCatalog.BuildRepeatOptions();
             var subscriptionService = new SuscripcionService(
-                ctx, cache, new TenantCommercialAccessCache(cache), new FixedBusinessDateTimeProvider(),
+                ctx, cache, accessCache, clock,
                 Options.Create(repeatOptions), NullLogger<SuscripcionService>.Instance);
 
-            var service = new SubscriptionSummaryService(ctx, subscriptionService, settingsService ?? new StubWhatsAppSettings());
+            var accessResolver = new TenantCommercialAccessResolver(ctx, cache, accessCache, subscriptionService, clock);
+            var service = new SubscriptionSummaryService(
+                ctx,
+                subscriptionService,
+                settingsService ?? new StubWhatsAppSettings(),
+                accessResolver);
             return await service.BuildAsync(tenantId);
         }
 

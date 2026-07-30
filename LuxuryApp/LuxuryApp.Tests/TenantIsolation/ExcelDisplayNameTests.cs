@@ -238,6 +238,13 @@ namespace LuxuryApp.Tests.TenantIsolation
                 CancellationToken cancellationToken = default) =>
                 Task.CompletedTask;
 
+            public Task SendEmailConfirmationEmailAsync(
+                string toEmail,
+                string displayName,
+                string confirmationLink,
+                CancellationToken cancellationToken = default) =>
+                Task.CompletedTask;
+
             public Task SendFuncionarioInvitationEmailAsync(
                 string toEmail,
                 string displayName,

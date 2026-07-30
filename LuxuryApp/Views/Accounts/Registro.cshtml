@@ -6,6 +6,7 @@
     Layout = "_PublicLayout";
     var returnUrl = ViewData["ReturnUrl"] as string;
     var selectedPlanName = ViewData["SelectedPlanName"] as string;
+    var turnstileSiteKey = ViewData["TurnstileSiteKey"] as string;
 }
 
 <section class="auth-section">
@@ -63,6 +64,10 @@
                         <input type="hidden" name="returnurl" value="@returnUrl" />
                         <input asp-for="SelectedPlanId" type="hidden" />
                         <input asp-for="CurrentContractDocumentId" type="hidden" />
+                        <div aria-hidden="true" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;">
+                            <label asp-for="CompanyWebsite">Sitio web</label>
+                            <input asp-for="CompanyWebsite" tabindex="-1" autocomplete="off" />
+                        </div>
 
                         <div class="text-danger auth-validation" asp-validation-summary="All"></div>
 
@@ -166,6 +171,11 @@
                             </div>
                         }
 
+                        @if (!string.IsNullOrWhiteSpace(turnstileSiteKey))
+                        {
+                            <div class="cf-turnstile mt-4" data-sitekey="@turnstileSiteKey"></div>
+                        }
+
                         <button type="submit" form="registration-form" class="btn public-btn public-btn-primary w-100 mt-4" disabled="@(!Model.HasCurrentContract ? "disabled" : null)">Crear cuenta</button>
 
                         <p class="auth-center-link">
@@ -181,5 +191,9 @@
 @section Scripts {
     @{
         await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+    @if (!string.IsNullOrWhiteSpace(turnstileSiteKey))
+    {
+        <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
     }
 }

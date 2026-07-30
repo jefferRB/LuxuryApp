@@ -596,7 +596,7 @@ namespace LuxuryApp.Tests.TenantIsolation
         [Fact]
         public void IgnoreQueryFilters_ShouldOnlyExistInApprovedInfrastructureFiles()
         {
-            var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+            var repoRoot = TestProjectPaths.RepositoryRoot;
             var allowedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 Path.Combine("Controllers", "Billing", "BillingController.cs"),
@@ -629,6 +629,9 @@ namespace LuxuryApp.Tests.TenantIsolation
                 Path.Combine("Services", "PublicPages", "TenantPublicPageSettingsService.cs"),
                 Path.Combine("Services", "PublicPages", "TenantPublicPageAnalyticsService.cs"),
                 Path.Combine("Services", "PublicPages", "TenantPublicPageRedirectService.cs"),
+                // Expiracion soft de registros pendientes: escaneo cross-tenant deliberado,
+                // gateado por config y limitado a PendingVerification sin pago/verificacion/actividad.
+                Path.Combine("Services", "Tenant", "PendingTenantExpirationService.cs"),
                 // Consola de plataforma (SuperAdmin): agregados/lecturas cross-tenant deliberados,
                 // gateados por la politica PlatformSuperAdmin en los controllers Platform.
                 Path.Combine("Controllers", "Platform", "PlatformUsersController.cs"),
@@ -680,7 +683,12 @@ namespace LuxuryApp.Tests.TenantIsolation
                 Path.Combine("Services", "Billing", "PaymentRecoveryNotificationService.cs"),
                 // Actualización de método de pago: lee la suscripción por TenantId explícito (lo llama
                 // el admin del tenant y también Platform/SuperAdmin, sin contexto de tenant fijo).
-                Path.Combine("Services", "Billing", "PaymentMethodUpdateService.cs")
+                Path.Combine("Services", "Billing", "PaymentMethodUpdateService.cs"),
+                // Auditoría SOLO LECTURA del estado real de add-ons en TiloPay: se dispara desde el
+                // webhook (sin contexto de tenant) y desde la reconciliación (worker cross-tenant).
+                // Filtra por TenantId explícito y escribe el snapshot/incidente bajo
+                // BeginScope(tenantId) para RLS. Nunca cancela ni cobra nada.
+                Path.Combine("Services", "Billing", "AddonProviderAuditService.cs")
             };
 
             var targetRoots = new[]

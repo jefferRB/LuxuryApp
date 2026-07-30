@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using LuxuryApp.Services.PublicImages;
+using LuxuryApp.Tests.Support;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
@@ -117,8 +118,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
         private static string ProjectPath(params string[] parts)
         {
-            var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-            return Path.Combine(new[] { root }.Concat(parts).ToArray());
+            return TestProjectPaths.ProjectPath(parts);
         }
 
         // Stream forward-only para simular un contenido no seekable (ej. red).

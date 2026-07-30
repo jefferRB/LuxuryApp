@@ -105,9 +105,9 @@ namespace LuxuryApp.Tests.TenantIsolation
         {
             private readonly Microsoft.Data.Sqlite.SqliteConnection _connection;
             public ApplicationDbContext Context { get; }
-            public BookingAvailabilityService Service { get; }
+            public IBookingAvailabilityService Service { get; }
 
-            private Ctx(ApplicationDbContext context, Microsoft.Data.Sqlite.SqliteConnection connection, BookingAvailabilityService service)
+            private Ctx(ApplicationDbContext context, Microsoft.Data.Sqlite.SqliteConnection connection, IBookingAvailabilityService service)
             {
                 Context = context;
                 _connection = connection;
@@ -141,7 +141,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 await context.SaveChangesAsync();
 
                 var catalog = new BookingCatalogService(context);
-                var service = new BookingAvailabilityService(context, new FixedBusinessDateTimeProvider(), catalog);
+                var service = ControllerTestSupport.CreateBookingAvailabilityService(context, new FixedBusinessDateTimeProvider(), catalog);
                 return new Ctx(context, connection, service);
             }
 

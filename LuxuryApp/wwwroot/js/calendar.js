@@ -2018,6 +2018,7 @@ async function buildDayGrid(container, date, funcionarioFilter = null) {
 
     let citas = [];
     let funcionarios = [];
+    let bloqueosRecurrentes = [];
 
     try {
         [citas, funcionarios] = await Promise.all([
@@ -2031,6 +2032,20 @@ async function buildDayGrid(container, date, funcionarioFilter = null) {
 
         console.error("Error cargando la grilla diaria del calendario", error);
         return;
+    }
+
+    // Bloqueos recurrentes (almuerzo, limpieza...). Se piden aparte y de forma tolerante:
+    // si el endpoint falla, el calendario sigue funcionando exactamente como antes.
+    try {
+        bloqueosRecurrentes = await apiFetchJson(
+            `/Calendar/GetBloqueosRecurrentes?date=${encodeURIComponent(dateStr)}`,
+            { signal: request.signal }
+        );
+    } catch (error) {
+        if (error.name !== "AbortError") {
+            console.warn("No se pudieron cargar los bloqueos recurrentes", error);
+        }
+        bloqueosRecurrentes = [];
     }
 
     if (!isLatestRequest("dayGrid", request.requestId)) {
@@ -2094,6 +2109,16 @@ async function buildDayGrid(container, date, funcionarioFilter = null) {
     });
 
     bindCalendarSlotDelegation(funcionariosContainer, date, intervalo, altoSlot);
+
+    // ===== BLOQUEOS RECURRENTES =====
+    // Se pintan ANTES que las citas para que queden por debajo: son fondo de agenda, no eventos
+    // de cliente. No tienen resize ni abren el modal de cita.
+    renderRecurringBlocks(
+        bloqueosRecurrentes,
+        funcionariosContainer,
+        inicio,
+        intervalo,
+        altoSlot);
 
     // ===== POSICIONAR CITAS =====
 
@@ -2217,6 +2242,82 @@ async function buildDayGrid(container, date, funcionarioFilter = null) {
         }
 
         col.appendChild(bloque);
+    });
+}
+
+// Pinta los bloqueos recurrentes del día. Son de solo lectura: representan una REGLA, no una
+// cita, así que no se pueden mover, redimensionar ni cobrar. Para cambiar un día puntual el
+// usuario crea una excepción desde el módulo de bloqueos de horario.
+function renderRecurringBlocks(bloqueos, funcionariosContainer, horaInicioGrid, intervalo, altoSlot) {
+
+    if (!Array.isArray(bloqueos) || bloqueos.length === 0) return;
+
+    bloqueos.forEach(bloqueo => {
+
+        const partes = String(bloqueo.inicio || "").split(/[-T:]/);
+        if (partes.length < 5) return;
+
+        const inicioBloque = new Date(
+            partes[0],
+            partes[1] - 1,
+            partes[2],
+            partes[3],
+            partes[4],
+            partes[5] || 0
+        );
+
+        const minutosDesdeInicio =
+            (inicioBloque.getHours() * 60 + inicioBloque.getMinutes()) - (horaInicioGrid * 60);
+
+        if (minutosDesdeInicio < 0) return;
+
+        const duracion = bloqueo.duracionMinutos || 30;
+        const top = (minutosDesdeInicio / intervalo) * altoSlot;
+        const altura = (duracion / intervalo) * altoSlot;
+
+        const col = funcionariosContainer.querySelector(
+            `.funcionario-column[data-id="${bloqueo.funcionarioId}"]`
+        );
+
+        if (!col) return;
+
+        const elemento = document.createElement("div");
+        elemento.className = "cita-bloque bloqueo-recurrente";
+        elemento.dataset.reglaId = String(bloqueo.reglaId ?? "");
+        elemento.dataset.origen = "BLOQUEO_RECURRENTE";
+        elemento.style.top = `${top}px`;
+        elemento.style.height = `${altura}px`;
+        elemento.style.backgroundColor = "#8a8f98";
+        elemento.style.backgroundImage =
+            "repeating-linear-gradient(45deg, rgba(255,255,255,.10) 0 8px, transparent 8px 16px)";
+        elemento.style.cursor = "default";
+
+        const titulo = document.createElement("div");
+        titulo.className = "cita-bloque-title";
+        titulo.style.fontWeight = "600";
+        titulo.textContent = `🔒 ${safeText(bloqueo.titulo, "Bloqueo")}`;
+
+        const detalle = document.createElement("div");
+        detalle.className = "cita-bloque-detail";
+        detalle.style.fontSize = "11px";
+        detalle.style.opacity = "0.9";
+
+        const fin = new Date(inicioBloque.getTime() + duracion * 60000);
+        const hhmm = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+        detalle.textContent = `${hhmm(inicioBloque)} – ${hhmm(fin)} · Bloqueo recurrente`;
+
+        elemento.title = bloqueo.esExcepcion
+            ? "Bloqueo recurrente (horario especial para esta fecha). No es una cita."
+            : "Bloqueo recurrente del horario del negocio. No es una cita.";
+
+        elemento.appendChild(titulo);
+        elemento.appendChild(detalle);
+
+        // Evita que un clic sobre el bloqueo abra el modal de nueva cita del slot de abajo.
+        elemento.addEventListener("mousedown", (e) => e.stopPropagation());
+        elemento.addEventListener("click", (e) => e.stopPropagation());
+
+        col.appendChild(elemento);
     });
 }
 

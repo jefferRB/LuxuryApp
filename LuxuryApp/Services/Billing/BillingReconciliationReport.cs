@@ -105,6 +105,15 @@ namespace LuxuryApp.Services.Billing
         /// <summary>Add-ons de WhatsApp ACTIVOS con el plan base cancelado/vencido (alerta, nunca se tocan).</summary>
         public int AddonsWithoutActiveBaseAlerted { get; set; }
 
+        /// <summary>Tenants a los que se les auditó el estado real de add-ons en TiloPay en este pase.</summary>
+        public int AddonProviderAudits { get; set; }
+
+        /// <summary>CRÍTICO: tenants con más de un suscriptor de add-on cobrable en TiloPay (doble cobro).</summary>
+        public int AddonProviderDoubleActiveDetected { get; set; }
+
+        /// <summary>Auditorías que no pudieron concluir (API caído o status desconocido): no se declara sano.</summary>
+        public int AddonProviderAuditsInconclusive { get; set; }
+
         /// <summary>
         /// Suscripciones base en gracia/morosa que se SANARON porque el proveedor está Active y
         /// renovado (el webhook success había quedado SinRelacion): incidente cerrado + reactivadas.
