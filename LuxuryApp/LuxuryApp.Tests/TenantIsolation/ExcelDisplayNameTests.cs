@@ -1,4 +1,4 @@
-using ClosedXML.Excel;
+﻿using ClosedXML.Excel;
 using LuxuryApp.Controllers.Finanzas;
 using LuxuryApp.Controllers.Funcionarios;
 using LuxuryApp.Models.Comprobantes;
@@ -250,6 +250,15 @@ namespace LuxuryApp.Tests.TenantIsolation
                 string displayName,
                 string setPasswordLink,
                 string businessName,
+                CancellationToken cancellationToken = default) =>
+                Task.CompletedTask;
+
+            public Task SendAccessInvitationEmailAsync(
+                string toEmail,
+                string displayName,
+                string setPasswordLink,
+                string businessName,
+                string accessDescription,
                 CancellationToken cancellationToken = default) =>
                 Task.CompletedTask;
         }

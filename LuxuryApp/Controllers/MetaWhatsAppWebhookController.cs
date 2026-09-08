@@ -19,15 +19,18 @@ namespace LuxuryApp.Controllers
     {
         private readonly IOptionsMonitor<MetaWhatsAppOptions> _options;
         private readonly ICalendarWhatsAppNotificationService _notificationService;
+        private readonly IWhatsAppInboundAutoReplyService _autoReplyService;
         private readonly ILogger<MetaWhatsAppWebhookController> _logger;
 
         public MetaWhatsAppWebhookController(
             IOptionsMonitor<MetaWhatsAppOptions> options,
             ICalendarWhatsAppNotificationService notificationService,
+            IWhatsAppInboundAutoReplyService autoReplyService,
             ILogger<MetaWhatsAppWebhookController> logger)
         {
             _options = options;
             _notificationService = notificationService;
+            _autoReplyService = autoReplyService;
             _logger = logger;
         }
 
@@ -82,8 +85,21 @@ namespace LuxuryApp.Controllers
             try
             {
                 using var document = JsonDocument.Parse(bodyBytes);
-                await _notificationService.ProcessInboundReplyAsync(document.RootElement, cancellationToken);
-                await _notificationService.ProcessStatusUpdateAsync(document.RootElement, cancellationToken);
+                var root = document.RootElement;
+
+                // Tres etapas independientes sobre el mismo payload: que una falle no debe dejar
+                // sin correr a las otras. Meta recibe 200 igual y no reintenta.
+                await RunStageAsync(
+                    "respuestas de citas",
+                    () => _notificationService.ProcessInboundReplyAsync(root, cancellationToken));
+
+                await RunStageAsync(
+                    "estados de mensajes",
+                    () => _notificationService.ProcessStatusUpdateAsync(root, cancellationToken));
+
+                await RunStageAsync(
+                    "respuesta automatica",
+                    () => _autoReplyService.ProcessInboundMessagesAsync(root, cancellationToken));
 
                 return Ok(new { accepted = true });
             }
@@ -96,6 +112,18 @@ namespace LuxuryApp.Controllers
             {
                 _logger.LogError(ex, "Error procesando webhook Meta WhatsApp.");
                 return Ok(new { accepted = true, processed = false });
+            }
+        }
+
+        private async Task RunStageAsync(string stage, Func<Task> action)
+        {
+            try
+            {
+                await action();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error procesando la etapa {Stage} del webhook Meta WhatsApp.", stage);
             }
         }
 

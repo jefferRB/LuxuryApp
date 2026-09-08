@@ -1,4 +1,4 @@
-﻿/* VARIABLES GLOBALES */
+/* VARIABLES GLOBALES */
 
 let currentDate = new Date();
 let currentView = "month";
@@ -1069,6 +1069,7 @@ function initApp() {
     initUIState();
     initEvents();
     initTodayAppointmentsNavigation();
+    bindPendingBookingActions();
 
     renderCalendar(currentDate);
     loadUpcomingAppointments();
@@ -2019,6 +2020,7 @@ async function buildDayGrid(container, date, funcionarioFilter = null) {
     let citas = [];
     let funcionarios = [];
     let bloqueosRecurrentes = [];
+    let solicitudesPendientes = [];
 
     try {
         [citas, funcionarios] = await Promise.all([
@@ -2046,6 +2048,20 @@ async function buildDayGrid(container, date, funcionarioFilter = null) {
             console.warn("No se pudieron cargar los bloqueos recurrentes", error);
         }
         bloqueosRecurrentes = [];
+    }
+
+    // Solicitudes de reserva online pendientes. Igual de tolerante: si el endpoint falla o el
+    // usuario no tiene permiso de reservas, la agenda sigue funcionando exactamente como antes.
+    try {
+        solicitudesPendientes = await apiFetchJson(
+            `/Calendar/GetSolicitudesPendientes?date=${encodeURIComponent(dateStr)}`,
+            { signal: request.signal }
+        );
+    } catch (error) {
+        if (error.name !== "AbortError") {
+            console.warn("No se pudieron cargar las solicitudes de reserva pendientes", error);
+        }
+        solicitudesPendientes = [];
     }
 
     if (!isLatestRequest("dayGrid", request.requestId)) {
@@ -2115,6 +2131,16 @@ async function buildDayGrid(container, date, funcionarioFilter = null) {
     // de cliente. No tienen resize ni abren el modal de cita.
     renderRecurringBlocks(
         bloqueosRecurrentes,
+        funcionariosContainer,
+        inicio,
+        intervalo,
+        altoSlot);
+
+    // ===== SOLICITUDES DE RESERVA PENDIENTES =====
+    // No son citas: son solicitudes que ya apartan el intervalo. Se pintan antes que las citas
+    // para que una cita real siempre quede visualmente por encima.
+    renderPendingBookings(
+        solicitudesPendientes,
         funcionariosContainer,
         inicio,
         intervalo,
@@ -2319,6 +2345,213 @@ function renderRecurringBlocks(bloqueos, funcionariosContainer, horaInicioGrid, 
 
         col.appendChild(elemento);
     });
+}
+
+// Pinta las solicitudes de reserva online PENDIENTES del día. No son citas y no se convierten
+// en una: representan un espacio apartado mientras el negocio decide. Fondo gris claro con texto
+// oscuro y una etiqueta "Pendiente", para que no dependan solo del color.
+function renderPendingBookings(solicitudes, funcionariosContainer, horaInicioGrid, intervalo, altoSlot) {
+
+    if (!Array.isArray(solicitudes) || solicitudes.length === 0) return;
+
+    solicitudes.forEach(solicitud => {
+
+        const inicioSolicitud = parseLocalDateTime(solicitud.inicio);
+        if (!inicioSolicitud) return;
+
+        const minutosDesdeInicio =
+            (inicioSolicitud.getHours() * 60 + inicioSolicitud.getMinutes()) - (horaInicioGrid * 60);
+
+        if (minutosDesdeInicio < 0) return;
+
+        const duracion = solicitud.duracionMinutos || 30;
+        const top = (minutosDesdeInicio / intervalo) * altoSlot;
+        const altura = (duracion / intervalo) * altoSlot;
+
+        const col = funcionariosContainer.querySelector(
+            `.funcionario-column[data-id="${solicitud.funcionarioId}"]`
+        );
+
+        if (!col) return;
+
+        const elemento = document.createElement("div");
+        elemento.className = "cita-bloque solicitud-pendiente";
+        elemento.dataset.solicitudId = String(solicitud.id ?? "");
+        elemento.dataset.origen = "SOLICITUD_PENDIENTE";
+        elemento.style.top = `${top}px`;
+        elemento.style.height = `${altura}px`;
+        elemento.setAttribute("role", "button");
+        elemento.setAttribute("tabindex", "0");
+
+        const fin = new Date(inicioSolicitud.getTime() + duracion * 60000);
+        const hhmm = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+        const rango = `${hhmm(inicioSolicitud)} – ${hhmm(fin)}`;
+
+        const time = document.createElement("div");
+        time.className = "cita-bloque-time";
+        time.textContent = rango;
+
+        const titulo = document.createElement("div");
+        titulo.className = "cita-bloque-title";
+        titulo.textContent = safeText(solicitud.nombreCliente, "Solicitud online");
+
+        const detalle = document.createElement("div");
+        detalle.className = "cita-bloque-detail";
+        detalle.textContent = safeText(solicitud.servicioNombre, "Servicio");
+
+        const badge = document.createElement("span");
+        badge.className = "solicitud-pendiente-badge";
+        badge.textContent = "Pendiente";
+
+        elemento.appendChild(time);
+        elemento.appendChild(titulo);
+        elemento.appendChild(detalle);
+        elemento.appendChild(badge);
+
+        // Altura corta: se recorta el detalle antes que el estado, que es lo importante.
+        if (altura < 42) elemento.classList.add("pendiente-xs");
+        else if (altura < 66) elemento.classList.add("pendiente-sm");
+
+        elemento.title = `Solicitud de reserva online pendiente · ${rango}`;
+
+        const abrir = (e) => {
+            e.stopPropagation();
+            abrirModalSolicitudPendiente(solicitud);
+        };
+
+        elemento.addEventListener("mousedown", (e) => e.stopPropagation());
+        elemento.addEventListener("click", abrir);
+        elemento.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                abrir(e);
+            }
+        });
+
+        col.appendChild(elemento);
+    });
+}
+
+// Detalle de una solicitud pendiente con las acciones Rechazar / Confirmar. Ambas terminan en el
+// MISMO servicio de aplicación que usa la pantalla "Solicitudes de reserva".
+function abrirModalSolicitudPendiente(solicitud) {
+
+    const modalEl = document.getElementById("pendingBookingModal");
+    if (!modalEl || !window.bootstrap) return;
+
+    const idInput = document.getElementById("pendingBookingId");
+    if (idInput) idInput.value = String(solicitud.id ?? "");
+
+    const motivo = document.getElementById("pendingBookingMotivo");
+    if (motivo) motivo.value = "";
+
+    const detalle = document.getElementById("pendingBookingDetail");
+    if (detalle) {
+        clearElement(detalle);
+
+        const inicio = parseLocalDateTime(solicitud.inicio);
+        const duracion = solicitud.duracionMinutos || 30;
+        const fin = inicio ? new Date(inicio.getTime() + duracion * 60000) : null;
+        const hhmm = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+
+        const filas = [
+            ["bi-person", "Cliente", safeText(solicitud.nombreCliente, "Sin nombre")],
+            ["bi-telephone", "Teléfono", safeText(solicitud.telefonoCliente, "—")],
+            ["bi-scissors", "Servicio", `${safeText(solicitud.servicioNombre, "Servicio")} · ${duracion} min`],
+            ["bi-clock", "Horario", inicio && fin ? `${hhmm(inicio)} – ${hhmm(fin)}` : "—"],
+            [
+                "bi-person-badge",
+                "Profesional",
+                solicitud.solicitoCualquierFuncionario
+                    ? `${safeText(solicitud.funcionarioNombre, "—")} (el cliente pidió cualquiera)`
+                    : safeText(solicitud.funcionarioNombre, "—")
+            ]
+        ];
+
+        if (safeText(solicitud.notasCliente)) {
+            filas.push(["bi-chat-left-text", "Notas", solicitud.notasCliente]);
+        }
+
+        filas.forEach(([icono, etiqueta, valor]) => {
+            const dt = document.createElement("dt");
+            dt.innerHTML = `<i class="bi ${icono}"></i> ${escapeHtml(etiqueta)}`;
+            const dd = document.createElement("dd");
+            dd.appendChild(createTextNode(valor, "—"));
+            detalle.appendChild(dt);
+            detalle.appendChild(dd);
+        });
+    }
+
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+}
+
+// Envía la acción y refresca. Un 409 significa que la solicitud ya se procesó en otra pestaña o
+// que el espacio dejó de estar libre: se avisa y se refresca para mostrar el estado real.
+async function ejecutarAccionSolicitudPendiente(url, body, boton) {
+
+    const modalEl = document.getElementById("pendingBookingModal");
+    const botones = modalEl ? modalEl.querySelectorAll("button") : [];
+    botones.forEach(b => { b.disabled = true; });
+
+    try {
+        const data = await apiFetchJson(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: body
+        });
+
+        if (modalEl && window.bootstrap) {
+            bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+        }
+
+        await refreshCalendarView();
+
+        if (data && data.message && data.whatsAppStatus && data.whatsAppStatus !== "sent") {
+            showCalendarToast("Reserva aprobada", data.message);
+        }
+    } catch (error) {
+        if (modalEl && window.bootstrap) {
+            bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+        }
+
+        showCalendarToast(
+            error.status === 409 ? "La solicitud cambió" : "No fue posible completar la acción",
+            error.message || "Actualizamos la agenda con el estado real."
+        );
+
+        await refreshCalendarView();
+    } finally {
+        botones.forEach(b => { b.disabled = false; });
+        if (boton) boton.disabled = false;
+    }
+}
+
+function bindPendingBookingActions() {
+
+    const confirmar = document.getElementById("btnConfirmarSolicitud");
+    const rechazar = document.getElementById("btnRechazarSolicitud");
+
+    if (confirmar && confirmar.dataset.bound !== "true") {
+        confirmar.dataset.bound = "true";
+        confirmar.addEventListener("click", function () {
+            const id = parsePositiveInt(document.getElementById("pendingBookingId")?.value);
+            if (!id) return;
+            ejecutarAccionSolicitudPendiente("/Calendar/ConfirmarSolicitud", `id=${id}`, this);
+        });
+    }
+
+    if (rechazar && rechazar.dataset.bound !== "true") {
+        rechazar.dataset.bound = "true";
+        rechazar.addEventListener("click", function () {
+            const id = parsePositiveInt(document.getElementById("pendingBookingId")?.value);
+            if (!id) return;
+            const motivo = document.getElementById("pendingBookingMotivo")?.value || "";
+            ejecutarAccionSolicitudPendiente(
+                "/Calendar/RechazarSolicitud",
+                `id=${id}&motivo=${encodeURIComponent(motivo)}`,
+                this);
+        });
+    }
 }
 
 function bindCalendarSlotDelegation(funcionariosContainer, date, intervalo, altoSlot) {
@@ -3078,6 +3311,13 @@ async function abrirModalCancelarCita(citaId) {
         summaryEl.innerHTML = '<div style="color:var(--private-muted-text);font-size:.84rem;padding:.5rem 0">Cargando…</div>';
     }
 
+    // Precargado con el motivo más frecuente; el usuario puede reemplazarlo antes de cancelar.
+    const motivoInput = document.getElementById("cancelCitaMotivo");
+    if (motivoInput) motivoInput.value = MOTIVO_CANCELACION_POR_DEFECTO;
+
+    const noticeEl = document.getElementById("cancelCitaNotice");
+    if (noticeEl) noticeEl.classList.add("d-none");
+
     const btn = document.getElementById("btnConfirmarCancelarCita");
     if (btn) {
         btn.disabled = false;
@@ -3099,6 +3339,12 @@ async function abrirModalCancelarCita(citaId) {
 
         const titleEl = document.getElementById("cancelCitaModalTitle");
         const descEl = document.getElementById("cancelCitaDesc");
+        // Un descanso no tiene cliente al que avisarle: el motivo solo aplica a citas.
+        const motivoWrap = document.getElementById("cancelCitaMotivoWrap");
+        if (motivoWrap) motivoWrap.classList.toggle("d-none", esDescanso);
+
+        // El servidor ya decidió si el cliente recibirá el aviso: acá solo se muestra.
+        actualizarAvisoCancelacion(cita, esDescanso);
         if (titleEl) titleEl.textContent = esDescanso ? "Eliminar descanso" : "Cancelar cita";
         if (descEl) descEl.textContent = esDescanso
             ? "¿Seguro que deseas eliminar este bloque de descanso?"
@@ -3126,6 +3372,33 @@ async function abrirModalCancelarCita(citaId) {
     }
 }
 
+const MOTIVO_CANCELACION_POR_DEFECTO = "Colaborador no disponible";
+
+// Pinta el aviso del modal con lo que devolvió el servidor. Sin lógica de negocio acá: la regla
+// de "¿se le avisa al cliente?" vive en el backend y esta función solo la muestra.
+function actualizarAvisoCancelacion(cita, esDescanso) {
+    const noticeEl = document.getElementById("cancelCitaNotice");
+    if (!noticeEl) return;
+
+    const mensaje = esDescanso ? "" : safeText(cita.cancelacionWhatsAppMensaje, "");
+    if (!mensaje) {
+        noticeEl.classList.add("d-none");
+        return;
+    }
+
+    const notifica = cita.cancelacionNotificaWhatsApp === true;
+    noticeEl.classList.remove("d-none");
+    noticeEl.classList.toggle("cal-cancel-notice-manual", !notifica);
+
+    const iconEl = document.getElementById("cancelCitaNoticeIcon");
+    if (iconEl) {
+        iconEl.className = notifica ? "bi bi-whatsapp" : "bi bi-telephone-fill";
+    }
+
+    const textEl = document.getElementById("cancelCitaNoticeText");
+    if (textEl) textEl.textContent = mensaje;
+}
+
 async function confirmarCancelarCita() {
     const citaId = parsePositiveInt(document.getElementById("cancelCitaId")?.value);
     if (!citaId) return;
@@ -3133,8 +3406,21 @@ async function confirmarCancelarCita() {
     const btn = document.getElementById("btnConfirmarCancelarCita");
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Cancelando…'; }
 
+    const motivo = document.getElementById("cancelCitaMotivo")?.value || "";
+
     try {
-        await apiFetchJson(`/Calendar/Delete/${citaId}`, { method: "DELETE" });
+        // El motivo viaja en el cuerpo (no en la URL) para no dejar texto libre del negocio
+        // en los logs de acceso del servidor web.
+        const resultado = await apiFetchJson(`/Calendar/Delete/${citaId}`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: `motivo=${encodeURIComponent(motivo)}`
+        });
+
+        // Sin autorización de WhatsApp el negocio tiene que contactar al cliente a mano.
+        if (resultado && resultado.whatsAppNotificado === false && resultado.whatsAppAviso) {
+            showCalendarToast("Cita cancelada", resultado.whatsAppAviso);
+        }
 
         hideCalendarModal("cancelCitaModal");
         hideCalendarModal("editCitaModal");

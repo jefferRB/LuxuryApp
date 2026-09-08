@@ -1,4 +1,4 @@
-using LuxuryApp.Models.Calendar;
+﻿using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Identity;
@@ -49,12 +49,13 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal("Abril", report.MesNombre);
             Assert.True(report.TieneActividad);
 
-            // Finanzas: mismos números del Dashboard Financiero (IVA incluido: base = total / 1.13).
+            // Finanzas: mismos números del Dashboard Financiero, que ahora usa el motor único.
+            // El IVA se calcula por línea de cobro y luego se suma, no dividiendo el total del mes.
             Assert.Equal(400m, report.Ingresos);
             Assert.Equal(50m, report.Egresos);
-            Assert.Equal(353.98m, report.TotalSinImpuestos);
-            Assert.Equal(46.02m, report.Impuestos);
-            Assert.Equal(303.98m, report.GananciaReal);
+            Assert.Equal(353.99m, report.TotalSinImpuestos);
+            Assert.Equal(46.01m, report.Impuestos);
+            Assert.Equal(303.99m, report.GananciaReal);
             Assert.Equal(76.00m, report.MargenGanancia);
             Assert.Equal(200m, report.ServiciosGeneradosMonto);
             Assert.Equal(200m, report.ProductosGeneradosMonto);

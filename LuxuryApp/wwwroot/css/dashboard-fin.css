@@ -1,4 +1,4 @@
-/* ==========================================================
+﻿/* ==========================================================
    dashboard-fin.css — Scoped styles for Dashboard Financiero
    Only affects .dfin-* classes. Does NOT touch other modules.
    Uses CSS variables defined in private-layout.css.
@@ -6,7 +6,7 @@
 
 /* Chart legend dot colors — set by JS from chart palette */
 .dashboard-wrapper {
-    --dfin-c1: #2563eb;
+    --dfin-c1: var(--private-accent);
     --dfin-c2: #16a34a;
     --dfin-c3: #d97706;
 }
@@ -32,7 +32,7 @@
     font-weight: 700;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: var(--private-chart-accent, #2563eb);
+    color: var(--private-chart-accent, var(--private-accent));
 }
 
 .dfin-title {
@@ -96,7 +96,7 @@
 
 .dfin-select:focus {
     outline: none;
-    border-color: rgba(96, 165, 250, 0.55);
+    border-color: rgba(var(--private-accent-soft-rgb), 0.55);
     box-shadow: 0 0 0 0.18rem var(--private-focus-ring, rgba(37, 140, 251, 0.28));
 }
 
@@ -109,8 +109,8 @@
     border-radius: 1.15rem;
     border: 1px solid var(--private-surface-border, rgba(15, 23, 42, 0.1));
     background: linear-gradient(135deg,
-        rgba(37, 99, 235, 0.09) 0%,
-        rgba(124, 58, 237, 0.07) 50%,
+        rgba(var(--private-accent-rgb), 0.09) 0%,
+        rgba(var(--private-accent-alt-rgb), 0.07) 50%,
         rgba(6, 182, 212, 0.06) 100%);
     overflow: hidden;
 }
@@ -176,7 +176,7 @@
     background: rgba(220, 38, 38, 0.12);
 }
 
-.dfin-color-income   { color: var(--private-chart-accent,   #2563eb); }
+.dfin-color-income   { color: var(--private-chart-accent,   var(--private-accent)); }
 .dfin-color-expenses { color: var(--private-surface-text,  #111827); }
 .dfin-color-profit   { color: var(--private-chart-success, #16a34a); }
 .dfin-color-warning  { color: var(--private-chart-warning, #d97706); }
@@ -244,7 +244,7 @@
 }
 
 /* Icon gradient variants */
-.dfin-icon-blue    { background: linear-gradient(135deg, #2563eb, #0891b2); }
+.dfin-icon-blue    { background: linear-gradient(135deg, var(--private-accent), #0891b2); }
 .dfin-icon-yellow  { background: linear-gradient(135deg, #d97706, #f59e0b); }
 .dfin-icon-neutral { background: linear-gradient(135deg, #475569, #64748b); }
 .dfin-icon-green   { background: linear-gradient(135deg, #16a34a, #059669); }
@@ -254,7 +254,7 @@
     align-items: center;
     padding: 0.1rem 0.38rem;
     border-radius: 999px;
-    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    background: linear-gradient(135deg, var(--private-accent), var(--private-accent-alt));
     color: #fff;
     font-size: 0.58rem;
     font-weight: 700;
@@ -320,7 +320,7 @@
 
 .dfin-legend-name { color: var(--private-surface-text, #111827); font-weight: 500; font-size: 0.83rem; }
 .dfin-legend-amt  { color: var(--private-muted-text, #64748b); text-align: right; font-size: 0.78rem; }
-.dfin-legend-pct  { min-width: 2.4rem; text-align: right; font-weight: 700; font-size: 0.78rem; color: var(--private-chart-accent, #2563eb); }
+.dfin-legend-pct  { min-width: 2.4rem; text-align: right; font-weight: 700; font-size: 0.78rem; color: var(--private-chart-accent, var(--private-accent)); }
 
 /* Bar chart container */
 .dfin-bar-wrap {
@@ -379,4 +379,121 @@
     .dfin-donut-wrap { flex: 0 0 180px; width: 180px; height: 180px; }
     .dfin-sum-value { font-size: 1.25rem; }
     .dfin-bar-wrap  { height: 200px; }
+}
+
+/* ── B2. REPARTO DE LA GANANCIA (participación de asociados) ─────────────
+   Bloque contextual que cuelga del resumen: NO agrega una cuarta columna a
+   "Ingresos − Egresos = Ganancia" para no romper esa lectura. Solo aparece
+   cuando hay al menos una participación vigente en el periodo.            */
+.dfin-alloc {
+    margin: -0.75rem 0 1.5rem;
+    border-radius: 1.15rem;
+    border: 1px solid var(--private-surface-border, rgba(15, 23, 42, 0.1));
+    background: var(--private-surface-bg, rgba(255, 255, 255, 0.55));
+    overflow: hidden;
+}
+
+.dfin-alloc-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.85rem 1.25rem 0;
+    color: var(--private-muted-text, #64748b);
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.dfin-alloc-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    align-items: stretch;
+}
+
+.dfin-alloc-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 0.25rem;
+    padding: 1rem 1.25rem 1.25rem;
+}
+
+.dfin-alloc-col + .dfin-alloc-col {
+    border-left: 1px solid var(--private-surface-border, rgba(15, 23, 42, 0.08));
+}
+
+.dfin-alloc-label {
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--private-muted-text, #64748b);
+}
+
+.dfin-alloc-value {
+    font-size: 1.35rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.dfin-alloc-sub {
+    font-size: 0.74rem;
+    color: var(--private-muted-text, #64748b);
+}
+
+.dfin-alloc-pct {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.12rem 0.45rem;
+    border-radius: 999px;
+    background: rgba(var(--private-accent-alt-rgb), 0.14);
+    color: var(--private-chart-accent, var(--private-accent-alt));
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+
+.dfin-alloc-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-left: auto;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    text-decoration: none;
+    color: var(--private-chart-accent, var(--private-accent));
+}
+
+.dfin-alloc-link:hover { text-decoration: underline; }
+
+@media (max-width: 767.98px) {
+    .dfin-alloc-grid { grid-template-columns: 1fr; }
+    .dfin-alloc-col + .dfin-alloc-col {
+        border-left: none;
+        border-top: 1px solid var(--private-surface-border, rgba(15, 23, 42, 0.08));
+    }
+    .dfin-alloc-value { font-size: 1.2rem; }
+}
+
+/* Aclaración de alcance: el Dashboard mide el mes calendario y el corte contractual
+   del asociado puede ser otro rango de fechas. */
+.dfin-alloc-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.45rem;
+    margin: 0;
+    padding: 0 1.25rem 1rem;
+    font-size: 0.74rem;
+    line-height: 1.5;
+    color: var(--private-muted-text, #64748b);
+}
+
+.dfin-alloc-note i {
+    color: var(--private-chart-accent, var(--private-accent));
+    margin-top: 0.1rem;
+    flex-shrink: 0;
 }

@@ -146,6 +146,7 @@ namespace LuxuryApp.Services.PublicPages
                 nameof(EditTenantPublicPageViewModel.Description));
             page.LogoUrl = null;
             page.CoverImageUrl = null;
+            page.AccentColorHex = NormalizeAccentColor(input.AccentColorHex);
             page.Phone = _urlValidationService.NormalizePhone(
                 input.Phone,
                 30,
@@ -200,6 +201,23 @@ namespace LuxuryApp.Services.PublicPages
             await _context.SaveChangesAsync(cancellationToken);
         }
 
+        /// <summary>
+        /// Solo se persiste un #RRGGBB valido. Vacio se guarda como NULL (= negro por defecto);
+        /// cualquier otra cosa se rechaza en vez de llegar a la hoja de estilos publica.
+        /// </summary>
+        private static string? NormalizeAccentColor(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            return PublicBrandTheme.Normalize(value)
+                ?? throw new TenantPublicPageValidationException(
+                    "El color principal debe tener el formato #RRGGBB.",
+                    nameof(EditTenantPublicPageViewModel.AccentColorHex));
+        }
+
         public async Task<bool> CanUsePublicLandingPageAsync(
             Guid tenantId,
             CancellationToken cancellationToken = default)
@@ -234,6 +252,7 @@ namespace LuxuryApp.Services.PublicPages
                 HeroSubtitle = page.HeroSubtitle,
                 HeroEyebrow = page.HeroEyebrow,
                 Description = page.Description,
+                AccentColorHex = page.AccentColorHex,
                 Phone = page.Phone,
                 WhatsAppPhone = page.WhatsAppPhone,
                 Email = page.Email,

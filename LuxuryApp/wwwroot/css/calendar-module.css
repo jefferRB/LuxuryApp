@@ -43,8 +43,8 @@ html[data-luxury-surface-theme="glass"] .calendar-page-shell {
     gap: 0.45rem;
     padding: 0.3rem 0.85rem;
     border-radius: 999px;
-    border: 1px solid rgba(124, 58, 237, 0.3);
-    background: rgba(124, 58, 237, 0.1);
+    border: 1px solid rgba(var(--private-accent-alt-rgb), 0.3);
+    background: rgba(var(--private-accent-alt-rgb), 0.1);
     color: var(--private-chart-accent);
     font-size: 0.7rem;
     font-weight: 700;
@@ -115,7 +115,7 @@ html[data-luxury-surface-theme="glass"] .calendar-kpi-card {
     flex-shrink: 0;
 }
 
-.calendar-kpi-icon-violet { background: rgba(124, 58, 237, 0.14); border: 1px solid rgba(124, 58, 237, 0.28); color: #a78bfa; }
+.calendar-kpi-icon-violet { background: rgba(var(--private-accent-alt-rgb), 0.14); border: 1px solid rgba(var(--private-accent-alt-rgb), 0.28); color: var(--private-accent-alt-soft); }
 .calendar-kpi-icon-amber  { background: rgba(217, 119, 6, 0.14);  border: 1px solid rgba(217, 119, 6, 0.28);  color: var(--private-chart-warning); }
 .calendar-kpi-icon-green  { background: rgba(22, 163, 74, 0.14);  border: 1px solid rgba(22, 163, 74, 0.28);  color: var(--private-chart-success); }
 .calendar-kpi-icon-cyan   { background: rgba(8, 145, 178, 0.14);  border: 1px solid rgba(8, 145, 178, 0.28);  color: var(--private-chart-info); }
@@ -146,7 +146,7 @@ html[data-luxury-surface-theme="glass"] .calendar-kpi-card {
     margin-top: 0.1rem;
 }
 
-.calendar-kpi-value-violet { color: #a78bfa; }
+.calendar-kpi-value-violet { color: var(--private-accent-alt-soft); }
 .calendar-kpi-value-amber  { color: var(--private-chart-warning); }
 .calendar-kpi-value-green  { color: var(--private-chart-success); }
 
@@ -335,7 +335,7 @@ html[data-luxury-surface-theme="glass"] .whatsapp-thread-card {
     backdrop-filter: blur(8px);
 }
 
-.whatsapp-thread-card:hover { border-color: rgba(37, 99, 235, 0.4); }
+.whatsapp-thread-card:hover { border-color: rgba(var(--private-accent-rgb), 0.4); }
 
 .whatsapp-thread-top {
     display: flex;
@@ -354,7 +354,7 @@ html[data-luxury-surface-theme="glass"] .whatsapp-thread-card {
     font-size: 0.8rem;
     font-weight: 700;
     color: #fff;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    background: linear-gradient(135deg, var(--private-accent-indigo), var(--private-accent-alt-mid));
 }
 
 .whatsapp-thread-main { flex: 1; min-width: 0; }
@@ -404,7 +404,7 @@ html[data-luxury-surface-theme="glass"] .whatsapp-thread-card {
 }
 
 .status-badge-confirmed { background: rgba(22, 163, 74, 0.14);  border-color: rgba(22, 163, 74, 0.32);  color: var(--private-chart-success); }
-.status-badge-sent      { background: rgba(37, 99, 235, 0.14);  border-color: rgba(37, 99, 235, 0.32);  color: var(--private-chart-accent); }
+.status-badge-sent      { background: rgba(var(--private-accent-rgb), 0.14);  border-color: rgba(var(--private-accent-rgb), 0.32);  color: var(--private-chart-accent); }
 .status-badge-reminder  { background: rgba(8, 145, 178, 0.14);  border-color: rgba(8, 145, 178, 0.32);  color: var(--private-chart-info); }
 .status-badge-pending   { background: rgba(217, 119, 6, 0.14);  border-color: rgba(217, 119, 6, 0.32);  color: var(--private-chart-warning); }
 .status-badge-failed    { background: rgba(220, 38, 38, 0.14);  border-color: rgba(220, 38, 38, 0.32);  color: var(--private-chart-danger); }
@@ -428,10 +428,10 @@ html[data-luxury-surface-theme="glass"] .whatsapp-thread-card {
     transition: background-color 0.15s, border-color 0.15s, transform 0.15s, opacity 0.15s;
 }
 
-.action-icon-button:hover { transform: translateY(-1px); border-color: rgba(96, 165, 250, 0.45); }
+.action-icon-button:hover { transform: translateY(-1px); border-color: rgba(var(--private-accent-soft-rgb), 0.45); }
 .action-icon-button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
-.action-icon-button-primary { background: rgba(37, 99, 235, 0.14); border-color: rgba(37, 99, 235, 0.32); color: var(--private-chart-accent); }
+.action-icon-button-primary { background: rgba(var(--private-accent-rgb), 0.14); border-color: rgba(var(--private-accent-rgb), 0.32); color: var(--private-chart-accent); }
 .action-icon-button-success { background: rgba(37, 211, 102, 0.14); border-color: rgba(37, 211, 102, 0.32); color: #25d366; }
 .action-icon-button-danger  { background: rgba(220, 38, 38, 0.12); border-color: rgba(220, 38, 38, 0.3); color: var(--private-chart-danger); }
 
@@ -622,9 +622,9 @@ html[data-luxury-surface-theme="glass"] .day-agenda-panel {
     width: 1.9rem;
     height: 1.9rem;
     border-radius: 8px;
-    background: rgba(124, 58, 237, 0.16);
-    border: 1px solid rgba(124, 58, 237, 0.3);
-    color: #a78bfa;
+    background: rgba(var(--private-accent-alt-rgb), 0.16);
+    border: 1px solid rgba(var(--private-accent-alt-rgb), 0.3);
+    color: var(--private-accent-alt-soft);
     font-size: 1rem;
 }
 
@@ -636,9 +636,9 @@ html[data-luxury-surface-theme="glass"] .today-apt-mark {
 }
 
 .today-apt-empty-icon {
-    background: linear-gradient(135deg, rgba(124, 58, 237, 0.16), rgba(91, 124, 255, 0.16));
-    border-color: rgba(124, 58, 237, 0.24);
-    color: #a78bfa;
+    background: linear-gradient(135deg, rgba(var(--private-accent-alt-rgb), 0.16), rgba(91, 124, 255, 0.16));
+    border-color: rgba(var(--private-accent-alt-rgb), 0.24);
+    color: var(--private-accent-alt-soft);
 }
 
 /* Toolbar de filtros del panel derecho "Citas de hoy" */
@@ -899,7 +899,7 @@ html[data-luxury-surface-theme="glass"] .cal-modal-content {
 }
 
 .cal-modal-header {
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.07), rgba(139, 92, 246, 0.04));
+    background: linear-gradient(135deg, rgba(var(--private-accent-indigo-rgb), 0.07), rgba(var(--private-accent-alt-mid-rgb), 0.04));
     border-bottom: 1px solid var(--private-surface-border);
     padding: 1.15rem 1.4rem;
     align-items: center;
@@ -914,16 +914,16 @@ html[data-luxury-surface-theme="glass"] .cal-modal-content {
     width: 2.4rem;
     height: 2.4rem;
     border-radius: 11px;
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.18), rgba(139, 92, 246, 0.12));
-    border: 1px solid rgba(99, 102, 241, 0.28);
-    color: #a78bfa;
+    background: linear-gradient(135deg, rgba(var(--private-accent-indigo-rgb), 0.18), rgba(var(--private-accent-alt-mid-rgb), 0.12));
+    border: 1px solid rgba(var(--private-accent-indigo-rgb), 0.28);
+    color: var(--private-accent-alt-soft);
     font-size: 1rem;
 }
 
 .cal-modal-icon-edit {
-    background: linear-gradient(135deg, rgba(37, 99, 235, 0.18), rgba(99, 102, 241, 0.12));
-    border-color: rgba(37, 99, 235, 0.28);
-    color: var(--private-chart-accent, #60a5fa);
+    background: linear-gradient(135deg, rgba(var(--private-accent-rgb), 0.18), rgba(var(--private-accent-indigo-rgb), 0.12));
+    border-color: rgba(var(--private-accent-rgb), 0.28);
+    color: var(--private-chart-accent, var(--private-accent-soft));
 }
 
 .cal-modal-title {
@@ -961,7 +961,7 @@ html[data-luxury-surface-theme="glass"] .cal-modal-content {
     font-weight: 700;
     cursor: pointer;
     border: none;
-    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    background: linear-gradient(135deg, var(--private-accent-indigo-strong), var(--private-accent-alt));
     color: #fff;
     transition: opacity 0.15s, transform 0.1s;
 }
@@ -1018,7 +1018,7 @@ html[data-luxury-surface-theme="glass"] .cal-modal-content {
     font-weight: 700;
     cursor: pointer;
     border: none;
-    background: linear-gradient(135deg, #2563eb, #4f46e5);
+    background: linear-gradient(135deg, var(--private-accent), var(--private-accent-indigo-strong));
     color: #fff;
     transition: opacity 0.15s;
 }
@@ -1160,9 +1160,9 @@ html[data-luxury-surface-theme="glass"] .cal-cancel-summary {
     width: 1.85rem;
     height: 1.85rem;
     border-radius: 8px;
-    background: rgba(99, 102, 241, 0.11);
-    border: 1px solid rgba(99, 102, 241, 0.2);
-    color: #a78bfa;
+    background: rgba(var(--private-accent-indigo-rgb), 0.11);
+    border: 1px solid rgba(var(--private-accent-indigo-rgb), 0.2);
+    color: var(--private-accent-alt-soft);
     font-size: 0.82rem;
     flex-shrink: 0;
 }
@@ -1189,6 +1189,56 @@ html[data-luxury-surface-theme="glass"] .cal-cancel-summary {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.cal-cancel-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.7rem 0.85rem;
+    margin-bottom: 0.85rem;
+    border-radius: 10px;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    border: 1px solid rgba(34, 197, 94, 0.25);
+    background: rgba(34, 197, 94, 0.08);
+    color: var(--private-surface-text);
+}
+
+.cal-cancel-notice i {
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+    color: #22c55e;
+}
+
+.cal-cancel-notice.cal-cancel-notice-manual {
+    border-color: rgba(245, 158, 11, 0.28);
+    background: rgba(245, 158, 11, 0.09);
+}
+
+.cal-cancel-notice.cal-cancel-notice-manual i {
+    color: #f59e0b;
+}
+
+.cal-cancel-motivo {
+    margin-bottom: 0.85rem;
+}
+
+.cal-cancel-motivo .form-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--private-muted-text);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    margin-bottom: 0.35rem;
+}
+
+.cal-cancel-motivo-hint {
+    display: block;
+    margin-top: 0.3rem;
+    font-size: 0.74rem;
+    line-height: 1.4;
+    color: var(--private-muted-text);
 }
 
 .cal-cancel-warning-box {
@@ -1367,10 +1417,10 @@ html[data-luxury-surface-theme="glass"] .cal-day-modal .modal-content {
     gap: 0.15rem;
     height: 32px;
     padding: 0 0.7rem;
-    border: 1px solid var(--private-accent, #6366f1);
+    border: 1px solid var(--private-accent, var(--private-accent-indigo));
     border-radius: 8px;
     background: transparent;
-    color: var(--private-accent, #6366f1);
+    color: var(--private-accent, var(--private-accent-indigo));
     font-size: 0.78rem;
     font-weight: 600;
     cursor: pointer;
@@ -1378,7 +1428,7 @@ html[data-luxury-surface-theme="glass"] .cal-day-modal .modal-content {
 }
 
 .cal-day-nav-today:hover {
-    background: var(--private-accent, #6366f1);
+    background: var(--private-accent, var(--private-accent-indigo));
     color: #fff;
 }
 
@@ -1722,4 +1772,112 @@ html[data-luxury-surface-theme="glass"] .cal-toast--error {
     .calendar-day strong      { font-size: 0.68rem; }
     .calendar-day-name        { font-size: 0.5rem; }
     .calendar-header h4       { font-size: 0.82rem; }
+}
+
+/* ── SOLICITUD DE RESERVA ONLINE PENDIENTE ───────────────────────────
+   Bloque de agenda que NO es una cita: representa una solicitud que ya
+   apartó el intervalo. Gris claro con texto oscuro (contraste AA sobre
+   #e8eaee) y etiqueta textual "Pendiente", para que el estado no dependa
+   únicamente del color. Mantiene la geometría de .cita-bloque. */
+.cita-bloque.solicitud-pendiente {
+    background: #e8eaee;
+    background-image: repeating-linear-gradient(45deg, rgba(15, 23, 42, 0.045) 0 9px, transparent 9px 18px);
+    border: 2px dashed #9aa2b1;
+    color: #1f2937;
+    box-shadow: 0 4px 10px rgba(15, 23, 42, 0.14);
+    padding-bottom: 22px;
+}
+
+.cita-bloque.solicitud-pendiente:hover {
+    transform: none;
+    border-color: #6b7280;
+    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.22);
+}
+
+.cita-bloque.solicitud-pendiente:focus-visible {
+    outline: 2px solid #1f2937;
+    outline-offset: 2px;
+}
+
+.cita-bloque.solicitud-pendiente .cita-bloque-time {
+    color: #374151;
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 1;
+}
+
+.cita-bloque.solicitud-pendiente .cita-bloque-title {
+    color: #111827;
+    font-weight: 700;
+}
+
+.cita-bloque.solicitud-pendiente .cita-bloque-detail {
+    color: #4b5563;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.solicitud-pendiente-badge {
+    position: absolute;
+    right: 6px;
+    bottom: 5px;
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: #4b5563;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    line-height: 1.5;
+}
+
+/* Bloques cortos (servicios de 15/30 min): se recorta el detalle antes que el estado. */
+.cita-bloque.solicitud-pendiente.pendiente-sm .cita-bloque-detail { display: none; }
+
+.cita-bloque.solicitud-pendiente.pendiente-xs .cita-bloque-detail,
+.cita-bloque.solicitud-pendiente.pendiente-xs .cita-bloque-time { display: none; }
+
+.cita-bloque.solicitud-pendiente.pendiente-xs {
+    padding: 3px 6px 18px;
+    font-size: 12px;
+}
+
+.cita-bloque.solicitud-pendiente.pendiente-xs .solicitud-pendiente-badge {
+    bottom: 3px;
+    padding: 0 6px;
+    font-size: 9px;
+}
+
+/* ── MODAL DE SOLICITUD PENDIENTE ───────────────────────────────────── */
+.cal-pending-modal-icon {
+    background: rgba(107, 114, 128, 0.18);
+    color: #d1d5db;
+}
+
+.cal-pending-detail {
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+    gap: 0.4rem 0.85rem;
+    margin: 0;
+}
+
+.cal-pending-detail dt {
+    font-weight: 600;
+    opacity: 0.8;
+    white-space: nowrap;
+}
+
+.cal-pending-detail dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.cal-pending-motivo { margin-top: 1rem; }
+
+@media (max-width: 576px) {
+    .cal-pending-detail { grid-template-columns: 1fr; gap: 0.15rem; }
+    .cal-pending-detail dd { margin-bottom: 0.5rem; }
 }

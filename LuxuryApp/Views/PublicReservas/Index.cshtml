@@ -105,6 +105,20 @@
                 <p class="pb-assign-note" id="pbAssignNote" hidden>Te asignaremos un profesional disponible para este servicio.</p>
             }
 
+            @* Atajo a los pasos 3 y 4: no es un paso nuevo, solo evita que el cliente tenga que
+               adivinar fechas a mano. Alimenta el mismo flujo, no lo reemplaza.
+
+               Esta sección es UNA sola y se MUEVE según el estado: mientras no hay fecha vive acá,
+               debajo del selector; en cuanto hay fecha pasa a ser el último hijo del paso de hora,
+               para que las horas del día elegido siempre manden. Ver colocarNext(). *@
+            <section id="pbNextStep" hidden>
+                <div class="pb-next pb-next-standalone">
+                    <p class="pb-next-title" id="pbNextTitle">Próximos espacios disponibles</p>
+                    <div id="pbNextList" class="pb-next-list" role="group" aria-labelledby="pbNextTitle"></div>
+                    <p class="pb-next-hint" id="pbNextHint" hidden></p>
+                </div>
+            </section>
+
             <!-- Paso 3: Fecha -->
             <section class="pb-step" id="pbFechaStep" hidden>
                 <label class="pb-label" for="pbFecha"><span class="pb-num">@(pasoFuncionario ? 3 : 2)</span> Elegí la fecha</label>
@@ -122,11 +136,6 @@
                     Ver con cualquier profesional disponible
                 </button>
 
-                <!-- Próximos espacios disponibles -->
-                <div id="pbNext" class="pb-next" hidden>
-                    <p class="pb-next-title">Próximos espacios disponibles</p>
-                    <div id="pbNextList" class="pb-next-list"></div>
-                </div>
             </section>
 
             <!-- Paso 5: Datos -->
@@ -236,6 +245,7 @@
             const submissionToken = @Json.Serialize(Model.SubmissionToken);
             const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
             const dispUrl = `/reservar/${slug}/disponibilidad`;
+            const proximosUrl = `/reservar/${slug}/proximos`;
             const submitUrl = `/reservar/${slug}/solicitar`;
 
             const $card = document.getElementById('pbCard');
@@ -250,8 +260,10 @@
             const $horarios = document.getElementById('pbHorarios');
             const $horariosMsg = document.getElementById('pbHorariosMsg');
             const $verCualquiera = document.getElementById('pbVerCualquiera');
-            const $next = document.getElementById('pbNext');
+            const $next = document.getElementById('pbNextStep');
+            const $nextTitle = document.getElementById('pbNextTitle');
             const $nextList = document.getElementById('pbNextList');
+            const $nextHint = document.getElementById('pbNextHint');
             const $formWrap = document.getElementById('pbFormWrap');
             const $error = document.getElementById('pbError');
             const $enviar = document.getElementById('pbEnviar');
@@ -263,8 +275,20 @@
                 fecha: null, hora: null, horaLabel: null
             };
             let enviando = false;
-            let reqId = 0;
             let pendingHora = null;
+
+            // Secuencia ÚNICA para todas las consultas de disponibilidad (horas del día y próximos
+            // espacios). Una respuesta vieja nunca puede pisar un estado más nuevo, y la consulta
+            // anterior se aborta apenas cambia el servicio, el profesional o la fecha.
+            let reqId = 0;
+            let inflight = null;
+
+            function nuevaConsulta() {
+                if (inflight) { inflight.abort(); }
+                inflight = new AbortController();
+                return { id: ++reqId, signal: inflight.signal };
+            }
+            function vigente(id) { return id === reqId; }
 
             function setMsg(text) { $horariosMsg.textContent = text || ''; $horariosMsg.hidden = !text; }
             function showError(msg) { $error.textContent = msg || ''; $error.hidden = !msg; }
@@ -274,8 +298,166 @@
                 $horarios.innerHTML = '';
                 $formWrap.hidden = true;
                 $verCualquiera.hidden = true;
-                $next.hidden = true; $nextList.innerHTML = '';
                 showError('');
+            }
+
+            // ── Próximos espacios: ÚNICA sección, ÚNICO render, compartidos por las dos consultas ──
+
+            // Los tres estados posibles de la sección. Cada uno define su copy y DÓNDE se muestra;
+            // no hay más lugares donde se decida el título o el texto de ayuda.
+            const NEXT_MODOS = {
+                // Todavía no eligió fecha: el atajo va debajo del selector de fecha.
+                sinFecha: {
+                    titulo: 'Próximos espacios disponibles',
+                    hint: 'Elegí una fecha o seleccioná uno de los próximos horarios disponibles.',
+                    dentroDeHora: false
+                },
+                // Eligió fecha y ese día tiene horas: las horas mandan, esto son alternativas.
+                otras: {
+                    titulo: 'Otras opciones próximas',
+                    hint: '¿Ninguno te sirve? También podés elegir uno de estos próximos horarios.',
+                    dentroDeHora: true
+                },
+                // Eligió fecha y ese día no tiene nada: no son "otras", son las únicas.
+                sinEspacio: {
+                    titulo: 'Próximos espacios disponibles',
+                    hint: 'Seleccioná uno de estos horarios o probá con otra fecha.',
+                    dentroDeHora: true
+                }
+            };
+
+            // Mueve el MISMO nodo (con sus listeners, su contenido y su estado) al lugar que
+            // corresponde. No se clona ni se duplica markup: en el DOM siempre hay una sola
+            // sección de sugerencias. Es idempotente para no mover el nodo sin necesidad.
+            function colocarNext(dentroDeHora) {
+                if (dentroDeHora) {
+                    // Último hijo del paso de hora ⇒ siempre debajo de la cuadrícula y del mensaje.
+                    if ($next.parentNode !== $horaStep || $next.nextSibling !== null) {
+                        $horaStep.appendChild($next);
+                    }
+                    return;
+                }
+                // Justo después del selector de fecha y antes del paso de hora (que está oculto).
+                if ($next.parentNode !== $card || $next.nextSibling !== $horaStep) {
+                    $card.insertBefore($next, $horaStep);
+                }
+            }
+
+            function ocultarNext() {
+                $next.hidden = true;
+                $nextList.innerHTML = '';
+                $nextHint.hidden = true;
+            }
+
+            function nextCargando(modo) {
+                colocarNext(modo.dentroDeHora);
+                $nextTitle.textContent = 'Buscando próximos espacios…';
+                $nextList.innerHTML = '';
+                // Tantos huecos como sugerencias devuelve el backend como máximo: así la altura
+                // que se reserva es la misma que ocupará el resultado y la página no salta.
+                for (let i = 0; i < 5; i++) {
+                    const ph = document.createElement('span');
+                    ph.className = 'pb-next-skeleton';
+                    $nextList.appendChild(ph);
+                }
+                $nextHint.hidden = true;
+                $next.hidden = false;
+            }
+
+            function renderNext(slots, modo) {
+                if (!slots || slots.length === 0) { ocultarNext(); return; }
+
+                colocarNext(modo.dentroDeHora);
+                $nextTitle.textContent = modo.titulo;
+                $nextList.innerHTML = '';
+
+                slots.forEach(slot => {
+                    // textContent en todo lo que viene del servidor: el nombre del profesional lo
+                    // escribe el negocio y no puede terminar interpretándose como HTML.
+                    const quien = slot.funcionarioNombre ? ' · ' + slot.funcionarioNombre : '';
+
+                    const fecha = document.createElement('span');
+                    fecha.className = 'pb-next-fecha';
+                    fecha.textContent = slot.fechaLabel;
+
+                    const hora = document.createElement('span');
+                    hora.className = 'pb-next-hora';
+                    hora.textContent = slot.horaLabel + quien;
+
+                    const item = document.createElement('button');
+                    item.type = 'button';
+                    item.className = 'pb-next-item';
+                    item.setAttribute('aria-label', `Elegir ${slot.fechaLabel} a las ${slot.horaLabel}${quien}`);
+                    item.appendChild(fecha);
+                    item.appendChild(hora);
+                    item.addEventListener('click', () => elegirSugerencia(slot));
+                    $nextList.appendChild(item);
+                });
+
+                $nextHint.textContent = modo.hint;
+                $nextHint.hidden = false;
+                $next.hidden = false;
+            }
+
+            function renderNextVacio(modo, mensaje) {
+                colocarNext(modo.dentroDeHora);
+                $nextTitle.textContent = modo.titulo;
+                $nextList.innerHTML = '';
+                const p = document.createElement('p');
+                p.className = 'pb-msg';
+                p.textContent = mensaje;
+                $nextList.appendChild(p);
+                $nextHint.hidden = true;
+                $next.hidden = false;
+            }
+
+            // Dispatcher: decide qué consulta hace falta. Con fecha elegida las sugerencias ya
+            // viajan dentro de la respuesta de disponibilidad, así que nunca se piden dos veces.
+            function refrescar() {
+                if (state.fecha) { maybeLoad(); return; }
+
+                $horaStep.hidden = true;
+                cargarProximos();
+            }
+
+            // Servicio listo y, si el negocio deja elegir, profesional ya definido (concreto o
+            // "cualquiera"): recién ahí sabemos qué preguntar.
+            function puedeConsultarProximos() {
+                if (!state.servicioId) { return false; }
+                if (!permiteFuncionario) { return true; }
+                return state.anyProf || !!state.funcionarioId;
+            }
+
+            async function cargarProximos() {
+                if (!puedeConsultarProximos()) { ocultarNext(); return; }
+
+                nextCargando(NEXT_MODOS.sinFecha);
+                const { id, signal } = nuevaConsulta();
+
+                const params = new URLSearchParams({ servicioId: state.servicioId });
+                if (state.funcionarioId) { params.append('funcionarioId', state.funcionarioId); }
+
+                let data;
+                try {
+                    const resp = await fetch(`${proximosUrl}?${params.toString()}`, { signal });
+                    if (!vigente(id)) { return; }
+                    if (!resp.ok) { throw new Error(); }
+                    data = await resp.json();
+                } catch {
+                    // Que falle la sugerencia NO puede bloquear el formulario: el selector manual
+                    // de fecha sigue disponible y el flujo normal continúa.
+                    if (vigente(id)) { ocultarNext(); }
+                    return;
+                }
+                if (!vigente(id)) { return; }
+
+                if (data.nextAvailableSlots && data.nextAvailableSlots.length > 0) {
+                    renderNext(data.nextAvailableSlots, NEXT_MODOS.sinFecha);
+                } else {
+                    renderNextVacio(
+                        NEXT_MODOS.sinFecha,
+                        data.mensaje || 'No encontramos espacios disponibles próximamente. Probá eligiendo otra fecha.');
+                }
             }
 
             // ── Paso 1: selector visual buscable de servicios ──
@@ -354,7 +536,7 @@
                 }
 
                 $fechaStep.hidden = false;
-                maybeLoad();
+                refrescar();
             }
 
             // ── Paso 2: profesionales (filtrados por compatibilidad) ──
@@ -404,24 +586,27 @@
                     state.funcionarioNombre = card.dataset.nombre || null;
                 }
                 clearHoras();
-                maybeLoad();
+                refrescar();
             }
 
             // ── Paso 3: fecha ──
             $fecha.addEventListener('change', function () {
                 state.fecha = this.value || null;
                 clearHoras();
-                maybeLoad();
+                refrescar();
             });
 
             // Determina si ya se puede consultar disponibilidad.
             function maybeLoad() {
-                if (!state.servicioId) return;
+                if (!state.servicioId) { ocultarNext(); return; }
                 if (!state.fecha) { $horaStep.hidden = true; return; }
                 // Si el tenant NO permite "cualquiera" y se exige elegir profesional:
                 if (permiteFuncionario && !permiteCualquiera && !state.funcionarioId) {
                     $horaStep.hidden = false;
                     setMsg('Elegí un profesional para ver los horarios.');
+                    // Sin profesional no hay nada que sugerir: se retiran las sugerencias del
+                    // servicio anterior para no dejar horas que ya no corresponden.
+                    ocultarNext();
                     return;
                 }
                 $horaStep.hidden = false;
@@ -433,24 +618,29 @@
                 setMsg('Buscando horarios…');
                 $horarios.innerHTML = '';
                 $verCualquiera.hidden = true;
-                $next.hidden = true; $nextList.innerHTML = '';
-                const myReq = ++reqId;
+                // Con fecha elegida la sección ya vive dentro del paso de hora, así que el estado
+                // de carga aparece en su sitio definitivo y el resultado no la hace saltar.
+                nextCargando(NEXT_MODOS.otras);
+                const { id, signal } = nuevaConsulta();
 
                 const params = new URLSearchParams({ servicioId: state.servicioId, fecha: state.fecha });
                 if (state.funcionarioId) { params.append('funcionarioId', state.funcionarioId); }
 
                 let data;
                 try {
-                    const resp = await fetch(`${dispUrl}?${params.toString()}`);
-                    if (myReq !== reqId) return;
-                    if (!resp.ok) throw new Error();
+                    const resp = await fetch(`${dispUrl}?${params.toString()}`, { signal });
+                    if (!vigente(id)) { return; }
+                    if (!resp.ok) { throw new Error(); }
                     data = await resp.json();
                 } catch {
-                    if (myReq !== reqId) return;
+                    if (!vigente(id)) { return; }
                     setMsg('No pudimos cargar los horarios. Intentá de nuevo.');
+                    ocultarNext();
                     return;
                 }
-                if (myReq !== reqId) return;
+                if (!vigente(id)) { return; }
+
+                const sugerencias = data.nextAvailableSlots || [];
 
                 if (data.horas && data.horas.length > 0) {
                     setMsg('');
@@ -463,11 +653,23 @@
                         btn.addEventListener('click', () => seleccionarHora(btn, h));
                         $horarios.appendChild(btn);
                     });
-                    // Auto-selección al venir de una sugerencia.
+
+                    // El día elegido sí tiene espacio: las alternativas siguen a mano como "otras
+                    // opciones". El backend ya las buscó desde el día siguiente, así que no repiten
+                    // ninguna de las horas de arriba.
+                    renderNext(sugerencias, NEXT_MODOS.otras);
+
+                    // Auto-selección al venir de una sugerencia. Si ese espacio ya no está en la
+                    // lista, alguien lo tomó entre que se pintó y que se tocó: se avisa en vez de
+                    // dejar el paso en blanco. Mostrar un espacio nunca lo reserva.
                     if (pendingHora) {
                         const target = Array.from($horarios.querySelectorAll('.pb-hora'))
                             .find(b => b.textContent === formatHora(pendingHora));
-                        if (target) target.click();
+                        if (target) {
+                            target.click();
+                        } else {
+                            setMsg('Ese espacio se acaba de ocupar. Elegí otra hora de las disponibles.');
+                        }
                         pendingHora = null;
                     }
                     return;
@@ -475,29 +677,18 @@
 
                 // Sin horas: mensaje inteligente + sugerencias.
                 setMsg(data.mensaje || 'No hay espacios disponibles para ese día.');
+                pendingHora = null;
 
                 if (data.hasAvailabilityWithOtherEmployees && permiteCualquiera) {
                     $verCualquiera.hidden = false;
                 }
 
-                if (data.nextAvailableSlots && data.nextAvailableSlots.length > 0) {
-                    data.nextAvailableSlots.forEach(slot => {
-                        const item = document.createElement('button');
-                        item.type = 'button';
-                        item.className = 'pb-next-item';
-                        const quien = slot.funcionarioNombre ? ` · ${slot.funcionarioNombre}` : '';
-                        item.innerHTML = `<span class="pb-next-fecha">${slot.fechaLabel}</span>` +
-                            `<span class="pb-next-hora">${slot.horaLabel}${quien}</span>`;
-                        item.addEventListener('click', () => elegirSugerencia(slot));
-                        $nextList.appendChild(item);
-                    });
-                    $next.hidden = false;
+                if (sugerencias.length > 0) {
+                    renderNext(sugerencias, NEXT_MODOS.sinEspacio);
                 } else {
-                    const p = document.createElement('p');
-                    p.className = 'pb-msg';
-                    p.textContent = 'No encontramos próximos espacios dentro del rango permitido de reservas.';
-                    $nextList.appendChild(p);
-                    $next.hidden = false;
+                    renderNextVacio(
+                        NEXT_MODOS.sinEspacio,
+                        'No encontramos próximos espacios dentro del rango permitido de reservas.');
                 }
             }
 
@@ -509,13 +700,14 @@
                 }
                 state.funcionarioId = null; state.anyProf = true; state.funcionarioNombre = null;
                 clearHoras();
-                maybeLoad();
+                refrescar();
             });
 
             function elegirSugerencia(slot) {
                 // Ajusta fecha y, si aplica, profesional; luego recarga y auto-selecciona la hora.
                 state.fecha = slot.fecha;
                 $fecha.value = slot.fecha;
+                $fechaStep.hidden = false;
 
                 if (permiteFuncionario && slot.funcionarioId) {
                     const card = $profGrid && $profGrid.querySelector(`.pb-prof-card[data-id="${slot.funcionarioId}"]`);
@@ -532,6 +724,7 @@
 
                 pendingHora = slot.hora;
                 clearHoras();
+                $horaStep.hidden = false;
                 cargarHorarios();
                 $horaStep.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }

@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ProyectoIdentity.Datos;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Metadata.Profiles.Exif;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 
@@ -347,7 +348,7 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
-        public async Task UploadServiceAsset_VerticalPhoto_CoverFourFive_ProducesFourFive()
+        public async Task UploadServiceAsset_VerticalPhoto_Cover_ProducesThreeFourFrame()
         {
             var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant Vertical Servicio");
             using var _ = context;
@@ -355,15 +356,124 @@ namespace LuxuryApp.Tests.TenantIsolation
             var servicio = await SeedServiceAsync(context, "Servicio");
             var service = CreateUploadService(context, tenantProvider, new FakePublicImageStorageService());
 
-            // Foto vertical 9:16 tomada con celular.
+            // Foto vertical 9:16 tomada con celular: la tarjeta publica usa marco 3:4.
             var asset = await service.UploadServiceAssetAsync(
                 TenantPublicAssetType.ServiceMain,
                 servicio.Id,
                 CreateImageFile("vertical.png", 900, 1600),
                 "user",
-                crop: new PublicImageCropRequest { FitMode = "Cover", TargetAspectRatio = 4d / 5d });
+                crop: new PublicImageCropRequest { FitMode = "Cover", TargetAspectRatio = 3d / 4d });
 
-            AssertAspect(asset, 4d / 5d);
+            AssertAspect(asset, 3d / 4d);
+        }
+
+        [Fact]
+        public async Task UploadServiceAsset_TypicalPhonePortrait_NeedsNoCropAtAll()
+        {
+            var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant Foto Vertical Normal");
+            using var _ = context;
+            using var __ = connection;
+            var servicio = await SeedServiceAsync(context, "Servicio");
+            var service = CreateUploadService(context, tenantProvider, new FakePublicImageStorageService());
+
+            // Foto de iPhone en vertical (3:4 nativo): entra completa, sin recorte visible.
+            var asset = await service.UploadServiceAssetAsync(
+                TenantPublicAssetType.ServiceMain,
+                servicio.Id,
+                CreateJpegFile("iphone-vertical.jpg", 3024, 4032),
+                "user");
+
+            // Exactamente el marco del perfil: ni deformada ni recortada.
+            Assert.Equal(1080, asset.Width);
+            Assert.Equal(1440, asset.Height);
+        }
+
+        [Fact]
+        public async Task UploadServiceAsset_SmallImage_IsNotUpscaledToTheFrame()
+        {
+            var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant Servicio Chico");
+            using var _ = context;
+            using var __ = connection;
+            var servicio = await SeedServiceAsync(context, "Servicio");
+            var service = CreateUploadService(context, tenantProvider, new FakePublicImageStorageService());
+
+            var asset = await service.UploadServiceAssetAsync(
+                TenantPublicAssetType.ServiceMain,
+                servicio.Id,
+                CreateImageFile("chica.png", 300, 400),
+                "user");
+
+            AssertAspect(asset, 3d / 4d);
+            Assert.True(asset.Width <= 300, $"No se debe ampliar: {asset.Width}x{asset.Height}.");
+        }
+
+        [Fact]
+        public async Task UploadServiceAsset_BothModes_ProduceTheSameFrame()
+        {
+            var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant Servicio Modos");
+            using var _ = context;
+            using var __ = connection;
+            var recortado = await SeedServiceAsync(context, "Servicio recortado");
+            var conFondo = await SeedServiceAsync(context, "Servicio con fondo");
+            var service = CreateUploadService(context, tenantProvider, new FakePublicImageStorageService());
+
+            // Misma foto horizontal en los dos modos: cambia como se presenta, NO el marco.
+            var cover = await service.UploadServiceAssetAsync(
+                TenantPublicAssetType.ServiceMain,
+                recortado.Id,
+                CreateJpegFile("horizontal-a.jpg", 4032, 3024),
+                "user",
+                crop: new PublicImageCropRequest { FitMode = "Cover", TargetAspectRatio = 3d / 4d });
+
+            var padded = await service.UploadServiceAssetAsync(
+                TenantPublicAssetType.ServiceMain,
+                conFondo.Id,
+                CreateJpegFile("horizontal-b.jpg", 4032, 3024),
+                "user",
+                crop: new PublicImageCropRequest { FitMode = "Padded", TargetAspectRatio = 3d / 4d });
+
+            AssertAspect(cover, 3d / 4d);
+            AssertAspect(padded, 3d / 4d);
+            Assert.Equal(cover.Width, padded.Width);
+            Assert.Equal(cover.Height, padded.Height);
+        }
+
+        [Fact]
+        public async Task UploadServiceAsset_VerticalPhoto_Padded_KeepsWholePhotoInSquareFrame()
+        {
+            var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant Servicio Fondo");
+            using var _ = context;
+            using var __ = connection;
+            var servicio = await SeedServiceAsync(context, "Servicio");
+            var service = CreateUploadService(context, tenantProvider, new FakePublicImageStorageService());
+
+            var asset = await service.UploadServiceAssetAsync(
+                TenantPublicAssetType.ServiceMain,
+                servicio.Id,
+                CreateImageFile("vertical.png", 900, 1600),
+                "user",
+                crop: new PublicImageCropRequest { FitMode = "Padded", TargetAspectRatio = 3d / 4d });
+
+            AssertAspect(asset, 3d / 4d);
+        }
+
+        [Fact]
+        public async Task UploadServiceAsset_AspectNotOfferedByProfile_Throws()
+        {
+            var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant Servicio Aspecto");
+            using var _ = context;
+            using var __ = connection;
+            var servicio = await SeedServiceAsync(context, "Servicio");
+            var service = CreateUploadService(context, tenantProvider, new FakePublicImageStorageService());
+
+            // 16:9 no es una opcion del perfil de servicio: se rechaza para no romper el marco.
+            await Assert.ThrowsAsync<PublicImageUploadException>(() =>
+                service.UploadServiceAssetAsync(
+                    TenantPublicAssetType.ServiceMain,
+                    servicio.Id,
+                    CreateImageFile("ancha.png", 1600, 900),
+                    "user",
+                    crop: new PublicImageCropRequest { FitMode = "Cover", TargetAspectRatio = 16d / 9d }));
         }
 
         [Fact]
@@ -472,6 +582,120 @@ namespace LuxuryApp.Tests.TenantIsolation
                     crop: new PublicImageCropRequest { FitMode = "Padded", TargetAspectRatio = 10d }));
         }
 
+        [Fact]
+        public async Task UploadPublicPageAsset_LargePhonephoto_IsOptimizedInsteadOfRejected()
+        {
+            var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant Foto Grande");
+            using var _ = context;
+            using var __ = connection;
+            var service = CreateUploadService(context, tenantProvider, new FakePublicImageStorageService());
+
+            // 12 MP horizontales: lo que sale de cualquier celular actual.
+            var asset = await service.UploadPublicPageAssetAsync(
+                TenantPublicAssetType.Cover,
+                CreateJpegFile("portada-celular.jpg", 4000, 3000),
+                "user",
+                crop: new PublicImageCropRequest { FitMode = "Cover", TargetAspectRatio = 16d / 9d });
+
+            var options = new PublicImageOptions();
+            Assert.True(asset.Width <= options.CoverMaxWidth, $"Ancho {asset.Width} supera el perfil.");
+            Assert.True(asset.Height <= options.CoverMaxHeight, $"Alto {asset.Height} supera el perfil.");
+            Assert.True(asset.SizeBytes > 0);
+            AssertAspect(asset, 16d / 9d);
+        }
+
+        [Fact]
+        public async Task UploadPublicPageAsset_SmallImage_IsNotUpscaled()
+        {
+            var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant Sin Upscale");
+            using var _ = context;
+            using var __ = connection;
+            var service = CreateUploadService(context, tenantProvider, new FakePublicImageStorageService());
+
+            var asset = await service.UploadPublicPageAssetAsync(
+                TenantPublicAssetType.BusinessGallery,
+                CreateImageFile("chica.png", 240, 300),
+                "user",
+                crop: new PublicImageCropRequest { FitMode = "Original" });
+
+            Assert.Equal(240, asset.Width);
+            Assert.Equal(300, asset.Height);
+        }
+
+        [Fact]
+        public async Task UploadPublicPageAsset_ExifRotatedPhoto_IsNormalizedBeforeSaving()
+        {
+            var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant Orientacion");
+            using var _ = context;
+            using var __ = connection;
+            var service = CreateUploadService(context, tenantProvider, new FakePublicImageStorageService());
+
+            // Guardada como 80x40 pero con orientacion EXIF 6 (rotar 90): el navegador la muestra
+            // vertical, y el archivo almacenado debe quedar igual de vertical.
+            var asset = await service.UploadPublicPageAssetAsync(
+                TenantPublicAssetType.BusinessGallery,
+                CreateRotatedJpegFile("vertical-celular.jpg", 80, 40, orientation: 6),
+                "user",
+                crop: new PublicImageCropRequest { FitMode = "Original" });
+
+            Assert.True(
+                asset.Height > asset.Width,
+                $"Se esperaba una imagen vertical tras normalizar la orientacion, se obtuvo {asset.Width}x{asset.Height}.");
+        }
+
+        [Fact]
+        public async Task UploadPublicPageAsset_ExceedingDecodedPixelLimit_ThrowsFriendlyError()
+        {
+            var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant Limite Pixeles");
+            using var _ = context;
+            using var __ = connection;
+            var service = CreateUploadService(
+                context,
+                tenantProvider,
+                new FakePublicImageStorageService(),
+                new PublicImageOptions { MaxNonJpegDecodedPixels = 100 });
+
+            var error = await Assert.ThrowsAsync<PublicImageUploadException>(() =>
+                service.UploadPublicPageAssetAsync(
+                    TenantPublicAssetType.BusinessGallery,
+                    CreateImageFile("bomba.png", 64, 64),
+                    "user"));
+
+            Assert.Contains("resolucion", error.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public async Task UploadPublicPageAsset_CorruptFile_IsRejected()
+        {
+            var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant Archivo Danado");
+            using var _ = context;
+            using var __ = connection;
+            var service = CreateUploadService(context, tenantProvider, new FakePublicImageStorageService());
+
+            await Assert.ThrowsAsync<PublicImageUploadException>(() =>
+                service.UploadPublicPageAssetAsync(
+                    TenantPublicAssetType.BusinessGallery,
+                    CreateRawFile("texto.png", "image/png", "esto no es una imagen"),
+                    "user"));
+        }
+
+        [Fact]
+        public async Task UploadPublicPageAsset_HeicFile_ExplainsHowToConvertIt()
+        {
+            var (context, connection, tenantProvider) = await NewTenantContextAsync("Tenant HEIC");
+            using var _ = context;
+            using var __ = connection;
+            var service = CreateUploadService(context, tenantProvider, new FakePublicImageStorageService());
+
+            var error = await Assert.ThrowsAsync<PublicImageUploadException>(() =>
+                service.UploadPublicPageAssetAsync(
+                    TenantPublicAssetType.BusinessGallery,
+                    CreateRawFile("foto.heic", "image/heic", "cualquier contenido"),
+                    "user"));
+
+            Assert.Contains("HEIC", error.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
         private static void AssertAspect(TenantPublicAsset asset, double expected)
         {
             Assert.True(asset.Width > 0 && asset.Height > 0);
@@ -503,6 +727,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 storage,
                 new PublicAssetQuotaService(context, Options.Create(options)),
                 new NoOpUploadedFileSecurityScanner(),
+                new PublicImageProfileProvider(Options.Create(options)),
                 Options.Create(options),
                 NullLogger<PublicImageUploadService>.Instance);
         }
@@ -524,6 +749,52 @@ namespace LuxuryApp.Tests.TenantIsolation
             {
                 Headers = new HeaderDictionary(),
                 ContentType = "image/png"
+            };
+        }
+
+        private static IFormFile CreateJpegFile(string fileName, int width, int height)
+        {
+            var stream = new MemoryStream();
+            using (var image = new Image<Rgba32>(width, height))
+            {
+                image.Mutate(context => context.BackgroundColor(Color.Teal));
+                image.SaveAsJpeg(stream);
+            }
+
+            stream.Position = 0;
+            return new FormFile(stream, 0, stream.Length, "file", fileName)
+            {
+                Headers = new HeaderDictionary(),
+                ContentType = "image/jpeg"
+            };
+        }
+
+        private static IFormFile CreateRotatedJpegFile(string fileName, int width, int height, ushort orientation)
+        {
+            var stream = new MemoryStream();
+            using (var image = new Image<Rgba32>(width, height))
+            {
+                image.Mutate(context => context.BackgroundColor(Color.Orange));
+                image.Metadata.ExifProfile = new ExifProfile();
+                image.Metadata.ExifProfile.SetValue(ExifTag.Orientation, orientation);
+                image.SaveAsJpeg(stream);
+            }
+
+            stream.Position = 0;
+            return new FormFile(stream, 0, stream.Length, "file", fileName)
+            {
+                Headers = new HeaderDictionary(),
+                ContentType = "image/jpeg"
+            };
+        }
+
+        private static IFormFile CreateRawFile(string fileName, string contentType, string content)
+        {
+            var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(content));
+            return new FormFile(stream, 0, stream.Length, "file", fileName)
+            {
+                Headers = new HeaderDictionary(),
+                ContentType = contentType
             };
         }
 

@@ -99,6 +99,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new NoOpBookingSettingsService(),
                 new FixedBusinessDateTimeProvider(),
                 new HttpContextAccessor(),
+                new FakeTenantWhatsAppFeatureService { IsEnabled = true },
                 NullLogger<BookingRequestService>.Instance);
 
             var r1 = await service.ConfirmAsync(solicitud.Id, null, "admin");
@@ -246,7 +247,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 throw new NotImplementedException();
             public Task ResizeDurationAsync(int id, int duracionMinutos, CancellationToken cancellationToken = default) =>
                 throw new NotImplementedException();
-            public Task DeleteAsync(int id, CancellationToken cancellationToken = default) =>
+            public Task DeleteAsync(int id, string? motivoCancelacion = null, CancellationToken cancellationToken = default) =>
                 throw new NotImplementedException();
             public Task ProcessVisitsAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         }

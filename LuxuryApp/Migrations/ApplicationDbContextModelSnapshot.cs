@@ -22,6 +22,158 @@ namespace LuxuryApp.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("LuxuryApp.Models.Asociados.Associate", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Activo")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("AppUsuarioId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("NotasInternas")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("Puesto")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<string>("Telefono")
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AppUsuarioId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Associates_AppUsuarioId")
+                        .HasFilter("[AppUsuarioId] IS NOT NULL");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Activo")
+                        .HasDatabaseName("IX_Associates_TenantId_Activo");
+
+                    b.HasIndex("TenantId", "Email")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Associates_TenantId_Email")
+                        .HasFilter("[Email] IS NOT NULL");
+
+                    b.HasIndex("TenantId", "Nombre")
+                        .HasDatabaseName("IX_Associates_TenantId_Nombre");
+
+                    b.ToTable("Associates");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Asociados.AssociatePermission", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AssociateId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Permiso")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<bool>("Permitido")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssociateId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "AssociateId", "Permiso")
+                        .IsUnique()
+                        .HasDatabaseName("UX_AssociatePermissions_Associate_Permiso");
+
+                    b.ToTable("AssociatePermissions");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Asociados.AssociateTypeAssignment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AssociateId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Tipo")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssociateId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "AssociateId", "Tipo")
+                        .IsUnique()
+                        .HasDatabaseName("UX_AssociateTypes_Associate_Tipo");
+
+                    b.ToTable("AssociateTypes");
+                });
+
             modelBuilder.Entity("LuxuryApp.Models.Calendar.Cita", b =>
                 {
                     b.Property<int>("Id")
@@ -1473,6 +1625,9 @@ namespace LuxuryApp.Migrations
                         .HasMaxLength(450)
                         .HasColumnType("nvarchar(450)");
 
+                    b.Property<int?>("DiaCorte")
+                        .HasColumnType("int");
+
                     b.Property<DateOnly>("EffectiveFrom")
                         .HasColumnType("date");
 
@@ -1523,7 +1678,10 @@ namespace LuxuryApp.Migrations
                     b.HasIndex("TenantId", "Activo", "EffectiveFrom")
                         .HasDatabaseName("IX_InvestorAgreements_TenantId_Activo_EffectiveFrom");
 
-                    b.ToTable("InvestorAgreements");
+                    b.ToTable("InvestorAgreements", t =>
+                        {
+                            t.HasCheckConstraint("CK_InvestorAgreements_DiaCorte", "[DiaCorte] IS NULL OR ([DiaCorte] >= 1 AND [DiaCorte] <= 31)");
+                        });
                 });
 
             modelBuilder.Entity("LuxuryApp.Models.Inversionistas.InvestorDistributionPayment", b =>
@@ -1715,6 +1873,9 @@ namespace LuxuryApp.Migrations
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("datetime2");
 
+                    b.Property<int?>("DiaCorte")
+                        .HasColumnType("int");
+
                     b.Property<DateTime?>("EnviadoAtUtc")
                         .HasColumnType("datetime2");
 
@@ -1723,6 +1884,9 @@ namespace LuxuryApp.Migrations
 
                     b.Property<DateTime>("FechaCalculoUtc")
                         .HasColumnType("datetime2");
+
+                    b.Property<DateOnly>("FechaCorte")
+                        .HasColumnType("date");
 
                     b.Property<DateTime?>("FinalizadoAtUtc")
                         .HasColumnType("datetime2");
@@ -1961,6 +2125,9 @@ namespace LuxuryApp.Migrations
                         .HasColumnType("bit")
                         .HasDefaultValue(true);
 
+                    b.Property<int?>("AssociateId")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("datetime2");
 
@@ -1997,6 +2164,11 @@ namespace LuxuryApp.Migrations
                         .HasColumnType("nvarchar(450)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AssociateId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_TenantInvestors_AssociateId")
+                        .HasFilter("[AssociateId] IS NOT NULL");
 
                     b.HasIndex("TenantId");
 
@@ -2575,6 +2747,10 @@ namespace LuxuryApp.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("AccentColorHex")
+                        .HasMaxLength(7)
+                        .HasColumnType("nvarchar(7)");
+
                     b.Property<string>("Address")
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)");
@@ -2980,6 +3156,9 @@ namespace LuxuryApp.Migrations
                     b.Property<DateTime>("FechaHoraInicioSolicitada")
                         .HasColumnType("datetime2");
 
+                    b.Property<int?>("FuncionarioAsignadoId")
+                        .HasColumnType("int");
+
                     b.Property<int?>("FuncionarioId")
                         .HasColumnType("int");
 
@@ -3039,6 +3218,8 @@ namespace LuxuryApp.Migrations
                         .HasDatabaseName("IX_BookingRequests_ConvertedCitaId")
                         .HasFilter("[ConvertedCitaId] IS NOT NULL");
 
+                    b.HasIndex("FuncionarioAsignadoId");
+
                     b.HasIndex("FuncionarioId");
 
                     b.HasIndex("ServicioId");
@@ -3055,6 +3236,9 @@ namespace LuxuryApp.Migrations
 
                     b.HasIndex("TenantId", "TelefonoCliente", "Estado")
                         .HasDatabaseName("IX_BookingRequests_TenantId_Telefono_Estado");
+
+                    b.HasIndex("TenantId", "Estado", "FuncionarioAsignadoId", "FechaHoraInicioSolicitada")
+                        .HasDatabaseName("IX_BookingRequests_TenantId_Estado_Asignado_Fecha");
 
                     b.ToTable("BookingRequests");
                 });
@@ -4528,6 +4712,62 @@ namespace LuxuryApp.Migrations
                     b.ToTable("TenantWhatsAppSettings");
                 });
 
+            modelBuilder.Entity("LuxuryApp.Models.WhatsApp.WhatsAppInboundAutoReply", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("InboundMessageId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("MessageType")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<DateTime?>("ProcessedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ReceivedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ReplyMetaMessageId")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("SenderPhoneE164")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InboundMessageId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_WhatsAppInboundAutoReplies_InboundMessageId");
+
+                    b.HasIndex("ReceivedAtUtc")
+                        .HasDatabaseName("IX_WhatsAppInboundAutoReplies_ReceivedAtUtc");
+
+                    b.ToTable("WhatsAppInboundAutoReplies");
+                });
+
             modelBuilder.Entity("LuxuryApp.Models.WhatsApp.WhatsAppMessageLog", b =>
                 {
                     b.Property<long>("Id")
@@ -4792,6 +5032,36 @@ namespace LuxuryApp.Migrations
                     b.HasKey("UserId", "LoginProvider", "Name");
 
                     b.ToTable("AspNetUserTokens", (string)null);
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Asociados.Associate", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Identity.AppUsuario", null)
+                        .WithMany()
+                        .HasForeignKey("AppUsuarioId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Asociados.AssociatePermission", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Asociados.Associate", "Associate")
+                        .WithMany("Permisos")
+                        .HasForeignKey("AssociateId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Associate");
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Asociados.AssociateTypeAssignment", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Asociados.Associate", "Associate")
+                        .WithMany("Tipos")
+                        .HasForeignKey("AssociateId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Associate");
                 });
 
             modelBuilder.Entity("LuxuryApp.Models.Calendar.Cita", b =>
@@ -5188,6 +5458,16 @@ namespace LuxuryApp.Migrations
                     b.Navigation("Statement");
                 });
 
+            modelBuilder.Entity("LuxuryApp.Models.Inversionistas.TenantInvestor", b =>
+                {
+                    b.HasOne("LuxuryApp.Models.Asociados.Associate", "Associate")
+                        .WithOne("PerfilInversionista")
+                        .HasForeignKey("LuxuryApp.Models.Inversionistas.TenantInvestor", "AssociateId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Associate");
+                });
+
             modelBuilder.Entity("LuxuryApp.Models.Legal.ContractAcceptanceRecord", b =>
                 {
                     b.HasOne("LuxuryApp.Models.Legal.ContractDocument", "ContractDocument")
@@ -5284,6 +5564,11 @@ namespace LuxuryApp.Migrations
                         .HasForeignKey("ConvertedCitaId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("LuxuryApp.Models.Funcionarios.Funcionario", "FuncionarioAsignado")
+                        .WithMany()
+                        .HasForeignKey("FuncionarioAsignadoId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("LuxuryApp.Models.Funcionarios.Funcionario", "Funcionario")
                         .WithMany()
                         .HasForeignKey("FuncionarioId")
@@ -5300,6 +5585,8 @@ namespace LuxuryApp.Migrations
                     b.Navigation("ConvertedCita");
 
                     b.Navigation("Funcionario");
+
+                    b.Navigation("FuncionarioAsignado");
 
                     b.Navigation("Servicio");
                 });
@@ -5601,6 +5888,15 @@ namespace LuxuryApp.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("LuxuryApp.Models.Asociados.Associate", b =>
+                {
+                    b.Navigation("PerfilInversionista");
+
+                    b.Navigation("Permisos");
+
+                    b.Navigation("Tipos");
                 });
 
             modelBuilder.Entity("LuxuryApp.Models.Comprobantes.ComprobanteCobro", b =>

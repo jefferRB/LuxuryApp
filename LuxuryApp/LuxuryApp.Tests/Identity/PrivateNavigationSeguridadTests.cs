@@ -1,4 +1,4 @@
-using LuxuryApp.Models.Identity;
+﻿using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Layout;
 using LuxuryApp.Tests.Support;
@@ -59,7 +59,8 @@ namespace LuxuryApp.Tests.Identity
             var service = new PrivateNavigationService(
                 userManager,
                 new HttpContextAccessor(),
-                new FakeCommercialAccessResolver());
+                new FakeCommercialAccessResolver(),
+                new NoAssociatePermissionService());
 
             var principal = ControllerTestSupport.BuildTenantPrincipal(userId, tenantId);
 

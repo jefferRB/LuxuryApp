@@ -252,7 +252,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 controller,
                 ControllerTestSupport.BuildTenantPrincipal("calendar-user", tenantId));
 
-            var result = await controller.Delete(cita.Id, CancellationToken.None);
+            var result = await controller.Delete(cita.Id, motivo: null, CancellationToken.None);
 
             Assert.IsType<OkObjectResult>(result);
             Assert.Empty(await context.Citas.AsNoTracking().ToListAsync());
@@ -261,7 +261,9 @@ namespace LuxuryApp.Tests.TenantIsolation
         private static CalendarController CreateController(
             ProyectoIdentity.Datos.ApplicationDbContext context,
             Guid tenantId,
-            bool tenantWhatsAppEnabled = true)
+            bool tenantWhatsAppEnabled = true,
+            LuxuryApp.Services.Reservas.IBookingRequestService? bookingRequestService = null,
+            Microsoft.AspNetCore.Authorization.IAuthorizationService? authorizationService = null)
         {
             var controller = new CalendarController(
                 ControllerTestSupport.CreateCalendarCommandService(context),
@@ -276,7 +278,10 @@ namespace LuxuryApp.Tests.TenantIsolation
                 ControllerTestSupport.BusinessDateTimeProvider,
                 ControllerTestSupport.CreateCobroFiscalPreviewService(
                     context, new TestTenantProvider { TenantId = tenantId }),
-                ControllerTestSupport.CreateAvailabilityService(context));
+                ControllerTestSupport.CreateAvailabilityService(context),
+                bookingRequestService ?? new SpyBookingRequestService(),
+                authorizationService ?? new TestAuthorizationService(),
+                new NoOpAppointmentCancellationWhatsAppService());
 
             ControllerTestSupport.AttachHttpContext(
                 controller,

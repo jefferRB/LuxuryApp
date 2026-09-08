@@ -5,6 +5,12 @@
     const root = document.documentElement;
     root.classList.add('tppa-js');
 
+    // El navegador ya aplica la orientacion EXIF al mostrar y al dibujar en canvas, y el
+    // resultado exportado se envia sin metadata. El backend igual normaliza y valida.
+    const UNREADABLE_MESSAGE = 'No pudimos leer esta imagen. Proba con una foto en JPG, PNG o WEBP.';
+    const HEIC_MESSAGE = 'Las fotos HEIC/HEIF de iPhone no se pueden procesar. Entra a Ajustes > Camara > ' +
+        'Formatos y elegi "Mas compatible", o comparti la foto para convertirla a JPG.';
+
     const uploadForms = Array.from(document.querySelectorAll('[data-public-image-upload]'));
     if (uploadForms.length === 0) return;
 
@@ -20,6 +26,13 @@
         input.addEventListener('change', () => {
             const file = input.files && input.files[0];
             if (!file) return;
+
+            if (isHeicLike(file)) {
+                input.value = '';
+                showStatus(HEIC_MESSAGE, true);
+                return;
+            }
+
             openCropper(form, input, file);
         });
     });
@@ -47,14 +60,14 @@
             '    <button type="button" class="tppa-crop-close" data-crop-cancel aria-label="Cerrar">x</button>',
             '  </div>',
             '  <div class="tppa-crop-presets" data-crop-presets role="group" aria-label="Formato de imagen"></div>',
-            '  <p class="tppa-crop-help">Para fotos tomadas con celular recomendamos Vertical 4:5 u Original.</p>',
+            '  <p class="tppa-crop-help" data-crop-help></p>',
             '  <div class="tppa-crop-stage">',
             '    <div class="tppa-crop-frame" data-crop-frame>',
             '      <img alt="" data-crop-image draggable="false" />',
             '    </div>',
             '  </div>',
             '  <label class="tppa-crop-zoom" data-crop-zoom-wrap>Zoom',
-            '    <input type="range" min="1" max="3" step="0.01" value="1" data-crop-zoom />',
+            '    <input type="range" min="1" max="4" step="0.01" value="1" data-crop-zoom />',
             '  </label>',
             '  <div class="tppa-crop-error" data-crop-error hidden></div>',
             '  <div class="tppa-crop-actions">',
@@ -73,6 +86,7 @@
             zoom: wrapper.querySelector('[data-crop-zoom]'),
             zoomWrap: wrapper.querySelector('[data-crop-zoom-wrap]'),
             presets: wrapper.querySelector('[data-crop-presets]'),
+            help: wrapper.querySelector('[data-crop-help]'),
             submit: wrapper.querySelector('[data-crop-submit]'),
             error: wrapper.querySelector('[data-crop-error]'),
             cancelButtons: Array.from(wrapper.querySelectorAll('[data-crop-cancel]'))
@@ -124,7 +138,12 @@
         objectUrl = URL.createObjectURL(file);
 
         const fallbackAspect = parseFloat(form.dataset.cropAspect || '1') || 1;
-        const presets = parsePresets(form.dataset.cropPresets, fallbackAspect);
+        const presets = parsePresets(form.dataset.cropPresets, form.dataset.cropLabels, fallbackAspect);
+        const output = {
+            maxWidth: parseInt(form.dataset.outputMaxWidth || '0', 10) || 0,
+            maxHeight: parseInt(form.dataset.outputMaxHeight || '0', 10) || 0,
+            type: form.dataset.outputType === 'image/png' ? 'image/png' : 'image/jpeg'
+        };
 
         ui.error.hidden = true;
         ui.submit.disabled = false;
@@ -134,6 +153,7 @@
             form,
             input,
             file,
+            output,
             presets,
             preset: presets[0],
             aspect: presets[0].aspect || fallbackAspect,
@@ -156,6 +176,11 @@
             active.naturalHeight = ui.image.naturalHeight;
             applyPreset(pickDefaultPreset(form, presets, active.naturalWidth, active.naturalHeight));
         };
+        // El navegador no pudo decodificar el archivo (tipico con HEIC fuera de iPhone).
+        ui.image.onerror = () => {
+            closeCropper();
+            showStatus(isHeicLike(file) ? HEIC_MESSAGE : UNREADABLE_MESSAGE, true);
+        };
         ui.image.src = objectUrl;
 
         ui.wrapper.hidden = false;
@@ -163,13 +188,16 @@
     }
 
     // Tokens: "original" | "W:H" (Cover) | "padded:W:H" | "contain:W:H" | "cover:W:H".
-    function parsePresets(raw, fallbackAspect) {
+    // Vienen del perfil del servidor (PublicImageProfile), junto con sus etiquetas.
+    function parsePresets(raw, labelsRaw, fallbackAspect) {
         const tokens = (raw || '4:5,original').split(',').map(t => t.trim()).filter(Boolean);
+        const labels = (labelsRaw || '').split('|');
         const list = [];
         const seen = {};
-        tokens.forEach(token => {
+        tokens.forEach((token, index) => {
             const preset = parsePresetToken(token, fallbackAspect);
             if (preset && !seen[preset.key]) {
+                if (labels[index]) preset.label = labels[index];
                 seen[preset.key] = true;
                 list.push(preset);
             }
@@ -268,11 +296,23 @@
         const frameAspect = preset.fitMode === 'Original'
             ? (active.naturalWidth / active.naturalHeight) || 1
             : active.aspect;
-        modal.frame.style.aspectRatio = String(frameAspect);
+        modal.frame.style.setProperty('--tppa-crop-ratio', String(frameAspect));
+        modal.help.textContent = presetHelp(preset.fitMode);
 
         modal.zoom.value = '1';
         active.zoom = 1;
         centerImage();
+    }
+
+    // Sin tecnicismos: nada de proporciones, pixeles ni formatos para la duena del negocio.
+    function presetHelp(fitMode) {
+        if (fitMode === 'Padded' || fitMode === 'Contain') {
+            return 'Muestra la fotografia completa sin recortarla.';
+        }
+        if (fitMode === 'Original') {
+            return 'Se sube con la proporcion original de la foto.';
+        }
+        return 'Mueve la foto y usa el zoom si quieres ajustar el encuadre.';
     }
 
     function centerImage() {
@@ -285,7 +325,10 @@
             frame.width / active.naturalWidth,
             frame.height / active.naturalHeight);
 
-        // Cover: la foto llena el marco (recorte). Otros modos: la foto entra completa (contain).
+        // Cover: zoom 1 = el minimo necesario para LLENAR el marco, nunca mas. Si la foto ya
+        // tiene la proporcion del marco (una vertical 3:4 de celular), ese minimo la muestra
+        // entera: el recorte lo decide despues la persona con el zoom.
+        // Otros modos: la foto entra completa (contain).
         active.baseScale = (active.preset && active.preset.fitMode === 'Cover')
             ? active.coverScale
             : active.containScale;
@@ -337,21 +380,37 @@
 
         const preset = active.preset || { fitMode: 'Cover' };
         const formData = new FormData(active.form);
-        formData.set('file', active.file);
-        formData.set('FitMode', preset.fitMode);
 
-        if (preset.fitMode !== 'Original' && preset.aspect) {
-            formData.set('TargetAspectRatio', String(preset.aspect));
-        }
+        // Camino preferido: el navegador exporta la imagen ya encuadrada y al tamano que
+        // necesita la landing, asi una foto de 48 MP no viaja entera por la red. Si el canvas
+        // falla se envia el archivo original y el backend hace todo el trabajo.
+        const exported = await tryExportFramedImage(preset);
 
-        // El recorte manual (CropX/Y/W/H) solo aplica en modo Cover; en los demas el
-        // backend contiene/rellena la imagen completa sin recortar.
-        if (preset.fitMode === 'Cover') {
-            const crop = calculateCrop();
-            formData.set('CropX', String(crop.cropX));
-            formData.set('CropY', String(crop.cropY));
-            formData.set('CropWidth', String(crop.cropWidth));
-            formData.set('CropHeight', String(crop.cropHeight));
+        if (exported) {
+            // El recorte ya viene aplicado en los pixeles exportados: se envia el mismo modo y
+            // aspecto (sin CropX/Y/W/H), asi el backend valida el formato y no vuelve a recortar.
+            formData.set('file', exported.file);
+            formData.set('FitMode', preset.fitMode);
+            if (preset.fitMode !== 'Original' && preset.aspect) {
+                formData.set('TargetAspectRatio', String(preset.aspect));
+            }
+        } else {
+            formData.set('file', active.file);
+            formData.set('FitMode', preset.fitMode);
+
+            if (preset.fitMode !== 'Original' && preset.aspect) {
+                formData.set('TargetAspectRatio', String(preset.aspect));
+            }
+
+            // El recorte manual (CropX/Y/W/H) solo aplica en modo Cover; en los demas el
+            // backend contiene/rellena la imagen completa sin recortar.
+            if (preset.fitMode === 'Cover') {
+                const crop = calculateCrop();
+                formData.set('CropX', String(crop.cropX));
+                formData.set('CropY', String(crop.cropY));
+                formData.set('CropWidth', String(crop.cropWidth));
+                formData.set('CropHeight', String(crop.cropHeight));
+            }
         }
 
         modal.submit.disabled = true;
@@ -382,6 +441,96 @@
             modal.submit.disabled = false;
             modal.submit.textContent = 'Subir imagen';
         }
+    }
+
+    /**
+     * Dibuja la imagen ya encuadrada en un canvas del tamano que realmente usa la landing y
+     * devuelve un File listo para subir. Devuelve null si el navegador no puede hacerlo.
+     * Cover: se aplica el recorte visible. Otros modos: solo se reduce (el backend compone).
+     */
+    async function tryExportFramedImage(preset) {
+        try {
+            if (!modal || !active || !active.naturalWidth || !active.naturalHeight) return null;
+            if (typeof document.createElement('canvas').toBlob !== 'function') return null;
+
+            const maxWidth = active.output.maxWidth || active.naturalWidth;
+            const maxHeight = active.output.maxHeight || active.naturalHeight;
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            if (!context) return null;
+
+            if (preset.fitMode === 'Cover') {
+                const crop = calculateCrop();
+                const aspect = preset.aspect || (crop.cropWidth / crop.cropHeight) || 1;
+                const frame = fitInside(aspect, maxWidth, maxHeight);
+                // Nunca se amplia: si el recorte es mas chico que el marco, manda el recorte.
+                const width = Math.max(1, Math.round(Math.min(frame.width, crop.cropWidth)));
+                const height = Math.max(1, Math.round(width / aspect));
+
+                canvas.width = width;
+                canvas.height = height;
+                paintBackdrop(context, width, height);
+                context.drawImage(
+                    modal.image,
+                    crop.cropX, crop.cropY, crop.cropWidth, crop.cropHeight,
+                    0, 0, width, height);
+            } else {
+                const scale = Math.min(1, maxWidth / active.naturalWidth, maxHeight / active.naturalHeight);
+                const width = Math.max(1, Math.round(active.naturalWidth * scale));
+                const height = Math.max(1, Math.round(active.naturalHeight * scale));
+
+                canvas.width = width;
+                canvas.height = height;
+                paintBackdrop(context, width, height);
+                context.drawImage(modal.image, 0, 0, width, height);
+            }
+
+            const blob = await canvasToBlob(canvas, active.output.type, 0.92);
+            if (!blob || blob.size === 0) return null;
+
+            return { file: new File([blob], buildExportName(active.file, active.output.type), { type: active.output.type }) };
+        } catch (error) {
+            return null;
+        }
+    }
+
+    // JPEG no tiene canal alfa: sin fondo blanco, las zonas transparentes salen negras.
+    function paintBackdrop(context, width, height) {
+        if (active.output.type === 'image/png') return;
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, width, height);
+    }
+
+    function fitInside(aspect, maxWidth, maxHeight) {
+        const boxAspect = maxWidth / maxHeight;
+        return aspect >= boxAspect
+            ? { width: maxWidth, height: maxWidth / aspect }
+            : { width: maxHeight * aspect, height: maxHeight };
+    }
+
+    function canvasToBlob(canvas, type, quality) {
+        return new Promise(resolve => {
+            try {
+                canvas.toBlob(resolve, type, quality);
+            } catch (error) {
+                resolve(null);
+            }
+        });
+    }
+
+    // Nombre generado: sin extensiones encadenadas ni caracteres raros del archivo original.
+    function buildExportName(file, type) {
+        const raw = String((file && file.name) || 'imagen');
+        const base = raw.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9-_]+/g, '-').replace(/-+/g, '-');
+        const safe = (base.replace(/^-|-$/g, '') || 'imagen').slice(0, 60);
+        return safe + (type === 'image/png' ? '.png' : '.jpg');
+    }
+
+    function isHeicLike(file) {
+        const name = String((file && file.name) || '').toLowerCase();
+        const type = String((file && file.type) || '').toLowerCase();
+        return name.endsWith('.heic') || name.endsWith('.heif') ||
+            type.indexOf('heic') >= 0 || type.indexOf('heif') >= 0;
     }
 
     async function submitRemove(form) {

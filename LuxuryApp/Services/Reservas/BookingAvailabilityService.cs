@@ -9,6 +9,16 @@ namespace LuxuryApp.Services.Reservas
 {
     public sealed class BookingAvailabilityService : IBookingAvailabilityService
     {
+        /// <summary>Tope duro de sugerencias por consulta: el cliente nunca puede pedir más.</summary>
+        private const int MaxSuggestionsCeiling = 10;
+
+        /// <summary>
+        /// Tamaño de la ventana de barrido al buscar próximos espacios. La ocupación se consulta
+        /// una vez por ventana y el barrido corta apenas se completan las sugerencias, así el caso
+        /// normal (hay espacio esta semana) cuesta UNA consulta en vez de cargar todo el horizonte.
+        /// </summary>
+        private const int ScanChunkDays = 7;
+
         private readonly ApplicationDbContext _context;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly IBookingCatalogService _catalogService;
@@ -66,36 +76,15 @@ namespace LuxuryApp.Services.Reservas
 
             var now = _businessDateTimeProvider.Now();
             var earliest = now.AddMinutes(Math.Max(0, settings.PublicBookingMinAdvanceMinutes));
-            var intervalo = Math.Max(5, settings.SlotIntervalMinutes);
 
             var resultados = new List<string>();
-            var cursor = settings.OpenTime;
-            var cierre = settings.CloseTime;
 
-            // Genera slots [cursor, cursor+duracion] que terminen a más tardar al cierre.
-            while (true)
+            foreach (var (hora, inicio, fin) in EnumerateDaySlots(settings, fecha, duracion.Value))
             {
-                var inicio = fecha.ToDateTime(cursor);
-                var fin = inicio.AddMinutes(duracion.Value);
-
-                if (TimeOnly.FromDateTime(fin) > cierre || fin.Date != inicio.Date)
-                {
-                    break;
-                }
-
                 if (inicio >= earliest && EstaLibre(busyByFuncionario, candidatos, inicio, fin))
                 {
-                    resultados.Add(cursor.ToString("HH:mm"));
+                    resultados.Add(hora.ToString("HH:mm"));
                 }
-
-                var siguiente = cursor.AddMinutes(intervalo);
-                // Evita loop infinito si AddMinutes envuelve el día.
-                if (siguiente <= cursor)
-                {
-                    break;
-                }
-
-                cursor = siguiente;
             }
 
             return resultados;
@@ -169,7 +158,7 @@ namespace LuxuryApp.Services.Reservas
             int maxSuggestions = 5,
             CancellationToken cancellationToken = default)
         {
-            maxSuggestions = maxSuggestions <= 0 ? 5 : Math.Min(maxSuggestions, 10);
+            maxSuggestions = maxSuggestions <= 0 ? 5 : Math.Min(maxSuggestions, MaxSuggestionsCeiling);
 
             var settings = await _context.TenantBookingSettings
                 .AsNoTracking()
@@ -200,54 +189,111 @@ namespace LuxuryApp.Services.Reservas
                 return Array.Empty<AvailableSlotSuggestion>();
             }
 
-            // Una sola consulta de ocupación para toda la ventana (evita N+1).
-            var busy = await LoadBusyIntervalsRangeAsync(candidatos, start, maxDate, cancellationToken);
-
             var now = _businessDateTimeProvider.Now();
-            var minAdvance = Math.Max(0, settings.PublicBookingMinAdvanceMinutes);
-            var intervalo = Math.Max(5, settings.SlotIntervalMinutes);
-            var earliest = now.AddMinutes(minAdvance);
+            var earliest = now.AddMinutes(Math.Max(0, settings.PublicBookingMinAdvanceMinutes));
 
             var results = new List<AvailableSlotSuggestion>();
 
-            for (var fecha = start; fecha <= maxDate && results.Count < maxSuggestions; fecha = fecha.AddDays(1))
+            // Barrido por ventanas de ScanChunkDays con corte temprano: una sola consulta de
+            // ocupación por ventana (nunca una por día) y se abandona apenas hay sugerencias
+            // suficientes. Esto acota el costo del endpoint público, que ahora se consulta en
+            // cuanto el cliente elige servicio y profesional.
+            for (var chunkStart = start;
+                 chunkStart <= maxDate && results.Count < maxSuggestions;
+                 chunkStart = chunkStart.AddDays(ScanChunkDays))
             {
-                if (!settings.IsWorkingDay(fecha.DayOfWeek))
+                var chunkEnd = chunkStart.AddDays(ScanChunkDays - 1);
+                if (chunkEnd > maxDate)
+                {
+                    chunkEnd = maxDate;
+                }
+
+                // Ventana sin ningún día laboral: no vale la pena consultar la ocupación.
+                if (!HasWorkingDay(settings, chunkStart, chunkEnd))
                 {
                     continue;
                 }
 
-                var cursor = settings.OpenTime;
-                while (results.Count < maxSuggestions)
-                {
-                    var inicio = fecha.ToDateTime(cursor);
-                    var fin = inicio.AddMinutes(duracion.Value);
+                var busy = await LoadBusyIntervalsRangeAsync(candidatos, chunkStart, chunkEnd, cancellationToken);
 
-                    if (TimeOnly.FromDateTime(fin) > settings.CloseTime || fin.Date != inicio.Date)
+                for (var fecha = chunkStart; fecha <= chunkEnd && results.Count < maxSuggestions; fecha = fecha.AddDays(1))
+                {
+                    if (!settings.IsWorkingDay(fecha.DayOfWeek))
                     {
-                        break;
+                        continue;
                     }
 
-                    if (inicio >= earliest)
+                    foreach (var (hora, inicio, fin) in EnumerateDaySlots(settings, fecha, duracion.Value))
                     {
+                        if (results.Count >= maxSuggestions)
+                        {
+                            break;
+                        }
+
+                        if (inicio < earliest)
+                        {
+                            continue;
+                        }
+
                         var funcId = FindFreeCandidate(busy, candidatos, inicio, fin);
                         if (funcId.HasValue)
                         {
-                            results.Add(new AvailableSlotSuggestion(fecha, cursor, funcId.Value));
+                            results.Add(new AvailableSlotSuggestion(fecha, hora, funcId.Value));
                         }
                     }
-
-                    var siguiente = cursor.AddMinutes(intervalo);
-                    if (siguiente <= cursor)
-                    {
-                        break;
-                    }
-
-                    cursor = siguiente;
                 }
             }
 
             return results;
+        }
+
+        /// <summary>
+        /// Recorrido ÚNICO de los slots de un día: mismo paso, misma jornada y misma regla de
+        /// "el bloque completo debe caber antes del cierre". Lo comparten la disponibilidad del
+        /// día y la búsqueda de próximos espacios, para que no puedan divergir nunca.
+        /// </summary>
+        private static IEnumerable<(TimeOnly Hora, DateTime Inicio, DateTime Fin)> EnumerateDaySlots(
+            TenantBookingSettings settings,
+            DateOnly fecha,
+            int duracionMinutos)
+        {
+            var intervalo = Math.Max(5, settings.SlotIntervalMinutes);
+            var cursor = settings.OpenTime;
+
+            while (true)
+            {
+                var inicio = fecha.ToDateTime(cursor);
+                var fin = inicio.AddMinutes(duracionMinutos);
+
+                if (fin.Date != inicio.Date || TimeOnly.FromDateTime(fin) > settings.CloseTime)
+                {
+                    yield break;
+                }
+
+                yield return (cursor, inicio, fin);
+
+                var siguiente = cursor.AddMinutes(intervalo);
+                // Evita loop infinito si AddMinutes envuelve el día.
+                if (siguiente <= cursor)
+                {
+                    yield break;
+                }
+
+                cursor = siguiente;
+            }
+        }
+
+        private static bool HasWorkingDay(TenantBookingSettings settings, DateOnly desde, DateOnly hasta)
+        {
+            for (var fecha = desde; fecha <= hasta; fecha = fecha.AddDays(1))
+            {
+                if (settings.IsWorkingDay(fecha.DayOfWeek))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static int? FindFreeCandidate(

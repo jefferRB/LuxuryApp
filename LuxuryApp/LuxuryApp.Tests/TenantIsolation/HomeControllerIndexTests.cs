@@ -1,4 +1,4 @@
-using LuxuryApp.Controllers;
+﻿using LuxuryApp.Controllers;
 using LuxuryApp.Models.Marketing;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.PublicSite;
@@ -132,7 +132,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             ILogger<HomeController> logger,
             IPublicSiteContentService content)
         {
-            var controller = new HomeController(logger, content);
+            var controller = new HomeController(logger, content, new StubPostLoginDestinationService());
             ControllerTestSupport.AttachHttpContext(controller);
             return controller;
         }

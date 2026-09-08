@@ -40,5 +40,25 @@
         public decimal IngresosTarjeta { get; set; }
         public List<decimal> GananciaPorMes { get; set; } = new();
         public List<decimal> ResultadoAnaliticoPorMes { get; set; } = new();
+
+        /// <summary>
+        /// Desglose del mes tal como lo devolvió el motor único de ganancia. Es la fuente de
+        /// <see cref="TotalSinImpuestos"/>, <see cref="TotalImpuestos"/>,
+        /// <see cref="TotalEgresosAnaliticos"/> y <see cref="ResultadoAnalitico"/>: si alguien
+        /// necesita explicar de dónde salió un número del Dashboard, sale de acá.
+        /// </summary>
+        public Services.Finanzas.PeriodProfitBreakdown? Desglose { get; set; }
+
+        /// <summary>
+        /// Participación de los asociados sobre la ganancia del mes.
+        ///
+        /// <para>
+        /// Es <c>null</c> cuando no hay ninguna participación vigente en el periodo. En ese caso
+        /// el bloque no existe: no viaja al HTML ni al ViewModel, no se esconde con CSS. Lo
+        /// construye <c>IAssociateProfitAllocationService</c> a partir del MISMO motor de ganancia
+        /// que usan los estados de cuenta.
+        /// </para>
+        /// </summary>
+        public Asociados.AssociateAllocationKpiViewModel? ParticipacionAsociados { get; set; }
     }
 }

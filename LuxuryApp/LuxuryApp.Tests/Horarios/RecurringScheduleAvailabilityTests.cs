@@ -81,6 +81,36 @@ namespace LuxuryApp.Tests.Horarios
         }
 
         [Fact]
+        public async Task ProximosEspacios_SaltanElBloqueoRecurrente()
+        {
+            using var fixture = await ScheduleFixture.CreateAsync();
+            await fixture.SeedBookingSettingsAsync();
+            await fixture.CrearAlmuerzoAsync();
+
+            // Mañana completa ocupada: el siguiente hueco del lunes cae justo contra el almuerzo,
+            // así que si la sugerencia ignorara el bloqueo propondría las 13:00.
+            fixture.Context.Citas.Add(new Cita
+            {
+                NombreCliente = "Cliente",
+                FuncionarioId = fixture.FuncionarioId,
+                ServicioId = fixture.ServicioId,
+                FechaHoraCita = Lunes.ToDateTime(new TimeOnly(8, 0)),
+                DuracionMinutos = 300,
+                Tipo = "CITA"
+            });
+            await fixture.Context.SaveChangesAsync();
+
+            var proximos = await fixture.Booking.GetNextAvailableSlotsAsync(
+                fixture.ServicioId, Lunes, fixture.FuncionarioId, maxSuggestions: 3);
+
+            Assert.NotEmpty(proximos);
+            Assert.Equal(Lunes, proximos[0].Fecha);
+            Assert.Equal(new TimeOnly(14, 0), proximos[0].Hora);
+            Assert.DoesNotContain(proximos, slot =>
+                slot.Fecha == Lunes && slot.Hora >= new TimeOnly(13, 0) && slot.Hora < new TimeOnly(14, 0));
+        }
+
+        [Fact]
         public async Task ReservasPublicas_RechazanUnSlotManipuladoDentroDelBloqueo()
         {
             using var fixture = await ScheduleFixture.CreateAsync();

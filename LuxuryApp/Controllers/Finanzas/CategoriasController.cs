@@ -1,3 +1,5 @@
+using LuxuryApp.Services.Identity;
+using LuxuryApp.Models.Asociados;
 using LuxuryApp.Models.Finanzas;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -6,7 +8,8 @@ using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Controllers.Finanzas
 {
-    [Authorize(Roles = "Administrador")]
+    [Authorize]
+    [RequirePermission(AppPermissions.ExpensesView)]
     public class CategoriasController : Controller
     {
         private readonly ApplicationDbContext _context;
@@ -23,6 +26,7 @@ namespace LuxuryApp.Controllers.Finanzas
         public Task<IActionResult> Create() => FormCategoria();
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ExpensesManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> Create(
             [Bind(nameof(Categoria.Id) + "," + nameof(Categoria.Nombre) + "," + nameof(Categoria.Detalle))]
@@ -30,6 +34,7 @@ namespace LuxuryApp.Controllers.Finanzas
             Save(categoria);
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ExpensesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Save(
             [Bind(nameof(Categoria.Id) + "," + nameof(Categoria.Nombre) + "," + nameof(Categoria.Detalle))]
@@ -89,6 +94,7 @@ namespace LuxuryApp.Controllers.Finanzas
         public Task<IActionResult> Edit(int id) => FormCategoria(id);
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ExpensesManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> Edit(
             int id,
@@ -104,6 +110,7 @@ namespace LuxuryApp.Controllers.Finanzas
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ExpensesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> ToggleActivo(int id)
         {
@@ -134,6 +141,7 @@ namespace LuxuryApp.Controllers.Finanzas
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ExpensesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Delete(int id)
         {

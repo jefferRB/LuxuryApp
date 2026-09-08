@@ -5,29 +5,36 @@ using LuxuryApp.Services.Funcionarios;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
-namespace LuxuryApp.Services.Inversionistas
+namespace LuxuryApp.Services.Finanzas
 {
     /// <summary>
-    /// Calcula la ganancia distribuible de un periodo REUTILIZANDO los servicios que ya alimentan
-    /// las pantallas del negocio. No se duplica ni una fórmula fiscal:
+    /// Calcula la ganancia del negocio para un rango REUTILIZANDO los servicios que ya alimentan
+    /// las pantallas. No se duplica ni una fórmula fiscal:
     ///
     /// <list type="bullet">
-    ///   <item>Ingresos e IVA salen de <see cref="ILiquidacionSemanalService"/>, que a su vez usa el
-    ///   motor fiscal (<c>ITaxCalculationService</c> + <c>ITenantFiscalConfigService</c>) línea por
-    ///   línea. Así el "sin IVA" del inversionista es idéntico al de Liquidaciones y Dashboard.</item>
-    ///   <item>Las liquidaciones de colaboradores salen del mismo resumen, sin recalcular comisiones.</item>
-    ///   <item>Los gastos se leen de Egresos con las mismas exclusiones que usa el Dashboard.</item>
+    ///   <item>Ingresos e IVA salen de <see cref="ILiquidacionSemanalService"/>, que aplica el motor
+    ///   fiscal (<c>ITaxCalculationService</c> + <c>ITenantFiscalConfigService</c>) línea por línea.
+    ///   Por eso un servicio exento de IVA no se "des-IVA-iza" con una división plana.</item>
+    ///   <item>Las liquidaciones del equipo salen del mismo resumen, sin recalcular comisiones.</item>
+    ///   <item>Los gastos se leen de Egresos con las exclusiones estructurales del dominio.</item>
     /// </list>
     ///
     /// <para>Redondeo: <see cref="FiscalMath.Redondear"/> (2 decimales, half-even), igual que el
     /// resto de la aplicación.</para>
+    ///
+    /// <para>
+    /// Este servicio nació dentro del módulo de inversionistas. Se promovió a Finanzas cuando el
+    /// Dashboard pasó a consumirlo: antes el Dashboard tenía su propia aritmética (IVA plano
+    /// Total/1.13, liquidaciones por lo pagado y sin excluir la categoría de distribución), así que
+    /// los dos números podían diferir de verdad para el mismo mes.
+    /// </para>
     /// </summary>
-    public sealed class InvestorProfitCalculationService : IInvestorProfitCalculationService
+    public sealed class PeriodProfitCalculationService : IPeriodProfitCalculationService
     {
         private readonly ApplicationDbContext _context;
         private readonly ILiquidacionSemanalService _liquidacionService;
 
-        public InvestorProfitCalculationService(
+        public PeriodProfitCalculationService(
             ApplicationDbContext context,
             ILiquidacionSemanalService liquidacionService)
         {
@@ -35,7 +42,7 @@ namespace LuxuryApp.Services.Inversionistas
             _liquidacionService = liquidacionService;
         }
 
-        public async Task<InvestorProfitBreakdown> CalculateAsync(
+        public async Task<PeriodProfitBreakdown> CalculateAsync(
             DateOnly periodoInicio,
             DateOnly periodoFin,
             InvestorProfitPolicy policy,
@@ -55,15 +62,15 @@ namespace LuxuryApp.Services.Inversionistas
             // opera sobre rangos arbitrarios y aplica el motor fiscal por línea.
             var resumen = await _liquidacionService.ObtenerResumenSemanaAsync(inicio, fin, cancellationToken);
 
-            var ingresosCobrados = FiscalMath.Redondear(resumen.TotalGeneradoGeneral);
+            var totalCobrado = FiscalMath.Redondear(resumen.TotalGeneradoGeneral);
 
             // Sin exclusión de IVA la base es el total cobrado tal cual (caso raro, pero configurable).
             var ingresosNetos = policy.ExcluirIva
                 ? FiscalMath.Redondear(resumen.TotalBaseVentaSinIvaGeneral)
-                : ingresosCobrados;
+                : totalCobrado;
 
-            var ivaExcluido = policy.ExcluirIva
-                ? FiscalMath.Redondear(ingresosCobrados - ingresosNetos)
+            var ivaCobrado = policy.ExcluirIva
+                ? FiscalMath.Redondear(totalCobrado - ingresosNetos)
                 : 0m;
 
             var liquidaciones = 0m;
@@ -76,21 +83,49 @@ namespace LuxuryApp.Services.Inversionistas
 
             var gastos = await CalcularGastosAsync(periodoInicio, periodoFin, policy, cancellationToken);
 
-            return new InvestorProfitBreakdown
+            // Hoy no existen ajustes a nivel de negocio; ver PeriodProfitBreakdown.AjustesAutorizados.
+            const decimal ajustesAutorizados = 0m;
+
+            var distribuible = FiscalMath.Redondear(
+                ingresosNetos - gastos.Total - liquidaciones + ajustesAutorizados);
+
+            return new PeriodProfitBreakdown
             {
                 PeriodoInicio = periodoInicio,
                 PeriodoFin = periodoFin,
-                IngresosCobrados = ingresosCobrados,
-                IvaExcluido = ivaExcluido,
+                TotalCobrado = totalCobrado,
+                IvaCobrado = ivaCobrado,
                 IngresosNetos = ingresosNetos,
-                GastosElegibles = gastos.Total,
-                Liquidaciones = liquidaciones,
+                GastosOperativos = gastos.Total,
+                LiquidacionesEquipo = liquidaciones,
+                AjustesAutorizados = ajustesAutorizados,
+                GananciaDistribuible = distribuible,
                 PoliticaVersion = policy.BuildVersionDescription(),
                 GastosPorCategoria = gastos.Detalle
             };
         }
 
-        private async Task<(decimal Total, IReadOnlyList<InvestorExpenseCategoryBreakdown> Detalle)> CalcularGastosAsync(
+        public async Task<IReadOnlyDictionary<int, PeriodProfitBreakdown>> CalculateMonthlyAsync(
+            int anio,
+            InvestorProfitPolicy policy,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(policy);
+
+            var resultado = new Dictionary<int, PeriodProfitBreakdown>(12);
+
+            for (var mes = 1; mes <= 12; mes++)
+            {
+                var inicio = new DateOnly(anio, mes, 1);
+                var fin = new DateOnly(anio, mes, DateTime.DaysInMonth(anio, mes));
+
+                resultado[mes] = await CalculateAsync(inicio, fin, policy, cancellationToken);
+            }
+
+            return resultado;
+        }
+
+        private async Task<(decimal Total, IReadOnlyList<PeriodExpenseCategoryBreakdown> Detalle)> CalcularGastosAsync(
             DateOnly periodoInicio,
             DateOnly periodoFin,
             InvestorProfitPolicy policy,
@@ -119,7 +154,7 @@ namespace LuxuryApp.Services.Inversionistas
                 .Select(link => link.CategoriaId)
                 .ToHashSet();
 
-            var detalle = new List<InvestorExpenseCategoryBreakdown>(filas.Count);
+            var detalle = new List<PeriodExpenseCategoryBreakdown>(filas.Count);
             var total = 0m;
 
             foreach (var fila in filas.OrderBy(row => row.Nombre ?? string.Empty, StringComparer.CurrentCultureIgnoreCase))
@@ -134,7 +169,7 @@ namespace LuxuryApp.Services.Inversionistas
                     total += monto;
                 }
 
-                detalle.Add(new InvestorExpenseCategoryBreakdown(
+                detalle.Add(new PeriodExpenseCategoryBreakdown(
                     fila.CategoriaId,
                     nombre,
                     monto,
@@ -146,8 +181,8 @@ namespace LuxuryApp.Services.Inversionistas
         }
 
         /// <summary>
-        /// Devuelve el motivo por el que una categoría NO cuenta como gasto elegible, o null si sí cuenta.
-        /// Las dos exclusiones estructurales son obligatorias y no dependen de la configuración.
+        /// Devuelve el motivo por el que una categoría NO cuenta como gasto elegible, o null si sí
+        /// cuenta. Las dos exclusiones estructurales son obligatorias y no dependen de la configuración.
         /// </summary>
         private static string? ResolverMotivoExclusion(
             int categoriaId,
@@ -156,7 +191,7 @@ namespace LuxuryApp.Services.Inversionistas
             IReadOnlySet<int> seleccionadas)
         {
             // 1) Pago a colaboradores: ya se resta como "Liquidaciones". Contarlo también como gasto
-            //    lo restaría dos veces. Misma exclusión que hace el Dashboard financiero (OtrosEgresos).
+            //    lo restaría dos veces.
             if (string.Equals(nombre, LiquidacionSemanalDefaults.CategoriaPagoFuncionarios, StringComparison.OrdinalIgnoreCase))
             {
                 return "Los pagos a colaboradores ya se restan en la línea de liquidaciones.";

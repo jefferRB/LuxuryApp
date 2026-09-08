@@ -1,4 +1,5 @@
-using LuxuryApp.Controllers;
+﻿using LuxuryApp.Controllers;
+using LuxuryApp.Tests.Support;
 using LuxuryApp.Models.Marketing;
 using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.PublicSite;
@@ -99,7 +100,8 @@ namespace LuxuryApp.Tests.TenantIsolation
         {
             var controller = new HomeController(
                 NullLogger<HomeController>.Instance,
-                new StubPublicSiteContentService());
+                new StubPublicSiteContentService(),
+                new StubPostLoginDestinationService());
 
             var result = controller.PrivacyLegacy();
 

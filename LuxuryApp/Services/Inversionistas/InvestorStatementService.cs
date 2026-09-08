@@ -1,7 +1,8 @@
-using System.Data;
+﻿using System.Data;
 using System.Text.Json;
 using LuxuryApp.Models.Fiscal;
 using LuxuryApp.Models.Inversionistas;
+using LuxuryApp.Services.Finanzas;
 using LuxuryApp.Models.Platform;
 using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Platform;
@@ -27,7 +28,7 @@ namespace LuxuryApp.Services.Inversionistas
     {
         private readonly ApplicationDbContext _context;
         private readonly IInvestorService _investorService;
-        private readonly IInvestorProfitCalculationService _calculationService;
+        private readonly IPeriodProfitCalculationService _calculationService;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ITenantDisplayNameService _tenantDisplayNameService;
         private readonly IPlatformAuditService _auditService;
@@ -36,7 +37,7 @@ namespace LuxuryApp.Services.Inversionistas
         public InvestorStatementService(
             ApplicationDbContext context,
             IInvestorService investorService,
-            IInvestorProfitCalculationService calculationService,
+            IPeriodProfitCalculationService calculationService,
             IBusinessDateTimeProvider businessDateTimeProvider,
             ITenantDisplayNameService tenantDisplayNameService,
             IPlatformAuditService auditService,
@@ -66,12 +67,19 @@ namespace LuxuryApp.Services.Inversionistas
             var policy = await _investorService.GetPolicyAsync(cancellationToken);
             var hoy = Today();
 
-            var acuerdoActual = await _investorService.GetAgreementForDateAsync(investorId, hoy, cancellationToken);
-            var frecuencia = acuerdoActual?.Frecuencia ?? policy.FrecuenciaPorDefecto;
+            // El periodo lo define el ACUERDO que rige la fecha consultada: su frecuencia y su día
+            // de corte. Nunca se calcula con la frecuencia de "hoy" sobre un periodo del pasado,
+            // porque un cambio de corte movería las fechas de periodos ya cerrados.
+            var acuerdoReferencia =
+                await _investorService.GetAgreementForDateAsync(investorId, referencia ?? hoy, cancellationToken)
+                ?? await _investorService.GetAgreementForDateAsync(investorId, hoy, cancellationToken)
+                ?? AcuerdoPorDefecto(policy);
 
             var periodo = referencia.HasValue
-                ? InvestorPeriodCalculator.Resolve(frecuencia, referencia.Value)
-                : InvestorPeriodCalculator.LastClosed(frecuencia, hoy);
+                ? InvestorSettlementPeriodResolver.Resolve(acuerdoReferencia, referencia.Value)
+                : InvestorSettlementPeriodResolver.PreviousClosedPeriod(acuerdoReferencia, hoy);
+
+            var frecuencia = acuerdoReferencia.Frecuencia;
 
             var acuerdo = await _investorService.GetAgreementForDateAsync(investorId, periodo.Inicio, cancellationToken);
 
@@ -79,7 +87,7 @@ namespace LuxuryApp.Services.Inversionistas
             var perdidaPrevia = await ResolvePerdidaArrastradaAsync(investorId, periodo.Inicio, acuerdo, cancellationToken);
 
             var resultado = ApplyProfitRules(
-                breakdown.ResultadoOperativo,
+                breakdown.GananciaDistribuible,
                 ajustesPositivos: 0m,
                 ajustesNegativos: 0m,
                 perdidaPrevia,
@@ -97,14 +105,18 @@ namespace LuxuryApp.Services.Inversionistas
                                  statement.Estado != InvestorStatementStatus.Voided,
                     cancellationToken);
 
+            // Un periodo está CERRADO cuando su último día quedó atrás en hora local del negocio.
+            // El propio día de corte todavía no cierra: se cierra cuando ese día terminó.
+            var periodoCerrado = periodo.Fin < hoy;
+
             string? advertencia = null;
             if (acuerdo is null)
             {
                 advertencia = "Este inversionista no tiene un acuerdo de participación vigente en el periodo seleccionado.";
             }
-            else if (periodo.Fin >= hoy)
+            else if (!periodoCerrado)
             {
-                advertencia = "El periodo todavía no cerró: los montos pueden cambiar hasta el último día.";
+                advertencia = "El período todavía está abierto: es un estimado y los montos pueden cambiar hasta el cierre.";
             }
 
             return new InvestorStatementPreviewViewModel
@@ -115,17 +127,26 @@ namespace LuxuryApp.Services.Inversionistas
                 PeriodoFin = periodo.Fin,
                 PeriodoEtiqueta = periodo.Etiqueta,
                 Frecuencia = frecuencia,
+                DiaCorte = acuerdo?.DiaCorte ?? acuerdoReferencia.DiaCorte,
+                FechaCorte = periodo.Fin,
+                CorteTexto = InvestorSettlementPeriodResolver.EtiquetaCorte(
+                    frecuencia,
+                    acuerdo?.DiaCorte ?? acuerdoReferencia.DiaCorte),
                 TieneAcuerdoVigente = acuerdo is not null,
+                PeriodoCerrado = periodoCerrado,
                 EstadoExistenteId = existente?.Id,
                 EstadoExistenteTexto = existente?.EstadoTexto,
                 Advertencia = advertencia,
                 Desglose = new InvestorCalculationBreakdownViewModel
                 {
-                    IngresosCobrados = breakdown.IngresosCobrados,
-                    IvaExcluido = breakdown.IvaExcluido,
+                    InvestorNombre = investor.Nombre,
+                    PeriodoInicio = periodo.Inicio,
+                    PeriodoFin = periodo.Fin,
+                    IngresosCobrados = breakdown.TotalCobrado,
+                    IvaExcluido = breakdown.IvaCobrado,
                     IngresosNetos = breakdown.IngresosNetos,
-                    GastosElegibles = breakdown.GastosElegibles,
-                    Liquidaciones = breakdown.Liquidaciones,
+                    GastosElegibles = breakdown.GastosOperativos,
+                    Liquidaciones = breakdown.LiquidacionesEquipo,
                     PerdidaArrastrada = resultado.PerdidaAplicada,
                     PerdidaPendiente = resultado.PerdidaPendiente,
                     GananciaDistribuible = resultado.Distribuible,
@@ -157,9 +178,15 @@ namespace LuxuryApp.Services.Inversionistas
                 ?? throw new InvestorValidationException("El inversionista indicado no existe o no pertenece a este negocio.");
 
             var policy = await _investorService.GetPolicyAsync(cancellationToken);
-            var acuerdoHoy = await _investorService.GetAgreementForDateAsync(investorId, Today(), cancellationToken);
-            var frecuencia = acuerdoHoy?.Frecuencia ?? policy.FrecuenciaPorDefecto;
-            var periodo = InvestorPeriodCalculator.Resolve(frecuencia, referencia);
+
+            // El periodo sale del acuerdo que rige la fecha de referencia (frecuencia + día de
+            // corte), no de la frecuencia vigente hoy.
+            var acuerdoReferencia =
+                await _investorService.GetAgreementForDateAsync(investorId, referencia, cancellationToken)
+                ?? await _investorService.GetAgreementForDateAsync(investorId, Today(), cancellationToken)
+                ?? AcuerdoPorDefecto(policy);
+
+            var periodo = InvestorSettlementPeriodResolver.Resolve(acuerdoReferencia, referencia);
 
             var acuerdo = await _investorService.GetAgreementForDateAsync(investorId, periodo.Inicio, cancellationToken)
                 ?? throw new InvestorValidationException(
@@ -187,6 +214,9 @@ namespace LuxuryApp.Services.Inversionistas
                 PeriodoInicio = periodo.Inicio,
                 PeriodoFin = periodo.Fin,
                 Frecuencia = acuerdo.Frecuencia,
+                // Se congelan junto al porcentaje: cambiar el corte después no reescribe este estado.
+                DiaCorte = acuerdo.DiaCorte,
+                FechaCorte = periodo.Fin,
                 ParticipacionPorcentaje = acuerdo.ParticipacionPorcentaje,
                 Estado = InvestorStatementStatus.Draft,
                 GeneradoPorUserId = userId,
@@ -766,6 +796,7 @@ namespace LuxuryApp.Services.Inversionistas
                     InvestorNombre = statement.Investor?.Nombre ?? "—",
                     PeriodoInicio = statement.PeriodoInicio,
                     PeriodoFin = statement.PeriodoFin,
+                    FechaCorte = statement.FechaCorte,
                     PeriodoEtiqueta = InvestorPeriodCalculator.BuildEtiqueta(
                         statement.Frecuencia,
                         statement.PeriodoInicio,
@@ -821,9 +852,11 @@ namespace LuxuryApp.Services.Inversionistas
                 .ToListAsync(cancellationToken);
 
             var nombreNegocio = await _tenantDisplayNameService.GetCurrentTenantDisplayNameAsync(cancellationToken);
+            var navegacion = await BuildNavigationAsync(statement, cancellationToken);
 
             return new InvestorStatementDetailViewModel
             {
+                Navegacion = navegacion,
                 Id = statement.Id,
                 InvestorId = statement.InvestorId,
                 InvestorNombre = statement.Investor?.Nombre ?? "—",
@@ -836,6 +869,11 @@ namespace LuxuryApp.Services.Inversionistas
                     statement.PeriodoInicio,
                     statement.PeriodoFin),
                 Frecuencia = statement.Frecuencia,
+                DiaCorte = statement.DiaCorte,
+                FechaCorte = statement.FechaCorte,
+                CorteTexto = InvestorSettlementPeriodResolver.EtiquetaCorte(
+                    statement.Frecuencia,
+                    statement.DiaCorte),
                 Estado = statement.Estado,
                 EstadoTexto = statement.EstadoTexto,
                 TotalPagado = statement.TotalPagado,
@@ -884,10 +922,59 @@ namespace LuxuryApp.Services.Inversionistas
             };
         }
 
+        /// <summary>
+        /// Corte anterior y siguiente del MISMO inversionista, para navegar por ciclos reales en
+        /// vez de escribir fechas. Se ordena por la fecha de corte, que es como el dueño piensa el
+        /// historial; los anulados quedan fuera porque no representan un corte válido.
+        /// </summary>
+        private async Task<InvestorStatementNavigation> BuildNavigationAsync(
+            InvestorStatement statement,
+            CancellationToken cancellationToken)
+        {
+            if (statement.EstaAnulado)
+            {
+                return InvestorStatementNavigation.Vacia;
+            }
+
+            var vecinos = await _context.InvestorStatements
+                .AsNoTracking()
+                .Where(current => current.InvestorId == statement.InvestorId &&
+                                  current.Id != statement.Id &&
+                                  current.Estado != InvestorStatementStatus.Voided)
+                .Select(current => new
+                {
+                    current.Id,
+                    current.FechaCorte,
+                    current.PeriodoFin
+                })
+                .ToListAsync(cancellationToken);
+
+            var anterior = vecinos
+                .Where(current => current.PeriodoFin < statement.PeriodoFin)
+                .OrderByDescending(current => current.PeriodoFin)
+                .ThenByDescending(current => current.Id)
+                .FirstOrDefault();
+
+            var siguiente = vecinos
+                .Where(current => current.PeriodoFin > statement.PeriodoFin)
+                .OrderBy(current => current.PeriodoFin)
+                .ThenBy(current => current.Id)
+                .FirstOrDefault();
+
+            return new InvestorStatementNavigation(
+                anterior?.Id,
+                anterior?.FechaCorte,
+                siguiente?.Id,
+                siguiente?.FechaCorte);
+        }
+
         /// <summary>Desglose visible construido SOLO desde el snapshot (nunca recalcula).</summary>
         public static InvestorCalculationBreakdownViewModel BuildBreakdownViewModel(InvestorStatement statement) =>
             new()
             {
+                InvestorNombre = statement.Investor?.Nombre ?? string.Empty,
+                PeriodoInicio = statement.PeriodoInicio,
+                PeriodoFin = statement.PeriodoFin,
                 IngresosCobrados = statement.IngresosCobrados,
                 IvaExcluido = statement.IvaExcluido,
                 IngresosNetos = statement.IngresosNetos,
@@ -900,7 +987,9 @@ namespace LuxuryApp.Services.Inversionistas
                 GananciaDistribuible = statement.GananciaDistribuible,
                 ParticipacionPorcentaje = statement.ParticipacionPorcentaje,
                 ParticipacionCalculada = statement.ParticipacionCalculada,
-                PoliticaVersion = statement.PoliticaVersion
+                PoliticaVersion = statement.PoliticaVersion,
+                TotalPagado = statement.TotalPagado,
+                SaldoPendiente = statement.SaldoPendiente
             };
 
         // ─────────────── Núcleo del cálculo ───────────────
@@ -939,17 +1028,17 @@ namespace LuxuryApp.Services.Inversionistas
                 cancellationToken);
 
             var resultado = ApplyProfitRules(
-                breakdown.ResultadoOperativo,
+                breakdown.GananciaDistribuible,
                 ajustesPositivos,
                 ajustesNegativos,
                 perdidaPrevia,
                 tratamiento);
 
-            statement.IngresosCobrados = breakdown.IngresosCobrados;
-            statement.IvaExcluido = breakdown.IvaExcluido;
+            statement.IngresosCobrados = breakdown.TotalCobrado;
+            statement.IvaExcluido = breakdown.IvaCobrado;
             statement.IngresosNetos = breakdown.IngresosNetos;
-            statement.GastosElegibles = breakdown.GastosElegibles;
-            statement.Liquidaciones = breakdown.Liquidaciones;
+            statement.GastosElegibles = breakdown.GastosOperativos;
+            statement.Liquidaciones = breakdown.LiquidacionesEquipo;
             statement.AjustesPositivos = ajustesPositivos;
             statement.AjustesNegativos = ajustesNegativos;
             statement.PerdidaArrastrada = resultado.PerdidaAplicada;
@@ -997,6 +1086,13 @@ namespace LuxuryApp.Services.Inversionistas
         /// Pérdida pendiente que deja el último estado NO anulado anterior al periodo. Solo se
         /// arrastra cuando el acuerdo lo pide; con NoDistribution siempre es cero.
         /// </summary>
+        public async Task<decimal> GetCarryForwardLossAsync(
+            int investorId,
+            DateOnly periodoInicio,
+            InvestorAgreement? acuerdo,
+            CancellationToken cancellationToken = default) =>
+            await ResolvePerdidaArrastradaAsync(investorId, periodoInicio, acuerdo, cancellationToken);
+
         private async Task<decimal> ResolvePerdidaArrastradaAsync(
             int investorId,
             DateOnly periodoInicio,
@@ -1084,6 +1180,17 @@ namespace LuxuryApp.Services.Inversionistas
         // ─────────────── Helpers ───────────────
 
         private DateOnly Today() => DateOnly.FromDateTime(_businessDateTimeProvider.Today());
+
+        /// <summary>
+        /// Acuerdo "de mentira" con la configuración por defecto del negocio, solo para poder
+        /// resolver un periodo cuando el inversionista todavía no tiene acuerdo. Nunca se guarda:
+        /// sirve para que la vista previa muestre un rango razonable en vez de fallar.
+        /// </summary>
+        private static InvestorAgreement AcuerdoPorDefecto(InvestorProfitPolicy policy) => new()
+        {
+            Frecuencia = policy.FrecuenciaPorDefecto,
+            DiaCorte = null
+        };
 
         private async Task<InvestorStatement> LoadTrackedAsync(int statementId, CancellationToken cancellationToken) =>
             await _context.InvestorStatements

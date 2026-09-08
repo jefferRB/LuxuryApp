@@ -66,6 +66,7 @@ namespace LuxuryApp.Services.PublicPages
                     HeroSubtitle = page.HeroSubtitle,
                     HeroEyebrow = page.HeroEyebrow,
                     Description = page.Description,
+                    AccentColorHex = page.AccentColorHex,
                     Phone = page.Phone,
                     WhatsAppPhone = page.WhatsAppPhone,
                     Email = page.Email,
@@ -170,6 +171,7 @@ namespace LuxuryApp.Services.PublicPages
                 Description = description,
                 LogoImage = logo,
                 CoverImage = cover,
+                Theme = PublicBrandTheme.Resolve(match.AccentColorHex),
                 Phone = NormalizeForDisplay(match.Phone),
                 WhatsAppPhone = NormalizeForDisplay(match.WhatsAppPhone),
                 WhatsAppUrl = whatsAppUrl,
@@ -408,6 +410,7 @@ namespace LuxuryApp.Services.PublicPages
             public string? HeroSubtitle { get; init; }
             public string? HeroEyebrow { get; init; }
             public string? Description { get; init; }
+            public string? AccentColorHex { get; init; }
             public string? Phone { get; init; }
             public string? WhatsAppPhone { get; init; }
             public string? Email { get; init; }

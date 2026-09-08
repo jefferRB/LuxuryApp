@@ -1,3 +1,5 @@
+using LuxuryApp.Services.Identity;
+using LuxuryApp.Models.Asociados;
 using System.Globalization;
 using System.Security.Claims;
 using LuxuryApp.Models.Calendar;
@@ -8,13 +10,15 @@ using LuxuryApp.Services.Comprobantes;
 using LuxuryApp.Services.Finanzas;
 using LuxuryApp.Services.Fiscal;
 using LuxuryApp.Services.Horarios;
+using LuxuryApp.Services.Reservas;
 using LuxuryApp.Services.WhatsApp;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LuxuryApp.Controllers.Calendar
 {
-    [Authorize(Roles = "Administrador")]
+    [Authorize]
+    [RequirePermission(AppPermissions.CalendarView)]
     public class CalendarController : Controller
     {
         private const string TenantWhatsAppEnabledViewDataKey = "TenantWhatsAppEnabled";
@@ -27,6 +31,9 @@ namespace LuxuryApp.Controllers.Calendar
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ICobroFiscalPreviewService _cobroFiscalPreviewService;
         private readonly IFuncionarioAvailabilityService _availabilityService;
+        private readonly IBookingRequestService _bookingRequestService;
+        private readonly IAuthorizationService _authorizationService;
+        private readonly IAppointmentCancellationWhatsAppService _cancellationNotificationService;
 
         public CalendarController(
             ICalendarCommandService calendarCommandService,
@@ -37,7 +44,10 @@ namespace LuxuryApp.Controllers.Calendar
             ITenantWhatsAppFeatureService tenantWhatsAppFeatureService,
             IBusinessDateTimeProvider businessDateTimeProvider,
             ICobroFiscalPreviewService cobroFiscalPreviewService,
-            IFuncionarioAvailabilityService availabilityService)
+            IFuncionarioAvailabilityService availabilityService,
+            IBookingRequestService bookingRequestService,
+            IAuthorizationService authorizationService,
+            IAppointmentCancellationWhatsAppService cancellationNotificationService)
         {
             _calendarCommandService = calendarCommandService;
             _calendarQueryService = calendarQueryService;
@@ -48,6 +58,9 @@ namespace LuxuryApp.Controllers.Calendar
             _businessDateTimeProvider = businessDateTimeProvider;
             _cobroFiscalPreviewService = cobroFiscalPreviewService;
             _availabilityService = availabilityService;
+            _bookingRequestService = bookingRequestService;
+            _authorizationService = authorizationService;
+            _cancellationNotificationService = cancellationNotificationService;
         }
 
         public async Task<IActionResult> Index(CancellationToken cancellationToken)
@@ -73,12 +86,20 @@ namespace LuxuryApp.Controllers.Calendar
                 stats = new CalendarHeaderStatsResponse { CitasHoy = citasHoy };
             }
 
+            // Los botones Confirmar/Rechazar de un bloque pendiente sólo se pintan si el usuario
+            // realmente puede administrarlas. Esconderlos no es la seguridad: los endpoints exigen
+            // el mismo permiso y devuelven 403 aunque se llamen a mano.
+            var puedeGestionarReservas = (await _authorizationService.AuthorizeAsync(
+                User,
+                AppAuthorizationPolicies.ForPermission(AppPermissions.ReservationsManage))).Succeeded;
+
             return View(new CalendarIndexViewModel
             {
                 HasWhatsAppAddon = hasAddon,
                 TenantWhatsAppEnabled = whatsAppEnabled,
                 Stats = stats,
-                BusinessTodayIso = _businessDateTimeProvider.Today().ToString("yyyy-MM-dd")
+                BusinessTodayIso = _businessDateTimeProvider.Today().ToString("yyyy-MM-dd"),
+                PuedeGestionarReservas = puedeGestionarReservas
             });
         }
 
@@ -136,6 +157,7 @@ namespace LuxuryApp.Controllers.Calendar
         }
 
         [HttpPost("Calendar/CobrarCita")]
+        [RequirePermission(AppPermissions.CalendarManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> CobrarCita(
             int citaId,
@@ -252,6 +274,7 @@ namespace LuxuryApp.Controllers.Calendar
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.CalendarManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create([FromBody] CitaCreateVM vm, CancellationToken cancellationToken)
         {
@@ -327,6 +350,100 @@ namespace LuxuryApp.Controllers.Calendar
                     esExcepcion = bloqueo.EsExcepcion,
                     origen = "BLOQUEO_RECURRENTE"
                 }));
+        }
+
+        /// <summary>
+        /// Solicitudes de reserva online PENDIENTES del día. Igual que los bloqueos recurrentes,
+        /// viajan aparte de las citas: son un read model propio y nunca se materializan como
+        /// citas falsas. Se piden con el mismo permiso con el que se ve el calendario, porque
+        /// ocupan la agenda que esa persona ya está viendo.
+        /// </summary>
+        [HttpGet("Calendar/GetSolicitudesPendientes")]
+        public async Task<IActionResult> GetSolicitudesPendientes(string date, CancellationToken cancellationToken)
+        {
+            if (!TryParseLocalDate(date, out var parsedDate))
+            {
+                return BadRequest("La fecha solicitada no es valida.");
+            }
+
+            var solicitudes = await _bookingRequestService.GetPendingForCalendarAsync(
+                DateOnly.FromDateTime(parsedDate),
+                cancellationToken);
+
+            return Ok(solicitudes.Select(solicitud => new
+            {
+                id = solicitud.Id,
+                funcionarioId = solicitud.FuncionarioId,
+                funcionarioNombre = solicitud.FuncionarioNombre,
+                nombreCliente = solicitud.NombreCliente,
+                telefonoCliente = solicitud.TelefonoCliente,
+                servicioNombre = solicitud.ServicioNombre,
+                inicio = solicitud.FechaHoraInicio.ToString("yyyy-MM-ddTHH:mm:ss"),
+                duracionMinutos = solicitud.DuracionMinutos,
+                solicitoCualquierFuncionario = solicitud.SolicitoCualquierFuncionario,
+                aceptaWhatsApp = solicitud.AceptaWhatsApp,
+                notasCliente = solicitud.NotasCliente,
+                origen = "SOLICITUD_PENDIENTE"
+            }));
+        }
+
+        /// <summary>
+        /// Confirma una solicitud desde el calendario. NO reimplementa nada: delega en el mismo
+        /// servicio de aplicación que usa la pantalla "Solicitudes de reserva", así que revalida
+        /// disponibilidad, hace la transición Pending → Confirmed, crea la cita, envía el
+        /// WhatsApp y deja los mismos rastros.
+        /// </summary>
+        [HttpPost("Calendar/ConfirmarSolicitud")]
+        [RequirePermission(AppPermissions.ReservationsManage)]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ConfirmarSolicitud(int id, CancellationToken cancellationToken)
+        {
+            if (id <= 0)
+            {
+                return BadRequest(new { success = false, message = "Solicitud invalida." });
+            }
+
+            var result = await _bookingRequestService.ConfirmAsync(
+                id,
+                funcionarioIdOverride: null,
+                ResolveCurrentUserId(),
+                cancellationToken);
+
+            if (result.Success)
+            {
+                return Ok(new
+                {
+                    success = true,
+                    message = result.Message,
+                    citaId = result.CitaId,
+                    whatsAppStatus = result.WhatsAppStatus
+                });
+            }
+
+            // 409: la solicitud ya se procesó en otra pestaña o el espacio dejó de estar libre.
+            // El calendario refresca y muestra el estado real en vez de insistir.
+            return Conflict(new { success = false, message = result.Message });
+        }
+
+        [HttpPost("Calendar/RechazarSolicitud")]
+        [RequirePermission(AppPermissions.ReservationsManage)]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> RechazarSolicitud(int id, string? motivo, CancellationToken cancellationToken)
+        {
+            if (id <= 0)
+            {
+                return BadRequest(new { success = false, message = "Solicitud invalida." });
+            }
+
+            var result = await _bookingRequestService.RejectAsync(
+                id,
+                motivo,
+                ResolveCurrentUserId(),
+                cancellationToken);
+
+            return result.Success
+                ? Ok(new { success = true, message = result.Message })
+                : Conflict(new { success = false, message = result.Message });
         }
 
         [HttpGet("Calendar/GetById/{id}")]
@@ -414,7 +531,7 @@ namespace LuxuryApp.Controllers.Calendar
 
         [HttpDelete("Calendar/Delete/{id}")]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
+        public async Task<IActionResult> Delete(int id, [FromForm] string? motivo, CancellationToken cancellationToken)
         {
             if (id <= 0)
             {
@@ -423,8 +540,18 @@ namespace LuxuryApp.Controllers.Calendar
 
             try
             {
-                await _calendarCommandService.DeleteAsync(id, cancellationToken);
-                return Ok(new { success = true });
+                // Se consulta ANTES de borrar: después la cita ya no existe. Misma regla que usa el
+                // envío real, así que el aviso al negocio nunca contradice lo que pasó.
+                var aviso = await _cancellationNotificationService.PreviewAsync(id, cancellationToken);
+
+                await _calendarCommandService.DeleteAsync(id, motivo, cancellationToken);
+
+                return Ok(new
+                {
+                    success = true,
+                    whatsAppNotificado = aviso.NotificaraPorWhatsApp,
+                    whatsAppAviso = aviso.MensajeContactoManual
+                });
             }
             catch (InvalidOperationException ex)
             {
@@ -481,6 +608,7 @@ namespace LuxuryApp.Controllers.Calendar
         }
 
         [HttpPost("Calendar/ProcesarVisitas")]
+        [RequirePermission(AppPermissions.CalendarManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> ProcesarVisitas(CancellationToken cancellationToken)
         {

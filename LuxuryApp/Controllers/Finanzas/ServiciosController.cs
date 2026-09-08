@@ -1,3 +1,5 @@
+using LuxuryApp.Services.Identity;
+using LuxuryApp.Models.Asociados;
 using LuxuryApp.Models.Finanzas;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -6,7 +8,8 @@ using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Controllers.Finanzas
 {
-    [Authorize(Roles = "Administrador")]
+    [Authorize]
+    [RequirePermission(AppPermissions.ServicesView)]
     public class ServiciosController : Controller
     {
         private readonly ApplicationDbContext _context;
@@ -25,6 +28,7 @@ namespace LuxuryApp.Controllers.Finanzas
         public Task<IActionResult> Create() => FormServicio();
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ServicesManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> Create(
             [Bind(nameof(Servicio.Id) + "," + nameof(Servicio.Nombre) + "," + nameof(Servicio.Precio) + "," + nameof(Servicio.DuracionMinutos) + "," + nameof(Servicio.AplicaIva) + "," + nameof(Servicio.TarifaIva) + "," + nameof(Servicio.PrecioIncluyeIva))]
@@ -32,6 +36,7 @@ namespace LuxuryApp.Controllers.Finanzas
             Save(servicio);
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ServicesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Save(
             [Bind(nameof(Servicio.Id) + "," + nameof(Servicio.Nombre) + "," + nameof(Servicio.Precio) + "," + nameof(Servicio.DuracionMinutos) + "," + nameof(Servicio.AplicaIva) + "," + nameof(Servicio.TarifaIva) + "," + nameof(Servicio.PrecioIncluyeIva))]
@@ -95,6 +100,7 @@ namespace LuxuryApp.Controllers.Finanzas
         public Task<IActionResult> Edit(int id) => FormServicio(id);
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ServicesManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> Edit(
             int id,
@@ -110,6 +116,7 @@ namespace LuxuryApp.Controllers.Finanzas
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ServicesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> ToggleActivo(int id)
         {
@@ -190,6 +197,7 @@ namespace LuxuryApp.Controllers.Finanzas
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ServicesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Eliminar(int id)
         {

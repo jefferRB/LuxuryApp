@@ -26,6 +26,12 @@ namespace LuxuryApp.Services.WhatsApp
 
         public string ReminderTemplateName { get; set; } = "luxurycloud_recordatorio_cita_3h_v1";
 
+        /// <summary>
+        /// Aviso de cancelacion de citas nacidas de una reserva online. Categoria Utility, mismo
+        /// idioma ("es") que el resto de plantillas.
+        /// </summary>
+        public string CancellationTemplateName { get; set; } = "luxurycloud_cancelacion_cita";
+
         public int ReminderLeadTimeMinutes { get; set; } = 180;
 
         public bool SendConfirmationOnCreate { get; set; } = true;

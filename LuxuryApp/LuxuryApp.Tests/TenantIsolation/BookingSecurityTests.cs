@@ -7,6 +7,8 @@ using LuxuryApp.Models.SaaS;
 using LuxuryApp.Services.Calendar;
 using LuxuryApp.Services.Reservas;
 using LuxuryApp.Tests.Support;
+using LuxuryApp.Models.Asociados;
+using LuxuryApp.Services.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -26,15 +28,17 @@ namespace LuxuryApp.Tests.TenantIsolation
         // ──────────────────────── Autorización público/privado ────────────────────────
 
         [Fact]
-        public void ReservasController_PrivateAdmin_RequiresAdministradorRole()
+        public void ReservasController_PrivateAdmin_RequiresReservationsPermission()
         {
-            var authorize = typeof(ReservasController)
-                .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
-                .OfType<AuthorizeAttribute>()
+            // La puerta ya no es el rol sino el permiso: el administrador lo cumple siempre y un
+            // asociado solo si se lo concedieron. Sin permiso, la URL directa devuelve 403.
+            var permiso = typeof(ReservasController)
+                .GetCustomAttributes(typeof(RequirePermissionAttribute), inherit: true)
+                .OfType<RequirePermissionAttribute>()
                 .FirstOrDefault();
 
-            Assert.NotNull(authorize);
-            Assert.Equal("Administrador", authorize!.Roles);
+            Assert.NotNull(permiso);
+            Assert.Equal(AppPermissions.ReservationsView, permiso!.Permission);
 
             // No debe llevar [AllowAnonymous] en ningún nivel.
             Assert.Empty(typeof(ReservasController)
@@ -263,6 +267,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new ThrowingSettingsService(),
                 new FixedBusinessDateTimeProvider(),
                 new HttpContextAccessor(),
+                new FakeTenantWhatsAppFeatureService { IsEnabled = true },
                 NullLogger<BookingRequestService>.Instance);
 
         private static async Task<Servicio> SeedServicioAsync(ApplicationDbContext context, int duracionMinutos)
@@ -395,7 +400,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             public Task ResizeDurationAsync(int id, int duracionMinutos, CancellationToken cancellationToken = default) =>
                 throw new InvalidOperationException();
 
-            public Task DeleteAsync(int id, CancellationToken cancellationToken = default) =>
+            public Task DeleteAsync(int id, string? motivoCancelacion = null, CancellationToken cancellationToken = default) =>
                 throw new InvalidOperationException();
 
             public Task ProcessVisitsAsync(CancellationToken cancellationToken = default) =>

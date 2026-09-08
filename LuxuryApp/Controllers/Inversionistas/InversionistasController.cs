@@ -1,3 +1,4 @@
+﻿using LuxuryApp.Models.Asociados;
 using System.Security.Claims;
 using LuxuryApp.Models.Inversionistas;
 using LuxuryApp.Services.BusinessTime;
@@ -18,116 +19,56 @@ namespace LuxuryApp.Controllers.Inversionistas
     ///
     /// <para>
     /// El controlador no calcula dinero: todo el cálculo vive en
-    /// <see cref="IInvestorProfitCalculationService"/> y <see cref="IInvestorStatementService"/>.
+    /// <c>IPeriodProfitCalculationService</c> y <see cref="IInvestorStatementService"/>.
     /// </para>
     /// </summary>
-    [Authorize(Roles = AppRoles.Administrador)]
+    [Authorize]
+    [RequirePermission(AppPermissions.AssociatesView)]
     public class InversionistasController : Controller
     {
         private readonly IInvestorService _investorService;
         private readonly IInvestorStatementService _statementService;
+        private readonly IInvestorCycleService _cycleService;
         private readonly IInvestorStatementEmailService _emailService;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
 
         public InversionistasController(
             IInvestorService investorService,
             IInvestorStatementService statementService,
+            IInvestorCycleService cycleService,
             IInvestorStatementEmailService emailService,
             IBusinessDateTimeProvider businessDateTimeProvider)
         {
             _investorService = investorService;
             _statementService = statementService;
+            _cycleService = cycleService;
             _emailService = emailService;
             _businessDateTimeProvider = businessDateTimeProvider;
         }
 
-        // ─────────────── Inversionistas ───────────────
+        // ─────────────── Compatibilidad con las rutas anteriores ───────────────
+        // La gestión de la PERSONA (alta, edición, estado) se mudó a /Asociados: allí conviven su
+        // identidad, su acceso, sus permisos y su participación. Acá queda lo que es propio del
+        // dinero del inversionista: política de cálculo, estados de cuenta, pagos y envíos.
+        // Los enlaces y favoritos viejos siguen funcionando en vez de dar 404.
 
-        public async Task<IActionResult> Index(CancellationToken cancellationToken)
-        {
-            var vm = await _investorService.BuildIndexAsync(cancellationToken);
-            return View(vm);
-        }
+        public IActionResult Index() => RedirectToActionPermanent("Index", "Asociados");
 
         [HttpGet]
-        public async Task<IActionResult> Crear(CancellationToken cancellationToken)
-        {
-            var vm = await _investorService.BuildCreateFormAsync(cancellationToken);
-            return View("Form", vm);
-        }
+        public IActionResult Crear() => RedirectToActionPermanent("Crear", "Asociados");
 
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Crear(InvestorFormViewModel form, CancellationToken cancellationToken)
-        {
-            if (!ModelState.IsValid)
-            {
-                return View("Form", await RehydrateAsync(form, cancellationToken));
-            }
-
-            try
-            {
-                await _investorService.CreateAsync(form, CurrentUserId(), cancellationToken);
-                TempData["Mensaje"] = "Inversionista registrado correctamente.";
-                return RedirectToAction(nameof(Index));
-            }
-            catch (InvestorValidationException ex)
-            {
-                ModelState.AddModelError(ex.ModelStateKey ?? string.Empty, ex.Message);
-            }
-
-            return View("Form", await RehydrateAsync(form, cancellationToken));
-        }
-
+        /// <summary>
+        /// Editar un inversionista ahora es editar a su asociado. Si el perfil todavía no está
+        /// enlazado (dato anterior a la migración), se cae al listado en vez de romper.
+        /// </summary>
         [HttpGet]
         public async Task<IActionResult> Editar(int id, CancellationToken cancellationToken)
         {
-            var vm = await _investorService.BuildEditFormAsync(id, cancellationToken);
-            return vm is null ? NotFound() : View("Form", vm);
-        }
+            var associateId = await _investorService.GetAssociateIdAsync(id, cancellationToken);
 
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Editar(int id, InvestorFormViewModel form, CancellationToken cancellationToken)
-        {
-            form.Id = id;
-
-            if (!ModelState.IsValid)
-            {
-                return View("Form", await RehydrateAsync(form, cancellationToken));
-            }
-
-            try
-            {
-                await _investorService.UpdateAsync(id, form, CurrentUserId(), cancellationToken);
-                TempData["Mensaje"] = "Inversionista actualizado correctamente.";
-                return RedirectToAction(nameof(Index));
-            }
-            catch (InvestorValidationException ex)
-            {
-                ModelState.AddModelError(ex.ModelStateKey ?? string.Empty, ex.Message);
-            }
-
-            return View("Form", await RehydrateAsync(form, cancellationToken));
-        }
-
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> CambiarEstado(int id, bool activo, CancellationToken cancellationToken)
-        {
-            try
-            {
-                await _investorService.SetActivoAsync(id, activo, CurrentUserId(), cancellationToken);
-                TempData["Mensaje"] = activo
-                    ? "El inversionista quedó activo."
-                    : "El inversionista quedó inactivo.";
-            }
-            catch (InvestorValidationException ex)
-            {
-                TempData["Error"] = ex.Message;
-            }
-
-            return RedirectToAction(nameof(Index));
+            return associateId.HasValue
+                ? RedirectToActionPermanent("Detalle", "Asociados", new { id = associateId.Value })
+                : RedirectToActionPermanent("Index", "Asociados");
         }
 
         // ─────────────── Política de cálculo ───────────────
@@ -140,6 +81,7 @@ namespace LuxuryApp.Controllers.Inversionistas
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.AssociatesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Politica(InvestorPolicyViewModel form, CancellationToken cancellationToken)
         {
@@ -177,6 +119,23 @@ namespace LuxuryApp.Controllers.Inversionistas
             return View(vm);
         }
 
+        /// <summary>
+        /// CICLO EN CURSO: el período abierto, calculado hasta hoy. No es un corte y no genera
+        /// nada; es el flujo principal para responder "¿cuánto lleva acumulado?".
+        /// </summary>
+        [HttpGet]
+        public async Task<IActionResult> CicloActual(int id, CancellationToken cancellationToken)
+        {
+            // El resumen trae el ciclo Y el último corte emitido: así la pantalla puede ofrecer
+            // "Ver último corte" e "Historial" sin que el usuario escriba ninguna fecha.
+            var resumen = await _cycleService.BuildSummaryAsync(id, cancellationToken);
+            return resumen is null ? NotFound() : View(resumen);
+        }
+
+        /// <summary>
+        /// Consulta avanzada: recalcula CUALQUIER período a partir de una fecha. Se conserva para
+        /// revisar historia o generar un corte viejo a mano, pero ya no es el flujo principal.
+        /// </summary>
         [HttpGet]
         public async Task<IActionResult> VistaPrevia(int id, DateTime? referencia, CancellationToken cancellationToken)
         {
@@ -197,6 +156,7 @@ namespace LuxuryApp.Controllers.Inversionistas
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.AssociatesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Generar(int id, DateTime referencia, CancellationToken cancellationToken)
         {
@@ -226,6 +186,7 @@ namespace LuxuryApp.Controllers.Inversionistas
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.AssociatesManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> Recalcular(int id, CancellationToken cancellationToken) =>
             ExecuteAsync(
@@ -234,6 +195,7 @@ namespace LuxuryApp.Controllers.Inversionistas
                 id);
 
         [HttpPost]
+        [RequirePermission(AppPermissions.AssociatesManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> Finalizar(int id, CancellationToken cancellationToken) =>
             ExecuteAsync(
@@ -242,6 +204,7 @@ namespace LuxuryApp.Controllers.Inversionistas
                 id);
 
         [HttpPost]
+        [RequirePermission(AppPermissions.AssociatesManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> Anular(int id, string motivo, CancellationToken cancellationToken) =>
             ExecuteAsync(
@@ -250,6 +213,7 @@ namespace LuxuryApp.Controllers.Inversionistas
                 id);
 
         [HttpPost]
+        [RequirePermission(AppPermissions.AssociatesManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> Reabrir(int id, string motivo, CancellationToken cancellationToken) =>
             ExecuteAsync(
@@ -260,6 +224,7 @@ namespace LuxuryApp.Controllers.Inversionistas
         // ─────────────── Ajustes ───────────────
 
         [HttpPost]
+        [RequirePermission(AppPermissions.AssociatesManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> AgregarAjuste(
             InvestorAdjustmentFormViewModel form,
@@ -270,6 +235,7 @@ namespace LuxuryApp.Controllers.Inversionistas
                 form.StatementId);
 
         [HttpPost]
+        [RequirePermission(AppPermissions.AssociatesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> QuitarAjuste(int id, int statementId, CancellationToken cancellationToken)
         {
@@ -289,6 +255,7 @@ namespace LuxuryApp.Controllers.Inversionistas
         // ─────────────── Pagos ───────────────
 
         [HttpPost]
+        [RequirePermission(AppPermissions.AssociatesManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> RegistrarPago(
             InvestorPaymentFormViewModel form,
@@ -299,6 +266,7 @@ namespace LuxuryApp.Controllers.Inversionistas
                 form.StatementId);
 
         [HttpPost]
+        [RequirePermission(AppPermissions.AssociatesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> RevertirPago(
             int id,
@@ -328,16 +296,19 @@ namespace LuxuryApp.Controllers.Inversionistas
         // ─────────────── Envíos y PDF ───────────────
 
         [HttpPost]
+        [RequirePermission(AppPermissions.AssociatesManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> Enviar(int id, CancellationToken cancellationToken) =>
             SendAsync(() => _emailService.SendAsync(id, CurrentUserId(), cancellationToken), id);
 
         [HttpPost]
+        [RequirePermission(AppPermissions.AssociatesManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> Reenviar(int id, CancellationToken cancellationToken) =>
             SendAsync(() => _emailService.ResendAsync(id, CurrentUserId(), cancellationToken), id);
 
         [HttpPost]
+        [RequirePermission(AppPermissions.AssociatesManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> EnviarPrueba(int id, string correo, CancellationToken cancellationToken) =>
             SendAsync(() => _emailService.SendTestAsync(id, correo, CurrentUserId(), cancellationToken), id);
@@ -387,26 +358,6 @@ namespace LuxuryApp.Controllers.Inversionistas
             }
 
             return RedirectToAction(nameof(Estado), new { id = statementId });
-        }
-
-        private async Task<InvestorFormViewModel> RehydrateAsync(
-            InvestorFormViewModel form,
-            CancellationToken cancellationToken)
-        {
-            // Se conserva lo que el usuario escribió y solo se recargan los datos de contexto
-            // (participación de otros, próximo inicio de periodo) para que la ayuda siga siendo real.
-            var contexto = form.Id.HasValue
-                ? await _investorService.BuildEditFormAsync(form.Id.Value, cancellationToken)
-                : await _investorService.BuildCreateFormAsync(cancellationToken);
-
-            if (contexto is not null)
-            {
-                form.ParticipacionOtros = contexto.ParticipacionOtros;
-                form.PorcentajeVigenteActual = contexto.PorcentajeVigenteActual;
-                form.ProximoInicioPeriodo = contexto.ProximoInicioPeriodo;
-            }
-
-            return form;
         }
 
         private string? CurrentUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier);

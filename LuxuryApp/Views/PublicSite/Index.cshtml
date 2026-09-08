@@ -26,6 +26,27 @@
     var hasWhatsApp = !string.IsNullOrWhiteSpace(whatsAppUrl);
 }
 
+@* Tokens de marca del tenant. Los valores salen de PublicBrandTheme (HEX ya validado y
+   derivados calculados), nunca de texto libre de base de datos. Sin color configurado no se
+   emite nada y la landing queda identica a antes. *@
+@section Styles {
+    @if (Model.Theme.IsCustom)
+    {
+        <style>
+            :root {
+                --brand-accent: @Model.Theme.Accent;
+                --brand-accent-hover: @Model.Theme.AccentHover;
+                --brand-on-accent: @Model.Theme.OnAccent;
+                --tpp-accent: @Model.Theme.Accent;
+                --tpp-accent-dark: @Model.Theme.AccentHover;
+                --tpp-accent-ink: @Model.Theme.AccentInk;
+                --tpp-accent-soft: @Model.Theme.AccentSoft;
+                --tpp-accent-rgb: @Model.Theme.AccentRgb;
+            }
+        </style>
+    }
+}
+
 <div class="tpp-page" id="inicio">
     <header class="tpp-site-nav" aria-label="Navegacion principal">
         <div class="tpp-nav-shell">

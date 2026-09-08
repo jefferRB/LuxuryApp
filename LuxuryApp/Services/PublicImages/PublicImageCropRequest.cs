@@ -41,10 +41,13 @@ namespace LuxuryApp.Services.PublicImages
             CropWidth.HasValue &&
             CropHeight.HasValue;
 
-        /// <summary>Parsea <see cref="FitMode"/> de forma tolerante; default Cover.</summary>
-        public PublicImageFitMode ResolveFitMode() =>
+        /// <summary>
+        /// Parsea <see cref="FitMode"/> de forma tolerante. Si no viene o no se reconoce, decide
+        /// el perfil del uso (<see cref="PublicImageProfile.DefaultFitMode"/>), no esta clase.
+        /// </summary>
+        public PublicImageFitMode ResolveFitMode(PublicImageFitMode fallback) =>
             Enum.TryParse<PublicImageFitMode>(FitMode, ignoreCase: true, out var mode)
                 ? mode
-                : PublicImageFitMode.Cover;
+                : fallback;
     }
 }

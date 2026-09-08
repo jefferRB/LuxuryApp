@@ -243,7 +243,7 @@
                                 @if (cobro.EsServicio)
                                 {
                                     <span class="badge"
-                                          style="background:rgba(37,99,235,0.15);color:var(--private-chart-accent);border:1px solid rgba(37,99,235,0.25);font-size:.68rem;font-weight:700;letter-spacing:.04em;padding:.2rem .55rem;border-radius:999px;">
+                                          style="background:rgba(var(--private-accent-rgb), 0.15);color:var(--private-chart-accent);border:1px solid rgba(var(--private-accent-rgb), 0.25);font-size:.68rem;font-weight:700;letter-spacing:.04em;padding:.2rem .55rem;border-radius:999px;">
                                         Servicio
                                     </span>
                                 }
@@ -366,7 +366,7 @@
                             <span class="finance-mobile-card-row-value">
                                 @if (cobro.EsServicio)
                                 {
-                                    <span style="font-size:.65rem;background:rgba(37,99,235,.14);color:var(--private-chart-accent);border:1px solid rgba(37,99,235,.22);padding:.1rem .4rem;border-radius:999px;font-weight:700;">S</span>
+                                    <span style="font-size:.65rem;background:rgba(var(--private-accent-rgb), .14);color:var(--private-chart-accent);border:1px solid rgba(var(--private-accent-rgb), .22);padding:.1rem .4rem;border-radius:999px;font-weight:700;">S</span>
                                 }
                                 else
                                 {
@@ -565,9 +565,9 @@
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header"
-                 style="background:linear-gradient(135deg,rgba(37,99,235,0.08),rgba(124,58,237,0.08));border-bottom:1px solid var(--private-surface-border,rgba(15,23,42,0.1));">
+                 style="background:linear-gradient(135deg,rgba(var(--private-accent-rgb), 0.08),rgba(var(--private-accent-alt-rgb), 0.08));border-bottom:1px solid var(--private-surface-border,rgba(15,23,42,0.1));">
                 <div style="display:flex;align-items:center;gap:0.65rem;">
-                    <div style="flex-shrink:0;display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.65rem;background:linear-gradient(135deg,rgba(37,99,235,0.18),rgba(124,58,237,0.18));font-size:1.05rem;color:var(--private-chart-accent,#2563eb);">
+                    <div style="flex-shrink:0;display:flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;border-radius:0.65rem;background:linear-gradient(135deg,rgba(var(--private-accent-rgb), 0.18),rgba(var(--private-accent-alt-rgb), 0.18));font-size:1.05rem;color:var(--private-chart-accent,var(--private-accent));">
                         <i class="bi bi-scissors"></i>
                     </div>
                     <div>

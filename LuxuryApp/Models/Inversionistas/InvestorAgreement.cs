@@ -48,6 +48,31 @@ namespace LuxuryApp.Models.Inversionistas
         [Display(Name = "Frecuencia")]
         public InvestorPayoutFrequency Frecuencia { get; set; } = InvestorPayoutFrequency.Mensual;
 
+        /// <summary>
+        /// Día del mes en que cierra el periodo, para acuerdos mensuales. Con corte el 20, los
+        /// periodos van del 21 del mes anterior al 20 del mes actual, y el propio día 20 pertenece
+        /// al periodo que cierra.
+        ///
+        /// <para>
+        /// <c>null</c> = mes calendario (1 → último día). Es el valor de todos los acuerdos
+        /// anteriores a esta función, y por eso conservan exactamente su comportamiento.
+        /// </para>
+        ///
+        /// <para>
+        /// Si el mes no tiene ese día (corte 31 en febrero) se usa el último día real del mes.
+        /// La regla vive en <see cref="InvestorSettlementPeriodResolver"/> y en ningún otro lado.
+        /// </para>
+        ///
+        /// <para>
+        /// Vive acá y no en <c>Associate</c> a propósito: cambiar el corte cierra la versión
+        /// vigente y crea una nueva, así los estados de cuenta ya emitidos siguen explicando con
+        /// qué corte se calcularon.
+        /// </para>
+        /// </summary>
+        [Range(1, 31, ErrorMessage = "El día de corte debe estar entre 1 y 31.")]
+        [Display(Name = "Día de corte")]
+        public int? DiaCorte { get; set; }
+
         [Display(Name = "Tratamiento de pérdidas")]
         public InvestorLossTreatment TratamientoPerdidas { get; set; } = InvestorLossTreatment.NoDistribution;
 

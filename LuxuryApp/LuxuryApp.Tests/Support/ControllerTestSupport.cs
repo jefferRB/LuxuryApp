@@ -4,6 +4,7 @@ using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Services;
 using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Calendar;
+using LuxuryApp.Services.WhatsApp;
 using LuxuryApp.Services.Comprobantes;
 using LuxuryApp.Services.Finanzas;
 using LuxuryApp.Services.Funcionarios;
@@ -84,8 +85,33 @@ namespace LuxuryApp.Tests.Support
                 new LuxuryApp.Services.Fiscal.TenantFiscalConfigService(context, tenantProvider),
                 new LuxuryApp.Services.Fiscal.TaxCalculationService());
 
-        public static IDashboardFinancieroQueryService CreateDashboardFinancieroQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
-            new DashboardFinancieroQueryService(context, BusinessDateTimeProvider);
+        /// <summary>
+        /// Dashboard con el MOTOR REAL de ganancia (nada de dobles donde hay dinero): si la
+        /// fórmula cambia, estos tests lo detectan igual que los del inversionista.
+        /// </summary>
+        public static IDashboardFinancieroQueryService CreateDashboardFinancieroQueryService(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            ITenantProvider tenantProvider) =>
+            new DashboardFinancieroQueryService(
+                context,
+                BusinessDateTimeProvider,
+                CreatePeriodProfitCalculationService(context, tenantProvider),
+                CreateInvestorService(context));
+
+        public static LuxuryApp.Services.Finanzas.IPeriodProfitCalculationService CreatePeriodProfitCalculationService(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            ITenantProvider tenantProvider) =>
+            new LuxuryApp.Services.Finanzas.PeriodProfitCalculationService(
+                context,
+                CreateLiquidacionSemanalService(context, tenantProvider));
+
+        public static LuxuryApp.Services.Inversionistas.IInvestorService CreateInvestorService(
+            ProyectoIdentity.Datos.ApplicationDbContext context) =>
+            new LuxuryApp.Services.Inversionistas.InvestorService(
+                context,
+                BusinessDateTimeProvider,
+                new FakePlatformAuditService(),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<LuxuryApp.Services.Inversionistas.InvestorService>.Instance);
 
         public static IEgresoService CreateEgresoService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
             new EgresoService(
@@ -101,10 +127,12 @@ namespace LuxuryApp.Tests.Support
 
         public static ICalendarCommandService CreateCalendarCommandService(
             ProyectoIdentity.Datos.ApplicationDbContext context,
-            ICalendarWhatsAppNotificationService? notificationService = null) =>
+            ICalendarWhatsAppNotificationService? notificationService = null,
+            IAppointmentCancellationWhatsAppService? cancellationNotificationService = null) =>
             new CalendarCommandService(
                 context,
                 notificationService ?? new NoOpCalendarWhatsAppNotificationService(),
+                cancellationNotificationService ?? new NoOpAppointmentCancellationWhatsAppService(),
                 new VisitasAutomaticasService(context, BusinessDateTimeProvider),
                 CreateAvailabilityService(context),
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<CalendarCommandService>.Instance);
@@ -127,8 +155,15 @@ namespace LuxuryApp.Tests.Support
                 catalog ?? new LuxuryApp.Services.Reservas.BookingCatalogService(context),
                 CreateAvailabilityService(context));
 
-        public static ICalendarQueryService CreateCalendarQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
-            new CalendarQueryService(context, BusinessDateTimeProvider);
+        public static ICalendarQueryService CreateCalendarQueryService(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            IAppointmentCancellationWhatsAppService? cancellationNotificationService = null,
+            ITenantWhatsAppFeatureService? whatsAppFeatureService = null) =>
+            new CalendarQueryService(
+                context,
+                BusinessDateTimeProvider,
+                cancellationNotificationService ?? new NoOpAppointmentCancellationWhatsAppService(),
+                whatsAppFeatureService ?? new FakeTenantWhatsAppFeatureService { IsEnabled = true });
 
         public static IProductoService CreateProductoService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
             new ProductoService(
@@ -186,7 +221,7 @@ namespace LuxuryApp.Tests.Support
             new LuxuryApp.Services.Reports.MonthlyBusinessReportService(
                 context,
                 tenantProvider,
-                CreateDashboardFinancieroQueryService(context),
+                CreateDashboardFinancieroQueryService(context, tenantProvider),
                 CreateInformacionNegocioQueryService(context),
                 CreateTenantDisplayNameService(businessName),
                 CreateMonthlyReportRecipientResolver(context),
@@ -312,6 +347,9 @@ namespace LuxuryApp.Tests.Support
 
         public Task SendFuncionarioInvitationEmailAsync(string toEmail, string displayName, string setPasswordLink, string businessName, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
+
+        public Task SendAccessInvitationEmailAsync(string toEmail, string displayName, string setPasswordLink, string businessName, string accessDescription, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 
     internal sealed class NoOpFuncionarioPhotoStorageService : IFuncionarioPhotoStorageService
@@ -332,9 +370,17 @@ namespace LuxuryApp.Tests.Support
 
         public Task SendAppointmentReminderAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
+        /// <summary>
+        /// Resultado que devolverá <see cref="SendConfirmationNowAsync"/>. Permite recorrer la matriz
+        /// complemento/consentimiento sin montar todo el motor de WhatsApp.
+        /// </summary>
+        public LuxuryApp.Services.Calendar.WhatsAppConfirmationSendResult? NextConfirmationResult { get; set; }
+
         public Task<LuxuryApp.Services.Calendar.WhatsAppConfirmationSendResult> SendConfirmationNowAsync(int citaId, string source, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new LuxuryApp.Services.Calendar.WhatsAppConfirmationSendResult(
-                LuxuryApp.Services.Calendar.WhatsAppConfirmationOutcome.Sent, "Confirmación de WhatsApp enviada."));
+            Task.FromResult(NextConfirmationResult ?? new LuxuryApp.Services.Calendar.WhatsAppConfirmationSendResult(
+                LuxuryApp.Services.Calendar.WhatsAppConfirmationOutcome.Sent,
+                "Confirmación de WhatsApp enviada.",
+                Reason: LuxuryApp.Services.WhatsApp.WhatsAppNotificationReason.Eligible));
 
         public Task QueueAppointmentConfirmationAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
@@ -355,5 +401,26 @@ namespace LuxuryApp.Tests.Support
         public Task RescheduleConfirmationIfPendingAsync(int citaId, DateTime newFechaHoraCita, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task CancelPendingNotificationsAsync(int citaId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Cancelar una cita no manda WhatsApp en los tests que no van de eso.
+    /// </summary>
+    internal sealed class NoOpAppointmentCancellationWhatsAppService : IAppointmentCancellationWhatsAppService
+    {
+        public Task<PreparedAppointmentCancellation?> PrepareAsync(
+            int citaId,
+            string? motivoCancelacion,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<PreparedAppointmentCancellation?>(null);
+
+        public Task SendAsync(
+            PreparedAppointmentCancellation prepared,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<AppointmentCancellationNoticePreview> PreviewAsync(
+            int citaId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(AppointmentCancellationNoticePreview.NoAplica);
     }
 }

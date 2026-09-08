@@ -1,6 +1,7 @@
-﻿using System.Linq.Expressions;
+using System.Linq.Expressions;
 using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.Common;
+using LuxuryApp.Models.Asociados;
 using LuxuryApp.Models.Comprobantes;
 using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.Finanzas;
@@ -263,6 +264,28 @@ namespace ProyectoIdentity.Datos
                     .WithMany()
                     .HasForeignKey(message => message.CitaId)
                     .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            // Bitacora cross-tenant de la respuesta automatica del numero central. NO es
+            // ITenantEntity a proposito: el mensaje entrante no se atribuye a ningun negocio, asi
+            // que no puede pasar por el filtro global ni por el RLS de WhatsAppMessageLogs.
+            modelBuilder.Entity<WhatsAppInboundAutoReply>(entity =>
+            {
+                entity.Property(reply => reply.InboundMessageId).HasMaxLength(128).IsRequired();
+                entity.Property(reply => reply.SenderPhoneE164).HasMaxLength(32);
+                entity.Property(reply => reply.MessageType).HasMaxLength(40);
+                entity.Property(reply => reply.Status).HasMaxLength(30).IsRequired();
+                entity.Property(reply => reply.ReplyMetaMessageId).HasMaxLength(128);
+                entity.Property(reply => reply.ErrorCode).HasMaxLength(80);
+                entity.Property(reply => reply.ErrorMessage).HasMaxLength(1000);
+
+                // Idempotencia: un reenvio del mismo webhook choca aqui y no vuelve a responder.
+                entity.HasIndex(reply => reply.InboundMessageId)
+                    .IsUnique()
+                    .HasDatabaseName("UX_WhatsAppInboundAutoReplies_InboundMessageId");
+
+                entity.HasIndex(reply => reply.ReceivedAtUtc)
+                    .HasDatabaseName("IX_WhatsAppInboundAutoReplies_ReceivedAtUtc");
             });
 
             modelBuilder.Entity<TenantWhatsAppSettings>(entity =>
@@ -740,6 +763,7 @@ namespace ProyectoIdentity.Datos
                 entity.Property(page => page.Description).HasMaxLength(1500);
                 entity.Property(page => page.LogoUrl).HasMaxLength(400);
                 entity.Property(page => page.CoverImageUrl).HasMaxLength(400);
+                entity.Property(page => page.AccentColorHex).HasMaxLength(7);
                 entity.Property(page => page.Phone).HasMaxLength(30);
                 entity.Property(page => page.WhatsAppPhone).HasMaxLength(30);
                 entity.Property(page => page.Email).HasMaxLength(256);
@@ -878,6 +902,11 @@ namespace ProyectoIdentity.Datos
                 entity.HasIndex(r => new { r.TenantId, r.Estado, r.FechaHoraInicioSolicitada })
                     .HasDatabaseName("IX_BookingRequests_TenantId_Estado_Fecha");
 
+                // Ocupación de agenda por solicitudes Pending: el motor de disponibilidad barre
+                // por tenant + estado + rango de fechas y necesita el funcionario reservado.
+                entity.HasIndex(r => new { r.TenantId, r.Estado, r.FuncionarioAsignadoId, r.FechaHoraInicioSolicitada })
+                    .HasDatabaseName("IX_BookingRequests_TenantId_Estado_Asignado_Fecha");
+
                 // Idempotencia de envíos públicos: un token no puede repetirse por tenant.
                 entity.HasIndex(r => new { r.TenantId, r.PublicSubmissionToken })
                     .IsUnique()
@@ -899,6 +928,13 @@ namespace ProyectoIdentity.Datos
                 entity.HasOne(r => r.Funcionario)
                     .WithMany()
                     .HasForeignKey(r => r.FuncionarioId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                // Recurso concreto que la solicitud Pending reserva en agenda. Es un concepto
+                // distinto del funcionario solicitado por el cliente, por eso es su propia FK.
+                entity.HasOne(r => r.FuncionarioAsignado)
+                    .WithMany()
+                    .HasForeignKey(r => r.FuncionarioAsignadoId)
                     .OnDelete(DeleteBehavior.Restrict);
 
                 entity.HasOne(r => r.Cliente)
@@ -1026,6 +1062,75 @@ namespace ProyectoIdentity.Datos
                     .HasDatabaseName("IX_TenantMonthlyReportEmailLogs_CreatedAt");
             });
 
+            // ─────────────── Asociados del negocio ───────────────
+
+            modelBuilder.Entity<Associate>(entity =>
+            {
+                entity.Property(associate => associate.Nombre).HasMaxLength(150).IsRequired();
+                entity.Property(associate => associate.Email).HasMaxLength(256);
+                entity.Property(associate => associate.Telefono).HasMaxLength(30);
+                entity.Property(associate => associate.Puesto).HasMaxLength(120);
+                entity.Property(associate => associate.NotasInternas).HasMaxLength(1000);
+                entity.Property(associate => associate.AppUsuarioId).HasMaxLength(450);
+                entity.Property(associate => associate.CreatedByUserId).HasMaxLength(450);
+                entity.Property(associate => associate.UpdatedByUserId).HasMaxLength(450);
+                entity.Property(associate => associate.Activo).HasDefaultValue(true);
+
+                entity.HasIndex(associate => new { associate.TenantId, associate.Activo })
+                    .HasDatabaseName("IX_Associates_TenantId_Activo");
+
+                entity.HasIndex(associate => new { associate.TenantId, associate.Nombre })
+                    .HasDatabaseName("IX_Associates_TenantId_Nombre");
+
+                // Un correo no se repite dentro del mismo negocio (evita asociados duplicados).
+                // Filtrado porque el correo es opcional: un asociado sin acceso puede no tenerlo.
+                entity.HasIndex(associate => new { associate.TenantId, associate.Email })
+                    .IsUnique()
+                    .HasFilter("[Email] IS NOT NULL")
+                    .HasDatabaseName("UX_Associates_TenantId_Email");
+
+                // Una cuenta Identity pertenece a un solo asociado, igual que en Funcionarios.
+                // La integridad con AppUsuario se valida en código (AppUsuario no es ITenantEntity).
+                entity.HasIndex(associate => associate.AppUsuarioId)
+                    .IsUnique()
+                    .HasFilter("[AppUsuarioId] IS NOT NULL")
+                    .HasDatabaseName("UX_Associates_AppUsuarioId");
+
+                entity.HasOne<AppUsuario>()
+                    .WithMany()
+                    .HasForeignKey(associate => associate.AppUsuarioId)
+                    .HasPrincipalKey(user => user.Id)
+                    .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<AssociateTypeAssignment>(entity =>
+            {
+                entity.HasOne(assignment => assignment.Associate)
+                    .WithMany(associate => associate.Tipos)
+                    .HasForeignKey(assignment => assignment.AssociateId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                // Un asociado no puede tener el mismo tipo dos veces.
+                entity.HasIndex(assignment => new { assignment.TenantId, assignment.AssociateId, assignment.Tipo })
+                    .IsUnique()
+                    .HasDatabaseName("UX_AssociateTypes_Associate_Tipo");
+            });
+
+            modelBuilder.Entity<AssociatePermission>(entity =>
+            {
+                entity.Property(permission => permission.Permiso).HasMaxLength(80).IsRequired();
+
+                entity.HasOne(permission => permission.Associate)
+                    .WithMany(associate => associate.Permisos)
+                    .HasForeignKey(permission => permission.AssociateId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                // Una sola fila por permiso y asociado: la concesión es idempotente.
+                entity.HasIndex(permission => new { permission.TenantId, permission.AssociateId, permission.Permiso })
+                    .IsUnique()
+                    .HasDatabaseName("UX_AssociatePermissions_Associate_Permiso");
+            });
+
             // ─────────────── Inversionistas y distribución de ganancias ───────────────
 
             modelBuilder.Entity<TenantInvestor>(entity =>
@@ -1045,6 +1150,18 @@ namespace ProyectoIdentity.Datos
                 entity.HasIndex(investor => new { investor.TenantId, investor.Email })
                     .IsUnique()
                     .HasDatabaseName("UX_TenantInvestors_TenantId_Email");
+
+                // Un asociado tiene a lo sumo UN perfil de inversionista. Filtrado porque las
+                // filas anteriores al módulo de Asociados podrían quedar sin enlazar.
+                entity.HasOne(investor => investor.Associate)
+                    .WithOne(associate => associate.PerfilInversionista)
+                    .HasForeignKey<TenantInvestor>(investor => investor.AssociateId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasIndex(investor => investor.AssociateId)
+                    .IsUnique()
+                    .HasFilter("[AssociateId] IS NOT NULL")
+                    .HasDatabaseName("UX_TenantInvestors_AssociateId");
             });
 
             modelBuilder.Entity<InvestorAgreement>(entity =>
@@ -1069,6 +1186,13 @@ namespace ProyectoIdentity.Datos
 
                 entity.HasIndex(agreement => new { agreement.TenantId, agreement.Activo, agreement.EffectiveFrom })
                     .HasDatabaseName("IX_InvestorAgreements_TenantId_Activo_EffectiveFrom");
+
+                // Día de corte: 1–31 o NULL (mes calendario). La restricción vive en la base para
+                // que ni una migración de datos ni un script suelto puedan dejar un 0 o un 45, que
+                // haría impredecible el cálculo de periodos.
+                entity.ToTable(table => table.HasCheckConstraint(
+                    "CK_InvestorAgreements_DiaCorte",
+                    "[DiaCorte] IS NULL OR ([DiaCorte] >= 1 AND [DiaCorte] <= 31)"));
             });
 
             modelBuilder.Entity<InvestorProfitPolicy>(entity =>
@@ -1920,6 +2044,7 @@ namespace ProyectoIdentity.Datos
         public DbSet<Cita> Citas { get; set; }
         public DbSet<WhatsAppMessageLog> WhatsAppMessageLogs { get; set; }
         public DbSet<TenantWhatsAppSettings> TenantWhatsAppSettings { get; set; }
+        public DbSet<WhatsAppInboundAutoReply> WhatsAppInboundAutoReplies { get; set; }
         //Finanzas
         public DbSet<Cobro> Cobros { get; set; }
         public DbSet<Servicio> Servicios { get; set; }
@@ -1971,6 +2096,11 @@ namespace ProyectoIdentity.Datos
         //Resumen Ejecutivo Mensual (LuxuryCloud Insights)
         public DbSet<TenantMonthlyReportSettings> TenantMonthlyReportSettings { get; set; }
         public DbSet<TenantMonthlyReportEmailLog> TenantMonthlyReportEmailLogs { get; set; }
+
+        // Asociados del negocio (inversionistas, socios, marketing, contabilidad…)
+        public DbSet<Associate> Associates { get; set; }
+        public DbSet<AssociateTypeAssignment> AssociateTypes { get; set; }
+        public DbSet<AssociatePermission> AssociatePermissions { get; set; }
 
         // Inversionistas y distribución de ganancias
         public DbSet<TenantInvestor> TenantInvestors { get; set; }

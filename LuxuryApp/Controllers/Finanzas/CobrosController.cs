@@ -1,3 +1,5 @@
+using LuxuryApp.Services.Identity;
+using LuxuryApp.Models.Asociados;
 using ClosedXML.Excel;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Services.BusinessTime;
@@ -11,7 +13,8 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace LuxuryApp.Controllers.Finanzas
 {
-    [Authorize(Roles = "Administrador")]
+    [Authorize]
+    [RequirePermission(AppPermissions.IncomeView)]
     public class CobrosController : Controller
     {
         private readonly ICobroService _cobroService;
@@ -47,6 +50,7 @@ namespace LuxuryApp.Controllers.Finanzas
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.IncomeManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(CobroViewModel vm)
         {
@@ -122,6 +126,7 @@ namespace LuxuryApp.Controllers.Finanzas
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.IncomeManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(int id, CobroViewModel vm)
         {
@@ -162,6 +167,7 @@ namespace LuxuryApp.Controllers.Finanzas
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.IncomeManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Delete(int id)
         {
@@ -185,6 +191,7 @@ namespace LuxuryApp.Controllers.Finanzas
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.IncomeManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> ReenviarComprobante(int comprobanteId, CancellationToken cancellationToken)
         {

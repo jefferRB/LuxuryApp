@@ -115,7 +115,20 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy(
         AppAuthorizationPolicies.RequireFuncionario,
         policy => policy.RequireRole(AppRoles.Funcionario));
+
+    options.AddPolicy(
+        AppAuthorizationPolicies.RequireAsociado,
+        policy => policy.RequireRole(AppRoles.Asociado));
 });
+
+// Autorización por permisos (módulo de Asociados). El proveedor arma al vuelo una política por
+// cada clave del catálogo; el handler resuelve Administrador/superadmin => acceso total y
+// Asociado => permisos leídos de base de datos en cada request (cacheados por request), para que
+// quitar un permiso surta efecto sin obligar a cerrar sesión.
+builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider,
+    PermissionPolicyProvider>();
+builder.Services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHandler,
+    PermissionAuthorizationHandler>();
 
 builder.Services.AddScoped<TenantSessionSecurityValidator>();
 builder.Services.AddScoped<LegacyUserStateRepairService>();
@@ -200,6 +213,54 @@ builder.Services.AddRateLimiter(options =>
     options.AddPolicy("PublicBooking", httpContext =>
         FixedWindow(httpContext, "public-booking", 60, TimeSpan.FromMinutes(1)));
 
+    // Consultas de disponibilidad del enlace público (/disponibilidad y /proximos): son de solo
+    // lectura, pero cada una cuesta un barrido de agenda, así que llevan su propia cuota. Se
+    // particiona por IP + negocio público (slug), de modo que el tráfico de un tenant no consuma
+    // la cuota de otro. Un cliente real hace unas pocas consultas por minuto; 40 no le estorba.
+    options.AddPolicy("PublicBookingAvailability", httpContext =>
+    {
+        // El slug entra por la URL: se acota el largo para que la clave de partición no la fije
+        // el atacante. Un slug inexistente igual muere en el 404 del controlador.
+        var slug = httpContext.Request.RouteValues.TryGetValue("slug", out var value)
+            ? value?.ToString() ?? string.Empty
+            : string.Empty;
+
+        if (slug.Length > 32)
+        {
+            slug = slug[..32];
+        }
+
+        return FixedWindow(
+            httpContext,
+            $"public-booking-availability:{slug.ToLowerInvariant()}",
+            40,
+            TimeSpan.FromMinutes(1));
+    });
+
+    // Envío de solicitudes de reserva (/reservar/{slug}/solicitar). Necesita su propia cuota,
+    // mucho más estricta que la de navegación: desde que una solicitud queda Pending OCUPA la
+    // agenda, así que un POST no es una lectura barata sino una reserva de capacidad real. Se
+    // particiona por IP + negocio para que el tráfico de un tenant no consuma la cuota de otro.
+    // Un cliente real envía una o dos; 10 cada 10 minutos no le estorba ni desde una IP
+    // compartida, y frena que una sola IP llene la agenda de solicitudes falsas.
+    options.AddPolicy("PublicBookingSubmit", httpContext =>
+    {
+        var slug = httpContext.Request.RouteValues.TryGetValue("slug", out var value)
+            ? value?.ToString() ?? string.Empty
+            : string.Empty;
+
+        if (slug.Length > 32)
+        {
+            slug = slug[..32];
+        }
+
+        return FixedWindow(
+            httpContext,
+            $"public-booking-submit:{slug.ToLowerInvariant()}",
+            10,
+            TimeSpan.FromMinutes(10));
+    });
+
     options.AddPolicy("Registration", httpContext =>
         FixedWindow(httpContext, "registration", 5, TimeSpan.FromMinutes(10)));
 
@@ -278,6 +339,8 @@ builder.Services.AddHttpClient<IMetaWhatsAppClient, MetaWhatsAppClient>((service
 });
 builder.Services.AddHostedService<MetaWhatsAppOptionsLoggingService>();
 builder.Services.AddScoped<ICalendarWhatsAppNotificationService, CalendarWhatsAppNotificationService>();
+builder.Services.AddScoped<IAppointmentCancellationWhatsAppService, AppointmentCancellationWhatsAppService>();
+builder.Services.AddScoped<IWhatsAppInboundAutoReplyService, WhatsAppInboundAutoReplyService>();
 builder.Services.AddScoped<ITenantWhatsAppSettingsService, TenantWhatsAppSettingsService>();
 builder.Services.AddScoped<ITenantWhatsAppFeatureService, TenantWhatsAppFeatureService>();
 builder.Services.AddScoped<IWhatsAppInboxService, WhatsAppInboxService>();
@@ -309,6 +372,9 @@ builder.Services.AddSingleton<LuxuryApp.Services.Fiscal.ILiquidacionFuncionarioS
 builder.Services.AddScoped<LuxuryApp.Services.Fiscal.ITenantFiscalConfigService, LuxuryApp.Services.Fiscal.TenantFiscalConfigService>();
 builder.Services.AddScoped<LuxuryApp.Services.Fiscal.ICobroFiscalPreviewService, LuxuryApp.Services.Fiscal.CobroFiscalPreviewService>();
 builder.Services.AddScoped<ILiquidacionSemanalService, LiquidacionSemanalService>();
+// Infraestructura compartida de cuentas de acceso del tenant: la usan tanto el portal de
+// funcionarios como el módulo de asociados. Una sola implementación de Identity/invitaciones.
+builder.Services.AddScoped<ITenantAccountProvisioningService, TenantAccountProvisioningService>();
 builder.Services.AddScoped<IFuncionarioPortalAccessService, FuncionarioPortalAccessService>();
 builder.Services.AddScoped<IFuncionarioPortalQueryService, FuncionarioPortalQueryService>();
 builder.Services.AddScoped<IFuncionarioPortalPermissionService, FuncionarioPortalPermissionService>();
@@ -324,6 +390,7 @@ builder.Services.AddScoped<ITenantPublicPageAnalyticsService, TenantPublicPageAn
 builder.Services.AddScoped<ITenantPublicPageRedirectService, TenantPublicPageRedirectService>();
 builder.Services.AddScoped<IPublicUrlValidationService, PublicUrlValidationService>();
 builder.Services.AddScoped<IPublicAssetQuotaService, PublicAssetQuotaService>();
+builder.Services.AddSingleton<IPublicImageProfileProvider, PublicImageProfileProvider>();
 builder.Services.AddScoped<IPublicImageUploadService, PublicImageUploadService>();
 builder.Services.AddScoped<IUploadedFileSecurityScanner, NoOpUploadedFileSecurityScanner>();
 builder.Services.AddScoped<LocalPublicImageStorageService>();
@@ -356,8 +423,7 @@ builder.Services.AddScoped<LuxuryApp.Services.Horarios.IRecurringScheduleService
 // y reutiliza el motor fiscal + liquidaciones existentes; no hay lógica financiera en controladores.
 builder.Services.AddScoped<LuxuryApp.Services.Inversionistas.IInvestorService,
     LuxuryApp.Services.Inversionistas.InvestorService>();
-builder.Services.AddScoped<LuxuryApp.Services.Inversionistas.IInvestorProfitCalculationService,
-    LuxuryApp.Services.Inversionistas.InvestorProfitCalculationService>();
+builder.Services.AddScoped<IPeriodProfitCalculationService, PeriodProfitCalculationService>();
 builder.Services.AddScoped<LuxuryApp.Services.Inversionistas.IInvestorStatementService,
     LuxuryApp.Services.Inversionistas.InvestorStatementService>();
 builder.Services.AddScoped<LuxuryApp.Services.Inversionistas.IInvestorStatementDocumentService,
@@ -370,6 +436,28 @@ builder.Services.AddScoped<LuxuryApp.Services.Inversionistas.IInvestorStatementE
     LuxuryApp.Services.Inversionistas.InvestorStatementEmailSender>();
 builder.Services.AddScoped<LuxuryApp.Services.Inversionistas.IInvestorStatementEmailService,
     LuxuryApp.Services.Inversionistas.InvestorStatementEmailService>();
+// Lectura operacional: separa el ciclo abierto (live) del corte emitido (snapshot).
+builder.Services.AddScoped<LuxuryApp.Services.Inversionistas.IInvestorCycleService,
+    LuxuryApp.Services.Inversionistas.InvestorCycleService>();
+// Cierre automático de cortes. Inerte hasta InvestorStatements:SchedulerEnabled=true.
+builder.Services.Configure<LuxuryApp.Services.Inversionistas.InvestorStatementSchedulerOptions>(
+    builder.Configuration.GetSection(
+        LuxuryApp.Services.Inversionistas.InvestorStatementSchedulerOptions.SectionName));
+builder.Services.AddScoped<LuxuryApp.Services.Inversionistas.IInvestorStatementScheduler,
+    LuxuryApp.Services.Inversionistas.InvestorStatementScheduler>();
+
+// Asociados del negocio. El módulo NO reimplementa nada: los porcentajes y la ganancia siguen
+// viviendo en Inversionistas, y el acceso/las invitaciones en TenantAccountProvisioningService.
+builder.Services.AddScoped<LuxuryApp.Services.Asociados.IAssociateService,
+    LuxuryApp.Services.Asociados.AssociateService>();
+builder.Services.AddScoped<LuxuryApp.Services.Asociados.IAssociateAccessService,
+    LuxuryApp.Services.Asociados.AssociateAccessService>();
+builder.Services.AddScoped<LuxuryApp.Services.Asociados.IAssociatePermissionService,
+    LuxuryApp.Services.Asociados.AssociatePermissionService>();
+builder.Services.AddScoped<LuxuryApp.Services.Asociados.IAssociateProfitAllocationService,
+    LuxuryApp.Services.Asociados.AssociateProfitAllocationService>();
+builder.Services.AddScoped<LuxuryApp.Services.Asociados.IPostLoginDestinationService,
+    LuxuryApp.Services.Asociados.PostLoginDestinationService>();
 
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHostedService<ReminderWorker>();
@@ -377,6 +465,9 @@ builder.Services.AddScoped<VisitasAutomaticasService>();
 builder.Services.AddHostedService<VisitasBackgroundService>();
 // Envío automático del Resumen Ejecutivo Mensual. Inerte hasta MonthlyReports:SchedulerEnabled=true.
 builder.Services.AddHostedService<LuxuryApp.Workers.MonthlyReportSchedulerService>();
+// Cierre automático de estados de cuenta de inversionistas.
+// Inerte hasta InvestorStatements:SchedulerEnabled=true (y requiere GeneracionAutomatica por tenant).
+builder.Services.AddHostedService<LuxuryApp.Workers.InvestorStatementGenerationWorker>();
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<ITenantExecutionContextAccessor, TenantExecutionContextAccessor>();

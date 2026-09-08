@@ -27,11 +27,11 @@
     font-weight: 700;
     letter-spacing: .12em;
     text-transform: uppercase;
-    color: var(--private-chart-accent, #2563eb);
-    background: rgba(37, 99, 235, 0.1);
-    background: color-mix(in srgb, var(--private-chart-accent, #2563eb) 12%, transparent);
-    border: 1px solid rgba(37, 99, 235, 0.24);
-    border: 1px solid color-mix(in srgb, var(--private-chart-accent, #2563eb) 28%, transparent);
+    color: var(--private-chart-accent, var(--private-accent));
+    background: rgba(var(--private-accent-rgb), 0.1);
+    background: color-mix(in srgb, var(--private-chart-accent, var(--private-accent)) 12%, transparent);
+    border: 1px solid rgba(var(--private-accent-rgb), 0.24);
+    border: 1px solid color-mix(in srgb, var(--private-chart-accent, var(--private-accent)) 28%, transparent);
     padding: .28rem .8rem;
     border-radius: 999px;
 }
@@ -96,6 +96,52 @@
     font-size: .92rem;
 }
 
+/* Invitación a activar WhatsApp. Tono informativo (no warning): es una oferta, no un problema. */
+.reservas-wa-cta {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    background: var(--private-surface-bg, #fff);
+    border: 1px solid var(--private-surface-border, #e6e6e6);
+    border-radius: var(--private-card-radius, 16px);
+    padding: 14px 18px;
+    margin-bottom: 18px;
+    font-size: .92rem;
+}
+
+.reservas-wa-cta-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
+    border-radius: 12px;
+    background: rgba(37, 211, 102, .12);
+    color: #25d366;
+    font-size: 1.15rem;
+}
+
+.reservas-wa-cta-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1 1 260px;
+    min-width: 0;
+}
+
+.reservas-wa-cta-text strong {
+    font-weight: 600;
+    color: var(--private-surface-text, #1f2937);
+}
+
+.reservas-wa-cta-text span {
+    color: var(--private-muted-text, #6b7280);
+    font-size: .86rem;
+    line-height: 1.4;
+}
+
 /* Barra del enlace público (usada en Configuración) */
 .reservas-link-bar {
     display: flex;
@@ -118,62 +164,100 @@
 }
 .reservas-link-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-/* Filtros */
-.reservas-filtros {
+/* ── Panel de solicitudes: vive dentro de .finance-page-shell (mismo contenedor
+   que Ingresos), así que aquí solo se define lo propio del módulo. ── */
+.reservas-hero-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.reservas-aviso-band { padding: 18px 2rem 0; }
+.reservas-aviso-band .reservas-aviso { margin-bottom: 0; }
+
+/* Barra de filtros: misma banda con borde inferior que usa Ingresos */
+.reservas-toolbar {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    gap: 12px;
+    align-items: flex-end;
+    gap: 18px;
     flex-wrap: wrap;
-    margin-bottom: 18px;
+    padding: 1.25rem 2rem;
+    border-bottom: 1px solid var(--private-surface-border, #e6e6e6);
 }
+.reservas-filtro-bloque { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.reservas-filtro-bloque .finance-filter-label { display: inline-flex; align-items: center; gap: 6px; }
+.reservas-filtro-rango { min-width: 190px; }
+
+/* Segmented control de estado */
 .reservas-tabs {
     display: inline-flex;
     gap: 4px;
     padding: 4px;
     background: var(--private-row-bg, rgba(0,0,0,.04));
-    border-radius: 999px;
+    border: 1px solid var(--private-surface-border, #e6e6e6);
+    border-radius: 12px;
     flex-wrap: wrap;
 }
 .rsv-tab {
     cursor: pointer;
-    padding: 8px 16px;
-    border-radius: 999px;
+    border: 1px solid transparent;
+    background: transparent;
+    font-family: inherit;
+    padding: 8px 14px;
+    border-radius: 9px;
     color: var(--private-muted-text, #6b6b6b);
-    font-size: .88rem;
+    font-size: .875rem;
     font-weight: 600;
+    line-height: 1.2;
     user-select: none;
-    transition: all .15s ease;
+    transition: background .15s ease, color .15s ease, box-shadow .15s ease;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
 }
-.rsv-tab:hover { color: var(--private-page-text, #1c1c1c); }
+.rsv-tab:hover { color: var(--private-surface-text, #1c1c1c); background: var(--private-row-hover-bg, rgba(0,0,0,.05)); }
+.rsv-tab:focus-visible { outline: 2px solid var(--private-focus-ring, #4338ca); outline-offset: 1px; }
 .rsv-tab.active {
-    background: var(--private-surface-bg, #fff);
-    color: var(--private-chart-accent, #4338ca);
+    background: var(--private-surface-bg-strong, #fff);
+    border-color: var(--private-surface-border, #e6e6e6);
+    color: var(--private-chart-accent, var(--private-accent));
     box-shadow: var(--private-card-shadow, 0 2px 8px rgba(0,0,0,.08));
 }
 .rsv-count {
-    font-size: .76rem;
+    font-size: .74rem;
     font-weight: 700;
-    padding: 1px 7px;
+    min-width: 22px;
+    text-align: center;
+    padding: 2px 7px;
     border-radius: 999px;
-    background: var(--private-row-bg, rgba(0,0,0,.06));
+    background: var(--private-row-hover-bg, rgba(0,0,0,.06));
+    color: inherit;
 }
 .rsv-tab.active .rsv-count {
-    background: var(--private-chart-accent-soft, #e0e7ff);
-    color: var(--private-chart-accent, #4338ca);
+    background: color-mix(in srgb, var(--private-chart-accent, var(--private-accent)) 14%, transparent);
+    color: var(--private-chart-accent, var(--private-accent));
 }
-.reservas-rango {
-    padding: 9px 14px;
-    border-radius: 999px;
-    border: 1px solid var(--private-input-border, #d8d8d8);
-    background: var(--private-input-bg, #fff);
-    color: var(--private-input-text, #1c1c1c);
-    font-size: .88rem;
-    font-weight: 600;
+.reservas-rango { min-width: 100%; }
+
+/* Aclaración de cómo interactúan período y pestaña activa */
+.reservas-toolbar-hint {
+    flex: 1 0 100%;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: .82rem;
+    color: var(--private-muted-text, #6b6b6b);
 }
+.reservas-rango:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+/* Banda de tarjetas */
+.reservas-lista { padding: 1.5rem 2rem 2rem; }
 
 /* Cards de solicitud */
 .reservas-cards {
@@ -191,8 +275,9 @@
     flex-direction: column;
     gap: 10px;
 }
-.reservas-card-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.reservas-nombre { font-weight: 700; font-size: 1.05rem; }
+.reservas-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.reservas-card-ident { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.reservas-nombre { font-weight: 700; font-size: 1.02rem; line-height: 1.25; word-break: break-word; }
 .reservas-tel {
     font-size: .88rem;
     color: var(--private-muted-text, #6b6b6b);
@@ -229,9 +314,11 @@
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
-    margin-top: 2px;
+    margin-top: auto;
+    padding-top: 10px;
+    border-top: 1px solid var(--private-surface-border, #ececec);
 }
-.reservas-meta { font-size: .8rem; }
+.reservas-meta { font-size: .8rem; display: inline-flex; align-items: center; gap: 6px; }
 .rsv-hint { font-size: .8rem; margin: 0; }
 
 /* Badges */
@@ -416,15 +503,13 @@
 }
 .rsv-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
-@media (max-width: 560px) {
-    .reservas-cards { grid-template-columns: 1fr; }
-    .reservas-head { gap: 14px; }
-    .reservas-head > .btn-rsv { width: 100%; justify-content: center; }
-    .reservas-title { font-size: 1.55rem; }
-    .reservas-link-bar, .reservas-aviso { flex-direction: column; align-items: stretch; }
-    .reservas-link-actions { display: grid; grid-template-columns: 1fr 1fr; }
-    .reservas-link-actions .btn-rsv { justify-content: center; }
-    .reservas-filtros { align-items: stretch; }
+@media (max-width: 768px) {
+    .reservas-toolbar { padding: 1rem 1.15rem; align-items: stretch; }
+    .reservas-lista { padding: 1.15rem 1.15rem 1.5rem; }
+    .reservas-aviso-band { padding: 14px 1.15rem 0; }
+    .reservas-filtro-rango { min-width: 100%; }
+    .reservas-hero-actions { width: 100%; }
+    .reservas-hero-actions .finance-btn-secondary { width: 100%; justify-content: center; }
     .reservas-tabs {
         flex-wrap: nowrap;
         overflow-x: auto;
@@ -433,7 +518,16 @@
     }
     .reservas-tabs::-webkit-scrollbar { display: none; }
     .rsv-tab { white-space: nowrap; flex: 0 0 auto; }
-    .reservas-rango { width: 100%; }
+}
+
+@media (max-width: 560px) {
+    .reservas-cards { grid-template-columns: 1fr; }
+    .reservas-head { gap: 14px; }
+    .reservas-head > .btn-rsv { width: 100%; justify-content: center; }
+    .reservas-title { font-size: 1.55rem; }
+    .reservas-link-bar, .reservas-aviso { flex-direction: column; align-items: stretch; }
+    .reservas-link-actions { display: grid; grid-template-columns: 1fr 1fr; }
+    .reservas-link-actions .btn-rsv { justify-content: center; }
     .reservas-card-foot { flex-direction: column; align-items: stretch; }
     .reservas-acciones { display: grid; grid-template-columns: 1fr 1fr; }
     .reservas-acciones .btn-rsv { justify-content: center; padding: 11px; }
@@ -477,10 +571,10 @@
     user-select: none;
     transition: background .15s, border-color .15s;
 }
-.rsv-chip input { accent-color: var(--private-chart-accent, #2563eb); }
+.rsv-chip input { accent-color: var(--private-chart-accent, var(--private-accent)); }
 .rsv-chip:has(input:checked) {
-    border-color: var(--private-chart-accent, #2563eb);
-    background: color-mix(in srgb, var(--private-chart-accent, #2563eb) 10%, transparent);
+    border-color: var(--private-chart-accent, var(--private-accent));
+    background: color-mix(in srgb, var(--private-chart-accent, var(--private-accent)) 10%, transparent);
     font-weight: 600;
 }
 

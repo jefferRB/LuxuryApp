@@ -1,12 +1,21 @@
 @using LuxuryApp.Models.Inversionistas
 @model InvestorStatementsPageViewModel
 
+@*
+    CORTES Y PAGOS.
+
+    Internamente sigue siendo InvestorStatement, pero el dueño no piensa en "estados de cuenta":
+    piensa en cortes que cerraron, en lo que le corresponde a cada inversionista y en cuánto ya
+    le pagó. La tabla se ordena con ese vocabulario y encabeza con la FECHA DE CORTE.
+*@
+
 @{
-    ViewData["Title"] = "Estados de cuenta";
+    ViewData["Title"] = "Cortes y pagos";
 }
 
 @section Styles {
     <link rel="stylesheet" href="~/css/finance-modules.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/investor-settlement.css" asp-append-version="true" />
 }
 
 <div class="finance-page-shell">
@@ -17,8 +26,11 @@
                 <i class="bi bi-file-earmark-text"></i>
                 Inversionistas
             </span>
-            <h1 class="finance-title">Estados de cuenta</h1>
-            <p class="finance-subtitle">Participación por periodo, pagos registrados y saldo pendiente.</p>
+            <h1 class="finance-title">Cortes y pagos</h1>
+            <p class="finance-subtitle">
+                Consultá los cortes cerrados de los inversionistas, los montos correspondientes,
+                los pagos registrados y los saldos pendientes.
+            </p>
         </div>
 
         <div class="finance-kpi-grid">
@@ -124,14 +136,15 @@
             <thead>
                 <tr>
                     <th>Inversionista</th>
-                    <th>Periodo</th>
+                    <th>Corte</th>
+                    <th>Período</th>
                     <th>Ganancia distribuible</th>
                     <th>%</th>
-                    <th>Participación</th>
+                    <th>Le corresponde</th>
                     <th>Pagado</th>
                     <th>Pendiente</th>
                     <th>Estado</th>
-                    <th></th>
+                    <th>Acción</th>
                 </tr>
             </thead>
             <tbody>
@@ -141,16 +154,24 @@
                     {
                         <tr>
                             <td>@estado.InvestorNombre</td>
-                            <td>@estado.PeriodoEtiqueta</td>
+                            <td><strong>@estado.FechaCorte.ToString("dd MMM yyyy")</strong></td>
+                            <td>
+                                @estado.PeriodoInicio.ToString("dd MMM") &rarr;
+                                @estado.PeriodoFin.ToString("dd MMM yyyy")
+                            </td>
                             <td>₡ @estado.GananciaDistribuible.ToString("N2")</td>
                             <td>@estado.ParticipacionPorcentaje.ToString("0.##") %</td>
                             <td class="finance-monto-income">₡ @estado.ParticipacionCalculada.ToString("N2")</td>
                             <td>₡ @estado.TotalPagado.ToString("N2")</td>
                             <td class="finance-monto-expense">₡ @estado.SaldoPendiente.ToString("N2")</td>
-                            <td><span class="finance-method-badge">@estado.EstadoTexto</span></td>
+                            <td>
+                                <span class="inv-badge inv-badge--@InvestorVisuals.CssModifier(estado.Tono)">
+                                    @InvestorVisuals.EstadoCorto(estado.Estado, estado.SaldoPendiente)
+                                </span>
+                            </td>
                             <td>
                                 <a asp-action="Estado" asp-route-id="@estado.Id" class="finance-btn-row-edit">
-                                    <i class="bi bi-eye"></i> Ver
+                                    <i class="bi bi-eye"></i> Ver estado
                                 </a>
                             </td>
                         </tr>
@@ -158,13 +179,17 @@
                 }
                 else
                 {
+                    @* Empty state honesto: no manda a "la vista previa" (concepto que ya no es el
+                       flujo principal) y explica qué falta para que exista el primer corte. *@
                     <tr>
-                        <td colspan="9">
+                        <td colspan="10">
                             <div class="finance-empty-state">
                                 <div class="finance-empty-icon"><i class="bi bi-file-earmark"></i></div>
-                                <p class="finance-empty-title">Sin estados de cuenta</p>
+                                <p class="finance-empty-title">Aún no hay cortes emitidos</p>
                                 <p class="finance-empty-subtitle">
-                                    Generá el primero desde la vista previa de un inversionista.
+                                    Un corte aparece acá cuando su período cierra. Abrí la ficha del
+                                    inversionista para ver su ciclo en curso y la fecha de su
+                                    próximo corte.
                                 </p>
                             </div>
                         </td>
@@ -188,10 +213,23 @@
                 </div>
 
                 <div class="finance-mobile-card-body">
-                    <div class="finance-mobile-card-name">@estado.PeriodoEtiqueta</div>
+                    <div class="finance-mobile-card-name">
+                        Corte @estado.FechaCorte.ToString("dd MMM yyyy")
+                    </div>
+                    <div class="finance-mobile-card-row">
+                        <span class="finance-mobile-card-row-label">Período</span>
+                        <span class="finance-mobile-card-row-value">
+                            @estado.PeriodoInicio.ToString("dd MMM") &rarr;
+                            @estado.PeriodoFin.ToString("dd MMM yyyy")
+                        </span>
+                    </div>
                     <div class="finance-mobile-card-row">
                         <span class="finance-mobile-card-row-label">Estado</span>
-                        <span class="finance-mobile-card-row-value">@estado.EstadoTexto</span>
+                        <span class="finance-mobile-card-row-value">
+                            <span class="inv-badge inv-badge--@InvestorVisuals.CssModifier(estado.Tono)">
+                                @InvestorVisuals.EstadoCorto(estado.Estado, estado.SaldoPendiente)
+                            </span>
+                        </span>
                     </div>
                     <div class="finance-mobile-card-row">
                         <span class="finance-mobile-card-row-label">Pendiente</span>
@@ -209,6 +247,6 @@
     </div>
 
     <div class="finance-actions">
-        <a asp-action="Index" class="finance-btn-back"><i class="bi bi-arrow-left"></i> Volver</a>
+        <a asp-controller="Asociados" asp-action="Index" class="finance-btn-back"><i class="bi bi-arrow-left"></i> Volver</a>
     </div>
 </div>

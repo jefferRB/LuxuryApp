@@ -1,4 +1,4 @@
-using LuxuryApp.Controllers.Identity;
+﻿using LuxuryApp.Controllers.Identity;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Services.Account;
 using LuxuryApp.Models.Legal;
@@ -239,6 +239,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 client.BaseAddress = new Uri("https://challenges.cloudflare.com/");
             });
             services.AddScoped<IPublicSiteContentService, FakePublicSiteContentService>();
+            services.AddScoped<LuxuryApp.Services.Asociados.IPostLoginDestinationService,
+                LuxuryApp.Tests.Support.StubPostLoginDestinationService>();
             services.AddScoped<IAccountEmailService, NoOpAccountEmailService>();
 
             var provider = services.BuildServiceProvider();
@@ -274,6 +276,9 @@ namespace LuxuryApp.Tests.TenantIsolation
             }
 
             public Task SendFuncionarioInvitationEmailAsync(string toEmail, string displayName, string setPasswordLink, string businessName, CancellationToken cancellationToken = default)
+                => Task.CompletedTask;
+
+            public Task SendAccessInvitationEmailAsync(string toEmail, string displayName, string setPasswordLink, string businessName, string accessDescription, CancellationToken cancellationToken = default)
                 => Task.CompletedTask;
         }
 

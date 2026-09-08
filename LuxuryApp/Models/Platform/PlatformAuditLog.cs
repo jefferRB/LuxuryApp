@@ -446,6 +446,29 @@ namespace LuxuryApp.Models.Platform
         /// <summary>Reparación MANUAL del estado local de un add-on (Scripts/AddonDowngradeRepair.sql). Nunca confirma dinero: la baja del proveedor va por el flujo verificado.</summary>
         public const string AddonProviderRepairApplied = "AddonProviderRepairApplied";
 
+        // ── Asociados del negocio ──
+        // Quién entra al sistema, con qué permisos y con qué participación son decisiones
+        // sensibles: todas quedan registradas con actor, tenant y momento.
+
+        public const string AssociateCreated = "AssociateCreated";
+        public const string AssociateUpdated = "AssociateUpdated";
+
+        /// <summary>Alta o baja lógica del asociado. Nunca borra su histórico financiero.</summary>
+        public const string AssociateStateChanged = "AssociateStateChanged";
+
+        /// <summary>Se creó la cuenta de acceso del asociado (invitación o contraseña temporal).</summary>
+        public const string AssociateAccessGranted = "AssociateAccessGranted";
+
+        /// <summary>El asociado ya no puede iniciar sesión. Sus datos y participación se conservan.</summary>
+        public const string AssociateAccessBlocked = "AssociateAccessBlocked";
+
+        public const string AssociateAccessRestored = "AssociateAccessRestored";
+        public const string AssociateAccessInvitationResent = "AssociateAccessInvitationResent";
+        public const string AssociateAccessEmailChanged = "AssociateAccessEmailChanged";
+
+        /// <summary>Cambió el conjunto de permisos concedidos (antes y después en el registro).</summary>
+        public const string AssociatePermissionsUpdated = "AssociatePermissionsUpdated";
+
         // ── Inversionistas y distribución de ganancias ──
         // Todo lo que mueve dinero o congela un número queda auditado: la participación de un
         // inversionista es un compromiso económico del negocio.
@@ -505,6 +528,7 @@ namespace LuxuryApp.Models.Platform
         public const string PromotionalCode = "PromotionalCode";
         public const string CommercialSnapshot = "CommercialSnapshot";
         public const string WhatsAppAddon = "WhatsAppAddon";
+        public const string Associate = "Associate";
         public const string Investor = "Investor";
         public const string InvestorPolicy = "InvestorPolicy";
         public const string InvestorStatement = "InvestorStatement";

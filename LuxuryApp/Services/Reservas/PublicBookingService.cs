@@ -1,3 +1,5 @@
+﻿using System.Data;
+using System.Data.Common;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -15,6 +17,9 @@ namespace LuxuryApp.Services.Reservas
     {
         private const string ResolvedTenantItemKey = "__resolved_tenant_id";
         private const int MaxPendingPerPhone = 3;
+
+        /// <summary>Cuántos próximos espacios se sugieren. Corto a propósito: es un atajo, no una agenda.</summary>
+        private const int MaxNextSlots = 5;
 
         private readonly ApplicationDbContext _context;
         private readonly IBookingSettingsService _settingsService;
@@ -201,6 +206,12 @@ namespace LuxuryApp.Services.Reservas
 
             if (horas.Count > 0)
             {
+                // Criterio: las alternativas siguen visibles aunque la fecha elegida tenga espacio.
+                // Se buscan desde el día SIGUIENTE, así la lista nunca repite lo que ya se muestra
+                // arriba y no hace falta filtrar duplicados en el navegador.
+                result.NextAvailableSlots = await BuildNextAvailableSlotsAsync(
+                    context, servicioId, fechaParsed.AddDays(1), funcionarioFiltro, cancellationToken);
+
                 return result;
             }
 
@@ -227,32 +238,91 @@ namespace LuxuryApp.Services.Reservas
             }
 
             result.NextAvailableSlots = await BuildNextAvailableSlotsAsync(
-                servicioId, fechaParsed, funcionarioFiltro, cancellationToken);
+                context, servicioId, fechaParsed, funcionarioFiltro, cancellationToken);
 
             return result;
         }
 
+        public async Task<BookingNextSlotsResult> GetNextSlotsAsync(
+            PublicBookingTenantContext context,
+            int servicioId,
+            int? funcionarioId,
+            CancellationToken cancellationToken = default)
+        {
+            // Seguridad: el servicio debe estar publicado online en ESTE tenant. El catálogo es
+            // tenant-scoped, así que un id de otro tenant sencillamente no aparece en la lista.
+            var servicios = await _catalogService.GetPublicServicesAsync(cancellationToken);
+            var servicio = servicios.FirstOrDefault(s => s.Id == servicioId);
+            if (servicio is null)
+            {
+                return new BookingNextSlotsResult
+                {
+                    Success = false,
+                    Mensaje = "Ese servicio no está disponible para reservas online."
+                };
+            }
+
+            var funcionarioFiltro = ResolveFuncionarioFiltro(context, funcionarioId);
+
+            // El profesional debe poder atender ESTE servicio. Un id ajeno o incompatible NO cae de
+            // vuelta en "cualquiera": devuelve vacío, para no revelar la agenda de otra persona.
+            if (funcionarioFiltro.HasValue && !servicio.FuncionarioIds.Contains(funcionarioFiltro.Value))
+            {
+                return new BookingNextSlotsResult
+                {
+                    Success = true,
+                    Mensaje = "Ese profesional no atiende este servicio. Elegí otro profesional."
+                };
+            }
+
+            // El punto de partida lo fija SIEMPRE el servidor (hoy en hora del negocio). El cliente
+            // no puede pedir un rango arbitrario, ni mirar hacia atrás, ni saltarse el horizonte.
+            var desde = DateOnly.FromDateTime(_businessDateTimeProvider.Today());
+
+            return new BookingNextSlotsResult
+            {
+                Success = true,
+                NextAvailableSlots = await BuildNextAvailableSlotsAsync(
+                    context, servicioId, desde, funcionarioFiltro, cancellationToken)
+            };
+        }
+
+        /// <summary>
+        /// ÚNICO constructor de "próximos espacios" del módulo. Lo comparten el endpoint que se
+        /// consulta al elegir servicio/profesional y la respuesta de una fecha concreta, para que
+        /// no existan dos listas calculadas con criterios distintos.
+        /// </summary>
         private async Task<IReadOnlyList<NextAvailableSlot>> BuildNextAvailableSlotsAsync(
+            PublicBookingTenantContext context,
             int servicioId,
             DateOnly fromDate,
             int? funcionarioId,
             CancellationToken cancellationToken)
         {
             var sugerencias = await _availabilityService.GetNextAvailableSlotsAsync(
-                servicioId, fromDate, funcionarioId, maxSuggestions: 5, cancellationToken);
+                servicioId, fromDate, funcionarioId, MaxNextSlots, cancellationToken);
 
             if (sugerencias.Count == 0)
             {
                 return Array.Empty<NextAvailableSlot>();
             }
 
-            // Nombres de funcionarios de las sugerencias en una sola consulta.
-            var ids = sugerencias.Select(s => s.FuncionarioId).Distinct().ToList();
-            var nombres = await _context.Funcionarios
-                .AsNoTracking()
-                .Where(f => ids.Contains(f.IdFuncionario))
-                .Select(f => new { f.IdFuncionario, f.Nombre })
-                .ToDictionaryAsync(f => f.IdFuncionario, f => f.Nombre, cancellationToken);
+            // Minimización de datos: si el negocio no deja elegir profesional, tampoco publicamos
+            // QUIÉN está libre a qué hora. Además el backend reasigna al enviar la solicitud, así
+            // que mostrar un nombre aquí sería una promesa que el flujo no puede cumplir.
+            var exponeFuncionario = context.PermiteElegirFuncionario;
+            var nombres = new Dictionary<int, string>();
+
+            if (exponeFuncionario)
+            {
+                // Nombres de las sugerencias en una sola consulta.
+                var ids = sugerencias.Select(s => s.FuncionarioId).Distinct().ToList();
+                nombres = await _context.Funcionarios
+                    .AsNoTracking()
+                    .Where(f => ids.Contains(f.IdFuncionario))
+                    .Select(f => new { f.IdFuncionario, f.Nombre })
+                    .ToDictionaryAsync(f => f.IdFuncionario, f => f.Nombre, cancellationToken);
+            }
 
             return sugerencias.Select(s => new NextAvailableSlot
             {
@@ -260,8 +330,8 @@ namespace LuxuryApp.Services.Reservas
                 FechaLabel = FormatFechaLabel(s.Fecha),
                 Hora = s.Hora.ToString("HH:mm", CultureInfo.InvariantCulture),
                 HoraLabel = FormatHoraLabel(s.Hora),
-                FuncionarioId = s.FuncionarioId,
-                FuncionarioNombre = nombres.TryGetValue(s.FuncionarioId, out var n) ? n : null
+                FuncionarioId = exponeFuncionario ? s.FuncionarioId : null,
+                FuncionarioNombre = exponeFuncionario && nombres.TryGetValue(s.FuncionarioId, out var n) ? n : null
             }).ToList();
         }
 
@@ -363,20 +433,9 @@ namespace LuxuryApp.Services.Reservas
                 funcionarioSolicitado = null;
             }
 
-            // Revalida disponibilidad real en backend.
-            var resolucion = await _availabilityService.ResolveSlotAsync(
-                input.ServicioId,
-                inicio,
-                funcionarioSolicitado,
-                cancellationToken);
-
-            if (!resolucion.Disponible)
-            {
-                return PublicBookingSubmitResult.Fail(
-                    resolucion.Motivo ?? "Ese horario ya no está disponible. Probá con otro.");
-            }
-
-            // Anti-spam: máximo de solicitudes Pending por teléfono por tenant.
+            // Anti-spam: máximo de solicitudes Pending por teléfono por tenant. Va fuera de la
+            // transacción a propósito: es una cuota, no una regla de integridad, y mantenerla
+            // afuera reduce el alcance de los bloqueos del hold.
             var pendientesMismoTelefono = await _context.BookingRequests
                 .AsNoTracking()
                 .CountAsync(
@@ -389,55 +448,123 @@ namespace LuxuryApp.Services.Reservas
                     "Ya tenés varias solicitudes pendientes. Esperá a que el negocio te confirme.");
             }
 
-            // Duplicado obvio: misma fecha/hora/servicio/teléfono aún pendiente.
-            var duplicada = await _context.BookingRequests
-                .AsNoTracking()
-                .AnyAsync(
-                    r => r.TelefonoCliente == telefono &&
-                         r.ServicioId == input.ServicioId &&
-                         r.FechaHoraInicioSolicitada == inicio &&
-                         r.Estado == BookingRequestStates.Pending,
-                    cancellationToken);
+            var ipHash = HashIp();
+            var userAgent = ResolveUserAgent();
 
-            if (duplicada)
-            {
-                return PublicBookingSubmitResult.Ok(mensajeExito);
-            }
+            // ── Revalidación final + creación del hold, a prueba de concurrencia ───────────────
+            // Desde que esta solicitud queda Pending OCUPA el intervalo, así que "comprobar que
+            // está libre" y "crear la solicitud" tienen que ser una sola operación atómica. Se usa
+            // el mismo patrón que la creación de citas (CalendarCommandService): estrategia de
+            // ejecución + transacción SERIALIZABLE. Las lecturas de ocupación toman range locks
+            // sobre el rango leído, de modo que dos POST simultáneos por el mismo recurso e
+            // intervalo NO pueden ambos ver "libre" y ambos insertar: uno gana y el otro se aborta.
+            // La garantía vive en la base de datos, así que sigue valiendo con varias instancias
+            // de la aplicación detrás del balanceador.
+            BookingRequest? tracked = null;
+            BookingRequest? creada = null;
+            PublicBookingSubmitResult? resultado = null;
 
-            var clienteId = await TryMatchClienteAsync(telefono, cancellationToken);
-
-            var solicitud = new BookingRequest
-            {
-                ServicioId = input.ServicioId,
-                FuncionarioId = funcionarioSolicitado,
-                ClienteId = clienteId,
-                NombreCliente = nombre,
-                TelefonoCliente = telefono,
-                CorreoCliente = null,
-                NotasCliente = null,
-                FechaHoraInicioSolicitada = inicio,
-                FechaHoraFinCalculada = inicio.AddMinutes(resolucion.DuracionMinutos),
-                DuracionMinutos = resolucion.DuracionMinutos,
-                Estado = BookingRequestStates.Pending,
-                Origen = BookingRequestOrigins.PublicLink,
-                AceptaWhatsApp = input.AceptaWhatsApp,
-                PublicSubmissionToken = token,
-                CreatedAtUtc = DateTime.UtcNow,
-                IpHash = HashIp(),
-                UserAgent = ResolveUserAgent()
-            };
-
-            _context.BookingRequests.Add(solicitud);
+            var executionStrategy = _context.Database.CreateExecutionStrategy();
 
             try
             {
-                await _context.SaveChangesAsync(cancellationToken);
+                await executionStrategy.ExecuteAsync(async () =>
+                {
+                    tracked = null;
+                    creada = null;
+                    resultado = null;
+
+                    await using var transaction = await _context.Database.BeginTransactionAsync(
+                        IsolationLevel.Serializable,
+                        cancellationToken);
+
+                    // Idempotencia por token, ahora dentro de la transacción.
+                    if (token is not null &&
+                        await _context.BookingRequests.AsNoTracking()
+                            .AnyAsync(r => r.PublicSubmissionToken == token, cancellationToken))
+                    {
+                        resultado = PublicBookingSubmitResult.Ok(mensajeExito);
+                        return;
+                    }
+
+                    // Duplicado obvio: misma fecha/hora/servicio/teléfono aún pendiente. Se responde
+                    // éxito (es la MISMA solicitud reenviada), no "horario ocupado".
+                    var duplicada = await _context.BookingRequests
+                        .AsNoTracking()
+                        .AnyAsync(
+                            r => r.TelefonoCliente == telefono &&
+                                 r.ServicioId == input.ServicioId &&
+                                 r.FechaHoraInicioSolicitada == inicio &&
+                                 r.Estado == BookingRequestStates.Pending,
+                            cancellationToken);
+
+                    if (duplicada)
+                    {
+                        resultado = PublicBookingSubmitResult.Ok(mensajeExito);
+                        return;
+                    }
+
+                    // Revalida disponibilidad real en backend y resuelve el recurso concreto. Con
+                    // "cualquier profesional" devuelve el PRIMER funcionario libre: queda reservado
+                    // ese y sólo ese, los demás siguen disponibles a esa misma hora.
+                    var resolucion = await _availabilityService.ResolveSlotAsync(
+                        input.ServicioId,
+                        inicio,
+                        funcionarioSolicitado,
+                        cancellationToken);
+
+                    if (!resolucion.Disponible || !resolucion.FuncionarioId.HasValue)
+                    {
+                        resultado = PublicBookingSubmitResult.Fail(
+                            resolucion.Motivo ?? "Ese horario ya no está disponible. Probá con otro.");
+                        return;
+                    }
+
+                    var clienteId = await TryMatchClienteAsync(telefono, cancellationToken);
+
+                    var solicitud = new BookingRequest
+                    {
+                        ServicioId = input.ServicioId,
+                        // Lo que pidió el cliente (null = "cualquiera")...
+                        FuncionarioId = funcionarioSolicitado,
+                        // ...y el recurso que el servidor reserva para sostener el hold.
+                        FuncionarioAsignadoId = resolucion.FuncionarioId.Value,
+                        ClienteId = clienteId,
+                        NombreCliente = nombre,
+                        TelefonoCliente = telefono,
+                        CorreoCliente = null,
+                        NotasCliente = null,
+                        FechaHoraInicioSolicitada = inicio,
+                        FechaHoraFinCalculada = inicio.AddMinutes(resolucion.DuracionMinutos),
+                        DuracionMinutos = resolucion.DuracionMinutos,
+                        Estado = BookingRequestStates.Pending,
+                        Origen = BookingRequestOrigins.PublicLink,
+                        AceptaWhatsApp = input.AceptaWhatsApp,
+                        PublicSubmissionToken = token,
+                        CreatedAtUtc = DateTime.UtcNow,
+                        IpHash = ipHash,
+                        UserAgent = userAgent
+                    };
+
+                    _context.BookingRequests.Add(solicitud);
+                    tracked = solicitud;
+
+                    await _context.SaveChangesAsync(cancellationToken);
+                    await transaction.CommitAsync(cancellationToken);
+
+                    tracked = null;
+                    creada = solicitud;
+                    resultado = PublicBookingSubmitResult.Ok(mensajeExito);
+                });
             }
-            catch (DbUpdateException)
+            catch (Exception ex) when (ex is DbUpdateException or DbException)
             {
-                // Carrera: otro POST con el mismo token insertó primero (índice único). Es idempotente:
-                // devolvemos éxito sin crear duplicado ni reenviar notificación.
-                _context.Entry(solicitud).State = EntityState.Detached;
+                if (tracked is not null)
+                {
+                    _context.Entry(tracked).State = EntityState.Detached;
+                }
+
+                // Carrera con el mismo token (índice único filtrado): es idempotente, éxito.
                 if (token is not null &&
                     await _context.BookingRequests.AsNoTracking()
                         .AnyAsync(r => r.PublicSubmissionToken == token, cancellationToken))
@@ -445,7 +572,20 @@ namespace LuxuryApp.Services.Reservas
                     return PublicBookingSubmitResult.Ok(mensajeExito);
                 }
 
+                // Carrera con OTRA solicitud por el mismo intervalo: la base de datos abortó a
+                // este perdedor (deadlock/serialización). No queda ningún hold a medias.
+                _logger.LogWarning(
+                    ex,
+                    "No se pudo registrar la solicitud de reserva del {Inicio:yyyy-MM-dd HH:mm} (conflicto de concurrencia o error de base de datos).",
+                    inicio);
+
                 return PublicBookingSubmitResult.Fail(
+                    "Ese horario acaba de ser tomado por otra solicitud. Elegí otro horario, por favor.");
+            }
+
+            if (creada is null)
+            {
+                return resultado ?? PublicBookingSubmitResult.Fail(
                     "No pudimos registrar tu solicitud en este momento. Intentá de nuevo.");
             }
 
@@ -453,17 +593,17 @@ namespace LuxuryApp.Services.Reservas
             // Nunca debe romper el flujo público si la notificación falla.
             try
             {
-                await _notificationService.CreateBookingRequestReceivedAsync(solicitud, cancellationToken);
+                await _notificationService.CreateBookingRequestReceivedAsync(creada, cancellationToken);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(
                     ex,
                     "No se pudo generar la notificación de la solicitud de reserva {RequestId}.",
-                    solicitud.Id);
+                    creada.Id);
             }
 
-            return PublicBookingSubmitResult.Ok(mensajeExito);
+            return resultado ?? PublicBookingSubmitResult.Ok(mensajeExito);
         }
 
         private static int? ResolveFuncionarioFiltro(PublicBookingTenantContext context, int? funcionarioId)

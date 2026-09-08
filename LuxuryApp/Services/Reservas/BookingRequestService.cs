@@ -3,6 +3,7 @@ using LuxuryApp.Models.Reservas;
 using LuxuryApp.Models.WhatsApp;
 using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Calendar;
+using LuxuryApp.Services.WhatsApp;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
@@ -14,6 +15,9 @@ namespace LuxuryApp.Services.Reservas
 
         private const string WhatsAppSourceReservaAprobada = "ReservaOnlineAprobada";
 
+        /// <summary>Éxito de la operación principal. WhatsApp, si aplica, se agrega aparte.</summary>
+        private const string AprobacionMensajeBase = "Reserva aprobada y cita creada.";
+
         private readonly ApplicationDbContext _context;
         private readonly ICalendarCommandService _calendarCommandService;
         private readonly ICalendarWhatsAppNotificationService _notificationService;
@@ -21,6 +25,7 @@ namespace LuxuryApp.Services.Reservas
         private readonly IBookingSettingsService _settingsService;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly ITenantWhatsAppFeatureService _whatsAppFeatureService;
         private readonly ILogger<BookingRequestService> _logger;
 
         public BookingRequestService(
@@ -31,6 +36,7 @@ namespace LuxuryApp.Services.Reservas
             IBookingSettingsService settingsService,
             IBusinessDateTimeProvider businessDateTimeProvider,
             IHttpContextAccessor httpContextAccessor,
+            ITenantWhatsAppFeatureService whatsAppFeatureService,
             ILogger<BookingRequestService> logger)
         {
             _context = context;
@@ -40,6 +46,7 @@ namespace LuxuryApp.Services.Reservas
             _settingsService = settingsService;
             _businessDateTimeProvider = businessDateTimeProvider;
             _httpContextAccessor = httpContextAccessor;
+            _whatsAppFeatureService = whatsAppFeatureService;
             _logger = logger;
         }
 
@@ -48,29 +55,34 @@ namespace LuxuryApp.Services.Reservas
             string? rango,
             CancellationToken cancellationToken = default)
         {
-            var estadoFiltro = NormalizeEstado(estado);
-            var rangoFiltro = NormalizeRango(rango);
+            // Allowlist: cualquier valor desconocido o manipulado cae al default seguro.
+            var estadoFiltro = BookingRequestFilters.ParseStatus(estado);
+            var rangoFiltro = BookingRequestFilters.ParseRange(rango);
 
-            // Conteos globales por estado (badges siempre accionables).
-            var counts = await _context.BookingRequests
-                .AsNoTracking()
+            // El rango se resuelve en hora local del negocio y se consulta en UTC (como se guarda).
+            var businessNow = _businessDateTimeProvider.NowOffset();
+            var ventana = BookingRequestDateRangeResolver.Resolve(rangoFiltro, businessNow);
+
+            // Dataset base de la pantalla: manda sobre TODO lo que se muestra (conteos y tarjetas).
+            // El tenant lo aplica el global query filter.
+            var baseQuery = ApplyPanelScope(_context.BookingRequests.AsNoTracking(), ventana);
+
+            // Conteos por estado, agrupados en SQL, sobre exactamente el mismo dataset que el
+            // listado. No dependen de la pestaña activa: cambiar de pestaña no puede alterarlos.
+            var counts = await baseQuery
                 .GroupBy(r => r.Estado)
                 .Select(g => new { Estado = g.Key, Count = g.Count() })
                 .ToListAsync(cancellationToken);
 
-            var query = _context.BookingRequests.AsNoTracking().AsQueryable();
+            // La pestaña solo decide qué tarjetas se ven.
+            var estadoPersistido = estadoFiltro.ToPersistedState();
+            var visibles = estadoPersistido is null
+                ? baseQuery
+                : baseQuery.Where(r => r.Estado == estadoPersistido);
 
-            if (!string.Equals(estadoFiltro, "all", StringComparison.OrdinalIgnoreCase))
-            {
-                query = query.Where(r => r.Estado == estadoFiltro);
-            }
-
-            var (desde, hasta) = ResolveRango(rangoFiltro);
-            query = query.Where(r => r.FechaHoraInicioSolicitada >= desde && r.FechaHoraInicioSolicitada < hasta);
-
-            var solicitudes = await query
-                .OrderBy(r => r.Estado == BookingRequestStates.Pending ? 0 : 1)
-                .ThenBy(r => r.FechaHoraInicioSolicitada)
+            var solicitudes = await visibles
+                .OrderByDescending(r => r.CreatedAtUtc)
+                .ThenByDescending(r => r.Id)
                 .Select(r => new BookingRequestListItemViewModel
                 {
                     Id = r.Id,
@@ -80,7 +92,12 @@ namespace LuxuryApp.Services.Reservas
                     ServicioNombre = r.Servicio != null ? r.Servicio.Nombre : "Servicio",
                     FuncionarioNombre = r.FuncionarioId != null && r.Funcionario != null
                         ? r.Funcionario.Nombre
-                        : "Cualquier funcionario",
+                        : "Cualquier profesional",
+                    // Recurso que el sistema reservó para esta solicitud. Es OTRA cosa que lo
+                    // solicitado: con "cualquier profesional" el servidor ya eligió a alguien.
+                    FuncionarioAsignadoNombre = r.FuncionarioAsignadoId != null && r.FuncionarioAsignado != null
+                        ? r.FuncionarioAsignado.Nombre
+                        : null,
                     SolicitoCualquierFuncionario = r.FuncionarioId == null,
                     FechaHoraInicioSolicitada = r.FechaHoraInicioSolicitada,
                     DuracionMinutos = r.DuracionMinutos,
@@ -106,20 +123,58 @@ namespace LuxuryApp.Services.Reservas
                 })
                 .ToListAsync(cancellationToken);
 
+            // "Recibida": UTC persistido → hora local del negocio. Se hace una sola vez, ya
+            // materializado, para no arrastrar aritmética de zona horaria a SQL.
+            var offset = businessNow.Offset;
+            foreach (var solicitud in solicitudes)
+            {
+                solicitud.RecibidaLocal = BookingRequestDateRangeResolver.ToBusinessLocal(
+                    solicitud.CreatedAtUtc,
+                    offset);
+            }
+
             var slug = await _settingsService.GetCurrentSlugAsync(cancellationToken);
+
+            // Una sola consulta por request; la vista no vuelve a razonar sobre el complemento.
+            var whatsAppActivo = await _whatsAppFeatureService.HasWhatsAppAddonAsync(cancellationToken);
 
             return new BookingRequestsPageViewModel
             {
                 EstadoFiltro = estadoFiltro,
                 RangoFiltro = rangoFiltro,
+                // Backlog completo: es el mismo criterio con el que se listan las pendientes.
                 PendientesCount = counts.Where(c => c.Estado == BookingRequestStates.Pending).Sum(c => c.Count),
                 ConfirmadasCount = counts.Where(c => c.Estado == BookingRequestStates.Confirmed).Sum(c => c.Count),
                 RechazadasCount = counts.Where(c => c.Estado == BookingRequestStates.Rejected).Sum(c => c.Count),
+                TotalCount = counts.Sum(c => c.Count),
                 ReservasActivas = !string.IsNullOrWhiteSpace(slug),
+                WhatsAppActivo = whatsAppActivo,
                 Slug = slug,
                 LinkPublico = BookingLinkBuilder.Build(_httpContextAccessor.HttpContext?.Request, slug),
                 Solicitudes = solicitudes
             };
+        }
+
+        /// <summary>
+        /// Regla única del panel de solicitudes, compartida por los conteos y por el listado.
+        ///
+        /// <para>
+        /// Una solicitud <c>Pending</c> es TRABAJO SIN RESOLVER: no la limita ningún rango de
+        /// fechas y solo sale de la lista cuando alguien la confirma o la rechaza. El resto de
+        /// estados (ya resueltos) sí se filtra por fecha de recepción, que es lo que el selector
+        /// de período controla.
+        /// </para>
+        /// </summary>
+        private static IQueryable<BookingRequest> ApplyPanelScope(
+            IQueryable<BookingRequest> query,
+            BookingRequestUtcRange ventana)
+        {
+            var desdeUtc = ventana.StartUtc;
+            var hastaUtc = ventana.EndUtc;
+
+            return query.Where(r =>
+                r.Estado == BookingRequestStates.Pending ||
+                (r.CreatedAtUtc >= desdeUtc && r.CreatedAtUtc < hastaUtc));
         }
 
         public async Task<BookingActionResult> ConfirmAsync(
@@ -173,9 +228,12 @@ namespace LuxuryApp.Services.Reservas
                     : BookingActionResult.Fail("Esta solicitud ya fue procesada.");
             }
 
+            // Orden de preferencia: lo que el admin eligió a mano → el recurso que el sistema ya
+            // tenía reservado para el hold → lo que pidió el cliente. Confirmar NO vuelve a
+            // sortear a otra persona: quien venía ocupando ese espacio es quien atiende.
             var funcionarioDeseado = funcionarioIdOverride.HasValue && funcionarioIdOverride.Value > 0
                 ? funcionarioIdOverride
-                : solicitud.FuncionarioId;
+                : solicitud.FuncionarioAsignadoId ?? solicitud.FuncionarioId;
 
             // Revalida disponibilidad y resuelve el funcionario (si era "cualquiera").
             var resolucion = await _availabilityService.ResolveSlotAsync(
@@ -229,12 +287,14 @@ namespace LuxuryApp.Services.Reservas
                 return BookingActionResult.Fail("No fue posible crear la cita. Intentá de nuevo.");
             }
 
-            // Enlaza la cita creada (sin tocar Estado: ya está Confirmed por el claim).
+            // Enlaza la cita creada (sin tocar Estado: ya está Confirmed por el claim). Se escribe
+            // el funcionario ASIGNADO; FuncionarioId conserva lo que pidió el cliente para que la
+            // administración siga distinguiendo "pidió cualquiera" de "pidió a esta persona".
             await _context.BookingRequests
                 .Where(r => r.Id == requestId)
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(r => r.ConvertedCitaId, citaCreada.Id)
-                    .SetProperty(r => r.FuncionarioId, resolucion.FuncionarioId.Value)
+                    .SetProperty(r => r.FuncionarioAsignadoId, resolucion.FuncionarioId.Value)
                     .SetProperty(r => r.ClienteId, clienteId),
                     cancellationToken);
 
@@ -294,6 +354,47 @@ namespace LuxuryApp.Services.Reservas
             return BookingActionResult.Ok("Solicitud rechazada.");
         }
 
+        public async Task<IReadOnlyList<CalendarPendingBookingResponse>> GetPendingForCalendarAsync(
+            DateOnly fecha,
+            CancellationToken cancellationToken = default)
+        {
+            var desde = fecha.ToDateTime(TimeOnly.MinValue);
+            var hasta = desde.AddDays(1);
+
+            // Sólo Pending: una confirmada ya es Cita (la pinta el read model de citas) y una
+            // rechazada no ocupa nada. Tenant-safe por el global query filter de BookingRequest.
+            return await _context.BookingRequests
+                .AsNoTracking()
+                .Where(r =>
+                    r.Estado == BookingRequestStates.Pending &&
+                    r.FechaHoraInicioSolicitada >= desde &&
+                    r.FechaHoraInicioSolicitada < hasta &&
+                    (r.FuncionarioAsignadoId != null || r.FuncionarioId != null))
+                .OrderBy(r => r.FechaHoraInicioSolicitada)
+                .Select(r => new CalendarPendingBookingResponse
+                {
+                    Id = r.Id,
+                    FuncionarioId = r.FuncionarioAsignadoId != null
+                        ? r.FuncionarioAsignadoId.Value
+                        : r.FuncionarioId!.Value,
+                    FuncionarioNombre = r.FuncionarioAsignadoId != null
+                        ? (r.FuncionarioAsignado != null ? r.FuncionarioAsignado.Nombre : string.Empty)
+                        : (r.Funcionario != null ? r.Funcionario.Nombre : string.Empty),
+                    NombreCliente = r.NombreCliente,
+                    TelefonoCliente = r.TelefonoCliente,
+                    ServicioNombre = r.Servicio != null ? r.Servicio.Nombre : null,
+                    FechaHoraInicio = r.FechaHoraInicioSolicitada,
+                    DuracionMinutos = r.DuracionMinutos > 0
+                        ? r.DuracionMinutos
+                        : ((r.Servicio != null ? r.Servicio.DuracionMinutos : null) ?? 30),
+                    SolicitoCualquierFuncionario = r.FuncionarioId == null,
+                    AceptaWhatsApp = r.AceptaWhatsApp,
+                    NotasCliente = r.NotasCliente,
+                    CreatedAtUtc = r.CreatedAtUtc
+                })
+                .ToListAsync(cancellationToken);
+        }
+
         private static (string Message, string? WhatsAppStatus) ComposeConfirmationMessage(
             WhatsAppConfirmationSendResult? result)
         {
@@ -302,6 +403,21 @@ namespace LuxuryApp.Services.Reservas
                 return (
                     "Reserva aprobada y cita creada, pero no se pudo enviar la confirmación de WhatsApp.",
                     "failed");
+            }
+
+            if (result.Reason == WhatsAppNotificationReason.ConsentMissing)
+            {
+                // El cliente sí pudo autorizar y no lo hizo: es dato útil, no una advertencia.
+                return (
+                    $"{AprobacionMensajeBase} El cliente no autorizó notificaciones por WhatsApp.",
+                    "skipped");
+            }
+
+            // WhatsApp es un side effect opcional: si el negocio no contrató el complemento, la
+            // aprobación se informa como cualquier otra y no se menciona WhatsApp.
+            if (result.Reason.IsSilent())
+            {
+                return (AprobacionMensajeBase, null);
             }
 
             return result.Outcome switch
@@ -319,7 +435,7 @@ namespace LuxuryApp.Services.Reservas
                     ("Reserva aprobada y cita creada, pero no se pudo enviar la confirmación de WhatsApp.", "failed"),
 
                 _ =>
-                    ($"Reserva aprobada y cita creada. {result.Message}", "skipped")
+                    ($"{AprobacionMensajeBase} {result.Message}", "skipped")
             };
         }
 
@@ -361,47 +477,5 @@ namespace LuxuryApp.Services.Reservas
                 .FirstOrDefaultAsync(cancellationToken);
         }
 
-        private static string NormalizeEstado(string? estado)
-        {
-            if (string.IsNullOrWhiteSpace(estado))
-            {
-                return BookingRequestStates.Pending;
-            }
-
-            return estado.ToLowerInvariant() switch
-            {
-                "confirmed" or "confirmadas" => BookingRequestStates.Confirmed,
-                "rejected" or "rechazadas" => BookingRequestStates.Rejected,
-                "all" or "todas" => "all",
-                _ => BookingRequestStates.Pending
-            };
-        }
-
-        private static string NormalizeRango(string? rango)
-        {
-            if (string.IsNullOrWhiteSpace(rango))
-            {
-                return "mes";
-            }
-
-            return rango.ToLowerInvariant() switch
-            {
-                "hoy" => "hoy",
-                "semana" => "semana",
-                _ => "mes"
-            };
-        }
-
-        private (DateTime Desde, DateTime Hasta) ResolveRango(string rango)
-        {
-            var hoy = _businessDateTimeProvider.Today();
-
-            return rango switch
-            {
-                "hoy" => (hoy, hoy.AddDays(1)),
-                "semana" => (hoy, hoy.AddDays(7)),
-                _ => (hoy.AddDays(-31), hoy.AddDays(62))
-            };
-        }
     }
 }

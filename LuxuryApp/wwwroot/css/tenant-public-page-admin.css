@@ -339,7 +339,58 @@
 }
 
 .tppa-preview-service-main {
-    aspect-ratio: 4 / 3;
+    /* Mismo marco que la tarjeta publica: lo que se ve aca es lo que se ve en la landing. */
+    aspect-ratio: 3 / 4;
+    max-width: 240px;
+}
+
+/* --- Color principal de marca --- */
+.tppa-color-field {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+}
+
+.tppa-color-swatch {
+    width: 56px;
+    height: 44px;
+    padding: 2px;
+    border: 1px solid var(--private-surface-border, #e5e5e5);
+    border-radius: 8px;
+    background: var(--private-surface-bg, #fff);
+    cursor: pointer;
+}
+
+.tppa-color-hex {
+    width: 140px;
+    text-transform: lowercase;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.tppa-color-preview {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 11px 20px;
+    border-radius: 8px;
+    color: #fff;
+    font-weight: 900;
+}
+
+@media (max-width: 560px) {
+    .tppa-color-field > * {
+        flex: 1 1 100%;
+    }
+
+    .tppa-color-hex,
+    .tppa-color-swatch {
+        width: 100%;
+    }
+
+    .tppa-color-preview {
+        justify-content: center;
+    }
 }
 
 .tppa-preview-empty {
@@ -584,8 +635,15 @@
 
 .tppa-crop-frame {
     position: relative;
-    width: min(100%, 520px);
-    max-height: 58vh;
+    /* Alto disponible descontando el alto del resto del dialogo (encabezado, opciones, zoom y
+       botones), para que "Cancelar" y "Subir imagen" queden a la vista sin scroll interno.
+       El piso de 220px mantiene el recortador usable en pantallas muy bajas. */
+    --tppa-crop-max-height: max(220px, min(450px, calc(92vh - 372px)));
+    /* El ancho se limita TAMBIEN por el alto disponible, asi el marco conserva SIEMPRE su
+       proporcion. Con max-height a secas, un marco 3:4 se aplastaba en pantallas bajas y el
+       recorte exportado salia deformado. */
+    width: min(100%, 520px, calc(var(--tppa-crop-max-height) * var(--tppa-crop-ratio, 1)));
+    aspect-ratio: var(--tppa-crop-ratio, 1);
     overflow: hidden;
     border-radius: 8px;
     background: #000;
@@ -609,6 +667,8 @@
 .tppa-crop-zoom {
     display: grid;
     gap: 8px;
+    /* Pegado al preview para que se lea como control de la imagen, no del formulario. */
+    margin-top: -6px;
     font-size: .9rem;
     font-weight: 800;
 }
@@ -629,6 +689,27 @@
 
 .tppa-crop-actions {
     justify-content: flex-end;
+}
+
+/* Portatiles de pantalla baja (1366x700 y similares): se compacta el dialogo para que el
+   preview no quede diminuto y los botones sigan visibles sin scroll interno. */
+@media (max-height: 800px) {
+    .tppa-crop-dialog {
+        gap: 10px;
+        padding: 14px;
+    }
+
+    .tppa-crop-head p {
+        display: none;
+    }
+
+    .tppa-crop-stage {
+        padding: 10px;
+    }
+
+    .tppa-crop-frame {
+        --tppa-crop-max-height: max(220px, min(450px, calc(92vh - 300px)));
+    }
 }
 
 @media (max-width: 560px) {
@@ -655,6 +736,15 @@
 
     .tppa-crop-actions {
         flex-direction: column-reverse;
+    }
+
+    .tppa-crop-frame {
+        /* En movil se prioriza ver los botones sin scroll. */
+        --tppa-crop-max-height: 46vh;
+    }
+
+    .tppa-crop-stage {
+        padding: 10px;
     }
 }
 

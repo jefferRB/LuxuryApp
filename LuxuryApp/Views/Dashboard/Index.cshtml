@@ -109,6 +109,72 @@
 
     </div>
 
+    @* ── B2. REPARTO DE LA GANANCIA ──
+       Solo existe si hay participación vigente en el periodo. Cuando no la hay, el bloque
+       no se renderiza: la cifra no viaja al HTML. *@
+    @if (Model.ParticipacionAsociados is { } reparto)
+    {
+        <div class="dfin-alloc">
+            <div class="dfin-alloc-head">
+                <i class="bi bi-people-fill"></i>
+                <span>Reparto de la ganancia</span>
+                <a class="dfin-alloc-link" asp-controller="Asociados" asp-action="Index">
+                    Ver asociados <i class="bi bi-arrow-right-short"></i>
+                </a>
+            </div>
+
+            <div class="dfin-alloc-grid">
+                <div class="dfin-alloc-col">
+                    <span class="dfin-alloc-label">Ganancia distribuible</span>
+                    <span class="dfin-alloc-value @(reparto.GananciaDistribuible >= 0 ? "dfin-color-profit" : "dfin-color-danger")">
+                        &#8353; @reparto.GananciaDistribuible.ToString("N2")
+                    </span>
+                    <span class="dfin-alloc-sub">Cobrado sin IVA &minus; gastos &minus; liquidaciones</span>
+                </div>
+
+                <div class="dfin-alloc-col">
+                    <span class="dfin-alloc-label">Participación estimada del mes</span>
+                    <span class="dfin-alloc-value">&#8353; @reparto.ParticipacionMonto.ToString("N2")</span>
+                    <span class="dfin-alloc-sub">
+                        <span class="dfin-alloc-pct">@reparto.ParticipacionPorcentaje.ToString("0.##")%</span>
+                        @if (reparto.CantidadAsociados == 1)
+                        {
+                            <span>1 asociado</span>
+                        }
+                        else
+                        {
+                            <span>@reparto.CantidadAsociados asociados</span>
+                        }
+                    </span>
+                    @if (reparto.ProximoCorte is { } proximoCorte)
+                    {
+                        <span class="dfin-alloc-sub">Próximo corte: @proximoCorte.ToString("dd/MM/yyyy")</span>
+                    }
+                </div>
+
+                <div class="dfin-alloc-col">
+                    <span class="dfin-alloc-label">Ganancia restante</span>
+                    <span class="dfin-alloc-value @(reparto.GananciaRestante >= 0 ? "dfin-color-profit" : "dfin-color-danger")">
+                        &#8353; @reparto.GananciaRestante.ToString("N2")
+                    </span>
+                    <span class="dfin-alloc-sub">@reparto.PorcentajeRestante.ToString("0.##")% del negocio</span>
+                </div>
+            </div>
+
+            @* El Dashboard mide el MES CALENDARIO. Si el corte contractual no coincide, el monto
+               de arriba es una estimación del mes, no lo que se paga en el próximo corte. *@
+            @if (reparto.PeriodoDifiereDelCorte)
+            {
+                <p class="dfin-alloc-note">
+                    <i class="bi bi-info-circle"></i>
+                    Este monto corresponde al mes calendario (@reparto.PeriodoEtiqueta). El pago real
+                    se calcula sobre el período del corte de cada asociado, que empieza y termina en
+                    otras fechas: mirá su estado de cuenta para el número definitivo.
+                </p>
+            }
+        </div>
+    }
+
     <!-- ── C. KPI GRID ── -->
     <div class="dfin-kpi-grid">
 
@@ -147,7 +213,9 @@
         <div class="kpi-card dfin-kpi-card">
             <div class="dfin-kpi-icon dfin-icon-yellow"><i class="bi bi-people"></i></div>
             <div class="dfin-kpi-body">
-                <span class="dfin-kpi-label-text">Pago a Funcionarios</span>
+                @* Devengado del período (lo que el equipo ganó), no lo que salió de caja: es la
+                   misma línea que resta el estado de cuenta del inversionista. *@
+                <span class="dfin-kpi-label-text">Liquidaciones del equipo</span>
                 <span class="dfin-kpi-value-text dfin-color-warning">&#8353; @Model.TotalPagadoFuncionariosAnalitico.ToString("N2")</span>
             </div>
         </div>
@@ -217,6 +285,8 @@
         ? window.luxuryGetPrivateThemeTokens()
         : { chartText: '#e2e8f0', chartMuted: '#94a3b8', chartGrid: 'rgba(148,163,184,0.22)' };
 
+    // Fallback en literales: solo aplica si el motor de temas no cargo. Con el motor
+    // presente la paleta sale de los tokens --private-chart-* del tema activo.
     var palette = tokens.chartPalette || ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#0891b2'];
 
     // Push palette colors into CSS vars so the HTML legend dots match the chart

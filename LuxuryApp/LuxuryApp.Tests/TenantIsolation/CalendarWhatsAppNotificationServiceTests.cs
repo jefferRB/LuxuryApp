@@ -1288,6 +1288,16 @@ namespace LuxuryApp.Tests.TenantIsolation
                 return Task.FromResult(ConsumeResult($"reminder-{SendCount}"));
             }
 
+            public Task<MetaWhatsAppSendResult> SendCancellationTemplateAsync(
+                string recipientPhone,
+                WhatsAppCancellationTemplateParameters parameters,
+                CancellationToken cancellationToken = default)
+            {
+                SendCount++;
+                LastBusinessName = parameters.BusinessName;
+                return Task.FromResult(ConsumeResult($"cancellation-{SendCount}"));
+            }
+
             public Task<MetaWhatsAppSendResult> SendTextMessageAsync(
                 string recipientPhone,
                 string message,

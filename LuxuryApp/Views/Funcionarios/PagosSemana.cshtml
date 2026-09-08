@@ -310,7 +310,7 @@
             var formula     = FuncionarioLiquidacionDisplay.FormulaComision(f);
             // Color persistido del funcionario; fallback elegante al acento del tema.
             var accentColor = string.IsNullOrWhiteSpace(f.ColorCalendario)
-                ? "var(--private-chart-accent, #2563eb)"
+                ? "var(--private-chart-accent, var(--private-accent))"
                 : f.ColorCalendario;
 
             <div class="lq-card lq-card--accented" style="--lq-accent:@accentColor;">

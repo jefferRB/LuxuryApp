@@ -1,6 +1,7 @@
-using LuxuryApp.Controllers;
+﻿using LuxuryApp.Controllers;
 using LuxuryApp.Controllers.Configuracion;
 using LuxuryApp.Services.Identity;
+using LuxuryApp.Models.Asociados;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -46,15 +47,30 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
-        public void PaginaPublicaController_RequiresTenantAdminRole()
+        public void PaginaPublicaController_RequiresPublicWebsitePermission()
         {
-            var authorize = typeof(PaginaPublicaController)
-                .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
-                .OfType<AuthorizeAttribute>()
-                .SingleOrDefault();
+            // Marketing administra la página pública sin ser administrador del negocio: la
+            // autorización pasó de rol a permiso. Ver PublicWebsite.View abre la pantalla y
+            // PublicWebsite.Manage protege cada POST (uploads incluidos).
+            var permisos = typeof(PaginaPublicaController)
+                .GetCustomAttributes(typeof(RequirePermissionAttribute), inherit: true)
+                .OfType<RequirePermissionAttribute>()
+                .Select(atributo => atributo.Permission)
+                .ToArray();
 
-            Assert.NotNull(authorize);
-            Assert.Equal(AppRoles.Administrador, authorize!.Roles);
+            Assert.Contains(AppPermissions.PublicWebsiteView, permisos);
+
+            var postsSinManage = typeof(PaginaPublicaController)
+                .GetMethods()
+                .Where(method => method.GetCustomAttributes(typeof(HttpPostAttribute), inherit: true).Any())
+                .Where(method => !method
+                    .GetCustomAttributes(typeof(RequirePermissionAttribute), inherit: true)
+                    .OfType<RequirePermissionAttribute>()
+                    .Any(atributo => atributo.Permission == AppPermissions.PublicWebsiteManage))
+                .Select(method => method.Name)
+                .ToArray();
+
+            Assert.Empty(postsSinManage);
         }
 
         [Fact]

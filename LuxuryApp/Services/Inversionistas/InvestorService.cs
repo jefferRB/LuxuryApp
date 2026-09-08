@@ -1,4 +1,4 @@
-using System.Net.Mail;
+﻿using System.Net.Mail;
 using LuxuryApp.Models.Inversionistas;
 using LuxuryApp.Models.Platform;
 using LuxuryApp.Services.BusinessTime;
@@ -80,7 +80,7 @@ namespace LuxuryApp.Services.Inversionistas
                     Frecuencia = vigente?.Frecuencia,
                     ProximoReporte = vigente is null
                         ? null
-                        : InvestorPeriodCalculator.LastClosed(vigente.Frecuencia, hoy).Etiqueta,
+                        : InvestorSettlementPeriodResolver.PreviousClosedPeriod(vigente, hoy).Etiqueta,
                     SaldoPendiente = saldo?.Saldo ?? 0m,
                     EstadosPendientes = saldo?.Pendientes ?? 0
                 });
@@ -104,7 +104,7 @@ namespace LuxuryApp.Services.Inversionistas
             var hoy = Today();
             var policy = await GetPolicyAsync(cancellationToken);
             var frecuencia = policy.FrecuenciaPorDefecto;
-            var proximoInicio = InvestorPeriodCalculator.Resolve(frecuencia, hoy).Inicio;
+            var proximoInicio = InvestorSettlementPeriodResolver.Resolve(frecuencia, null, hoy).Inicio;
 
             return new InvestorFormViewModel
             {
@@ -112,50 +112,6 @@ namespace LuxuryApp.Services.Inversionistas
                 TratamientoPerdidas = policy.TratamientoPerdidasPorDefecto,
                 EffectiveFrom = proximoInicio.ToDateTime(TimeOnly.MinValue),
                 ParticipacionOtros = await SumParticipacionVigenteAsync(null, hoy, cancellationToken),
-                ProximoInicioPeriodo = proximoInicio
-            };
-        }
-
-        public async Task<InvestorFormViewModel?> BuildEditFormAsync(
-            int investorId,
-            CancellationToken cancellationToken = default)
-        {
-            var investor = await _context.TenantInvestors
-                .AsNoTracking()
-                .Include(current => current.Acuerdos)
-                .FirstOrDefaultAsync(current => current.Id == investorId, cancellationToken);
-
-            if (investor is null)
-            {
-                return null;
-            }
-
-            var hoy = Today();
-            var vigente = ResolveVigente(investor.Acuerdos, hoy);
-            var frecuencia = vigente?.Frecuencia ?? (await GetPolicyAsync(cancellationToken)).FrecuenciaPorDefecto;
-
-            // Un cambio de porcentaje solo puede arrancar en el próximo inicio de periodo.
-            var periodoActual = InvestorPeriodCalculator.Resolve(frecuencia, hoy);
-            var proximoInicio = periodoActual.Inicio == hoy ? hoy : periodoActual.SiguienteInicio;
-
-            return new InvestorFormViewModel
-            {
-                Id = investor.Id,
-                Nombre = investor.Nombre,
-                Email = investor.Email,
-                Telefono = investor.Telefono,
-                Activo = investor.Activo,
-                NotasInternas = investor.NotasInternas,
-                AcuerdoId = vigente?.Id,
-                ParticipacionPorcentaje = vigente?.ParticipacionPorcentaje ?? 0m,
-                EffectiveFrom = proximoInicio.ToDateTime(TimeOnly.MinValue),
-                EffectiveTo = vigente?.EffectiveTo?.ToDateTime(TimeOnly.MinValue),
-                Frecuencia = frecuencia,
-                TratamientoPerdidas = vigente?.TratamientoPerdidas ?? InvestorLossTreatment.NoDistribution,
-                EnvioAutomatico = vigente?.EnvioAutomatico ?? false,
-                Notas = vigente?.Notas,
-                ParticipacionOtros = await SumParticipacionVigenteAsync(investorId, hoy, cancellationToken),
-                PorcentajeVigenteActual = vigente?.ParticipacionPorcentaje,
                 ProximoInicioPeriodo = proximoInicio
             };
         }
@@ -178,7 +134,9 @@ namespace LuxuryApp.Services.Inversionistas
             var effectiveFrom = DateOnly.FromDateTime(form.EffectiveFrom.Date);
             var effectiveTo = form.EffectiveTo.HasValue ? DateOnly.FromDateTime(form.EffectiveTo.Value.Date) : (DateOnly?)null;
 
-            ValidateAgreementInput(form.ParticipacionPorcentaje, form.Frecuencia, effectiveFrom, effectiveTo);
+            var diaCorte = InvestorSettlementPeriodResolver.NormalizarDiaCorte(form.Frecuencia, form.DiaCorte);
+
+            ValidateAgreementInput(form.ParticipacionPorcentaje, form.Frecuencia, diaCorte, effectiveFrom, effectiveTo);
             await EnsureParticipacionDisponibleAsync(
                 null,
                 form.ParticipacionPorcentaje,
@@ -211,6 +169,7 @@ namespace LuxuryApp.Services.Inversionistas
                 EffectiveFrom = effectiveFrom,
                 EffectiveTo = effectiveTo,
                 Frecuencia = form.Frecuencia,
+                DiaCorte = diaCorte,
                 TratamientoPerdidas = form.TratamientoPerdidas,
                 EnvioAutomatico = form.EnvioAutomatico,
                 Activo = true,
@@ -293,19 +252,25 @@ namespace LuxuryApp.Services.Inversionistas
             investor.UpdatedAtUtc = DateTime.UtcNow;
             investor.UpdatedByUserId = userId;
 
+            var diaCorte = InvestorSettlementPeriodResolver.NormalizarDiaCorte(form.Frecuencia, form.DiaCorte);
+
+            // Cambiar el día de corte cambia las FECHAS de los periodos siguientes, así que es un
+            // cambio de acuerdo con todas las letras: cierra la versión vigente y abre una nueva.
             var cambioDeAcuerdo = vigente is null ||
                 vigente.ParticipacionPorcentaje != form.ParticipacionPorcentaje ||
                 vigente.Frecuencia != form.Frecuencia ||
+                vigente.DiaCorte != diaCorte ||
                 vigente.TratamientoPerdidas != form.TratamientoPerdidas ||
                 vigente.EffectiveTo != effectiveTo;
 
             if (cambioDeAcuerdo)
             {
-                ValidateAgreementInput(form.ParticipacionPorcentaje, form.Frecuencia, effectiveFrom, effectiveTo);
+                ValidateAgreementInput(form.ParticipacionPorcentaje, form.Frecuencia, diaCorte, effectiveFrom, effectiveTo);
 
                 // Regla anti-retroactividad: un acuerdo nuevo nunca puede empezar antes del inicio
-                // del periodo en curso, porque reescribiría un periodo ya calculado.
-                var periodoActual = InvestorPeriodCalculator.Resolve(form.Frecuencia, hoy);
+                // del periodo en curso, porque reescribiría un periodo ya calculado. El periodo en
+                // curso se mide con el corte NUEVO, que es el que va a regir de acá en adelante.
+                var periodoActual = InvestorSettlementPeriodResolver.Resolve(form.Frecuencia, diaCorte, hoy);
                 if (effectiveFrom < periodoActual.Inicio)
                 {
                     throw new InvestorValidationException(
@@ -327,6 +292,7 @@ namespace LuxuryApp.Services.Inversionistas
                         // El acuerdo vigente todavía no cubrió ningún periodo: se corrige en el sitio.
                         vigente.ParticipacionPorcentaje = form.ParticipacionPorcentaje;
                         vigente.Frecuencia = form.Frecuencia;
+                        vigente.DiaCorte = diaCorte;
                         vigente.TratamientoPerdidas = form.TratamientoPerdidas;
                         vigente.EnvioAutomatico = form.EnvioAutomatico;
                         vigente.EffectiveFrom = effectiveFrom;
@@ -349,6 +315,7 @@ namespace LuxuryApp.Services.Inversionistas
                             EffectiveFrom = effectiveFrom,
                             EffectiveTo = effectiveTo,
                             Frecuencia = form.Frecuencia,
+                            DiaCorte = diaCorte,
                             TratamientoPerdidas = form.TratamientoPerdidas,
                             EnvioAutomatico = form.EnvioAutomatico,
                             Activo = true,
@@ -369,6 +336,7 @@ namespace LuxuryApp.Services.Inversionistas
                         EffectiveFrom = effectiveFrom,
                         EffectiveTo = effectiveTo,
                         Frecuencia = form.Frecuencia,
+                        DiaCorte = diaCorte,
                         TratamientoPerdidas = form.TratamientoPerdidas,
                         EnvioAutomatico = form.EnvioAutomatico,
                         Activo = true,
@@ -552,11 +520,56 @@ namespace LuxuryApp.Services.Inversionistas
             return ResolveVigente(acuerdos, fecha);
         }
 
+        public async Task<TenantInvestor?> GetByAssociateAsync(
+            int associateId,
+            CancellationToken cancellationToken = default) =>
+            await _context.TenantInvestors
+                .AsNoTracking()
+                .Include(investor => investor.Acuerdos)
+                .FirstOrDefaultAsync(investor => investor.AssociateId == associateId, cancellationToken);
+
+        public async Task<int?> GetAssociateIdAsync(
+            int investorId,
+            CancellationToken cancellationToken = default) =>
+            await _context.TenantInvestors
+                .AsNoTracking()
+                .Where(investor => investor.Id == investorId)
+                .Select(investor => investor.AssociateId)
+                .FirstOrDefaultAsync(cancellationToken);
+
+        public async Task LinkToAssociateAsync(
+            int investorId,
+            int associateId,
+            CancellationToken cancellationToken = default)
+        {
+            var investor = await _context.TenantInvestors
+                .FirstOrDefaultAsync(current => current.Id == investorId, cancellationToken)
+                ?? throw new InvestorValidationException(
+                    "El perfil de inversionista indicado no existe o no pertenece a este negocio.");
+
+            if (investor.AssociateId == associateId)
+            {
+                return;
+            }
+
+            if (investor.AssociateId.HasValue)
+            {
+                // Reasignar un perfil movería estados de cuenta y pagos de una persona a otra.
+                throw new InvestorValidationException(
+                    "Ese perfil de inversionista ya pertenece a otro asociado.");
+            }
+
+            investor.AssociateId = associateId;
+            investor.UpdatedAtUtc = DateTime.UtcNow;
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+
         // ─────────────── Validaciones ───────────────
 
         private static void ValidateAgreementInput(
             decimal porcentaje,
             InvestorPayoutFrequency frecuencia,
+            int? diaCorte,
             DateOnly effectiveFrom,
             DateOnly? effectiveTo)
         {
@@ -574,14 +587,16 @@ namespace LuxuryApp.Services.Inversionistas
                     nameof(InvestorFormViewModel.EffectiveTo));
             }
 
-            // Cambios a mitad de periodo: se rechazan con un mensaje que dice exactamente qué fecha usar.
-            if (!InvestorPeriodCalculator.EsInicioDePeriodo(frecuencia, effectiveFrom))
+            // Cambios a mitad de periodo: se rechazan con un mensaje que dice exactamente qué fecha
+            // usar. El límite depende del día de corte: con corte 20 un periodo abre el día 21,
+            // no el día 1.
+            if (!InvestorSettlementPeriodResolver.EsInicioDePeriodo(frecuencia, diaCorte, effectiveFrom))
             {
-                var periodo = InvestorPeriodCalculator.Resolve(frecuencia, effectiveFrom);
+                var periodo = InvestorSettlementPeriodResolver.Resolve(frecuencia, diaCorte, effectiveFrom);
                 throw new InvestorValidationException(
                     $"El cambio debe entrar en vigor al inicio de un periodo {InvestorPeriodCalculator.FrecuenciaTexto(frecuencia).ToLowerInvariant()}. " +
                     $"La fecha {effectiveFrom:dd/MM/yyyy} cae a mitad del periodo {periodo.Etiqueta}. " +
-                    $"Usá {periodo.SiguienteInicio:dd/MM/yyyy} (o {periodo.Inicio:dd/MM/yyyy} si querés cubrir el periodo completo).",
+                    $"Usá {periodo.Fin.AddDays(1):dd/MM/yyyy} (o {periodo.Inicio:dd/MM/yyyy} si querés cubrir el periodo completo).",
                     nameof(InvestorFormViewModel.EffectiveFrom));
             }
         }

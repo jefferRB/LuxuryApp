@@ -1,4 +1,4 @@
-@using LuxuryApp.Models.Inversionistas
+﻿@using LuxuryApp.Models.Inversionistas
 @model InvestorStatementDetailViewModel
 
 @{
@@ -7,6 +7,7 @@
 
 @section Styles {
     <link rel="stylesheet" href="~/css/finance-modules.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/investor-settlement.css" asp-append-version="true" />
 }
 
 <div class="finance-page-shell">
@@ -17,11 +18,13 @@
                 <i class="bi bi-file-earmark-text"></i>
                 Estado de cuenta
             </span>
-            <h1 class="finance-title">@Model.InvestorNombre</h1>
+            <h1 class="finance-title">Corte @Model.FechaCorte.ToString("dd/MM/yyyy")</h1>
             <p class="finance-subtitle">
-                @Model.PeriodoEtiqueta ·
-                @Model.PeriodoInicio.ToString("dd/MM/yyyy") al @Model.PeriodoFin.ToString("dd/MM/yyyy") ·
-                <strong>@Model.EstadoTexto</strong>
+                @Model.InvestorNombre ·
+                @Model.PeriodoInicio.ToString("dd/MM/yyyy") &rarr; @Model.PeriodoFin.ToString("dd/MM/yyyy")
+                <span class="inv-badge inv-badge--@InvestorVisuals.CssModifier(Model.Tono)">
+                    @Model.EstadoCorto
+                </span>
             </p>
         </div>
 
@@ -77,11 +80,39 @@
         </div>
     }
 
+    @* ── Navegación por cortes reales (no por fechas escritas a mano) ── *@
+    <div class="inv-nav">
+        @if (Model.Navegacion.AnteriorId.HasValue)
+        {
+            <a asp-action="Estado" asp-route-id="@Model.Navegacion.AnteriorId.Value" class="finance-btn-secondary">
+                <i class="bi bi-arrow-left-short"></i>
+                Corte anterior (@Model.Navegacion.AnteriorCorte!.Value.ToString("dd/MM/yyyy"))
+            </a>
+        }
+
+        <span class="inv-nav-spacer"></span>
+
+        <a asp-action="CicloActual" asp-route-id="@Model.InvestorId" class="finance-btn-secondary">
+            <i class="bi bi-hourglass-split"></i> Ciclo en curso
+        </a>
+
+        @if (Model.Navegacion.SiguienteId.HasValue)
+        {
+            <a asp-action="Estado" asp-route-id="@Model.Navegacion.SiguienteId.Value" class="finance-btn-secondary">
+                Corte siguiente (@Model.Navegacion.SiguienteCorte!.Value.ToString("dd/MM/yyyy"))
+                <i class="bi bi-arrow-right-short"></i>
+            </a>
+        }
+    </div>
+
+    @* Todos los montos de abajo salen del SNAPSHOT congelado: nunca se recalculan con el motor. *@
     <partial name="_DesgloseCalculo" model="Model.Desglose" />
 
     @* ── Acciones principales ── *@
     <div class="finance-actions">
-        <a asp-action="Estados" class="finance-btn-back"><i class="bi bi-arrow-left"></i> Volver</a>
+        <a asp-action="Estados" asp-route-inversionistaId="@Model.InvestorId" class="finance-btn-back">
+            <i class="bi bi-arrow-left"></i> Historial de cortes
+        </a>
 
         @if (Model.EsEditable)
         {

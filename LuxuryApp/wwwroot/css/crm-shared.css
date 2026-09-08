@@ -44,9 +44,9 @@
     font-weight: 700;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: var(--private-chart-accent, #2563eb);
-    background: rgba(37, 99, 235, 0.1);
-    border: 1px solid rgba(37, 99, 235, 0.22);
+    color: var(--private-chart-accent, var(--private-accent));
+    background: rgba(var(--private-accent-rgb), 0.1);
+    border: 1px solid rgba(var(--private-accent-rgb), 0.22);
     padding: 0.22rem 0.75rem;
     border-radius: 999px;
     width: fit-content;
@@ -93,9 +93,9 @@
 }
 
 /* Variantes de color de borde */
-.crm-stat-card--blue   { border-color: rgba(37,  99, 235, 0.32); }
+.crm-stat-card--blue   { border-color: rgba(var(--private-accent-rgb), 0.32); }
 .crm-stat-card--teal   { border-color: rgba(8,  145, 178, 0.32); }
-.crm-stat-card--purple { border-color: rgba(124, 58, 237, 0.32); }
+.crm-stat-card--purple { border-color: rgba(var(--private-accent-alt-rgb), 0.32); }
 .crm-stat-card--green  { border-color: rgba(22,  163, 74, 0.32); }
 .crm-stat-card--amber  { border-color: rgba(217, 119,  6, 0.32); }
 .crm-stat-card--red    { border-color: rgba(220,  38, 38, 0.32); }
@@ -112,9 +112,9 @@
     font-size: 1.3rem;
 }
 
-.crm-stat-icon-wrap--blue   { background: rgba(37,  99, 235, 0.14); color: #2563eb; }
+.crm-stat-icon-wrap--blue   { background: rgba(var(--private-accent-rgb), 0.14); color: var(--private-accent); }
 .crm-stat-icon-wrap--teal   { background: rgba(8,  145, 178, 0.14); color: #0891b2; }
-.crm-stat-icon-wrap--purple { background: rgba(124, 58, 237, 0.14); color: #7c3aed; }
+.crm-stat-icon-wrap--purple { background: rgba(var(--private-accent-alt-rgb), 0.14); color: var(--private-accent-alt); }
 .crm-stat-icon-wrap--green  { background: rgba(22,  163, 74, 0.14); color: #16a34a; }
 .crm-stat-icon-wrap--amber  { background: rgba(217, 119,  6, 0.14); color: #d97706; }
 .crm-stat-icon-wrap--red    { background: rgba(220,  38, 38, 0.14); color: #dc2626; }
@@ -146,9 +146,9 @@
 }
 
 /* Variantes de color del número */
-.crm-stat-num--blue   { color: #2563eb; }
+.crm-stat-num--blue   { color: var(--private-accent); }
 .crm-stat-num--teal   { color: #0891b2; }
-.crm-stat-num--purple { color: #7c3aed; }
+.crm-stat-num--purple { color: var(--private-accent-alt); }
 .crm-stat-num--green  { color: #16a34a; }
 .crm-stat-num--amber  { color: #d97706; }
 .crm-stat-num--red    { color: #dc2626; }
@@ -214,16 +214,16 @@
 .crm-btn:active { transform: none; }
 
 .crm-btn--primary {
-    background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+    background: linear-gradient(135deg, var(--private-accent) 0%, var(--private-accent-alt) 100%);
     color: #fff;
-    border-color: rgba(124, 58, 237, 0.35);
-    box-shadow: 0 2px 12px rgba(37, 99, 235, 0.35);
+    border-color: rgba(var(--private-accent-alt-rgb), 0.35);
+    box-shadow: 0 2px 12px rgba(var(--private-accent-rgb), 0.35);
 }
 
 .crm-btn--primary:hover {
-    background: linear-gradient(135deg, #1d4ed8 0%, #6d28d9 100%);
+    background: linear-gradient(135deg, var(--private-accent-strong) 0%, #6d28d9 100%);
     color: #fff;
-    box-shadow: 0 4px 18px rgba(37, 99, 235, 0.5);
+    box-shadow: 0 4px 18px rgba(var(--private-accent-rgb), 0.5);
 }
 
 .crm-btn--outline {
@@ -235,7 +235,7 @@
 .crm-btn--outline:hover {
     background: var(--private-row-hover-bg, rgba(15, 23, 42, 0.08));
     color: var(--private-surface-text, #111827);
-    border-color: rgba(37, 99, 235, 0.4);
+    border-color: rgba(var(--private-accent-rgb), 0.4);
 }
 
 .crm-btn--green {
@@ -280,7 +280,7 @@
 }
 
 .crm-pagesize-select:focus {
-    border-color: var(--private-chart-accent, #2563eb);
+    border-color: var(--private-chart-accent, var(--private-accent));
 }
 
 /* ── ALERTAS ─────────────────────────────────────────────── */
@@ -419,7 +419,7 @@
     padding: 0;
     cursor: pointer;
     font-size: 0.82rem;
-    color: var(--private-chart-accent, #2563eb);
+    color: var(--private-chart-accent, var(--private-accent));
     font-weight: 600;
     text-decoration: none;
 }
@@ -478,15 +478,15 @@
 .crm-act-labeled:active { transform: none; }
 
 .crm-act--edit {
-    color: var(--private-chart-accent, #2563eb);
-    border-color: rgba(37, 99, 235, 0.35);
-    background: rgba(37, 99, 235, 0.07);
+    color: var(--private-chart-accent, var(--private-accent));
+    border-color: rgba(var(--private-accent-rgb), 0.35);
+    background: rgba(var(--private-accent-rgb), 0.07);
 }
 
 .crm-act--edit:hover {
-    background: rgba(37, 99, 235, 0.14);
-    border-color: rgba(37, 99, 235, 0.55);
-    color: var(--private-chart-accent, #2563eb);
+    background: rgba(var(--private-accent-rgb), 0.14);
+    border-color: rgba(var(--private-accent-rgb), 0.55);
+    color: var(--private-chart-accent, var(--private-accent));
 }
 
 .crm-act--delete {
@@ -571,7 +571,7 @@
 .crm-page-btn:hover {
     background: var(--private-row-hover-bg, rgba(15, 23, 42, 0.08));
     color: var(--private-surface-text, #111827);
-    border-color: var(--private-chart-accent, #2563eb);
+    border-color: var(--private-chart-accent, var(--private-accent));
 }
 
 .crm-page-btn--disabled {
@@ -588,7 +588,7 @@
     height: 2.1rem;
     padding: 0 0.5rem;
     border-radius: 0.55rem;
-    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    background: linear-gradient(135deg, var(--private-accent), var(--private-accent-alt));
     color: #fff;
     font-size: 0.85rem;
     font-weight: 700;
@@ -607,7 +607,7 @@
 .crm-mobile-card {
     width: 100%;
     background: var(--private-row-bg, rgba(15, 23, 42, 0.04));
-    border: 1px solid rgba(99, 102, 241, 0.22);
+    border: 1px solid rgba(var(--private-accent-indigo-rgb), 0.22);
     border-radius: 1rem;
     padding: 1rem 1rem 0.9rem;
     display: flex;

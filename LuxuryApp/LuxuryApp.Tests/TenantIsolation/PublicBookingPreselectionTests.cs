@@ -86,7 +86,30 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Null(normalPage.PreselectedServiceId);
         }
 
-        private static PublicBookingService BuildPublicBookingService(ApplicationDbContext context)
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task BuildPageAsync_ElCheckboxDeWhatsAppSigueALaCapabilityDelTenant(bool whatsAppActivo)
+        {
+            // Sin complemento el formulario público no ofrece la casilla; por eso el backend no
+            // puede leer ese false como "el cliente dijo que no".
+            var tenantId = Guid.NewGuid();
+            var tenantProvider = new TestTenantProvider { TenantId = tenantId };
+            var (context, connection) = TestDbContextFactory.CreateSqliteContext(tenantProvider);
+            using var _ = context;
+            using var __ = connection;
+
+            await EnsureTenantAsync(context, tenantId);
+
+            var page = await BuildPublicBookingService(context, whatsAppActivo)
+                .BuildPageAsync(BuildContext(tenantId));
+
+            Assert.Equal(whatsAppActivo, page.MostrarWhatsApp);
+        }
+
+        private static PublicBookingService BuildPublicBookingService(
+            ApplicationDbContext context,
+            bool whatsAppActivo = true)
         {
             var catalog = new BookingCatalogService(context);
             return new PublicBookingService(
@@ -95,7 +118,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 ControllerTestSupport.CreateBookingAvailabilityService(context, new FixedBusinessDateTimeProvider(), catalog),
                 catalog,
                 new FixedBusinessDateTimeProvider(),
-                new FakeTenantWhatsAppFeatureService { IsEnabled = true },
+                new FakeTenantWhatsAppFeatureService { IsEnabled = whatsAppActivo },
                 new NoOpNotificationService(),
                 new HttpContextAccessor(),
                 NullLogger<PublicBookingService>.Instance);

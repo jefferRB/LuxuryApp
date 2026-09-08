@@ -1,3 +1,4 @@
+using LuxuryApp.Models.Asociados;
 using System.Security.Claims;
 using ClosedXML.Excel;
 using LuxuryApp.Models.Funcionarios;
@@ -14,7 +15,8 @@ using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Controllers.Funcionarios
 {
-    [Authorize(Roles = "Administrador")]
+    [Authorize]
+    [RequirePermission(AppPermissions.EmployeesView)]
     public class FuncionariosController : Controller
     {
         private readonly ApplicationDbContext _context;
@@ -139,6 +141,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(
             [Bind(
@@ -231,6 +234,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> GuardarPermisos(int id, List<string>? permisos)
         {
@@ -250,6 +254,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         [RequestSizeLimit(6 * 1024 * 1024)] // ~6MB; el servicio valida el máximo real (5MB)
         public async Task<IActionResult> ActualizarFoto(
@@ -318,6 +323,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> EliminarFoto(int id)
         {
@@ -350,6 +356,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(
             [Bind(
@@ -442,6 +449,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Eliminar(int idFuncionario)
         {
@@ -486,16 +494,19 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> Activar(int id) => SetActivoAsync(id, true);
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> Desactivar(int id) => SetActivoAsync(id, false);
 
         // ─────────────────────────── ACCESO AL PORTAL ───────────────────────────
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> ActivarAcceso(
             int id,
@@ -530,6 +541,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DesactivarAcceso(int id)
         {
@@ -539,6 +551,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> ReactivarAcceso(int id)
         {
@@ -548,6 +561,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> ReenviarInvitacionAcceso(int id)
         {
@@ -564,6 +578,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> CambiarCorreoAcceso(int id, string? email)
         {
@@ -751,6 +766,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> RegistrarPago(
             int funcionarioId,
@@ -829,6 +845,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> PagarTodaLaSemana(
             DateTime inicioSemana,

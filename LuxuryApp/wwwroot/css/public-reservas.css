@@ -331,6 +331,26 @@ body {
 .pb-next-fecha { font-weight: 600; font-size: .92rem; text-transform: capitalize; }
 .pb-next-hora { font-size: .9rem; color: var(--pb-accent-dark); font-weight: 600; }
 
+/* La misma sección vive en dos sitios según el estado del formulario:
+   - debajo del selector de fecha, como hijo directo de .pb-card (gap 22px);
+   - dentro del paso de hora, debajo de la cuadrícula (gap 9px), donde necesita un respiro. */
+.pb-next-standalone { margin-top: 0; }
+#pbHoraStep .pb-next-standalone { margin-top: 5px; }
+.pb-next-hint { margin: 10px 0 0; font-size: .78rem; color: var(--pb-muted); }
+
+/* Objetivo táctil cómodo en móvil sin alargar la pantalla. */
+.pb-next-item { min-height: 46px; }
+
+/* Carga discreta: reserva la altura de las filas para que el layout no salte. */
+.pb-next-skeleton {
+    display: block; height: 46px; border-radius: 12px;
+    background: linear-gradient(90deg, var(--pb-surface) 25%, var(--pb-line) 37%, var(--pb-surface) 63%);
+    background-size: 400% 100%;
+    animation: pb-shimmer 1.3s ease-in-out infinite;
+}
+@keyframes pb-shimmer { from { background-position: 100% 50%; } to { background-position: 0 50%; } }
+@media (prefers-reduced-motion: reduce) { .pb-next-skeleton { animation: none; } }
+
 /* ───────────── Selector compacto buscable de servicios ───────────── */
 .pb-select-trigger {
     width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px;

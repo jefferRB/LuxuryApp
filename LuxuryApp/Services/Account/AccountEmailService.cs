@@ -129,11 +129,30 @@ namespace LuxuryApp.Services.Account
             }
         }
 
-        public async Task SendFuncionarioInvitationEmailAsync(
+        /// <summary>Frase por defecto: la que ha recibido siempre el portal de funcionarios.</summary>
+        internal const string DescripcionAccesoFuncionario =
+            "tu portal personal en LuxuryCloud, donde podrás ver tu agenda, tus citas, tu producción y tus pagos";
+
+        public Task SendFuncionarioInvitationEmailAsync(
             string toEmail,
             string displayName,
             string setPasswordLink,
             string businessName,
+            CancellationToken cancellationToken = default) =>
+            SendAccessInvitationEmailAsync(
+                toEmail,
+                displayName,
+                setPasswordLink,
+                businessName,
+                DescripcionAccesoFuncionario,
+                cancellationToken);
+
+        public async Task SendAccessInvitationEmailAsync(
+            string toEmail,
+            string displayName,
+            string setPasswordLink,
+            string businessName,
+            string accessDescription,
             CancellationToken cancellationToken = default)
         {
             var opts = _emailOptions.Value;
@@ -142,7 +161,7 @@ namespace LuxuryApp.Services.Account
             if (string.IsNullOrWhiteSpace(opts.SmtpPassword))
             {
                 _logger.LogWarning(
-                    "Email:SmtpPassword no configurado. Invitación de funcionario no enviada para {MaskedEmail}.",
+                    "Email:SmtpPassword no configurado. Invitación de acceso no enviada para {MaskedEmail}.",
                     maskedEmail);
                 return;
             }
@@ -159,7 +178,7 @@ namespace LuxuryApp.Services.Account
             message.Subject = "Tu acceso al portal de LuxuryCloud";
             message.Body = new TextPart(TextFormat.Html)
             {
-                Text = BuildInvitationEmailHtml(displayName, setPasswordLink, businessName)
+                Text = BuildInvitationEmailHtml(displayName, setPasswordLink, businessName, accessDescription)
             };
 
             using var client = new SmtpClient();
@@ -171,25 +190,33 @@ namespace LuxuryApp.Services.Account
                 await client.DisconnectAsync(quit: true, cancellationToken);
 
                 _logger.LogInformation(
-                    "Invitación al portal de funcionarios enviada a {MaskedEmail}.",
+                    "Invitación de acceso enviada a {MaskedEmail}.",
                     maskedEmail);
             }
             catch (Exception ex)
             {
                 _logger.LogError(
                     ex,
-                    "Error al enviar invitación de funcionario para {MaskedEmail}.",
+                    "Error al enviar invitación de acceso para {MaskedEmail}.",
                     maskedEmail);
                 throw;
             }
         }
 
-        internal static string BuildInvitationEmailHtml(string displayName, string setPasswordLink, string businessName = "")
+        internal static string BuildInvitationEmailHtml(
+            string displayName,
+            string setPasswordLink,
+            string businessName = "",
+            string? accessDescription = null)
         {
             var safeDisplayName = HtmlEncoder.Default.Encode(displayName);
             var safeLink = HtmlEncoder.Default.Encode(setPasswordLink);
             var safeBusinessName = HtmlEncoder.Default.Encode(
                 string.IsNullOrWhiteSpace(businessName) ? "Tu negocio" : businessName);
+            var safeAccessDescription = HtmlEncoder.Default.Encode(
+                string.IsNullOrWhiteSpace(accessDescription)
+                    ? DescripcionAccesoFuncionario
+                    : accessDescription);
 
             return $"""
                 <!DOCTYPE html>
@@ -213,9 +240,8 @@ namespace LuxuryApp.Services.Account
                             <td style="padding:36px 32px 24px;">
                               <p style="margin:0 0 16px;font-size:16px;color:#333333;">Hola, <strong>{safeDisplayName}</strong>,</p>
                               <p style="margin:0 0 24px;font-size:15px;color:#555555;line-height:1.6;">
-                                <strong>{safeBusinessName}</strong> te habilitó acceso a tu portal personal en LuxuryCloud, donde podrás ver
-                                tu agenda, tus citas, tu producción y tus pagos. Para empezar, define tu contraseña
-                                con el siguiente botón.
+                                <strong>{safeBusinessName}</strong> te habilitó acceso a {safeAccessDescription}.
+                                Para empezar, define tu contraseña con el siguiente botón.
                               </p>
                               <table cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
                                 <tr>

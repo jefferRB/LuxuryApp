@@ -1,3 +1,5 @@
+using LuxuryApp.Services.Identity;
+using LuxuryApp.Models.Asociados;
 using System.Security.Claims;
 using LuxuryApp.Models.Reservas;
 using LuxuryApp.Services.Reservas;
@@ -10,7 +12,8 @@ namespace LuxuryApp.Controllers.Reservas
     /// Panel privado de "Solicitudes de reserva" y su configuración. Solo el dueño del negocio
     /// (Administrador). Todas las operaciones son tenant-scoped por el global query filter.
     /// </summary>
-    [Authorize(Roles = "Administrador")]
+    [Authorize]
+    [RequirePermission(AppPermissions.ReservationsView)]
     public sealed class ReservasController : Controller
     {
         private readonly IBookingRequestService _bookingRequestService;
@@ -42,6 +45,7 @@ namespace LuxuryApp.Controllers.Reservas
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ReservationsManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Confirmar(int id, int? funcionarioId, CancellationToken cancellationToken)
         {
@@ -57,6 +61,7 @@ namespace LuxuryApp.Controllers.Reservas
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ReservationsManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Rechazar(int id, string? motivo, CancellationToken cancellationToken)
         {
@@ -79,6 +84,7 @@ namespace LuxuryApp.Controllers.Reservas
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ReservationsManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> GuardarServicios(
             [FromBody] BookingCatalogSaveInput input,
@@ -102,6 +108,7 @@ namespace LuxuryApp.Controllers.Reservas
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ReservationsManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Configuracion(BookingSettingsViewModel model, CancellationToken cancellationToken)
         {

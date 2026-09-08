@@ -1,6 +1,7 @@
-using LuxuryApp.Models.Finanzas;
+﻿using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Inversionistas;
+using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Services.Inversionistas;
 using LuxuryApp.Services.Tenant;
@@ -29,17 +30,18 @@ namespace LuxuryApp.Tests.Support
                 new LuxuryApp.Services.Fiscal.TenantFiscalConfigService(context, tenantProvider),
                 NullLogger<LiquidacionSemanalService>.Instance);
 
-        public static InvestorProfitCalculationService CreateCalculationService(
+        public static LuxuryApp.Services.Finanzas.PeriodProfitCalculationService CreateCalculationService(
             ApplicationDbContext context,
             ITenantProvider tenantProvider) =>
             new(context, CreateLiquidacionService(context, tenantProvider));
 
         public static InvestorService CreateInvestorService(
             ApplicationDbContext context,
-            FakePlatformAuditService audit) =>
+            FakePlatformAuditService audit,
+            IBusinessDateTimeProvider? clock = null) =>
             new(
                 context,
-                ControllerTestSupport.BusinessDateTimeProvider,
+                clock ?? ControllerTestSupport.BusinessDateTimeProvider,
                 audit,
                 NullLogger<InvestorService>.Instance);
 
@@ -47,18 +49,42 @@ namespace LuxuryApp.Tests.Support
             ApplicationDbContext context,
             ITenantProvider tenantProvider,
             FakePlatformAuditService audit,
-            IInvestorService? investorService = null)
+            IInvestorService? investorService = null,
+            IBusinessDateTimeProvider? clock = null)
         {
-            investorService ??= CreateInvestorService(context, audit);
+            investorService ??= CreateInvestorService(context, audit, clock);
 
             return new InvestorStatementService(
                 context,
                 investorService,
                 CreateCalculationService(context, tenantProvider),
-                ControllerTestSupport.BusinessDateTimeProvider,
+                clock ?? ControllerTestSupport.BusinessDateTimeProvider,
                 new TenantDisplayNameService(context, tenantProvider, new HttpContextAccessor()),
                 audit,
                 NullLogger<InvestorStatementService>.Instance);
+        }
+
+        /// <summary>
+        /// Lectura operacional (último corte emitido, ciclo en curso, saldo). Usa los servicios
+        /// reales: el ciclo se calcula con el mismo motor que el estado de cuenta.
+        /// </summary>
+        public static InvestorCycleService CreateCycleService(
+            ApplicationDbContext context,
+            ITenantProvider tenantProvider,
+            FakePlatformAuditService audit,
+            IInvestorService? investorService = null,
+            IInvestorStatementService? statementService = null,
+            IBusinessDateTimeProvider? clock = null)
+        {
+            investorService ??= CreateInvestorService(context, audit, clock);
+            statementService ??= CreateStatementService(context, tenantProvider, audit, investorService, clock);
+
+            return new InvestorCycleService(
+                context,
+                investorService,
+                statementService,
+                CreateCalculationService(context, tenantProvider),
+                clock ?? ControllerTestSupport.BusinessDateTimeProvider);
         }
 
         // ─────────────── Semillas ───────────────

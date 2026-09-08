@@ -1,4 +1,4 @@
-using LuxuryApp.Controllers.Platform;
+﻿using LuxuryApp.Controllers.Platform;
 using LuxuryApp.Models.Platform;
 using LuxuryApp.Models.Platform.MissionControl;
 using LuxuryApp.Models.SaaS;
@@ -250,7 +250,8 @@ namespace LuxuryApp.Tests.TenantIsolation
             ApplicationDbContext context,
             IWorkerHeartbeatService heartbeatService,
             bool reconciliationEnabled = true,
-            bool monthlyReportsEnabled = false)
+            bool monthlyReportsEnabled = false,
+            bool investorStatementsEnabled = false)
         {
             return new PlatformMissionControlService(
                 context,
@@ -266,6 +267,12 @@ namespace LuxuryApp.Tests.TenantIsolation
                     SchedulerEnabled = monthlyReportsEnabled,
                     PollingIntervalMinutes = 15
                 }),
+                new TestOptionsMonitor<LuxuryApp.Services.Inversionistas.InvestorStatementSchedulerOptions>(
+                    new LuxuryApp.Services.Inversionistas.InvestorStatementSchedulerOptions
+                    {
+                        SchedulerEnabled = investorStatementsEnabled,
+                        PollingIntervalMinutes = 30
+                    }),
                 new FixedBusinessDateTimeProvider(),
                 NullLogger<PlatformMissionControlService>.Instance);
         }

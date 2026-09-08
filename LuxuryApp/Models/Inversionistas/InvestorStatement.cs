@@ -40,6 +40,20 @@ namespace LuxuryApp.Models.Inversionistas
 
         public InvestorPayoutFrequency Frecuencia { get; set; }
 
+        /// <summary>
+        /// Día de corte del acuerdo en el momento del cálculo. Null = mes calendario.
+        /// Queda congelado igual que el porcentaje: cambiar el corte después NO reescribe este
+        /// estado, y así el documento sigue explicando con qué regla se armó su periodo.
+        /// </summary>
+        public int? DiaCorte { get; set; }
+
+        /// <summary>
+        /// Fecha en que cerró el periodo. Es siempre <see cref="PeriodoFin"/>, pero se guarda
+        /// explícita porque es el dato que el inversionista reconoce ("mi corte del 20 de agosto")
+        /// y el que viaja al correo y al PDF.
+        /// </summary>
+        public DateOnly FechaCorte { get; set; }
+
         // ─────────────── Snapshot del cálculo ───────────────
 
         /// <summary>Ingresos realmente cobrados en el periodo, con IVA incluido.</summary>

@@ -93,6 +93,22 @@ namespace LuxuryApp.Models.Reservas
             Array.Empty<NextAvailableSlot>();
     }
 
+    /// <summary>
+    /// Respuesta del endpoint de próximos espacios (/reservar/{slug}/proximos). Mínima a
+    /// propósito: el navegador solo necesita poder pintar y elegir un espacio. No viaja
+    /// ocupación, ni citas, ni clientes, ni la agenda interna del negocio.
+    /// </summary>
+    public sealed class BookingNextSlotsResult
+    {
+        public bool Success { get; set; } = true;
+
+        /// <summary>Mensaje neutro cuando no se puede resolver la consulta. Nunca detalle interno.</summary>
+        public string? Mensaje { get; set; }
+
+        public IReadOnlyList<NextAvailableSlot> NextAvailableSlots { get; set; } =
+            Array.Empty<NextAvailableSlot>();
+    }
+
     /// <summary>Sugerencia de próximo espacio disponible. Solo datos públicos.</summary>
     public sealed class NextAvailableSlot
     {

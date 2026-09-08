@@ -1,5 +1,6 @@
 using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.WhatsApp;
+using LuxuryApp.Services.WhatsApp;
 using LuxuryApp.Services.BusinessTime;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
@@ -10,13 +11,19 @@ namespace LuxuryApp.Services.Calendar
     {
         private readonly ApplicationDbContext _context;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
+        private readonly IAppointmentCancellationWhatsAppService _cancellationNotificationService;
+        private readonly ITenantWhatsAppFeatureService _whatsAppFeatureService;
 
         public CalendarQueryService(
             ApplicationDbContext context,
-            IBusinessDateTimeProvider businessDateTimeProvider)
+            IBusinessDateTimeProvider businessDateTimeProvider,
+            IAppointmentCancellationWhatsAppService cancellationNotificationService,
+            ITenantWhatsAppFeatureService whatsAppFeatureService)
         {
             _context = context;
             _businessDateTimeProvider = businessDateTimeProvider;
+            _cancellationNotificationService = cancellationNotificationService;
+            _whatsAppFeatureService = whatsAppFeatureService;
         }
 
         public async Task<IReadOnlyList<CalendarAppointmentResponse>> GetAppointmentsByDayAsync(
@@ -81,6 +88,8 @@ namespace LuxuryApp.Services.Calendar
                     .ToListAsync(cancellationToken))
                     .ToHashSet();
 
+            var hasWhatsAppAddon = await _whatsAppFeatureService.HasWhatsAppAddonAsync(cancellationToken);
+
             return appointments
                 .Select(appointment => new CalendarAppointmentResponse
                 {
@@ -107,7 +116,8 @@ namespace LuxuryApp.Services.Calendar
                     RecordatorioWhatsAppTresHorasEnviadoUtc = appointment.RecordatorioWhatsAppTresHorasEnviadoUtc,
                     WhatsAppStatusDisplay = BuildWhatsAppStatusDisplay(
                         appointment,
-                        latestLogs.GetValueOrDefault(appointment.Id))
+                        latestLogs.GetValueOrDefault(appointment.Id),
+                        hasWhatsAppAddon)
                 })
                 .ToList();
         }
@@ -182,6 +192,8 @@ namespace LuxuryApp.Services.Calendar
                 appointments.Select(appointment => appointment.Id),
                 cancellationToken);
 
+            var hasWhatsAppAddon = await _whatsAppFeatureService.HasWhatsAppAddonAsync(cancellationToken);
+
             return appointments
                 .Select(appointment => new CalendarUpcomingAppointmentResponse
                 {
@@ -196,7 +208,8 @@ namespace LuxuryApp.Services.Calendar
                     RecordatorioWhatsAppTresHorasEnviadoUtc = appointment.RecordatorioWhatsAppTresHorasEnviadoUtc,
                     WhatsAppStatusDisplay = BuildWhatsAppStatusDisplay(
                         appointment,
-                        latestLogs.GetValueOrDefault(appointment.Id))
+                        latestLogs.GetValueOrDefault(appointment.Id),
+                        hasWhatsAppAddon)
                 })
                 .ToList();
         }
@@ -307,6 +320,15 @@ namespace LuxuryApp.Services.Calendar
             var latestLogs = await LoadLatestOutboundLogMapAsync(new[] { appointment.Id }, cancellationToken);
             var latestLog = latestLogs.GetValueOrDefault(appointment.Id);
 
+            // Una sola vez por request: es una capability del tenant, no de cada cita.
+            var hasWhatsAppAddon = await _whatsAppFeatureService.HasWhatsAppAddonAsync(cancellationToken);
+
+            // El modal de cancelar tiene que decir la verdad sobre el aviso al cliente, así que la
+            // respuesta la da el mismo servicio que después decide el envío real.
+            var cancelacionPreview = await _cancellationNotificationService.PreviewAsync(
+                appointment.Id,
+                cancellationToken);
+
             return new CalendarAppointmentDetailsResponse
             {
                 Id = appointment.Id,
@@ -325,11 +347,13 @@ namespace LuxuryApp.Services.Calendar
                 WhatsAppConsentSource = appointment.WhatsAppConsentSource,
                 WhatsAppConsentCapturedAtUtc = appointment.WhatsAppConsentCapturedAtUtc,
                 ClienteAceptaMensajesWhatsApp = appointment.ClienteAceptaMensajesWhatsApp,
-                WhatsAppConsentDisplay = BuildWhatsAppConsentDisplay(appointment),
+                WhatsAppConsentDisplay = BuildWhatsAppConsentDisplay(appointment, hasWhatsAppAddon),
                 EstadoConfirmacionWhatsApp = appointment.EstadoConfirmacionWhatsApp,
                 ConfirmacionWhatsAppEnviadaUtc = appointment.ConfirmacionWhatsAppEnviadaUtc,
                 RecordatorioWhatsAppTresHorasEnviadoUtc = appointment.RecordatorioWhatsAppTresHorasEnviadoUtc,
-                WhatsAppStatusDisplay = BuildWhatsAppStatusDisplay(appointment, latestLog)
+                WhatsAppStatusDisplay = BuildWhatsAppStatusDisplay(appointment, latestLog, hasWhatsAppAddon),
+                CancelacionNotificaWhatsApp = cancelacionPreview.NotificaraPorWhatsApp,
+                CancelacionWhatsAppMensaje = cancelacionPreview.Mensaje
             };
         }
 
@@ -438,9 +462,16 @@ namespace LuxuryApp.Services.Calendar
                 .ToDictionary(group => group.Key, group => group.First());
         }
 
-        private static string BuildWhatsAppConsentDisplay(AppointmentProjection appointment)
+        private static string BuildWhatsAppConsentDisplay(AppointmentProjection appointment, bool hasWhatsAppAddon)
         {
             if (!string.Equals(appointment.Tipo, "CITA", StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Empty;
+            }
+
+            // Sin complemento el formulario público nunca mostró la casilla: decir que el cliente
+            // "no autorizó" sería acusarlo de algo que jamás pudo elegir.
+            if (!hasWhatsAppAddon)
             {
                 return string.Empty;
             }
@@ -459,11 +490,18 @@ namespace LuxuryApp.Services.Calendar
 
         private static string BuildWhatsAppStatusDisplay(
             AppointmentProjection appointment,
-            OutboundLogProjection? latestLog)
+            OutboundLogProjection? latestLog,
+            bool hasWhatsAppAddon)
         {
             if (!string.Equals(appointment.Tipo, "CITA", StringComparison.OrdinalIgnoreCase))
             {
                 return "WhatsApp: no aplica";
+            }
+
+            // Ver BuildWhatsAppConsentDisplay: sin complemento no hay nada que reportar.
+            if (!hasWhatsAppAddon)
+            {
+                return string.Empty;
             }
 
             if (IsConsentMissing(latestLog) || !HasEffectiveConsent(appointment))

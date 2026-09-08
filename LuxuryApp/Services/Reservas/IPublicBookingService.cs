@@ -36,6 +36,17 @@ namespace LuxuryApp.Services.Reservas
             int? funcionarioId,
             CancellationToken cancellationToken = default);
 
+        /// <summary>
+        /// Próximos espacios disponibles para un servicio (y opcionalmente un profesional), SIN
+        /// que el cliente elija fecha. El punto de partida y el horizonte los fija el servidor.
+        /// Comparte el motor y el formato con <see cref="GetAvailabilityAsync"/>.
+        /// </summary>
+        Task<BookingNextSlotsResult> GetNextSlotsAsync(
+            PublicBookingTenantContext context,
+            int servicioId,
+            int? funcionarioId,
+            CancellationToken cancellationToken = default);
+
         /// <summary>Crea una solicitud Pending tras revalidar todo en backend.</summary>
         Task<PublicBookingSubmitResult> SubmitAsync(
             PublicBookingTenantContext context,

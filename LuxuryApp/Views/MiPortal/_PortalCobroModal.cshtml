@@ -11,9 +11,9 @@
         box-shadow:var(--private-panel-shadow,0 24px 60px rgba(2,6,23,.35)); }
     .pcm-header { display:flex; align-items:center; gap:.9rem; padding:1.15rem 1.25rem;
         border-bottom:1px solid var(--private-surface-border,#eef1f6);
-        background:linear-gradient(135deg, rgba(99,102,241,.16), rgba(124,58,237,.08)); }
+        background:linear-gradient(135deg, rgba(var(--private-accent-indigo-rgb), .16), rgba(var(--private-accent-alt-rgb), .08)); }
     .pcm-header-ic { width:2.8rem; height:2.8rem; border-radius:13px; flex-shrink:0; display:flex; align-items:center; justify-content:center;
-        font-size:1.3rem; background:rgba(99,102,241,.22); color:#a5b4fc; }
+        font-size:1.3rem; background:rgba(var(--private-accent-indigo-rgb), .22); color:#a5b4fc; }
     .pcm-title { font-size:1.08rem; font-weight:800; margin:0; color:var(--private-surface-text,#0f172a); }
     .pcm-sub { font-size:.8rem; margin:.1rem 0 0; color:var(--private-muted-text,#64748b); }
     .pcm-close { margin-left:auto; border:none; background:transparent; color:var(--private-muted-text,#64748b);
@@ -24,7 +24,7 @@
         border:1px solid var(--private-surface-border,#eef1f6); border-radius:14px;
         background:var(--private-row-bg,rgba(148,163,184,.08)); }
     .pcm-avatar { width:2.6rem; height:2.6rem; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center;
-        font-weight:800; font-size:.85rem; color:#fff; background:linear-gradient(135deg,#6366f1,#8b5cf6); }
+        font-weight:800; font-size:.85rem; color:#fff; background:linear-gradient(135deg,var(--private-accent-indigo),var(--private-accent-alt-mid)); }
     .pcm-summary-info { flex:1; min-width:0; }
     .pcm-cliente { font-weight:800; font-size:1rem; color:var(--private-surface-text,#0f172a); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .pcm-servicio { font-size:.82rem; color:var(--private-muted-text,#64748b); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -36,20 +36,20 @@
     .pcm-money { display:flex; align-items:center; gap:.55rem; margin-bottom:1rem; padding:.55rem .8rem; border-radius:.7rem;
         border:1.5px solid var(--private-input-border,rgba(15,23,42,.14)); background:var(--private-input-bg,#fff);
         transition:border-color .15s, box-shadow .15s; }
-    .pcm-money:focus-within { border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.2); }
+    .pcm-money:focus-within { border-color:var(--private-accent-indigo); box-shadow:0 0 0 3px rgba(var(--private-accent-indigo-rgb), .2); }
     .pcm-money-cur { font-weight:800; font-size:1.15rem; color:var(--private-muted-text,#64748b); }
     .pcm-money-input { flex:1; border:none; background:transparent; outline:none; font-size:1.35rem; font-weight:800;
         color:var(--private-input-text,#0f172a); width:100%; }
     .pcm-select, .pcm-input { width:100%; border-radius:.7rem; padding:.6rem .8rem; font-size:.9rem; margin-bottom:1rem;
         border:1px solid var(--private-input-border,rgba(15,23,42,.14)); background:var(--private-input-bg,#fff);
         color:var(--private-input-text,#0f172a); }
-    .pcm-select:focus, .pcm-input:focus { outline:none; border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.18); }
+    .pcm-select:focus, .pcm-input:focus { outline:none; border-color:var(--private-accent-indigo); box-shadow:0 0 0 3px rgba(var(--private-accent-indigo-rgb), .18); }
     .pcm-footer { display:flex; gap:.6rem; padding:1rem 1.25rem 1.25rem; }
     .pcm-btn-ghost { flex:0 0 auto; border:1px solid var(--private-surface-border,rgba(15,23,42,.15)); background:transparent;
         color:var(--private-surface-text,#0f172a); border-radius:.7rem; padding:.65rem 1.1rem; font-weight:700; font-size:.9rem; cursor:pointer; }
     .pcm-btn-ghost:hover { background:var(--private-row-hover-bg,rgba(15,23,42,.06)); }
     .pcm-btn-primary { flex:1; border:none; border-radius:.7rem; padding:.65rem 1.1rem; font-weight:800; font-size:.92rem; cursor:pointer;
-        color:#fff; background:linear-gradient(135deg,#6366f1,#4f46e5); box-shadow:0 8px 20px rgba(79,70,229,.35);
+        color:#fff; background:linear-gradient(135deg,var(--private-accent-indigo),var(--private-accent-indigo-strong)); box-shadow:0 8px 20px rgba(var(--private-accent-indigo-strong-rgb), .35);
         display:inline-flex; align-items:center; justify-content:center; gap:.45rem; }
     .pcm-btn-primary:hover { filter:brightness(1.06); }
     @@media (max-width:480px){

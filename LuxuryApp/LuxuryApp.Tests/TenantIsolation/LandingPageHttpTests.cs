@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.Layout;
 using LuxuryApp.Models.SaaS;
@@ -243,6 +243,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                     .AddDefaultTokenProviders();
 
                 services.AddScoped<IPublicSiteContentService, PublicSiteContentService>();
+                services.AddScoped<LuxuryApp.Services.Asociados.IPostLoginDestinationService,
+                    LuxuryApp.Tests.Support.StubPostLoginDestinationService>();
                 services.AddScoped<IPrivateNavigationService, EmptyPrivateNavigationService>();
 
                 var mvc = services.AddControllersWithViews(options =>

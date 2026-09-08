@@ -1,4 +1,4 @@
-using LuxuryApp.Models.Inversionistas;
+﻿using LuxuryApp.Models.Inversionistas;
 
 namespace LuxuryApp.Services.Inversionistas
 {
@@ -11,8 +11,6 @@ namespace LuxuryApp.Services.Inversionistas
         Task<InvestorsIndexViewModel> BuildIndexAsync(CancellationToken cancellationToken = default);
 
         Task<InvestorFormViewModel> BuildCreateFormAsync(CancellationToken cancellationToken = default);
-
-        Task<InvestorFormViewModel?> BuildEditFormAsync(int investorId, CancellationToken cancellationToken = default);
 
         /// <summary>Crea el inversionista y su primer acuerdo. Devuelve el Id creado.</summary>
         Task<int> CreateAsync(
@@ -50,6 +48,31 @@ namespace LuxuryApp.Services.Inversionistas
         Task<InvestorAgreement?> GetAgreementForDateAsync(
             int investorId,
             DateOnly fecha,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Perfil de inversionista del asociado indicado, con sus acuerdos cargados. Null si el
+        /// asociado todavía no participa de la ganancia.
+        /// </summary>
+        Task<TenantInvestor?> GetByAssociateAsync(
+            int associateId,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Enlaza un perfil de inversionista con su asociado. Idempotente; falla si el perfil ya
+        /// pertenece a OTRO asociado (jamás se reasigna un histórico financiero en silencio).
+        /// </summary>
+        Task LinkToAssociateAsync(
+            int investorId,
+            int associateId,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Asociado dueño del perfil de inversionista indicado. Null si el perfil no existe o
+        /// todavía no está enlazado. Lo usan las rutas antiguas de /Inversionistas para redirigir.
+        /// </summary>
+        Task<int?> GetAssociateIdAsync(
+            int investorId,
             CancellationToken cancellationToken = default);
     }
 }

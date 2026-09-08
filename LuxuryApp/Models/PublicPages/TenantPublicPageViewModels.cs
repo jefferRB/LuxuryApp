@@ -12,6 +12,9 @@ namespace LuxuryApp.Models.PublicPages
         public string? Description { get; init; }
         public PublicImageAssetViewModel? LogoImage { get; init; }
         public PublicImageAssetViewModel? CoverImage { get; init; }
+
+        /// <summary>Tokens de color derivados del color de marca del tenant.</summary>
+        public PublicBrandTheme Theme { get; init; } = PublicBrandTheme.Resolve(null);
         public string? Phone { get; init; }
         public string? WhatsAppPhone { get; init; }
         public string? WhatsAppUrl { get; init; }
@@ -110,6 +113,18 @@ namespace LuxuryApp.Models.PublicPages
         [Display(Name = "Descripcion corta")]
         [MaxLength(1500)]
         public string? Description { get; set; }
+
+        /// <summary>
+        /// Color principal de la landing (#RRGGBB). Vacio = negro por defecto.
+        /// </summary>
+        [Display(Name = "Color principal")]
+        [MaxLength(7)]
+        [RegularExpression("^#([0-9A-Fa-f]{6})$", ErrorMessage = "El color debe tener el formato #RRGGBB.")]
+        public string? AccentColorHex { get; set; }
+
+        /// <summary>Color efectivo para pintar el selector (nunca vacio).</summary>
+        public string EffectiveAccentColorHex =>
+            PublicBrandTheme.Normalize(AccentColorHex) ?? PublicBrandTheme.DefaultAccentHex;
 
         [Display(Name = "Telefono")]
         [MaxLength(30)]

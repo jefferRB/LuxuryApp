@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using LuxuryApp.Models.Platform;
 using LuxuryApp.Models.Platform.MissionControl;
 using LuxuryApp.Models.Reservas;
@@ -6,6 +6,7 @@ using LuxuryApp.Models.SaaS;
 using LuxuryApp.Models.WhatsApp;
 using LuxuryApp.Services.Billing;
 using LuxuryApp.Services.BusinessTime;
+using LuxuryApp.Services.Inversionistas;
 using LuxuryApp.Services.Reports;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -35,6 +36,7 @@ namespace LuxuryApp.Services.Platform
         private readonly IMemoryCache _cache;
         private readonly IOptionsMonitor<BillingReconciliationOptions> _reconciliationOptions;
         private readonly IOptionsMonitor<MonthlyReportSchedulerOptions> _monthlyReportOptions;
+        private readonly IOptionsMonitor<InvestorStatementSchedulerOptions> _investorStatementOptions;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ILogger<PlatformMissionControlService> _logger;
 
@@ -44,6 +46,7 @@ namespace LuxuryApp.Services.Platform
             IMemoryCache cache,
             IOptionsMonitor<BillingReconciliationOptions> reconciliationOptions,
             IOptionsMonitor<MonthlyReportSchedulerOptions> monthlyReportOptions,
+            IOptionsMonitor<InvestorStatementSchedulerOptions> investorStatementOptions,
             IBusinessDateTimeProvider businessDateTimeProvider,
             ILogger<PlatformMissionControlService> logger)
         {
@@ -52,6 +55,7 @@ namespace LuxuryApp.Services.Platform
             _cache = cache;
             _reconciliationOptions = reconciliationOptions;
             _monthlyReportOptions = monthlyReportOptions;
+            _investorStatementOptions = investorStatementOptions;
             _businessDateTimeProvider = businessDateTimeProvider;
             _logger = logger;
         }
@@ -181,6 +185,8 @@ namespace LuxuryApp.Services.Platform
                 Math.Clamp(_reconciliationOptions.CurrentValue.IntervalHours, 1, 168));
             var monthlyInterval = TimeSpan.FromMinutes(
                 Math.Clamp(_monthlyReportOptions.CurrentValue.PollingIntervalMinutes, 1, 720));
+            var investorInterval = TimeSpan.FromMinutes(
+                Math.Clamp(_investorStatementOptions.CurrentValue.PollingIntervalMinutes, 1, 720));
 
             return
             [
@@ -205,6 +211,13 @@ namespace LuxuryApp.Services.Platform
                     $"cada {monthlyInterval.TotalMinutes:0} min",
                     Max(TimeSpan.FromMinutes(15), monthlyInterval * 3),
                     Max(TimeSpan.FromMinutes(60), monthlyInterval * 6),
+                    nowUtc),
+                BuildWorkerSignal(
+                    heartbeats, PlatformWorkerNames.InvestorStatementGeneration, "Worker Cortes inversionistas",
+                    _investorStatementOptions.CurrentValue.SchedulerEnabled,
+                    $"cada {investorInterval.TotalMinutes:0} min",
+                    Max(TimeSpan.FromMinutes(15), investorInterval * 3),
+                    Max(TimeSpan.FromMinutes(60), investorInterval * 6),
                     nowUtc)
             ];
         }

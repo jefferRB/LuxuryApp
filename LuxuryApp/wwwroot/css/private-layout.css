@@ -1,4 +1,25 @@
 body.private-shell {
+    /* Alias derivados de la rampa de acento.
+       IMPORTANTE: se declaran sobre el MISMO elemento (body) que redefine los canales
+       --private-accent-*-rgb en cada tema. Una custom property sustituye var() contra el
+       valor COMPUTADO del elemento, asi que declararlos aqui hace que cada tema arrastre
+       automaticamente sus alias. Si se declararan solo en :root quedarian congelados con
+       los canales base y ningun tema podria cambiarlos. */
+    --private-accent: rgb(var(--private-accent-rgb));
+    --private-accent-strong: rgb(var(--private-accent-strong-rgb));
+    --private-accent-soft: rgb(var(--private-accent-soft-rgb));
+    --private-accent-subtle: rgb(var(--private-accent-subtle-rgb));
+    --private-accent-alt: rgb(var(--private-accent-alt-rgb));
+    --private-accent-alt-soft: rgb(var(--private-accent-alt-soft-rgb));
+    --private-accent-alt-mid: rgb(var(--private-accent-alt-mid-rgb));
+    --private-accent-indigo: rgb(var(--private-accent-indigo-rgb));
+    --private-accent-indigo-strong: rgb(var(--private-accent-indigo-strong-rgb));
+    --private-accent-bs: rgb(var(--private-accent-bs-rgb));
+    --private-accent-bs-hover: rgb(var(--private-accent-bs-hover-rgb));
+    --private-accent-bs-active: rgb(var(--private-accent-bs-active-rgb));
+    --private-accent-bs-focus: rgb(var(--private-accent-bs-focus-rgb));
+    --private-accent-ring: rgba(var(--private-accent-rgb), 0.28);
+
     --private-page-text: #0f172a;
     --private-surface-bg: rgba(255, 255, 255, 0.92);
     --private-surface-bg-strong: #ffffff;
@@ -22,8 +43,8 @@ body.private-shell {
     --private-chart-text: #334155;
     --private-chart-muted: #64748b;
     --private-chart-grid: rgba(148, 163, 184, 0.24);
-    --private-chart-accent: #2563eb;
-    --private-chart-accent-soft: rgba(37, 99, 235, 0.72);
+    --private-chart-accent: var(--private-accent);
+    --private-chart-accent-soft: rgba(var(--private-accent-rgb), 0.72);
     --private-chart-success: #16a34a;
     --private-chart-success-soft: rgba(22, 163, 74, 0.72);
     --private-chart-warning: #d97706;
@@ -61,7 +82,7 @@ html[data-luxury-surface-theme="glass"] body.private-shell {
     --private-surface-text: #f8fafc;
     --private-muted-text: #cbd5e1;
     --private-row-bg: rgba(15, 23, 42, 0.62);
-    --private-row-hover-bg: rgba(96, 165, 250, 0.16);
+    --private-row-hover-bg: rgba(var(--private-accent-soft-rgb), 0.16);
     --private-table-head-bg: rgba(91, 124, 255, 0.16);
     --private-table-border: rgba(148, 163, 184, 0.2);
     --private-input-bg: rgba(15, 23, 42, 0.72);
@@ -83,8 +104,8 @@ html[data-luxury-surface-theme="glass"] body.private-shell {
     --private-chart-warning-soft: rgba(250, 204, 21, 0.7);
     --private-chart-danger: #fb7185;
     --private-chart-danger-soft: rgba(251, 113, 133, 0.68);
-    --private-chart-info: #a78bfa;
-    --private-chart-info-soft: rgba(167, 139, 250, 0.7);
+    --private-chart-info: var(--private-accent-alt-soft);
+    --private-chart-info-soft: rgba(var(--private-accent-alt-soft-rgb), 0.7);
     --private-focus-ring: rgba(139, 233, 255, 0.28);
     --private-navbar-bg: rgba(5, 10, 28, 0.76);
     --private-navbar-border: rgba(139, 233, 255, 0.28);
@@ -121,17 +142,17 @@ html[data-luxury-surface-theme="dark"] body.private-shell {
     --private-chart-text: #e4e4e7;
     --private-chart-muted: #a1a1aa;
     --private-chart-grid: rgba(255, 255, 255, 0.10);
-    --private-chart-accent: #60a5fa;
-    --private-chart-accent-soft: rgba(96, 165, 250, 0.72);
+    --private-chart-accent: var(--private-accent-soft);
+    --private-chart-accent-soft: rgba(var(--private-accent-soft-rgb), 0.72);
     --private-chart-success: #4ade80;
     --private-chart-success-soft: rgba(74, 222, 128, 0.70);
     --private-chart-warning: #facc15;
     --private-chart-warning-soft: rgba(250, 204, 21, 0.70);
     --private-chart-danger: #fb7185;
     --private-chart-danger-soft: rgba(251, 113, 133, 0.68);
-    --private-chart-info: #a78bfa;
-    --private-chart-info-soft: rgba(167, 139, 250, 0.70);
-    --private-focus-ring: rgba(96, 165, 250, 0.28);
+    --private-chart-info: var(--private-accent-alt-soft);
+    --private-chart-info-soft: rgba(var(--private-accent-alt-soft-rgb), 0.70);
+    --private-focus-ring: rgba(var(--private-accent-soft-rgb), 0.28);
     --private-navbar-bg: rgba(0, 0, 0, 0.92);
     --private-navbar-border: rgba(255, 255, 255, 0.12);
     --private-footer-bg: rgba(5, 5, 5, 0.98);
@@ -167,8 +188,8 @@ html[data-luxury-surface-theme="light"] body.private-shell {
     --private-chart-text: #334155;
     --private-chart-muted: #64748b;
     --private-chart-grid: rgba(148, 163, 184, 0.24);
-    --private-chart-accent: #2563eb;
-    --private-chart-accent-soft: rgba(37, 99, 235, 0.72);
+    --private-chart-accent: var(--private-accent);
+    --private-chart-accent-soft: rgba(var(--private-accent-rgb), 0.72);
     --private-chart-success: #16a34a;
     --private-chart-success-soft: rgba(22, 163, 74, 0.72);
     --private-chart-warning: #d97706;
@@ -182,6 +203,85 @@ html[data-luxury-surface-theme="light"] body.private-shell {
     --private-navbar-border: rgba(255, 255, 255, 0.55);
     --private-footer-bg: #f8fafc;
     --private-footer-border: rgba(15, 23, 42, 0.10);
+    --bs-body-color: var(--private-surface-text);
+    --bs-secondary-color: var(--private-muted-text);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Tema "Rosa elegante" (preset pink-elegant → theme-bg-pink + surface-rose)
+
+   Igual que los otros temas, solo redefine tokens: no hay una sola regla por
+   componente para este tema. La rampa de acento (identidad, primarios, seleccion,
+   navegacion activa, focus, bordes) pasa a rosa/ciruela; los colores SEMANTICOS
+   (exito verde, advertencia ambar, error rojo, informacion cian) se conservan y
+   solo se oscurecen lo necesario para leerse sobre superficies claras.
+   ───────────────────────────────────────────────────────────────────────────── */
+body.private-shell.surface-rose,
+html.surface-rose body.private-shell,
+html[data-luxury-surface-theme="rose"] body.private-shell {
+    color-scheme: light;
+
+    /* Identidad: rampa de acento en rosa. */
+    --private-accent-rgb: 200, 63, 115;
+    --private-accent-strong-rgb: 173, 49, 95;
+    --private-accent-soft-rgb: 217, 94, 144;
+    --private-accent-subtle-rgb: 240, 188, 209;
+    --private-accent-alt-rgb: 155, 61, 119;
+    --private-accent-alt-soft-rgb: 180, 86, 143;
+    --private-accent-alt-mid-rgb: 166, 70, 130;
+    --private-accent-indigo-rgb: 184, 74, 134;
+    --private-accent-indigo-strong-rgb: 156, 47, 108;
+    --private-accent-bs-rgb: 200, 63, 115;
+    --private-accent-bs-hover-rgb: 178, 54, 99;
+    --private-accent-bs-active-rgb: 158, 44, 87;
+    --private-accent-bs-focus-rgb: 216, 78, 130;
+    --private-accent-ring: rgba(var(--private-accent-rgb), 0.3);
+    --private-focus-outline: #d84e82;
+
+    /* Superficies y texto. */
+    --private-page-text: #28141d;
+    --private-surface-bg: #ffffff;
+    --private-surface-bg-strong: #ffffff;
+    --private-surface-border: #eecad8;
+    --private-surface-text: #28141d;
+    --private-muted-text: #775966;
+    --private-row-bg: #ffffff;
+    --private-row-hover-bg: #fdecf3;
+    --private-table-head-bg: #fdecf3;
+    --private-table-border: #eecad8;
+    --private-input-bg: #ffffff;
+    --private-input-border: #dfa8bd;
+    --private-input-text: #28141d;
+    --private-input-placeholder: #8c6b79;
+    --private-panel-shadow: 0 16px 40px rgba(40, 20, 29, 0.12);
+    --private-card-shadow: 0 8px 24px rgba(40, 20, 29, 0.08);
+    --private-card-radius: 18px;
+    --private-section-radius: 24px;
+    --private-header-bg: linear-gradient(135deg, #4a1e33 0%, #6e2a48 100%);
+    --private-header-text: #fff7fa;
+
+    /* Graficos: acento rosa, semantica intacta (verde/ambar/rojo/cian). */
+    --private-chart-text: #3e202c;
+    --private-chart-muted: #775966;
+    --private-chart-grid: rgba(var(--private-accent-rgb), 0.16);
+    --private-chart-accent: #c83f73;
+    --private-chart-accent-soft: rgba(200, 63, 115, 0.72);
+    --private-chart-success: #15803d;
+    --private-chart-success-soft: rgba(21, 128, 61, 0.72);
+    --private-chart-warning: #b45309;
+    --private-chart-warning-soft: rgba(180, 83, 9, 0.72);
+    --private-chart-danger: #b91c1c;
+    --private-chart-danger-soft: rgba(185, 28, 28, 0.68);
+    --private-chart-info: #0e7490;
+    --private-chart-info-soft: rgba(14, 116, 144, 0.68);
+
+    /* Cromo: navbar/footer. La navbar se mantiene oscura (como en todos los temas)
+       para que el texto blanco del brand y los enlaces conserven su contraste. */
+    --private-focus-ring: rgba(216, 78, 130, 0.32);
+    --private-navbar-bg: rgba(58, 22, 39, 0.84);
+    --private-navbar-border: rgba(255, 236, 244, 0.42);
+    --private-footer-bg: #fdecf3;
+    --private-footer-border: #eecad8;
     --bs-body-color: var(--private-surface-text);
     --bs-secondary-color: var(--private-muted-text);
 }
@@ -246,6 +346,20 @@ html[data-luxury-bg-theme="white"] body.layout-background {
     background-attachment: fixed;
 }
 
+body.layout-background.theme-bg-pink,
+html.theme-bg-pink body.layout-background,
+html[data-luxury-bg-theme="pink"] body.layout-background {
+    background-color: #fff7fa;
+    background-image:
+        radial-gradient(circle at top left, rgba(var(--private-accent-rgb), 0.1), transparent 34%),
+        radial-gradient(circle at top right, rgba(var(--private-accent-alt-rgb), 0.08), transparent 30%),
+        linear-gradient(180deg, #fff7fa 0%, #fdf0f5 55%, #fff7fa 100%);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+}
+
 .private-header {
     position: sticky;
     top: 0;
@@ -296,9 +410,9 @@ html[data-luxury-bg-theme="white"] body.layout-background {
     width: 2.5rem;
     height: 2.5rem;
     border-radius: 0.95rem;
-    background: linear-gradient(135deg, #60a5fa, #7c3aed);
+    background: linear-gradient(135deg, var(--private-accent-soft), var(--private-accent-alt));
     color: #ffffff;
-    box-shadow: 0 12px 28px rgba(124, 58, 237, 0.35);
+    box-shadow: 0 12px 28px rgba(var(--private-accent-alt-rgb), 0.35);
 }
 
 .private-navbar-toggler {
@@ -318,7 +432,7 @@ html[data-luxury-bg-theme="white"] body.layout-background {
 .private-nav-link:hover,
 .private-nav-link.active {
     color: #ffffff !important;
-    background: rgba(96, 165, 250, 0.16);
+    background: rgba(var(--private-accent-soft-rgb), 0.16);
     transform: translateY(-1px);
 }
 
@@ -356,7 +470,7 @@ html[data-luxury-bg-theme="white"] body.layout-background {
 }
 
 .private-access-chip-info {
-    background: rgba(96, 165, 250, 0.18);
+    background: rgba(var(--private-accent-soft-rgb), 0.18);
     color: #bfdbfe;
 }
 
@@ -380,7 +494,7 @@ html[data-luxury-bg-theme="white"] body.layout-background {
 }
 
 .private-pill-link-highlight {
-    background: linear-gradient(135deg, rgba(96, 165, 250, 0.2), rgba(124, 58, 237, 0.32));
+    background: linear-gradient(135deg, rgba(var(--private-accent-soft-rgb), 0.2), rgba(var(--private-accent-alt-rgb), 0.32));
 }
 
 .private-options-dropdown {
@@ -412,11 +526,11 @@ html[data-luxury-bg-theme="white"] body.layout-background {
 
 .private-options-toggle:focus-visible {
     outline: 0;
-    box-shadow: 0 0 0 0.18rem rgba(96, 165, 250, 0.25);
+    box-shadow: 0 0 0 0.18rem rgba(var(--private-accent-soft-rgb), 0.25);
 }
 
 .private-options-toggle-highlight {
-    background: linear-gradient(135deg, rgba(96, 165, 250, 0.2), rgba(124, 58, 237, 0.32));
+    background: linear-gradient(135deg, rgba(var(--private-accent-soft-rgb), 0.2), rgba(var(--private-accent-alt-rgb), 0.32));
 }
 
 .private-options-toggle-caret {
@@ -456,7 +570,7 @@ html[data-luxury-bg-theme="white"] body.layout-background {
 .private-options-item.active,
 .private-options-item:active {
     color: #ffffff;
-    background: rgba(96, 165, 250, 0.18);
+    background: rgba(var(--private-accent-soft-rgb), 0.18);
 }
 
 .private-options-item-title {
@@ -541,12 +655,12 @@ body.private-shell .private-main {
 }
 
 body.private-shell .private-main a:not(.btn) {
-    color: var(--bs-link-color, #0d6efd);
+    color: var(--bs-link-color, var(--private-accent-bs));
 }
 
 body.private-shell.surface-glass .private-main a:not(.btn),
 html.surface-glass body.private-shell .private-main a:not(.btn) {
-    color: #93c5fd;
+    color: var(--private-accent-subtle);
 }
 
 body.private-shell .dashboard-container,
@@ -703,7 +817,7 @@ html.surface-glass body.private-shell .bg-soft-danger {
 
 body.private-shell.surface-glass .bg-soft-blue,
 html.surface-glass body.private-shell .bg-soft-blue {
-    background: linear-gradient(135deg, rgba(96, 165, 250, 0.2), rgba(8, 15, 35, 0.78));
+    background: linear-gradient(135deg, rgba(var(--private-accent-soft-rgb), 0.2), rgba(8, 15, 35, 0.78));
 }
 
 body.private-shell.surface-glass .bg-soft-yellow,
@@ -764,6 +878,113 @@ body.private-shell .table-responsive {
     border-radius: calc(var(--private-card-radius) - 2px);
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Puente Bootstrap → tokens de acento.
+
+   Bootstrap 5.3 escribe #0d6efd literal en .btn-primary, .nav-pills, .pagination,
+   .list-group, .dropdown, .progress y .form-check. Aca se reencaminan esas
+   variables a --private-accent-bs-*, cuyos valores base SON los de Bootstrap: los
+   cuatro temas historicos quedan identicos y un tema nuevo cambia solo el token.
+
+   Los botones semanticos (.btn-success, .btn-warning, .btn-danger) no se tocan:
+   verde, ambar y rojo conservan su significado en todos los temas.
+   ───────────────────────────────────────────────────────────────────────────── */
+body.private-shell {
+    --bs-primary: var(--private-accent-bs);
+    --bs-primary-rgb: var(--private-accent-bs-rgb);
+    --bs-link-color: var(--private-accent-bs);
+    --bs-link-color-rgb: var(--private-accent-bs-rgb);
+    --bs-link-hover-color: var(--private-accent-bs-active);
+    --bs-link-hover-color-rgb: var(--private-accent-bs-active-rgb);
+}
+
+body.private-shell .btn-primary {
+    --bs-btn-bg: var(--private-accent-bs);
+    --bs-btn-border-color: var(--private-accent-bs);
+    --bs-btn-hover-bg: var(--private-accent-bs-hover);
+    --bs-btn-hover-border-color: var(--private-accent-bs-active);
+    --bs-btn-active-bg: var(--private-accent-bs-active);
+    --bs-btn-active-border-color: var(--private-accent-bs-active);
+    --bs-btn-disabled-bg: var(--private-accent-bs);
+    --bs-btn-disabled-border-color: var(--private-accent-bs);
+    --bs-btn-focus-shadow-rgb: var(--private-accent-bs-focus-rgb);
+}
+
+body.private-shell .btn-outline-primary {
+    --bs-btn-color: var(--private-accent-bs);
+    --bs-btn-border-color: var(--private-accent-bs);
+    --bs-btn-hover-bg: var(--private-accent-bs);
+    --bs-btn-hover-border-color: var(--private-accent-bs);
+    --bs-btn-active-bg: var(--private-accent-bs);
+    --bs-btn-active-border-color: var(--private-accent-bs);
+    --bs-btn-disabled-color: var(--private-accent-bs);
+    --bs-btn-disabled-border-color: var(--private-accent-bs);
+    --bs-btn-focus-shadow-rgb: var(--private-accent-bs-focus-rgb);
+}
+
+body.private-shell .nav-pills {
+    --bs-nav-pills-link-active-bg: var(--private-accent-bs);
+}
+
+body.private-shell .pagination {
+    --bs-pagination-color: var(--private-accent-bs);
+    --bs-pagination-hover-color: var(--private-accent-bs-active);
+    --bs-pagination-focus-color: var(--private-accent-bs-active);
+    --bs-pagination-focus-box-shadow: 0 0 0 0.25rem rgba(var(--private-accent-bs-rgb), 0.25);
+    --bs-pagination-active-bg: var(--private-accent-bs);
+    --bs-pagination-active-border-color: var(--private-accent-bs);
+}
+
+body.private-shell .list-group {
+    --bs-list-group-active-bg: var(--private-accent-bs);
+    --bs-list-group-active-border-color: var(--private-accent-bs);
+}
+
+body.private-shell .dropdown-menu {
+    --bs-dropdown-link-active-bg: var(--private-accent-bs);
+}
+
+body.private-shell .progress,
+body.private-shell .progress-stacked {
+    --bs-progress-bar-bg: var(--private-accent-bs);
+}
+
+/* Los tabs no tienen color de marca en Bootstrap (gris + blanco). Se dejan en
+   tokens con los MISMOS valores por defecto, para que los temas existentes no
+   cambien y un tema nuevo pueda darles su propia superficie. */
+body.private-shell {
+    --private-nav-tabs-active-color: #495057;
+    --private-nav-tabs-active-bg: #ffffff;
+    --private-nav-tabs-active-border: #dee2e6;
+}
+
+body.private-shell.surface-rose,
+html.surface-rose body.private-shell,
+html[data-luxury-surface-theme="rose"] body.private-shell {
+    --private-nav-tabs-active-color: var(--private-surface-text);
+    --private-nav-tabs-active-bg: var(--private-surface-bg-strong);
+    --private-nav-tabs-active-border: var(--private-table-border);
+}
+
+body.private-shell .nav-tabs {
+    --bs-nav-tabs-link-active-color: var(--private-nav-tabs-active-color);
+    --bs-nav-tabs-link-active-bg: var(--private-nav-tabs-active-bg);
+    --bs-nav-tabs-link-active-border-color: var(--private-nav-tabs-active-border) var(--private-nav-tabs-active-border) var(--private-nav-tabs-active-bg);
+}
+
+body.private-shell .form-check-input:checked {
+    border-color: var(--private-accent-bs);
+    background-color: var(--private-accent-bs);
+}
+
+body.private-shell .form-range::-webkit-slider-thumb {
+    background-color: var(--private-accent-bs);
+}
+
+body.private-shell .form-range::-moz-range-thumb {
+    background-color: var(--private-accent-bs);
+}
+
 body.private-shell .form-control,
 body.private-shell .form-select,
 body.private-shell .input-group-text {
@@ -780,7 +1001,7 @@ body.private-shell .form-control:focus,
 body.private-shell .form-select:focus,
 body.private-shell .form-check-input:focus,
 body.private-shell .btn:focus-visible {
-    border-color: rgba(96, 165, 250, 0.55);
+    border-color: rgba(var(--private-accent-soft-rgb), 0.55);
     box-shadow: 0 0 0 0.2rem var(--private-focus-ring);
 }
 
@@ -804,9 +1025,9 @@ body.private-shell .list-group-item-action:focus {
 body.private-shell.surface-glass .btn-dark,
 html.surface-glass body.private-shell .btn-dark {
     border-color: rgba(139, 233, 255, 0.28);
-    background: linear-gradient(135deg, rgba(37, 99, 235, 0.95), rgba(124, 58, 237, 0.95));
+    background: linear-gradient(135deg, rgba(var(--private-accent-rgb), 0.95), rgba(var(--private-accent-alt-rgb), 0.95));
     color: #ffffff;
-    box-shadow: 0 10px 24px rgba(37, 99, 235, 0.24);
+    box-shadow: 0 10px 24px rgba(var(--private-accent-rgb), 0.24);
 }
 
 body.private-shell.surface-glass .btn-outline-dark,
@@ -827,7 +1048,7 @@ html.surface-glass body.private-shell .btn-outline-secondary:hover,
 body.private-shell.surface-glass .btn-light:hover,
 html.surface-glass body.private-shell .btn-light:hover {
     border-color: rgba(139, 233, 255, 0.45);
-    background: rgba(96, 165, 250, 0.18);
+    background: rgba(var(--private-accent-soft-rgb), 0.18);
     color: #ffffff;
 }
 
@@ -892,12 +1113,12 @@ body.private-shell .calendar-day:hover {
 }
 
 body.private-shell .calendar-day.selected {
-    border-color: rgba(13, 110, 253, 0.55);
-    background-color: rgba(13, 110, 253, 0.14);
+    border-color: rgba(var(--private-accent-bs-rgb), 0.55);
+    background-color: rgba(var(--private-accent-bs-rgb), 0.14);
 }
 
 body.private-shell .calendar-day.today {
-    border-color: rgba(13, 110, 253, 0.75);
+    border-color: rgba(var(--private-accent-bs-rgb), 0.75);
 }
 
 body.private-shell .day-grid {
@@ -938,7 +1159,7 @@ body.private-shell .side-cita-card small {
 
 .private-navbar-handle:focus-visible {
     outline: 0;
-    box-shadow: 0 0 0 0.2rem rgba(96, 165, 250, 0.24);
+    box-shadow: 0 0 0 0.2rem rgba(var(--private-accent-soft-rgb), 0.24);
 }
 
 .private-navbar-handle-bars {
@@ -1024,14 +1245,14 @@ body.private-shell .side-cita-card small {
 
 .private-theme-card:hover,
 .private-theme-card:focus {
-    border-color: rgba(96, 165, 250, 0.32);
+    border-color: rgba(var(--private-accent-soft-rgb), 0.32);
     background: rgba(255, 255, 255, 0.06);
     transform: translateY(-1px);
 }
 
 .private-theme-card:focus-visible {
     outline: 0;
-    box-shadow: 0 0 0 0.2rem rgba(96, 165, 250, 0.22);
+    box-shadow: 0 0 0 0.2rem rgba(var(--private-accent-soft-rgb), 0.22);
 }
 
 .private-theme-card.is-selected {
@@ -1109,26 +1330,45 @@ body.private-shell .side-cita-card small {
 }
 
 .private-theme-card-preview-black::after {
-    border: 1px solid rgba(96, 165, 250, 0.20);
-    background: linear-gradient(90deg, #0d0d0d 60%, rgba(96, 165, 250, 0.14) 100%);
-    box-shadow: 0 0 12px rgba(96, 165, 250, 0.12);
+    border: 1px solid rgba(var(--private-accent-soft-rgb), 0.20);
+    background: linear-gradient(90deg, #0d0d0d 60%, rgba(var(--private-accent-soft-rgb), 0.14) 100%);
+    box-shadow: 0 0 12px rgba(var(--private-accent-soft-rgb), 0.12);
 }
 
-.private-theme-card-preview-clean-white {
+.private-theme-card-preview-white {
     background: #f8fafc;
     border-color: rgba(15, 23, 42, 0.12);
 }
 
-.private-theme-card-preview-clean-white::before {
+.private-theme-card-preview-white::before {
     border: 1px solid rgba(15, 23, 42, 0.08);
     background: #ffffff;
     box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
 }
 
-.private-theme-card-preview-clean-white::after {
-    border: 1px solid rgba(37, 99, 235, 0.14);
-    background: linear-gradient(90deg, #ffffff 60%, rgba(37, 99, 235, 0.10) 100%);
+.private-theme-card-preview-white::after {
+    border: 1px solid rgba(var(--private-accent-rgb), 0.14);
+    background: linear-gradient(90deg, #ffffff 60%, rgba(var(--private-accent-rgb), 0.10) 100%);
     box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+}
+
+/* Preview del tema Rosa elegante en el selector: fondo rosa claro, "card" blanca
+   y una barra de accion con el rosa de marca. */
+.private-theme-card-preview-pink {
+    background: linear-gradient(180deg, #fff7fa 0%, #fdecf3 100%);
+    border-color: rgba(200, 63, 115, 0.22);
+}
+
+.private-theme-card-preview-pink::before {
+    border: 1px solid rgba(200, 63, 115, 0.14);
+    background: #ffffff;
+    box-shadow: 0 2px 6px rgba(40, 20, 29, 0.06);
+}
+
+.private-theme-card-preview-pink::after {
+    border: 1px solid rgba(200, 63, 115, 0.24);
+    background: linear-gradient(90deg, #ffffff 46%, rgba(200, 63, 115, 0.28) 100%);
+    box-shadow: 0 2px 6px rgba(200, 63, 115, 0.16);
 }
 
 .private-theme-card-body {
@@ -1364,8 +1604,37 @@ body.private-shell .side-cita-card small {
         padding-top: 1rem;
     }
 
-    .private-options-menu {
-        min-width: min(100%, 18rem);
+    /* Menu movil: la navegacion es el area con scroll propio (header con marca y
+       toggler arriba, bloque de usuario al final). Evita que el header sticky
+       crezca mas que la pantalla y deje opciones inalcanzables. */
+    .private-navbar .navbar-collapse.show {
+        max-height: calc(100vh - 7.5rem);
+        max-height: calc(100dvh - 7.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    /* Submenu "Opciones" dentro del flujo del menu.
+       Popper lo posicionaba de forma absoluta y, con .dropdown-menu-end sobre un
+       toggle alineado a la izquierda, el panel de 18rem quedaba fuera del
+       viewport; ademas .private-navbar tiene backdrop-filter, asi que es el
+       bloque contenedor de cualquier hijo posicionado y el panel nunca podia
+       reubicarse contra la pantalla. En flujo no hay offsets que calcular. */
+    .private-options-dropdown {
+        display: block;
+        width: 100%;
+    }
+
+    .private-header .dropdown-menu.private-options-menu {
+        position: static !important;
+        inset: auto !important;
+        transform: none !important;
+        width: min(22rem, 100%);
+        min-width: 0;
+        max-width: 100%;
+        margin: 0.5rem 0 0;
     }
 
     .private-navbar-handle {

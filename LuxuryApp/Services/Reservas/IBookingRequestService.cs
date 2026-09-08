@@ -1,3 +1,4 @@
+﻿using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.Reservas;
 
 namespace LuxuryApp.Services.Reservas
@@ -44,6 +45,15 @@ namespace LuxuryApp.Services.Reservas
             int requestId,
             string? reason,
             string? userId,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Solicitudes PENDIENTES de un día, proyectadas para pintarlas en el calendario. Es un
+        /// read model: no crea citas provisionales ni expone la entidad. Sólo devuelve las que
+        /// tienen un funcionario reservado, porque son las que ocupan una columna de la agenda.
+        /// </summary>
+        Task<IReadOnlyList<CalendarPendingBookingResponse>> GetPendingForCalendarAsync(
+            DateOnly fecha,
             CancellationToken cancellationToken = default);
     }
 }

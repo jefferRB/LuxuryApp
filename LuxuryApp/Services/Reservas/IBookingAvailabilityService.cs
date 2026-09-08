@@ -54,8 +54,10 @@ namespace LuxuryApp.Services.Reservas
         /// <summary>
         /// Busca los próximos espacios disponibles desde <paramref name="fromDate"/> hacia adelante,
         /// respetando jornada, días laborales, anticipación mínima, máximo de días y la relación
-        /// servicio-funcionario. Optimizado: una sola consulta de ocupación para toda la ventana.
-        /// Devuelve como máximo <paramref name="maxSuggestions"/> resultados.
+        /// servicio-funcionario. Acotada: barre el horizonte por ventanas (una sola consulta de
+        /// ocupación por ventana, nunca una por día) y corta apenas junta las sugerencias pedidas.
+        /// Devuelve como máximo <paramref name="maxSuggestions"/> resultados, con un tope duro
+        /// interno para que el llamador no pueda pedir un barrido arbitrario.
         /// </summary>
         Task<IReadOnlyList<AvailableSlotSuggestion>> GetNextAvailableSlotsAsync(
             int servicioId,

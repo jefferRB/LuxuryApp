@@ -1,4 +1,4 @@
-using LuxuryApp.Models.Finanzas;
+﻿using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Funcionarios;
@@ -7,17 +7,39 @@ using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Services.Finanzas
 {
+    /// <summary>
+    /// Arma el Dashboard financiero del MES CALENDARIO.
+    ///
+    /// <para>
+    /// La ganancia y sus componentes NO se calculan acá: salen de
+    /// <see cref="IPeriodProfitCalculationService"/>, el mismo motor que usan los estados de cuenta
+    /// de inversionistas. Antes este servicio tenía su propia aritmética (IVA plano Total/1.13,
+    /// liquidaciones por lo pagado, sin excluir la categoría de distribución) y para el mismo mes
+    /// podía dar un número distinto al del inversionista.
+    /// </para>
+    ///
+    /// <para>
+    /// Lo que sí sigue viviendo acá es todo lo que NO es la fórmula de ganancia: métodos de pago,
+    /// inventario, clientes, citas y la vista de caja.
+    /// </para>
+    /// </summary>
     public sealed class DashboardFinancieroQueryService : IDashboardFinancieroQueryService
     {
         private readonly ApplicationDbContext _context;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
+        private readonly IPeriodProfitCalculationService _profitCalculationService;
+        private readonly LuxuryApp.Services.Inversionistas.IInvestorService _investorService;
 
         public DashboardFinancieroQueryService(
             ApplicationDbContext context,
-            IBusinessDateTimeProvider businessDateTimeProvider)
+            IBusinessDateTimeProvider businessDateTimeProvider,
+            IPeriodProfitCalculationService profitCalculationService,
+            LuxuryApp.Services.Inversionistas.IInvestorService investorService)
         {
             _context = context;
             _businessDateTimeProvider = businessDateTimeProvider;
+            _profitCalculationService = profitCalculationService;
+            _investorService = investorService;
         }
 
         public async Task<DashboardViewModel> BuildViewModelAsync(
@@ -58,27 +80,34 @@ namespace LuxuryApp.Services.Finanzas
                 selection.YearEnd,
                 cancellationToken);
 
-            var pagosFuncionariosAnaliticosPorMes = await GetPagosFuncionariosAnaliticosPorMesAsync(
-                selection.Year,
-                cancellationToken);
-
             var egresosMesSeleccionado = egresosPorMes.GetValueOrDefault(
                 selection.Month,
                 EgresoMonthAggregateProjection.Empty);
 
-            // IVA incluido (CR): la base es Total / 1.13 y el IVA es la diferencia.
-            var totalSinImpuestos = PagoFuncionarioDevengadoCalculator.CalcularBaseSinIvaIncluido(cobroMetrics.TotalGenerado);
-            var totalImpuestos = cobroMetrics.TotalGenerado - totalSinImpuestos;
+            // ── Ganancia del negocio: motor único, mismo que usan los inversionistas ──
+            // Una sola llamada devuelve los doce meses, así el número grande del mes seleccionado y
+            // las barras del gráfico salen exactamente del mismo cálculo.
+            var policy = await _investorService.GetPolicyAsync(cancellationToken);
+            var desglosePorMes = await _profitCalculationService.CalculateMonthlyAsync(
+                selection.Year,
+                policy,
+                cancellationToken);
+
+            var desgloseMes = desglosePorMes[selection.Month];
+
+            var totalSinImpuestos = desgloseMes.IngresosNetos;
+            var totalImpuestos = desgloseMes.IvaCobrado;
 
             var totalPagadoFuncionariosCaja =
                 pagosFuncionariosCajaPorLiquidacionPorMes.GetValueOrDefault(selection.Month)
                 + pagosFuncionariosHistoricosCajaPorMes.GetValueOrDefault(selection.Month);
 
-            var totalPagadoFuncionariosAnalitico =
-                pagosFuncionariosAnaliticosPorMes.GetValueOrDefault(selection.Month);
+            // Liquidaciones del equipo tal como las define la política del negocio (devengado por
+            // defecto). Es la MISMA línea que resta el estado de cuenta del inversionista.
+            var totalPagadoFuncionariosAnalitico = desgloseMes.LiquidacionesEquipo;
 
             var totalEgresosAnaliticos =
-                egresosMesSeleccionado.OtrosEgresos + totalPagadoFuncionariosAnalitico;
+                desgloseMes.GastosOperativos + desgloseMes.LiquidacionesEquipo;
 
             var resultadoCajaPorMes = new List<decimal>(12);
             var resultadoAnaliticoPorMes = new List<decimal>(12);
@@ -86,25 +115,24 @@ namespace LuxuryApp.Services.Finanzas
             for (var currentMonth = 1; currentMonth <= 12; currentMonth++)
             {
                 var ingresosMes = ingresosPorMes.GetValueOrDefault(currentMonth);
-                var totalSinImpuestosMes = PagoFuncionarioDevengadoCalculator.CalcularBaseSinIvaIncluido(ingresosMes);
+                var totalSinImpuestosCajaMes = PagoFuncionarioDevengadoCalculator.CalcularBaseSinIvaIncluido(ingresosMes);
 
                 var egresosMes = egresosPorMes.GetValueOrDefault(
                     currentMonth,
                     EgresoMonthAggregateProjection.Empty);
 
-                var pagoFuncionariosAnaliticoMes =
-                    pagosFuncionariosAnaliticosPorMes.GetValueOrDefault(currentMonth);
+                // Vista de CAJA: lo que salió de la cuenta. No es la ganancia del negocio y por eso
+                // conserva su propia aritmética simple.
+                resultadoCajaPorMes.Add(totalSinImpuestosCajaMes - egresosMes.TotalEgresos);
 
-                resultadoCajaPorMes.Add(totalSinImpuestosMes - egresosMes.TotalEgresos);
-                resultadoAnaliticoPorMes.Add(
-                    totalSinImpuestosMes - (egresosMes.OtrosEgresos + pagoFuncionariosAnaliticoMes));
+                resultadoAnaliticoPorMes.Add(desglosePorMes[currentMonth].GananciaDistribuible);
             }
 
             return new DashboardViewModel
             {
                 TotalServicios = cobroMetrics.TotalServicios,
                 TotalProductos = cobroMetrics.TotalProductos,
-                TotalGenerado = cobroMetrics.TotalGenerado,
+                TotalGenerado = desgloseMes.TotalCobrado,
                 TotalSinImpuestos = totalSinImpuestos,
                 TotalImpuestos = totalImpuestos,
                 TotalPagadoFuncionarios = totalPagadoFuncionariosCaja,
@@ -116,6 +144,7 @@ namespace LuxuryApp.Services.Finanzas
                 IngresosTarjeta = cobroMetrics.IngresosTarjeta,
                 GananciaPorMes = resultadoCajaPorMes,
                 ResultadoAnaliticoPorMes = resultadoAnaliticoPorMes,
+                Desglose = desgloseMes,
                 CantidadClientes = operationalMetrics.CantidadClientes,
                 CantidadCitasMes = operationalMetrics.CantidadCitasMes,
                 ValorInventarioProductos = operationalMetrics.ValorInventarioProductos,
@@ -259,147 +288,6 @@ namespace LuxuryApp.Services.Finanzas
             return rows.ToDictionary(x => x.Month, x => x.Amount);
         }
 
-        private async Task<Dictionary<int, decimal>> GetPagosFuncionariosAnaliticosPorMesAsync(
-            int year,
-            CancellationToken cancellationToken)
-        {
-            var result = CreateMonthDictionary();
-
-            var newRows = await _context.LiquidacionesSemanalesDistribucionMensual
-                .AsNoTracking()
-                .Where(d => d.Anio == year)
-                .GroupBy(d => d.Mes)
-                .Select(group => new MonthAmountProjection
-                {
-                    Month = group.Key,
-                    Amount = group.Sum(x => x.MontoAsignado)
-                })
-                .ToListAsync(cancellationToken);
-
-            foreach (var row in newRows)
-            {
-                result[row.Month] += row.Amount;
-            }
-
-            foreach (var row in await GetPagosFuncionariosLegacyAnaliticosPorMesAsync(year, cancellationToken))
-            {
-                result[row.Key] += row.Value;
-            }
-
-            return result;
-        }
-
-        private async Task<Dictionary<int, decimal>> GetPagosFuncionariosLegacyAnaliticosPorMesAsync(
-            int year,
-            CancellationToken cancellationToken)
-        {
-            var result = CreateMonthDictionary();
-            var yearStart = new DateTime(year, 1, 1);
-            var yearEnd = yearStart.AddYears(1);
-
-            var legacyPayments = await _context.PagosFuncionarios
-                .AsNoTracking()
-                .Where(p => p.InicioSemana < yearEnd && p.FinSemana >= yearStart)
-                .Select(p => new LegacyPaymentProjection
-                {
-                    FuncionarioId = p.FuncionarioId,
-                    MontoPagado = p.MontoPagado,
-                    InicioSemana = p.InicioSemana,
-                    FinSemana = p.FinSemana
-                })
-                .ToListAsync(cancellationToken);
-
-            if (legacyPayments.Count == 0)
-            {
-                return result;
-            }
-
-            var funcionarioIds = legacyPayments
-                .Select(p => p.FuncionarioId)
-                .Distinct()
-                .ToList();
-
-            var funcionarios = await _context.Funcionarios
-                .AsNoTracking()
-                .Where(f => funcionarioIds.Contains(f.IdFuncionario))
-                .Select(f => new LegacyFuncionarioProjection
-                {
-                    IdFuncionario = f.IdFuncionario,
-                    PorcentajeGanancia = f.PorcentajeGanancia,
-                    PorcentajeProducto = f.PorcentajeProducto,
-                    ComisionCalculadaSobre = f.ComisionCalculadaSobre
-                })
-                .ToDictionaryAsync(f => f.IdFuncionario, cancellationToken);
-
-            if (funcionarios.Count == 0)
-            {
-                return result;
-            }
-
-            var minInicioSemana = legacyPayments.Min(p => p.InicioSemana).Date;
-            var maxFinSemanaExclusive = legacyPayments.Max(p => p.FinSemana).Date.AddDays(1);
-
-            var cobros = await _context.Cobros
-                .AsNoTracking()
-                .Where(c =>
-                    funcionarioIds.Contains(c.FuncionarioId) &&
-                    c.FechaCobro >= minInicioSemana &&
-                    c.FechaCobro < maxFinSemanaExclusive)
-                .Select(c => new LegacyCobroProjection
-                {
-                    FuncionarioId = c.FuncionarioId,
-                    FechaCobro = c.FechaCobro,
-                    Monto = c.Monto,
-                    ProductoId = c.ProductoId
-                })
-                .ToListAsync(cancellationToken);
-
-            var cobrosPorFuncionario = cobros
-                .GroupBy(c => c.FuncionarioId)
-                .ToDictionary(
-                    group => group.Key,
-                    group => group.OrderBy(item => item.FechaCobro).ToList());
-
-            foreach (var payment in legacyPayments)
-            {
-                if (!funcionarios.TryGetValue(payment.FuncionarioId, out var funcionario))
-                {
-                    continue;
-                }
-
-                if (!cobrosPorFuncionario.TryGetValue(payment.FuncionarioId, out var cobrosFuncionario))
-                {
-                    continue;
-                }
-
-                var start = payment.InicioSemana.Date;
-                var endExclusive = payment.FinSemana.Date.AddDays(1);
-
-                var cobrosSemana = cobrosFuncionario
-                    .Where(c => c.FechaCobro >= start && c.FechaCobro < endExclusive)
-                    .Select(c => c.ToCobro())
-                    .ToList();
-
-                foreach (var distribution in PagoFuncionarioDevengadoCalculator.DistribuirMontoPagadoPorMes(
-                             cobrosSemana,
-                             funcionario.ToFuncionario(),
-                             payment.MontoPagado))
-                {
-                    if (distribution.Anio != year)
-                    {
-                        continue;
-                    }
-
-                    result[distribution.Mes] += distribution.MontoAsignado;
-                }
-            }
-
-            return result;
-        }
-
-        private static Dictionary<int, decimal> CreateMonthDictionary() =>
-            Enumerable.Range(1, 12).ToDictionary(month => month, _ => 0m);
-
         private sealed class DashboardPeriodSelection
         {
             public int Month { get; init; }
@@ -460,45 +348,5 @@ namespace LuxuryApp.Services.Finanzas
             public decimal OtrosEgresos { get; init; }
         }
 
-        private sealed class LegacyPaymentProjection
-        {
-            public int FuncionarioId { get; init; }
-            public decimal MontoPagado { get; init; }
-            public DateTime InicioSemana { get; init; }
-            public DateTime FinSemana { get; init; }
-        }
-
-        private sealed class LegacyFuncionarioProjection
-        {
-            public int IdFuncionario { get; init; }
-            public decimal PorcentajeGanancia { get; init; }
-            public decimal PorcentajeProducto { get; init; }
-            public LuxuryApp.Models.Fiscal.ComisionCalculadaSobre ComisionCalculadaSobre { get; init; }
-
-            public Funcionario ToFuncionario() =>
-                new()
-                {
-                    IdFuncionario = IdFuncionario,
-                    PorcentajeGanancia = PorcentajeGanancia,
-                    PorcentajeProducto = PorcentajeProducto,
-                    ComisionCalculadaSobre = ComisionCalculadaSobre
-                };
-        }
-
-        private sealed class LegacyCobroProjection
-        {
-            public int FuncionarioId { get; init; }
-            public DateTime FechaCobro { get; init; }
-            public decimal Monto { get; init; }
-            public int? ProductoId { get; init; }
-
-            public Cobro ToCobro() =>
-                new()
-                {
-                    FechaCobro = FechaCobro,
-                    Monto = Monto,
-                    ProductoId = ProductoId
-                };
-        }
     }
 }

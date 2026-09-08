@@ -111,6 +111,21 @@ namespace LuxuryApp.Services.WhatsApp
                 cancellationToken);
         }
 
+        public Task<MetaWhatsAppSendResult> SendCancellationTemplateAsync(
+            string recipientPhone,
+            WhatsAppCancellationTemplateParameters parameters,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(parameters);
+
+            var options = _options.CurrentValue;
+            return SendTemplateAsync(
+                recipientPhone,
+                options.CancellationTemplateName,
+                parameters.ToOrderedBodyParameters(),
+                cancellationToken);
+        }
+
         public async Task<MetaWhatsAppSendResult> SendTextMessageAsync(
             string recipientPhone,
             string message,

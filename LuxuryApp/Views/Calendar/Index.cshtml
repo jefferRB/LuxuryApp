@@ -459,6 +459,23 @@
 
                 <div class="cal-cancel-summary" id="cancelCitaSummary"></div>
 
+                @* Aviso real de lo que va a pasar con el cliente. Lo llena calendar.js con la     *@
+                @* respuesta de /Calendar/GetById, que aplica la MISMA regla que el envío.          *@
+                <div class="cal-cancel-notice d-none" id="cancelCitaNotice">
+                    <i class="bi" id="cancelCitaNoticeIcon"></i>
+                    <span id="cancelCitaNoticeText"></span>
+                </div>
+
+                @* El motivo viaja al cliente SOLO cuando la cita nacio de una reserva online. *@
+                <div class="cal-cancel-motivo" id="cancelCitaMotivoWrap">
+                    <label class="form-label" for="cancelCitaMotivo">Motivo de la cancelación</label>
+                    <textarea id="cancelCitaMotivo" class="form-control" rows="2" maxlength="300"
+                              placeholder="Ej.: colaborador no disponible."></textarea>
+                    <small class="cal-cancel-motivo-hint">
+                        Podés editarlo. Si la cita vino de una reserva online, el cliente recibe este motivo por WhatsApp.
+                    </small>
+                </div>
+
                 <div class="cal-cancel-warning-box" id="cancelCitaWarningBox">
                     <i class="bi bi-exclamation-circle-fill"></i>
                     <span>Esta acción no se puede deshacer. La cita será eliminada permanentemente.</span>
@@ -471,6 +488,59 @@
                 <button type="button" class="cal-btn-cancel-cita" id="btnConfirmarCancelarCita" onclick="confirmarCancelarCita()">
                     <i class="bi bi-x-circle-fill"></i> Cancelar cita
                 </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@* MODAL DETALLE DE SOLICITUD DE RESERVA ONLINE PENDIENTE *@
+@* Los bloques de 15/30 min son demasiado pequeños para botones: el bloque sólo muestra el     *@
+@* estado y el detalle con las acciones vive acá, igual que el resto de acciones del calendario. *@
+<div class="modal fade" id="pendingBookingModal" tabindex="-1" aria-labelledby="pendingBookingModalTitle" aria-modal="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content cal-modal-content">
+            <div class="modal-header cal-modal-header">
+                <div class="d-flex align-items-center gap-3 flex-grow-1">
+                    <div class="cal-modal-icon cal-pending-modal-icon">
+                        <i class="bi bi-hourglass-split"></i>
+                    </div>
+                    <div>
+                        <h5 class="modal-title cal-modal-title" id="pendingBookingModalTitle">Solicitud de reserva online</h5>
+                        <p class="cal-modal-subtitle">Pendiente de confirmar. El espacio ya está apartado en la agenda.</p>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+
+            <div class="modal-body">
+                <input type="hidden" id="pendingBookingId" />
+                <dl class="cal-pending-detail" id="pendingBookingDetail"></dl>
+
+                @if (Model.PuedeGestionarReservas)
+                {
+                    <div class="cal-pending-motivo">
+                        <label class="form-label" for="pendingBookingMotivo">Motivo del rechazo (opcional)</label>
+                        <textarea id="pendingBookingMotivo" class="form-control" rows="2" maxlength="300"
+                                  placeholder="Se guarda junto a la solicitud rechazada."></textarea>
+                    </div>
+                }
+            </div>
+
+            <div class="modal-footer cal-modal-footer">
+                <button type="button" class="cal-btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-arrow-left"></i> Volver
+                </button>
+                @if (Model.PuedeGestionarReservas)
+                {
+                    <div class="d-flex gap-2">
+                        <button type="button" class="cal-btn-danger" id="btnRechazarSolicitud">
+                            <i class="bi bi-x-lg"></i> Rechazar
+                        </button>
+                        <button type="button" class="cal-btn-primary" id="btnConfirmarSolicitud">
+                            <i class="bi bi-check-lg"></i> Confirmar
+                        </button>
+                    </div>
+                }
             </div>
         </div>
     </div>

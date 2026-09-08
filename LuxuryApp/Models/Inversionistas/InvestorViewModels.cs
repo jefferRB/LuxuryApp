@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace LuxuryApp.Models.Inversionistas
 {
@@ -93,6 +93,11 @@ namespace LuxuryApp.Models.Inversionistas
         [Display(Name = "Frecuencia")]
         public InvestorPayoutFrequency Frecuencia { get; set; } = InvestorPayoutFrequency.Mensual;
 
+        /// <summary>Día de corte para acuerdos mensuales. Null = mes calendario.</summary>
+        [Range(1, 31, ErrorMessage = "El día de corte debe estar entre 1 y 31.")]
+        [Display(Name = "Día de corte")]
+        public int? DiaCorte { get; set; }
+
         [Display(Name = "Tratamiento de pérdidas")]
         public InvestorLossTreatment TratamientoPerdidas { get; set; } = InvestorLossTreatment.NoDistribution;
 
@@ -107,9 +112,6 @@ namespace LuxuryApp.Models.Inversionistas
 
         /// <summary>Suma de participaciones vigentes de OTROS inversionistas (ayuda contextual).</summary>
         public decimal ParticipacionOtros { get; set; }
-
-        /// <summary>Porcentaje del acuerdo actualmente vigente, cuando se está editando.</summary>
-        public decimal? PorcentajeVigenteActual { get; set; }
 
         /// <summary>Primer día del próximo periodo válido para un cambio de porcentaje.</summary>
         public DateOnly? ProximoInicioPeriodo { get; set; }
@@ -171,11 +173,20 @@ namespace LuxuryApp.Models.Inversionistas
 
         public DateOnly PeriodoFin { get; init; }
 
+        /// <summary>
+        /// Fecha en que cerró el corte, congelada en el snapshot. Es el dato con el que el dueño
+        /// reconoce el estado ("el corte del 20 de setiembre"), y por eso encabeza la tabla.
+        /// </summary>
+        public DateOnly FechaCorte { get; init; }
+
         public string PeriodoEtiqueta { get; init; } = string.Empty;
 
         public InvestorStatementStatus Estado { get; init; }
 
         public string EstadoTexto { get; init; } = string.Empty;
+
+        /// <summary>Tono visual del estado. Ver <see cref="InvestorVisuals"/>.</summary>
+        public InvestorVisualTone Tono => InvestorVisuals.Tone(Estado, SaldoPendiente);
 
         public decimal GananciaDistribuible { get; init; }
 
@@ -221,6 +232,14 @@ namespace LuxuryApp.Models.Inversionistas
     /// </summary>
     public sealed class InvestorCalculationBreakdownViewModel
     {
+        /// <summary>Nombre del inversionista, para poder redactar la explicación en su idioma.</summary>
+        public string InvestorNombre { get; init; } = string.Empty;
+
+        /// <summary>Rango exacto que se calculó. Es lo que hace verificable la explicación.</summary>
+        public DateOnly PeriodoInicio { get; init; }
+
+        public DateOnly PeriodoFin { get; init; }
+
         public decimal IngresosCobrados { get; init; }
 
         public decimal IvaExcluido { get; init; }
@@ -252,6 +271,32 @@ namespace LuxuryApp.Models.Inversionistas
 
         /// <summary>True si el periodo cerró en pérdida.</summary>
         public bool EsPerdida => GananciaDistribuible <= 0m && (IngresosNetos - GastosElegibles - Liquidaciones) < 0m;
+
+        /// <summary>Total de ajustes con signo, para la línea de costos.</summary>
+        public decimal AjustesNetos => AjustesPositivos - AjustesNegativos;
+
+        public bool TieneAjustes => AjustesPositivos > 0m || AjustesNegativos > 0m;
+
+        /// <summary>Resultado operativo antes de ajustes y pérdidas: la línea que explica el resto.</summary>
+        public decimal ResultadoOperativo => IngresosNetos - GastosElegibles - Liquidaciones;
+
+        // ─── Trazabilidad ───
+        // Cada componente enlaza a la pantalla donde están los movimientos reales del rango, para
+        // que "¿de dónde salieron estos ₡10.000?" tenga respuesta en un clic. Se reutilizan las
+        // rutas y los filtros que ya existen; no hay pantallas nuevas.
+
+        public string RangoDesdeIso => PeriodoInicio.ToString("yyyy-MM-dd");
+
+        public string RangoHastaIso => PeriodoFin.ToString("yyyy-MM-dd");
+
+        // ─── Pagos (solo en el detalle de un estado ya emitido) ───
+
+        /// <summary>Null en la vista previa: todavía no existe nada que pagar.</summary>
+        public decimal? TotalPagado { get; init; }
+
+        public decimal? SaldoPendiente { get; init; }
+
+        public bool MuestraPagos => TotalPagado.HasValue;
     }
 
     public sealed record InvestorExpenseLineViewModel(
@@ -275,6 +320,15 @@ namespace LuxuryApp.Models.Inversionistas
 
         public InvestorPayoutFrequency Frecuencia { get; init; }
 
+        /// <summary>Día de corte del acuerdo. Null = mes calendario.</summary>
+        public int? DiaCorte { get; init; }
+
+        /// <summary>Fecha en que cierra este periodo. Es el dato que el inversionista reconoce.</summary>
+        public DateOnly FechaCorte { get; init; }
+
+        /// <summary>"Corte mensual · día 20", resuelto por el resolver de periodos.</summary>
+        public string CorteTexto { get; init; } = string.Empty;
+
         public InvestorCalculationBreakdownViewModel Desglose { get; init; } = new();
 
         /// <summary>Estado ya existente para ese periodo, si lo hay.</summary>
@@ -285,6 +339,15 @@ namespace LuxuryApp.Models.Inversionistas
         public bool TieneAcuerdoVigente { get; init; }
 
         public string? Advertencia { get; init; }
+
+        /// <summary>
+        /// True solo si el período YA cerró (su último día quedó atrás en hora local del negocio).
+        /// Un período abierto no puede generar un estado de cuenta: el snapshot congelaría números
+        /// que todavía van a cambiar.
+        /// </summary>
+        public bool PeriodoCerrado { get; init; }
+
+        public bool PuedeGenerar => TieneAcuerdoVigente && PeriodoCerrado && !EstadoExistenteId.HasValue;
     }
 
     /// <summary>Detalle completo de un estado de cuenta.</summary>
@@ -307,6 +370,15 @@ namespace LuxuryApp.Models.Inversionistas
         public string PeriodoEtiqueta { get; init; } = string.Empty;
 
         public InvestorPayoutFrequency Frecuencia { get; init; }
+
+        /// <summary>Día de corte congelado en el snapshot. Null = mes calendario.</summary>
+        public int? DiaCorte { get; init; }
+
+        /// <summary>Fecha de corte congelada en el snapshot.</summary>
+        public DateOnly FechaCorte { get; init; }
+
+        /// <summary>"Corte mensual · día 20" del acuerdo con el que se calculó este estado.</summary>
+        public string CorteTexto { get; init; } = string.Empty;
 
         public InvestorStatementStatus Estado { get; init; }
 
@@ -348,6 +420,17 @@ namespace LuxuryApp.Models.Inversionistas
         public bool EstaAnulado => Estado == InvestorStatementStatus.Voided;
 
         public bool PuedeEnviarse => !EsEditable && !EstaAnulado;
+
+        /// <summary>
+        /// Corte anterior y siguiente del MISMO inversionista. El usuario navega por cortes
+        /// reales, no escribiendo fechas: ver <c>Navegación entre ciclos</c>.
+        /// </summary>
+        public InvestorStatementNavigation Navegacion { get; init; } = InvestorStatementNavigation.Vacia;
+
+        public InvestorVisualTone Tono => InvestorVisuals.Tone(Estado, SaldoPendiente);
+
+        /// <summary>Etiqueta corta para el badge ("Pendiente de pago", "Pagado"…).</summary>
+        public string EstadoCorto => InvestorVisuals.EstadoCorto(Estado, SaldoPendiente);
     }
 
     public sealed record InvestorAdjustmentRowViewModel(

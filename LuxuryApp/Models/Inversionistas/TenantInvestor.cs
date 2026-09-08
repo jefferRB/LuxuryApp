@@ -5,8 +5,20 @@ using Microsoft.AspNetCore.Mvc.ModelBinding;
 namespace LuxuryApp.Models.Inversionistas
 {
     /// <summary>
-    /// Inversionista del negocio. NO es un usuario del sistema: es un contacto al que se le
-    /// envían estados de cuenta. No tiene portal ni credenciales en esta fase.
+    /// Perfil de inversionista dentro del negocio: el contacto al que se le envían estados de
+    /// cuenta y el ancla de los acuerdos de participación y del histórico financiero.
+    ///
+    /// <para>
+    /// Desde el módulo de Asociados esta entidad dejó de ser "la persona" y pasó a ser
+    /// "la participación financiera de la persona": la identidad vive en
+    /// <see cref="Asociados.Associate"/> y se enlaza por <see cref="AssociateId"/>. La tabla y
+    /// todas sus relaciones (acuerdos, estados de cuenta, pagos, envíos) se conservan intactas
+    /// a propósito: mover ese histórico habría sido una migración destructiva.
+    /// </para>
+    ///
+    /// <para>
+    /// Sigue sin ser un usuario del sistema: el acceso, si existe, es del asociado.
+    /// </para>
     /// </summary>
     public class TenantInvestor : ITenantEntity
     {
@@ -15,6 +27,16 @@ namespace LuxuryApp.Models.Inversionistas
 
         [Key]
         public int Id { get; set; }
+
+        /// <summary>
+        /// Asociado dueño de esta participación. Nullable solo por compatibilidad con filas
+        /// anteriores al módulo de Asociados; la migración enlaza todas las existentes y el
+        /// servicio nunca crea un perfil suelto.
+        /// </summary>
+        [BindNever]
+        public int? AssociateId { get; set; }
+
+        public Asociados.Associate? Associate { get; set; }
 
         [Required(ErrorMessage = "Indicá el nombre del inversionista.")]
         [MaxLength(150)]

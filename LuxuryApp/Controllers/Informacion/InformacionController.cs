@@ -1,10 +1,13 @@
+using LuxuryApp.Services.Identity;
+using LuxuryApp.Models.Asociados;
 using LuxuryApp.Services.Informacion;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LuxuryApp.Controllers
 {
-    [Authorize(Roles = "Administrador")]
+    [Authorize]
+    [RequirePermission(AppPermissions.InformationView)]
     public class InformacionController : Controller
     {
         private readonly IInformacionNegocioQueryService _informacionNegocioQueryService;

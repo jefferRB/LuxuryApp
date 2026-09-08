@@ -1,3 +1,5 @@
+using LuxuryApp.Services.Identity;
+using LuxuryApp.Models.Asociados;
 using ClosedXML.Excel;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Services.BusinessTime;
@@ -9,7 +11,8 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace LuxuryApp.Controllers.Finanzas
 {
-    [Authorize(Roles = "Administrador")]
+    [Authorize]
+    [RequirePermission(AppPermissions.ExpensesView)]
     public class EgresosController : Controller
     {
         private readonly IEgresoService _egresoService;
@@ -42,6 +45,7 @@ namespace LuxuryApp.Controllers.Finanzas
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ExpensesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(EgresoViewModel vm)
         {
@@ -82,6 +86,7 @@ namespace LuxuryApp.Controllers.Finanzas
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ExpensesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(int id, EgresoViewModel vm)
         {
@@ -122,6 +127,7 @@ namespace LuxuryApp.Controllers.Finanzas
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ExpensesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Delete(int id)
         {

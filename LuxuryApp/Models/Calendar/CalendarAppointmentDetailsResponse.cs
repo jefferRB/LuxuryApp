@@ -43,5 +43,14 @@ namespace LuxuryApp.Models.Calendar
         public DateTime? RecordatorioWhatsAppTresHorasEnviadoUtc { get; init; }
 
         public string WhatsAppStatusDisplay { get; init; } = string.Empty;
+
+        /// <summary>
+        /// Si al cancelar esta cita el cliente recibirá el aviso por WhatsApp. Lo resuelve
+        /// <c>IAppointmentCancellationWhatsAppService.PreviewAsync</c>, la misma regla del envío real.
+        /// </summary>
+        public bool CancelacionNotificaWhatsApp { get; init; }
+
+        /// <summary>Texto que la agenda muestra en el modal de cancelar. Vacío = no hay nada que anunciar.</summary>
+        public string CancelacionWhatsAppMensaje { get; init; } = string.Empty;
     }
 }

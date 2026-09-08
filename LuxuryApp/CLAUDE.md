@@ -135,6 +135,7 @@ Current/important modules include:
 - Configuración / Cuenta
 - WhatsApp add-on features
 - Subscription / plans / tenant onboarding
+- Asociados (inversionistas, socios, marketing) y permisos granulares
 - Inversionistas y distribución de ganancias
 - Bloqueos recurrentes de horario
 
@@ -173,10 +174,118 @@ For expenses:
 - Keep desktop layout stable unless the task explicitly asks to change desktop.
 - Mobile layout should be clean and not have strange empty spaces.
 
+## Associates & Permissions Rules (Asociados)
+
+`Asociado` es una persona relacionada con el negocio que NO es funcionario operativo:
+inversionista, socio, marketing, contabilidad, asesor. **No se mezcla con `Funcionario`**: el
+funcionario tiene agenda, producción, cobros y liquidaciones; el asociado no. Solo comparten la
+infraestructura de identidad e invitaciones.
+
+Entidades (`Models/Asociados`, todas `ITenantEntity`): `Associate`, `AssociateTypeAssignment`,
+`AssociatePermission`. La participación financiera NO vive acá: sigue en
+`TenantInvestor` + `InvestorAgreement`, enlazados por `TenantInvestor.AssociateId`.
+
+Separación que no se negocia:
+1. quién es la persona → `Associate`;
+2. qué relación tiene → `AssociateTypeAssignment` (varios tipos por persona);
+3. si entra al sistema → `Associate.AppUsuarioId` + cuenta Identity (rol `Asociado`);
+4. qué puede hacer → `AssociatePermission`;
+5. si participa de la ganancia → `TenantInvestor` + `InvestorAgreement`.
+
+**El tipo NUNCA autoriza.** Nada de `if (tipo == Marketing) allowWebsite = true`. La autorización
+depende exclusivamente del permiso.
+
+Autorización:
+- Catálogo único en `AppPermissions` (`Modulo.Accion`). `Manage` implica `View` del mismo módulo.
+- `[RequirePermission(AppPermissions.X)]` en controlador (`.View`) y en cada acción que escribe
+  (`.Manage`). Esconder el ítem del menú NO es seguridad: la URL directa devuelve 403.
+- `PermissionPolicyProvider` arma las políticas al vuelo; una clave fuera del catálogo NO genera
+  política (fail-closed). `PermissionAuthorizationHandler`: superadmin y `Administrador` = acceso
+  total; `Asociado` = permisos leídos de BD por request (cacheados en `HttpContext.Items`).
+- Los permisos NO viajan en claims: quitar uno aplica en el siguiente request, sin cerrar sesión.
+- Asociado inactivo o cuenta bloqueada ⇒ conjunto de permisos VACÍO, sin desmarcar nada.
+- Módulos que siguen siendo solo del dueño (sin permiso delegable): Billing, Roles, Impuestos,
+  Bloqueos de horario y WhatsApp.
+
+Acceso e invitaciones: `ITenantAccountProvisioningService` es la ÚNICA implementación de creación
+de cuenta, rol, bloqueo/reactivación, token de contraseña y cambio de correo. La usan tanto
+Funcionarios como Asociados. Un asociado puede existir perfectamente SIN cuenta (inversionista que
+solo recibe estados de cuenta): no se crea usuario ni se envía correo.
+
+Post-login: `IPostLoginDestinationService` manda a cada quien a su primer destino permitido
+(admin → Dashboard, funcionario → MiPortal, marketing → Página pública, sin permisos →
+`/Home/SinPermisos`). Nadie cae en un 403 al iniciar sesión.
+
+Dashboard: el KPI de participación sale de `IAssociateProfitAllocationService`, que reutiliza
+`IInvestorProfitCalculationService`. **No existe una segunda fórmula.** El bloque solo se
+construye si hay participación vigente en el periodo; si no, el dato NO viaja al ViewModel ni al
+HTML (nada de esconder con CSS).
+
+Rutas: `/Asociados` es el módulo. `/Inversionistas` conserva estados de cuenta, política, pagos y
+envíos; su `Index`/`Crear`/`Editar` redirigen a `/Asociados` para no romper enlaces viejos.
+
+## Financial Single Source of Truth
+
+**Una sola fórmula de ganancia por rango de fechas**, en
+`Services/Finanzas/PeriodProfitCalculationService` (`IPeriodProfitCalculationService`):
+
+```
+TotalCobrado − IvaCobrado           = IngresosNetos
+IngresosNetos − GastosOperativos
+              − LiquidacionesEquipo
+              + AjustesAutorizados   = GananciaDistribuible
+```
+
+Invariante: **mismo tenant + mismo rango + mismos datos ⇒ mismo resultado**, sin importar quién
+pregunte. La cubren `SharedProfitCalculationTests`.
+
+- Consumidores: Dashboard financiero (mes calendario), estados de cuenta de inversionistas
+  (periodo contractual con día de corte), KPI de participación y Resumen Ejecutivo Mensual.
+- Ingresos, IVA y liquidaciones salen de `ILiquidacionSemanalService` (motor fiscal **por línea**).
+  Nunca `Total / 1.13` sobre el total del mes: eso daba números distintos con servicios exentos.
+- Liquidaciones = **devengado** por defecto (`InvestorProfitPolicy.BaseLiquidaciones`). El KPI
+  "Liquidaciones del equipo" del Dashboard es esa línea, no lo pagado de caja.
+- Exclusiones estructurales de gastos: `Pago Funcionarios` y `Distribución a inversionistas`.
+- `AjustesAutorizados` (nivel negocio) hoy es 0. Los ajustes que existen son de un estado de cuenta
+  concreto (`InvestorStatementAdjustment`) y se aplican DESPUÉS de la ganancia distribuible: no
+  tocan el Dashboard. **No mezclar los dos conceptos.**
+- El Dashboard pide los 12 meses con `CalculateMonthlyAsync`, así el titular del mes y la barra del
+  gráfico salen del mismo cálculo. Ese método es el punto donde optimizar (hoy resuelve mes a mes).
+- La vista de **caja** del Dashboard (`TotalEgresos`, `TotalPagadoFuncionarios`, `GananciaPorMes`)
+  es otra cosa y conserva su aritmética simple: es "lo que entró y salió", no la ganancia.
+
+## Investor Settlement Cutoff (Día de corte)
+
+`InvestorAgreement.DiaCorte` (`int?`, 1–31). **NULL = mes calendario** — es el valor de todos los
+acuerdos anteriores a esta función y por eso conservan su comportamiento exacto.
+
+Toda la aritmética de periodos vive en `InvestorSettlementPeriodResolver` (función pura) y en
+ningún otro lado: ni controladores, ni vistas, ni JavaScript, ni workers.
+
+- Corte 20 ⇒ periodos del 21 del mes anterior al 20 del mes actual. **El día de corte pertenece al
+  periodo que cierra.**
+- Días 29/30/31: si el mes no llega, cierra el último día real (febrero con corte 31 cierra el 28)
+  y el periodo siguiente arranca al día siguiente.
+- `PreviousClosedPeriod` NO cierra el periodo el propio día de corte: se cierra cuando ese día
+  terminó, medido con `IBusinessDateTimeProvider` (hora local del negocio, nunca UTC).
+- Un cambio de porcentaje **o de día de corte** versiona el acuerdo: cierra la versión vigente y
+  crea una nueva. El límite válido lo calcula el resolver (con corte 20, el día 21).
+- El estado de cuenta congela `DiaCorte` y `FechaCorte` junto al porcentaje: cambiar el corte
+  después NO reescribe estados históricos.
+- El Dashboard sigue hablando del MES CALENDARIO; el estado de cuenta, del corte contractual. Por
+  eso el KPI dice "Participación estimada del mes" y muestra el próximo corte cuando hay una sola
+  fecha común.
+
+**Generación automática: NO existe todavía.** `InvestorProfitPolicy.GeneracionAutomatica`,
+`EnvioAutomatico`, `DiasEsperaGeneracion` y `HoraGeneracion` se guardan pero ningún worker los lee.
+La generación es manual desde la vista previa del corte, y es idempotente por
+`(tenant, inversionista, periodo)`.
+
 ## Investor Distribution Rules (Inversionistas)
 
 Módulo multi-tenant para repartir la ganancia del negocio entre inversionistas. Ningún dato es
-específico de un tenant: funciona para cualquiera.
+específico de un tenant: funciona para cualquiera. Desde el módulo de Asociados, `TenantInvestor`
+dejó de ser "la persona" y pasó a ser "la participación financiera de la persona".
 
 Entidades (`Models/Inversionistas`, todas `ITenantEntity`):
 `TenantInvestor`, `InvestorAgreement`, `InvestorProfitPolicy` (+ `InvestorPolicyExpenseCategory`),

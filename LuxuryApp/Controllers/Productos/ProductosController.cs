@@ -1,11 +1,14 @@
 ﻿using LuxuryApp.Models.Productos;
+using LuxuryApp.Services.Identity;
+using LuxuryApp.Models.Asociados;
 using LuxuryApp.Services.Productos;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LuxuryApp.Controllers.Productos
 {
-    [Authorize(Roles = "Administrador")]
+    [Authorize]
+    [RequirePermission(AppPermissions.ProductsView)]
     public class ProductosController : Controller
     {
         private readonly IProductoService _productoService;
@@ -43,6 +46,7 @@ namespace LuxuryApp.Controllers.Productos
         // CREATE POST
         // =========================
         [HttpPost]
+        [RequirePermission(AppPermissions.ProductsManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(
             [Bind(
@@ -99,6 +103,7 @@ namespace LuxuryApp.Controllers.Productos
         // EDIT POST
         // =========================
         [HttpPost]
+        [RequirePermission(AppPermissions.ProductsManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(
             int id,
@@ -147,6 +152,7 @@ namespace LuxuryApp.Controllers.Productos
         // ACTIVAR / DESACTIVAR
         // =========================
         [HttpPost]
+        [RequirePermission(AppPermissions.ProductsManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> ToggleActivo(int id, CancellationToken cancellationToken)
         {

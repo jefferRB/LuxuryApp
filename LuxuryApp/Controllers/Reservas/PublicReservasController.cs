@@ -1,4 +1,4 @@
-using LuxuryApp.Models.Reservas;
+﻿using LuxuryApp.Models.Reservas;
 using LuxuryApp.Services.Reservas;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -42,7 +42,36 @@ namespace LuxuryApp.Controllers.Reservas
             return View(page);
         }
 
+        /// <summary>
+        /// Próximos espacios disponibles sin que el visitante haya elegido fecha. Solo acepta
+        /// servicio y profesional: la fecha de inicio y el horizonte los decide el servidor, así
+        /// que nadie puede pedir un barrido arbitrario de meses desde la URL.
+        /// </summary>
+        [HttpGet("{slug}/proximos")]
+        [EnableRateLimiting("PublicBookingAvailability")]
+        public async Task<IActionResult> Proximos(
+            string slug,
+            int servicioId,
+            int? funcionarioId,
+            CancellationToken cancellationToken)
+        {
+            var context = await _publicBookingService.ResolveContextAsync(slug, cancellationToken);
+            if (context is null)
+            {
+                return NotFound();
+            }
+
+            var result = await _publicBookingService.GetNextSlotsAsync(
+                context,
+                servicioId,
+                funcionarioId,
+                cancellationToken);
+
+            return Json(result);
+        }
+
         [HttpGet("{slug}/disponibilidad")]
+        [EnableRateLimiting("PublicBookingAvailability")]
         public async Task<IActionResult> Disponibilidad(
             string slug,
             int servicioId,
@@ -66,7 +95,14 @@ namespace LuxuryApp.Controllers.Reservas
             return Json(result);
         }
 
+        /// <summary>
+        /// Crea la solicitud. Desde que queda Pending OCUPA el intervalo en la agenda del
+        /// profesional que el servidor le asigna, así que lleva su propia cuota (más estricta que
+        /// la de navegación) además del antiforgery, el honeypot, el token de idempotencia y el
+        /// tope de pendientes por teléfono que aplica el servicio.
+        /// </summary>
         [HttpPost("{slug}/solicitar")]
+        [EnableRateLimiting("PublicBookingSubmit")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Solicitar(
             string slug,

@@ -9,9 +9,19 @@
     --tpp-border: rgba(21, 21, 21, .10);
     --tpp-inverse: #ffffff;
     --tpp-inverse-muted: rgba(255, 255, 255, .76);
+    /* Acento de superficie (botones llenos) y su hover. */
     --tpp-accent: #0d7a5f;
     --tpp-accent-dark: #075944;
+    /* Acento como TEXTO sobre fondos claros: separado del hover para que un color de marca
+       claro no vuelva ilegibles los chips y enlaces. */
+    --tpp-accent-ink: #075944;
     --tpp-accent-soft: #e0f4ee;
+    --tpp-accent-rgb: 13, 122, 95;
+    /* Color principal de marca del tenant. Sin configurar = negro, que es exactamente el color
+       que ya tenian los CTA neutros (tarjeta de servicio y boton de la barra). */
+    --brand-accent: #111111;
+    --brand-accent-hover: #292929;
+    --brand-on-accent: #ffffff;
     --tpp-gold: #b98b2f;
     --tpp-shadow-soft: 0 14px 42px rgba(17, 17, 17, .08);
     --tpp-shadow-strong: 0 24px 80px rgba(17, 17, 17, .22);
@@ -156,8 +166,8 @@ html {
 }
 
 .tpp-nav-links a:hover {
-    background: rgba(13, 122, 95, .08);
-    color: var(--tpp-accent-dark);
+    background: rgba(var(--tpp-accent-rgb), .08);
+    color: var(--tpp-accent-ink);
     transform: translateY(-1px);
 }
 
@@ -166,14 +176,14 @@ html {
 .tpp-page:has(#servicios:target) .tpp-nav-links a[href="#servicios"],
 .tpp-page:has(#equipo:target) .tpp-nav-links a[href="#equipo"],
 .tpp-page:has(#ubicacion:target) .tpp-nav-links a[href="#ubicacion"] {
-    background: rgba(13, 122, 95, .10);
-    color: var(--tpp-accent-dark);
+    background: rgba(var(--tpp-accent-rgb), .10);
+    color: var(--tpp-accent-ink);
 }
 
 .tpp-nav-links .tpp-nav-cta {
     margin-left: 6px;
-    background: var(--tpp-text);
-    color: var(--tpp-inverse);
+    background: var(--brand-accent);
+    color: var(--brand-on-accent);
 }
 
 .tpp-hero {
@@ -319,8 +329,8 @@ html {
 
 .tpp-btn-primary {
     background: var(--tpp-accent);
-    color: var(--tpp-inverse);
-    box-shadow: 0 18px 36px rgba(13, 122, 95, .30);
+    color: var(--brand-on-accent);
+    box-shadow: 0 18px 36px rgba(var(--tpp-accent-rgb), .30);
 }
 
 .tpp-btn-primary:hover {
@@ -390,7 +400,7 @@ html {
     display: inline-flex;
     align-items: center;
     min-height: 42px;
-    color: var(--tpp-accent-dark);
+    color: var(--tpp-accent-ink);
     font-weight: 900;
     text-decoration: none;
 }
@@ -435,7 +445,7 @@ html {
 
 .tpp-contact-icon {
     background: var(--tpp-accent-soft);
-    color: var(--tpp-accent-dark);
+    color: var(--tpp-accent-ink);
 }
 
 .tpp-contact-icon svg {
@@ -526,7 +536,7 @@ html {
 }
 
 .tpp-hours-status.is-open strong {
-    color: var(--tpp-accent-dark);
+    color: var(--tpp-accent-ink);
 }
 
 .tpp-hours-status.is-closed strong {
@@ -673,7 +683,8 @@ html {
 .tpp-services-grid,
 .public-services-grid {
     grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
-    align-items: stretch;
+    /* start (no stretch): un servicio sin foto no se estira hasta la altura del que si tiene. */
+    align-items: start;
 }
 
 .tpp-service-card,
@@ -691,8 +702,9 @@ html {
 .tpp-service-image,
 .public-service-image {
     width: 100%;
-    aspect-ratio: 4 / 5;
-    max-height: 440px;
+    /* Marco vertical 3:4 (foto de celular en vertical). Es fijo: la foto se adapta a la
+       tarjeta y no al reves, asi ninguna imagen alarga la fila. */
+    aspect-ratio: 3 / 4;
     overflow: hidden;
     background: var(--tpp-surface-soft);
 }
@@ -747,10 +759,10 @@ html {
     align-items: center;
     min-height: 30px;
     padding: 7px 10px;
-    border: 1px solid rgba(13, 122, 95, .18);
+    border: 1px solid rgba(var(--tpp-accent-rgb), .18);
     border-radius: 999px;
     background: var(--tpp-accent-soft);
-    color: var(--tpp-accent-dark);
+    color: var(--tpp-accent-ink);
     font-size: .86rem;
     font-weight: 900;
 }
@@ -764,16 +776,16 @@ html {
     margin-top: auto;
     padding: 11px 14px;
     border-radius: 8px;
-    background: var(--tpp-text);
-    color: var(--tpp-inverse);
+    background: var(--brand-accent);
+    color: var(--brand-on-accent);
     font-weight: 900;
     text-decoration: none;
 }
 
 .tpp-service-cta:hover,
 .public-service-cta:hover {
-    background: var(--tpp-accent-dark);
-    box-shadow: 0 16px 34px rgba(13, 122, 95, .22);
+    background: var(--brand-accent-hover);
+    box-shadow: 0 16px 34px rgba(var(--tpp-accent-rgb), .22);
 }
 
 .tpp-team-section {
@@ -816,7 +828,7 @@ html {
 .tpp-team-avatar {
     display: grid;
     place-items: center;
-    color: var(--tpp-accent-dark);
+    color: var(--tpp-accent-ink);
     font-size: 2.8rem;
     font-weight: 900;
 }
@@ -827,7 +839,7 @@ html {
 }
 
 .tpp-team-role {
-    color: var(--tpp-accent-dark);
+    color: var(--tpp-accent-ink);
     font-weight: 800;
     font-size: .92rem;
 }
@@ -1089,11 +1101,6 @@ html {
 
     .tpp-gallery-item {
         max-height: 430px;
-    }
-
-    .tpp-service-image,
-    .public-service-image {
-        max-height: 230px;
     }
 
     .tpp-location-card-media {

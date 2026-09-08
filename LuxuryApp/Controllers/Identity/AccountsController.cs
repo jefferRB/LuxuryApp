@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using System.Text;
 using LuxuryApp.Filters;
 using LuxuryApp.Models.Identity;
@@ -41,6 +41,7 @@ namespace LuxuryApp.Controllers.Identity
         private readonly TurnstileVerificationService _turnstileVerificationService;
         private readonly RegistrationSecurityOptions _registrationSecurityOptions;
         private readonly ITenantCommercialAccessCache _accessCache;
+        private readonly LuxuryApp.Services.Asociados.IPostLoginDestinationService _postLoginDestinationService;
         private readonly ILogger<AccountsController> _logger;
 
         public AccountsController(
@@ -58,6 +59,7 @@ namespace LuxuryApp.Controllers.Identity
             TurnstileVerificationService turnstileVerificationService,
             IOptions<RegistrationSecurityOptions> registrationSecurityOptions,
             ITenantCommercialAccessCache accessCache,
+            LuxuryApp.Services.Asociados.IPostLoginDestinationService postLoginDestinationService,
             ILogger<AccountsController> logger)
         {
             _userManager = userManager;
@@ -74,6 +76,7 @@ namespace LuxuryApp.Controllers.Identity
             _turnstileVerificationService = turnstileVerificationService;
             _registrationSecurityOptions = registrationSecurityOptions.Value;
             _accessCache = accessCache;
+            _postLoginDestinationService = postLoginDestinationService;
             _logger = logger;
         }
 
@@ -610,6 +613,23 @@ namespace LuxuryApp.Controllers.Identity
                     : Redirect("/MiPortal");
             }
 
+            // Asociado: tampoco es la parte contratante y, sobre todo, puede no tener acceso al
+            // Dashboard. Se le envía al primer módulo que sí puede abrir, respetando el returnUrl
+            // solo cuando lleva a un lugar permitido.
+            var esAsociado = await _userManager.IsInRoleAsync(usuario, AppRoles.Asociado);
+            if (esAsociado && !esAdministrador)
+            {
+                var principal = await _signInManager.CreateUserPrincipalAsync(usuario);
+
+                if (EsRetornoExplicito(safeReturnUrl) &&
+                    await _postLoginDestinationService.PuedeAbrirAsync(principal, safeReturnUrl))
+                {
+                    return LocalRedirect(safeReturnUrl);
+                }
+
+                return LocalRedirect(await _postLoginDestinationService.ResolveAsync(principal));
+            }
+
             var contractStatus = await _contractService.GetAcceptanceStatusAsync(usuario.Id);
             if (contractStatus.BlocksApplicationAccess)
             {
@@ -618,6 +638,14 @@ namespace LuxuryApp.Controllers.Identity
 
             return LocalRedirect(safeReturnUrl);
         }
+
+        /// <summary>
+        /// True si el <c>returnUrl</c> apunta a algún lugar concreto (y no a la raíz, que es el
+        /// valor por defecto cuando el usuario simplemente entró a iniciar sesión).
+        /// </summary>
+        private static bool EsRetornoExplicito(string safeReturnUrl) =>
+            !string.IsNullOrWhiteSpace(safeReturnUrl) &&
+            safeReturnUrl.TrimEnd('/') is not ("" or "~");
 
         /// <summary>
         /// Emite la cookie intermedia de dos factores con el mismo formato interno que usa

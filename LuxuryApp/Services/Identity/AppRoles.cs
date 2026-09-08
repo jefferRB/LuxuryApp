@@ -17,6 +17,18 @@ namespace LuxuryApp.Services.Identity
         /// NO debe combinarse con Administrador.
         /// </summary>
         public const string Funcionario = "Funcionario";
+
+        /// <summary>
+        /// Asociado del negocio (inversionista, socio, marketing, contabilidad…) con acceso a los
+        /// módulos que el administrador le conceda EXPLÍCITAMENTE.
+        ///
+        /// <para>
+        /// El rol por sí solo no abre nada: es apenas el marcador de "esta cuenta se autoriza por
+        /// permisos". Lo que puede hacer lo deciden las filas de <c>AssociatePermissions</c>.
+        /// NO debe combinarse con Administrador ni con Funcionario.
+        /// </para>
+        /// </summary>
+        public const string Asociado = "Asociado";
     }
 
     /// <summary>
@@ -30,5 +42,16 @@ namespace LuxuryApp.Services.Identity
 
         /// <summary>Solo funcionarios con portal habilitado.</summary>
         public const string RequireFuncionario = "RequireFuncionario";
+
+        /// <summary>Solo asociados con acceso al sistema.</summary>
+        public const string RequireAsociado = "RequireAsociado";
+
+        /// <summary>
+        /// Prefijo de las políticas generadas al vuelo para cada permiso del catálogo
+        /// (<c>perm:Modulo.Accion</c>). Las resuelve <c>PermissionPolicyProvider</c>.
+        /// </summary>
+        public const string PermissionPrefix = "perm:";
+
+        public static string ForPermission(string permission) => PermissionPrefix + permission;
     }
 }

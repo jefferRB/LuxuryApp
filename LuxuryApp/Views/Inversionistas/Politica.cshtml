@@ -145,12 +145,30 @@
                             <span>Enviar automáticamente tras generar</span>
                         </label>
                     </div>
+
+                    @* Generar y enviar son dos cosas distintas y se explican como tales: el estado
+                       siempre se genera; el correo solo sale si además se pide. *@
+                    <div class="finance-form-info-box" style="margin-top:1rem;">
+                        <i class="bi bi-info-circle-fill"></i>
+                        <p>
+                            Con la generación automática activada, cada corte se emite solo cuando su
+                            período <strong>ya cerró por completo</strong> (el propio día de corte
+                            todavía cuenta para ese período), respetando los días de espera y la hora
+                            de arriba. Si el sistema estuvo caído, al volver genera los cortes que
+                            hayan quedado pendientes, en orden.
+                        </p>
+                        <p>
+                            <strong>Generar no es enviar.</strong> El estado se emite igual; el correo
+                            al inversionista solo sale si marcás el envío automático (acá para todos, o
+                            en la ficha de cada inversionista). Si no, lo mandás vos desde el estado.
+                        </p>
+                    </div>
                 </div>
             </div>
 
             <div class="finance-form-footer">
                 <div class="finance-form-footer-left">
-                    <a asp-action="Index" class="finance-btn-back">
+                    <a asp-controller="Asociados" asp-action="Index" class="finance-btn-back">
                         <i class="bi bi-arrow-left"></i> Volver
                     </a>
                 </div>

@@ -1,3 +1,4 @@
+using LuxuryApp.Models.Asociados;
 using System.Security.Claims;
 using LuxuryApp.Models.PublicPages;
 using LuxuryApp.Services.Identity;
@@ -8,7 +9,8 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace LuxuryApp.Controllers.Configuracion
 {
-    [Authorize(Roles = AppRoles.Administrador)]
+    [Authorize]
+    [RequirePermission(AppPermissions.PublicWebsiteView)]
     [Route("Configuracion/[controller]")]
     public sealed class PaginaPublicaController : Controller
     {
@@ -34,6 +36,7 @@ namespace LuxuryApp.Controllers.Configuracion
         }
 
         [HttpPost("")]
+        [RequirePermission(AppPermissions.PublicWebsiteManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Index(
             EditTenantPublicPageViewModel model,
@@ -68,6 +71,7 @@ namespace LuxuryApp.Controllers.Configuracion
         }
 
         [HttpPost("UploadLogo")]
+        [RequirePermission(AppPermissions.PublicWebsiteManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> UploadLogo(
             IFormFile? file,
@@ -84,6 +88,7 @@ namespace LuxuryApp.Controllers.Configuracion
                 cancellationToken);
 
         [HttpPost("RemoveLogo")]
+        [RequirePermission(AppPermissions.PublicWebsiteManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> RemoveLogo(CancellationToken cancellationToken) =>
             RunImageRemovalOperationAsync(
@@ -95,6 +100,7 @@ namespace LuxuryApp.Controllers.Configuracion
                 cancellationToken);
 
         [HttpPost("UploadCover")]
+        [RequirePermission(AppPermissions.PublicWebsiteManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> UploadCover(
             IFormFile? file,
@@ -111,6 +117,7 @@ namespace LuxuryApp.Controllers.Configuracion
                 cancellationToken);
 
         [HttpPost("RemoveCover")]
+        [RequirePermission(AppPermissions.PublicWebsiteManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> RemoveCover(CancellationToken cancellationToken) =>
             RunImageRemovalOperationAsync(
@@ -122,6 +129,7 @@ namespace LuxuryApp.Controllers.Configuracion
                 cancellationToken);
 
         [HttpPost("UploadLocationImage")]
+        [RequirePermission(AppPermissions.PublicWebsiteManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> UploadLocationImage(
             IFormFile? file,
@@ -138,6 +146,7 @@ namespace LuxuryApp.Controllers.Configuracion
                 cancellationToken);
 
         [HttpPost("RemoveLocationImage")]
+        [RequirePermission(AppPermissions.PublicWebsiteManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> RemoveLocationImage(CancellationToken cancellationToken) =>
             RunImageRemovalOperationAsync(
@@ -149,6 +158,7 @@ namespace LuxuryApp.Controllers.Configuracion
                 cancellationToken);
 
         [HttpPost("UploadBusinessGalleryImage")]
+        [RequirePermission(AppPermissions.PublicWebsiteManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> UploadBusinessGalleryImage(
             IFormFile? file,
@@ -165,6 +175,7 @@ namespace LuxuryApp.Controllers.Configuracion
                 cancellationToken);
 
         [HttpPost("RemoveBusinessGalleryImage")]
+        [RequirePermission(AppPermissions.PublicWebsiteManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> RemoveBusinessGalleryImage(Guid assetId, CancellationToken cancellationToken) =>
             RunImageRemovalOperationAsync(
@@ -176,6 +187,7 @@ namespace LuxuryApp.Controllers.Configuracion
                 cancellationToken);
 
         [HttpPost("UploadServiceMainImage")]
+        [RequirePermission(AppPermissions.PublicWebsiteManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> UploadServiceMainImage(
             int serviceId,
@@ -194,6 +206,7 @@ namespace LuxuryApp.Controllers.Configuracion
                 cancellationToken);
 
         [HttpPost("RemoveServiceMainImage")]
+        [RequirePermission(AppPermissions.PublicWebsiteManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> RemoveServiceMainImage(
             int serviceId,

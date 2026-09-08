@@ -18,13 +18,16 @@ namespace LuxuryApp.Services.PublicImages
 
         public long MaxTenantPublicImageBytes { get; set; } = 25L * 1024 * 1024;
 
-        public long MaxLogoBytes { get; set; } = 4L * 1024 * 1024;
+        // Limites del ARCHIVO subido (seguridad), no del resultado almacenado. Una foto de
+        // celular de 48 MP puede pesar 12-15 MB: rechazarla obligaria a la duena del negocio a
+        // editarla fuera del sistema. El resultado siempre se reduce y recomprime.
+        public long MaxLogoBytes { get; set; } = 8L * 1024 * 1024;
 
-        public long MaxCoverBytes { get; set; } = 8L * 1024 * 1024;
+        public long MaxCoverBytes { get; set; } = 16L * 1024 * 1024;
 
-        public long MaxGalleryImageBytes { get; set; } = 6L * 1024 * 1024;
+        public long MaxGalleryImageBytes { get; set; } = 16L * 1024 * 1024;
 
-        public long MaxServiceImageBytes { get; set; } = 6L * 1024 * 1024;
+        public long MaxServiceImageBytes { get; set; } = 16L * 1024 * 1024;
 
         public int MaxBusinessGalleryImages { get; set; } = 12;
 
@@ -52,17 +55,41 @@ namespace LuxuryApp.Services.PublicImages
 
         public int GalleryMaxHeight { get; set; } = 1500;
 
-        // Caja mas alta para admitir fotos verticales de celular sin encogerlas.
+        // La tarjeta de servicio usa marco vertical 3:4, que es la proporcion natural de una
+        // foto de celular tomada en vertical. 1080x1440 cubre Retina con holgura
+        // (la card mide ~280-400 px CSS de ancho).
         public int ServiceImageMaxWidth { get; set; } = 1080;
 
-        public int ServiceImageMaxHeight { get; set; } = 1350;
+        public int ServiceImageMaxHeight { get; set; } = 1440;
 
         // Ubicacion admite vertical u horizontal: caja cuadrada amplia.
         public int LocationMaxWidth { get; set; } = 1400;
 
         public int LocationMaxHeight { get; set; } = 1400;
 
-        public long MaxDecodedPixels { get; set; } = 24_000_000;
+        /// <summary>
+        /// Limite duro de pixeles para JPEG. El decoder de JPEG escala en la decodificacion
+        /// (TargetSize), asi que una foto de 48 MP no reserva memoria completa. 50 MP cubre a
+        /// los celulares actuales; por encima se rechaza con un mensaje claro.
+        /// </summary>
+        public long MaxDecodedPixels { get; set; } = 50_000_000;
+
+        /// <summary>
+        /// Limite duro para formatos que NO admiten decodificacion escalada (PNG/WEBP): ahi el
+        /// buffer completo si se reserva, por lo que el tope es menor. Protege contra
+        /// "decompression bombs" (un PNG de pocos KB puede declarar cientos de MP).
+        /// </summary>
+        public long MaxNonJpegDecodedPixels { get; set; } = 30_000_000;
+
+        /// <summary>
+        /// Sobremuestreo sobre el lado mayor del perfil al decodificar, para que el recorte del
+        /// cliente conserve nitidez. 2 = se decodifica al doble del tamano final necesario.
+        /// </summary>
+        public int DecodeOversampleFactor { get; set; } = 2;
+
+        public int DefaultQuality { get; set; } = 82;
+
+        public int LogoQuality { get; set; } = 88;
     }
 
     public sealed class S3StorageOptions

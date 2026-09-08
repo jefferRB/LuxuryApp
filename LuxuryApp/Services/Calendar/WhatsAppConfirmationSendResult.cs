@@ -1,3 +1,5 @@
+using LuxuryApp.Services.WhatsApp;
+
 namespace LuxuryApp.Services.Calendar
 {
     /// <summary>
@@ -23,10 +25,15 @@ namespace LuxuryApp.Services.Calendar
         Failed
     }
 
+    /// <param name="Reason">
+    /// Motivo semantico. La UI decide con esto, no releyendo codigos de error: sin complemento
+    /// contratado (<see cref="WhatsAppNotificationReason.AddonInactive"/>) no se muestra nada.
+    /// </param>
     public sealed record WhatsAppConfirmationSendResult(
         WhatsAppConfirmationOutcome Outcome,
         string Message,
-        string? ErrorCode = null)
+        string? ErrorCode = null,
+        WhatsAppNotificationReason Reason = WhatsAppNotificationReason.Other)
     {
         /// <summary>La confirmación quedó efectivamente enviada (ahora o previamente).</summary>
         public bool WasSent => Outcome is WhatsAppConfirmationOutcome.Sent or WhatsAppConfirmationOutcome.AlreadySent;

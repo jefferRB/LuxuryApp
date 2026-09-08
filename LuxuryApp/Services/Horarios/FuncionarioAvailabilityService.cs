@@ -1,11 +1,13 @@
-using LuxuryApp.Models.Horarios;
+﻿using LuxuryApp.Models.Horarios;
+using LuxuryApp.Models.Reservas;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Services.Horarios
 {
     /// <summary>
-    /// Implementación de la disponibilidad unificada.
+    /// Implementación de la disponibilidad unificada: citas, descansos, bloqueos recurrentes y
+    /// solicitudes de reserva online pendientes.
     ///
     /// <para>
     /// Zona horaria: los bloqueos recurrentes se guardan como hora local del negocio y las citas
@@ -74,6 +76,56 @@ namespace LuxuryApp.Services.Horarios
                     cita.Id));
             }
 
+            // ── Solicitudes de reserva online PENDIENTES ──────────────────────────────────────
+            // Una solicitud aceptada por el formulario público reserva el intervalo completo del
+            // servicio sobre el funcionario que el servidor le asignó. Sólo Pending retiene:
+            //   · Confirmed  → la Cita creada es la que ocupa (no se cuenta dos veces).
+            //   · Rejected / Expired / CancelledByClient → liberan de inmediato.
+            // Se pide en la misma ventana ampliada que las citas, así una solicitud larga que
+            // arrancó el día anterior sigue tapando la mañana siguiente.
+            var solicitudes = await _context.BookingRequests
+                .AsNoTracking()
+                .Where(solicitud =>
+                    solicitud.Estado == BookingRequestStates.Pending &&
+                    solicitud.FechaHoraInicioSolicitada >= rangoInicio &&
+                    solicitud.FechaHoraInicioSolicitada < rangoFin &&
+                    ((solicitud.FuncionarioAsignadoId != null &&
+                      funcionarioIds.Contains(solicitud.FuncionarioAsignadoId.Value)) ||
+                     (solicitud.FuncionarioAsignadoId == null &&
+                      solicitud.FuncionarioId != null &&
+                      funcionarioIds.Contains(solicitud.FuncionarioId.Value))))
+                .Select(solicitud => new
+                {
+                    solicitud.Id,
+                    solicitud.FuncionarioAsignadoId,
+                    solicitud.FuncionarioId,
+                    solicitud.FechaHoraInicioSolicitada,
+                    // Duración del servidor (nunca la que mandó el navegador): la guardada al
+                    // aceptar la solicitud y, si faltara, la del catálogo de servicios.
+                    Duracion = solicitud.DuracionMinutos > 0
+                        ? solicitud.DuracionMinutos
+                        : ((solicitud.Servicio != null ? solicitud.Servicio.DuracionMinutos : null) ?? DefaultDurationMinutes)
+                })
+                .ToListAsync(cancellationToken);
+
+            foreach (var solicitud in solicitudes)
+            {
+                // Legado: una solicitud "cualquiera" anterior a esta función no tiene recurso
+                // concreto; no se le inventa uno (bloquear a todos sería peor que no bloquear).
+                var funcionarioId = solicitud.FuncionarioAsignadoId ?? solicitud.FuncionarioId;
+                if (funcionarioId is null)
+                {
+                    continue;
+                }
+
+                Add(map, funcionarioId.Value, new BusyInterval(
+                    solicitud.FechaHoraInicioSolicitada,
+                    solicitud.FechaHoraInicioSolicitada.AddMinutes(solicitud.Duracion),
+                    BusyIntervalSources.SolicitudPendiente,
+                    null,
+                    solicitud.Id));
+            }
+
             var bloqueos = await GetRecurringBlocksAsync(desde, hasta, funcionarioIds, cancellationToken);
             foreach (var bloqueo in bloqueos)
             {
@@ -117,10 +169,12 @@ namespace LuxuryApp.Services.Horarios
             }
 
             // El bloqueo recurrente gana en el mensaje: es más útil decir "coincide con Almuerzo"
-            // que un genérico "ya hay una cita".
+            // que un genérico "ya hay una cita". La solicitud pendiente va después, porque
+            // también explica algo que el usuario no ve como cita en la agenda.
             var conflicto = ocupados
                 .Where(intervalo => intervalo.Solapa(inicio, fin))
                 .OrderByDescending(intervalo => intervalo.EsBloqueoRecurrente)
+                .ThenByDescending(intervalo => intervalo.EsSolicitudPendiente)
                 .FirstOrDefault();
 
             if (conflicto is null)
@@ -133,6 +187,9 @@ namespace LuxuryApp.Services.Horarios
                 BusyIntervalSources.BloqueoRecurrente =>
                     $"Ese horario está bloqueado por «{conflicto.Titulo ?? "bloqueo recurrente"}» " +
                     $"({conflicto.Inicio:HH:mm} a {conflicto.Fin:HH:mm}).",
+                BusyIntervalSources.SolicitudPendiente =>
+                    $"Ese horario está reservado por una solicitud de reserva online pendiente " +
+                    $"({conflicto.Inicio:HH:mm} a {conflicto.Fin:HH:mm}). Confirmala o rechazala desde Reservas.",
                 BusyIntervalSources.Descanso => "Ya existe un descanso en ese horario.",
                 _ => "Ya existe una cita o descanso en ese horario."
             };

@@ -1,4 +1,5 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.Common;
 using LuxuryApp.Models.DataBase;
@@ -23,9 +24,35 @@ namespace LuxuryApp.Models.Reservas
         public int ServicioId { get; set; }
         public Servicio? Servicio { get; set; }
 
-        /// <summary>Funcionario solicitado. Null = "cualquier funcionario disponible".</summary>
+        /// <summary>
+        /// Funcionario que pidió EL CLIENTE. Null = "cualquier funcionario disponible".
+        /// Es la intención del cliente y NO se reescribe nunca: al confirmar se conserva tal cual.
+        /// </summary>
         public int? FuncionarioId { get; set; }
         public Funcionario? Funcionario { get; set; }
+
+        /// <summary>
+        /// Funcionario que EL SERVIDOR reservó para esta solicitud. Se fija en el momento de
+        /// aceptar la solicitud (incluso cuando el cliente pidió "cualquiera") porque una
+        /// solicitud Pending ocupa agenda: sin un recurso concreto no se sabría qué agenda
+        /// bloquear, y bloquear a todos sería incorrecto.
+        ///
+        /// <para>
+        /// Null solo en solicitudes anteriores a esta función. Para esas se cae de vuelta a
+        /// <see cref="FuncionarioId"/> (ver <see cref="FuncionarioReservadoId"/>), de modo que el
+        /// histórico conserva exactamente el comportamiento con el que se creó.
+        /// </para>
+        /// </summary>
+        public int? FuncionarioAsignadoId { get; set; }
+        public Funcionario? FuncionarioAsignado { get; set; }
+
+        /// <summary>
+        /// Agenda que ocupa la solicitud: el asignado por el servidor y, para filas antiguas, el
+        /// solicitado por el cliente. Null = no ocupa ninguna agenda concreta (legado "cualquiera").
+        /// En consultas LINQ-a-SQL hay que escribir la coalescencia a mano: esta propiedad no se mapea.
+        /// </summary>
+        [NotMapped]
+        public int? FuncionarioReservadoId => FuncionarioAsignadoId ?? FuncionarioId;
 
         /// <summary>Cliente existente asociado (resuelto por teléfono dentro del tenant), si lo hay.</summary>
         public int? ClienteId { get; set; }

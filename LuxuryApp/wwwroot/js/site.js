@@ -74,40 +74,52 @@ function toggleProducto(id) {
 }
 
 (function () {
-    const presetStorageKey = "luxury-appearance-preset";
-    const backgroundStorageKey = "luxury-bg-theme";
-    const surfaceStorageKey = "luxury-surface-theme";
-    const legacyThemeStorageKey = "luxury-theme";
-    const presets = {
-        "classic-marble": {
-            label: "Clasico marmol",
-            background: "marble",
-            surface: "classic"
-        },
-        "futuristic-premium": {
-            label: "Futurista premium",
-            background: "futuristic",
-            surface: "glass"
-        },
-        "absolute-black": {
-            label: "Negro absoluto",
-            background: "black",
-            surface: "dark"
-        },
-        "clean-white": {
-            label: "Blanco limpio",
-            background: "white",
-            surface: "light"
-        }
+    // El catalogo de temas lo publica el partial _AppearanceBootstrap desde
+    // AppearanceThemeCatalog (C#). Aca no se escribe una segunda lista de temas: agregar un tema
+    // al catalogo lo habilita automaticamente en el selector, en la persistencia y en el applier.
+    const appearanceConfig = window.luxuryAppearance || {};
+    const presets = appearanceConfig.presets || {
+        "classic-marble": { label: "Clasico marmol", background: "marble", surface: "classic" }
     };
-    const supportedBackgroundThemes = ["marble", "futuristic", "black", "white"];
-    const supportedSurfaceThemes = ["classic", "glass", "dark", "light"];
+    const defaultPreset = Object.prototype.hasOwnProperty.call(presets, appearanceConfig.defaultPreset)
+        ? appearanceConfig.defaultPreset
+        : Object.keys(presets)[0];
+    const storageKeys = appearanceConfig.storageKeys || {
+        preset: "luxury-appearance-preset",
+        background: "luxury-bg-theme",
+        surface: "luxury-surface-theme",
+        legacy: "luxury-theme"
+    };
+    const presetStorageKey = storageKeys.preset;
+    const backgroundStorageKey = storageKeys.background;
+    const surfaceStorageKey = storageKeys.surface;
+    const legacyThemeStorageKey = storageKeys.legacy;
+
+    function distinct(values) {
+        return values.filter(function (value, index) {
+            return values.indexOf(value) === index;
+        });
+    }
+
+    const supportedBackgroundThemes = distinct(Object.keys(presets).map(function (id) {
+        return presets[id].background;
+    }));
+    const supportedSurfaceThemes = distinct(Object.keys(presets).map(function (id) {
+        return presets[id].surface;
+    }));
     const chartRegistry = new Set();
 
     function normalizePreset(preset) {
         return Object.prototype.hasOwnProperty.call(presets, preset)
             ? preset
-            : "classic-marble";
+            : defaultPreset;
+    }
+
+    // Botones antiguos usaban data-luxury-theme-option="<background>" en vez del id del preset.
+    function resolvePresetFromLegacyOption(background) {
+        return Object.keys(presets).find(function (id) {
+            return presets[id].background === background;
+        }) || defaultPreset;
     }
 
     function buildAppearance(preset) {
@@ -123,11 +135,11 @@ function toggleProducto(id) {
     }
 
     function resolvePresetFromParts(background, surface) {
-        if (background === "futuristic" && surface === "glass") {
-            return "futuristic-premium";
-        }
+        const match = Object.keys(presets).find(function (id) {
+            return presets[id].background === background && presets[id].surface === surface;
+        });
 
-        return "classic-marble";
+        return match || defaultPreset;
     }
 
     function readStoredAppearance() {
@@ -146,13 +158,13 @@ function toggleProducto(id) {
             }
 
             const legacyTheme = localStorage.getItem(legacyThemeStorageKey);
-            if (legacyTheme === "futuristic") {
-                return buildAppearance("futuristic-premium");
-            }
+            const legacyMatch = Object.keys(presets).find(function (id) {
+                return presets[id].background === legacyTheme;
+            });
 
-            return buildAppearance("classic-marble");
+            return buildAppearance(legacyMatch || defaultPreset);
         } catch (error) {
-            return buildAppearance("classic-marble");
+            return buildAppearance(defaultPreset);
         }
     }
 
@@ -361,7 +373,7 @@ function toggleProducto(id) {
         document.querySelectorAll("[data-luxury-appearance-option], [data-luxury-theme-option]").forEach(function (button) {
             const optionPreset = button.getAttribute("data-luxury-appearance-option");
             const legacyTheme = button.getAttribute("data-luxury-theme-option");
-            const requestedPreset = optionPreset || (legacyTheme === "futuristic" ? "futuristic-premium" : "classic-marble");
+            const requestedPreset = normalizePreset(optionPreset || resolvePresetFromLegacyOption(legacyTheme));
             const isSelected = requestedPreset === appearance.preset;
             button.classList.toggle("is-selected", isSelected);
             button.setAttribute("aria-pressed", isSelected ? "true" : "false");
@@ -417,8 +429,8 @@ function toggleProducto(id) {
 
     function handleAppearanceSelection(event) {
         const button = event.currentTarget;
-        const requestedPreset = button.getAttribute("data-luxury-appearance-option")
-            || (button.getAttribute("data-luxury-theme-option") === "futuristic" ? "futuristic-premium" : "classic-marble");
+        const requestedPreset = normalizePreset(button.getAttribute("data-luxury-appearance-option")
+            || resolvePresetFromLegacyOption(button.getAttribute("data-luxury-theme-option")));
         const appearance = applyAppearance(requestedPreset);
         writeStoredAppearance(appearance);
     }

@@ -555,6 +555,7 @@ namespace LuxuryApp.Services.WhatsApp
         {
             WhatsAppNotificationTypes.Confirmation => "Confirmación",
             WhatsAppNotificationTypes.Reminder3Hours => "Recordatorio 3h",
+            WhatsAppNotificationTypes.Cancellation => "Cancelación",
             WhatsAppNotificationTypes.Reply => "Respuesta",
             WhatsAppNotificationTypes.Status => "Estado",
             _ => type

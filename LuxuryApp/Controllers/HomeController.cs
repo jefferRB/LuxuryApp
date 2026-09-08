@@ -11,13 +11,16 @@ namespace LuxuryApp.Controllers
     {
         private readonly ILogger<HomeController> _logger;
         private readonly IPublicSiteContentService _publicSiteContentService;
+        private readonly LuxuryApp.Services.Asociados.IPostLoginDestinationService _postLoginDestinationService;
 
         public HomeController(
             ILogger<HomeController> logger,
-            IPublicSiteContentService publicSiteContentService)
+            IPublicSiteContentService publicSiteContentService,
+            LuxuryApp.Services.Asociados.IPostLoginDestinationService postLoginDestinationService)
         {
             _logger = logger;
             _publicSiteContentService = publicSiteContentService;
+            _postLoginDestinationService = postLoginDestinationService;
         }
 
         // Convención de facto (nginx): "el cliente cerró la conexión antes de responder".
@@ -36,7 +39,10 @@ namespace LuxuryApp.Controllers
                     return Redirect("/MiPortal");
                 }
 
-                return RedirectToAction("Index", "Dashboard");
+                // Un asociado puede no tener el dashboard: se le manda al primer módulo que sí
+                // puede abrir, en vez de rebotarlo contra un Access Denied.
+                var destino = await _postLoginDestinationService.ResolveAsync(User, cancellationToken);
+                return LocalRedirect(destino);
             }
 
             // El visitante ya abandonó (navegación rápida, cierre o refresco): no hacemos
@@ -124,6 +130,17 @@ namespace LuxuryApp.Controllers
         public IActionResult PrivacyLegacy()
         {
             return RedirectPermanent("/privacidad");
+        }
+
+        /// <summary>
+        /// Aterrizaje neutro para una cuenta autenticada a la que todavía no le concedieron
+        /// ningún módulo (típicamente un asociado recién creado). Existe para que su primer
+        /// segundo dentro del producto sea una explicación y no un "Acceso denegado".
+        /// </summary>
+        [HttpGet]
+        public IActionResult SinPermisos()
+        {
+            return View();
         }
 
         [AllowAnonymous]

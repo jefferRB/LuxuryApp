@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Text.RegularExpressions;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.Marketing;
@@ -139,6 +139,8 @@ namespace LuxuryApp.Tests.Identity
             services.AddScoped<TenantProvisioningService>();
             services.AddScoped<ITenantDisplayNameService, TenantDisplayNameService>();
             services.AddScoped<IPublicSiteContentService, EmptyPublicSiteContentService>();
+            services.AddScoped<LuxuryApp.Services.Asociados.IPostLoginDestinationService,
+                LuxuryApp.Tests.Support.StubPostLoginDestinationService>();
             services.AddScoped<IAccountEmailService, NoopEmailService>();
             services.AddSingleton<RegistrationSecurityService>();
             services.AddHttpClient<TurnstileVerificationService>();
@@ -608,6 +610,8 @@ namespace LuxuryApp.Tests.Identity
             public Task SendEmailConfirmationEmailAsync(string toEmail, string displayName, string confirmationLink, CancellationToken ct = default) =>
                 Task.CompletedTask;
             public Task SendFuncionarioInvitationEmailAsync(string toEmail, string displayName, string setPasswordLink, string businessName, CancellationToken ct = default) =>
+                Task.CompletedTask;
+            public Task SendAccessInvitationEmailAsync(string toEmail, string displayName, string setPasswordLink, string businessName, string accessDescription, CancellationToken ct = default) =>
                 Task.CompletedTask;
         }
 

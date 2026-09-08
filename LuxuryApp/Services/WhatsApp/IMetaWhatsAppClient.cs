@@ -23,6 +23,16 @@ namespace LuxuryApp.Services.WhatsApp
             string professionalName,
             CancellationToken cancellationToken = default);
 
+        /// <summary>
+        /// Envia <c>luxurycloud_cancelacion_cita</c>. Los parametros van nombrados en
+        /// <see cref="WhatsAppCancellationTemplateParameters"/> para que el orden posicional del
+        /// template no dependa de quien llama.
+        /// </summary>
+        Task<MetaWhatsAppSendResult> SendCancellationTemplateAsync(
+            string recipientPhone,
+            WhatsAppCancellationTemplateParameters parameters,
+            CancellationToken cancellationToken = default);
+
         Task<MetaWhatsAppSendResult> SendTextMessageAsync(
             string recipientPhone,
             string message,

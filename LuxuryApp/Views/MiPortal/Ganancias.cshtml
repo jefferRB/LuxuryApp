@@ -15,7 +15,7 @@
 
 @section Styles {
     <style>
-        .gan-hero { background:linear-gradient(135deg, rgba(124,58,237,.16), rgba(99,102,241,.10));
+        .gan-hero { background:linear-gradient(135deg, rgba(var(--private-accent-alt-rgb), .16), rgba(var(--private-accent-indigo-rgb), .10));
             border:1px solid var(--private-surface-border,rgba(15,23,42,.08)); border-radius:18px; padding:1.4rem 1.5rem; margin-bottom:1.2rem;
             box-shadow:var(--private-card-shadow,0 10px 26px rgba(15,23,42,.08)); }
         .gan-hero-label { font-size:.78rem; font-weight:700; color:var(--private-muted-text,#94a3b8); text-transform:uppercase; letter-spacing:.4px; display:flex; align-items:center; gap:.4rem; }
@@ -23,7 +23,7 @@
         .gan-hero-sub { font-size:.82rem; color:var(--private-muted-text,#64748b); margin:0; }
         .gan-chart { display:flex; align-items:flex-end; gap:.5rem; height:170px; padding:.5rem .2rem 0; }
         .gan-bar-wrap { flex:1; display:flex; flex-direction:column; align-items:center; gap:.35rem; height:100%; justify-content:flex-end; min-width:0; }
-        .gan-bar { width:100%; max-width:34px; border-radius:7px 7px 0 0; background:linear-gradient(180deg,#a78bfa,#6366f1); transition:height .3s; min-height:3px; }
+        .gan-bar { width:100%; max-width:34px; border-radius:7px 7px 0 0; background:linear-gradient(180deg,var(--private-accent-alt-soft),var(--private-accent-indigo)); transition:height .3s; min-height:3px; }
         .gan-bar-day { font-size:.72rem; font-weight:700; color:var(--private-muted-text,#94a3b8); text-transform:capitalize; }
         .gan-bar-val { font-size:.66rem; color:var(--private-muted-text,#94a3b8); white-space:nowrap; }
         .gan-explain { background:var(--private-surface-bg,#fff); border:1px solid var(--private-surface-border,#eef1f6); border-radius:16px; padding:1.2rem 1.4rem; }
@@ -41,7 +41,7 @@
         .gan-rangetab { padding:.35rem .75rem; border-radius:8px; font-size:.8rem; font-weight:700; text-decoration:none;
             color:var(--private-muted-text,#64748b); transition:.15s; }
         .gan-rangetab:hover { color:var(--private-surface-text,#0f172a); }
-        .gan-rangetab--on { background:var(--private-surface-bg,#fff); color:var(--private-chart-accent,#4f46e5); box-shadow:0 2px 6px rgba(15,23,42,.12); }
+        .gan-rangetab--on { background:var(--private-surface-bg,#fff); color:var(--private-chart-accent,var(--private-accent-indigo-strong)); box-shadow:0 2px 6px rgba(15,23,42,.12); }
     </style>
 }
 
@@ -289,7 +289,10 @@
             var css = getComputedStyle(document.body);
             var txt = (css.getPropertyValue("--private-muted-text") || "#64748b").trim();
             var grid = "rgba(148,163,184,.18)";
-            var C_GREEN = "#16a34a", C_AMBER = "#d97706", C_VIOLET = "#7c3aed";
+            // Verde y ambar son semanticos (montos / pendientes) y no cambian por tema.
+            // El acento si sigue al tema activo, con literal de respaldo.
+            var C_GREEN = "#16a34a", C_AMBER = "#d97706";
+            var C_VIOLET = (css.getPropertyValue("--private-accent-alt") || "#7c3aed").trim();
             Chart.defaults.color = txt;
 
             function money(v) {

@@ -1,35 +1,40 @@
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.RegularExpressions;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Services.Identity;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Services.Funcionarios
 {
+    /// <summary>
+    /// Acceso al portal de los funcionarios.
+    ///
+    /// <para>
+    /// La mecánica de Identity (crear la cuenta, asignar rol, transacción, bloquear, reactivar,
+    /// tokens de contraseña, cambio de correo) NO vive acá: la aporta
+    /// <see cref="ITenantAccountProvisioningService"/>, compartida con el módulo de Asociados.
+    /// Este servicio solo pone las reglas propias del funcionario y el enlace con su ficha.
+    /// </para>
+    /// </summary>
     public sealed class FuncionarioPortalAccessService : IFuncionarioPortalAccessService
     {
-        private static readonly Regex EmailRegex = new(
-            @"^[^@\s]+@[^@\s]+\.[^@\s]+$",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
         private readonly ApplicationDbContext _context;
         private readonly UserManager<AppUsuario> _userManager;
+        private readonly ITenantAccountProvisioningService _accountProvisioning;
         private readonly IFuncionarioPortalPermissionService _permissionService;
         private readonly ILogger<FuncionarioPortalAccessService> _logger;
 
         public FuncionarioPortalAccessService(
             ApplicationDbContext context,
             UserManager<AppUsuario> userManager,
+            ITenantAccountProvisioningService accountProvisioning,
             IFuncionarioPortalPermissionService permissionService,
             ILogger<FuncionarioPortalAccessService> logger)
         {
             _context = context;
             _userManager = userManager;
+            _accountProvisioning = accountProvisioning;
             _permissionService = permissionService;
             _logger = logger;
         }
@@ -96,7 +101,7 @@ namespace LuxuryApp.Services.Funcionarios
         {
             email = (email ?? string.Empty).Trim();
 
-            if (!EmailRegex.IsMatch(email))
+            if (!_accountProvisioning.EsEmailValido(email))
             {
                 return FuncionarioAccesoResultado.Falla("Ingresa un correo electrónico válido.");
             }
@@ -122,105 +127,60 @@ namespace LuxuryApp.Services.Funcionarios
                     "Este funcionario ya tiene una cuenta de acceso. Usa reenviar invitación o reactivar acceso.");
             }
 
-            var correoEnUso = await _userManager.FindByEmailAsync(email);
-            if (correoEnUso is not null)
+            if (await _accountProvisioning.CorreoEnUsoAsync(email))
             {
                 return FuncionarioAccesoResultado.Falla(
                     "Ese correo ya está registrado en LuxuryCloud. Usa un correo diferente para el funcionario.");
             }
 
-            string password;
-            if (modo == FuncionarioAccesoCredencialModo.ContrasenaTemporal)
+            var request = new TenantAccountRequest
             {
-                if (string.IsNullOrWhiteSpace(contrasenaTemporal))
-                {
-                    return FuncionarioAccesoResultado.Falla("Ingresa una contraseña temporal.");
-                }
-
-                password = contrasenaTemporal.Trim();
-            }
-            else
-            {
-                password = GenerarPasswordSegura();
-            }
-
-            var usuario = new AppUsuario
-            {
-                UserName = email,
                 Email = email,
-                Name = funcionario.Nombre,
-                PhoneNumber = funcionario.Telefono,
-                State = true,
+                DisplayName = funcionario.Nombre,
+                Telefono = funcionario.Telefono,
                 TenantId = funcionario.TenantId,
-                FuncionarioId = funcionario.IdFuncionario
+                Role = AppRoles.Funcionario,
+                Modo = modo == FuncionarioAccesoCredencialModo.ContrasenaTemporal
+                    ? TenantAccountCredentialMode.ContrasenaTemporal
+                    : TenantAccountCredentialMode.Invitacion,
+                ContrasenaTemporal = contrasenaTemporal,
+                Configure = usuario => usuario.FuncionarioId = funcionario.IdFuncionario
             };
 
-            FuncionarioAccesoResultado? resultado = null;
-
-            var executionStrategy = _context.Database.CreateExecutionStrategy();
-            await executionStrategy.ExecuteAsync(async () =>
-            {
-                await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
-                try
+            var resultado = await _accountProvisioning.CrearCuentaAsync(
+                request,
+                async (usuario, ct) =>
                 {
-                    var creado = await _userManager.CreateAsync(usuario, password);
-                    if (!creado.Succeeded)
-                    {
-                        resultado = FuncionarioAccesoResultado.Falla(
-                            creado.Errors.Select(TraducirError).ToArray());
-                        await transaction.RollbackAsync(cancellationToken);
-                        return;
-                    }
-
-                    var rol = await _userManager.AddToRoleAsync(usuario, AppRoles.Funcionario);
-                    if (!rol.Succeeded)
-                    {
-                        resultado = FuncionarioAccesoResultado.Falla(
-                            rol.Errors.Select(error => error.Description).ToArray());
-                        await transaction.RollbackAsync(cancellationToken);
-                        return;
-                    }
-
                     funcionario.AppUsuarioId = usuario.Id;
-                    await _context.SaveChangesAsync(cancellationToken);
+                    await _context.SaveChangesAsync(ct);
+                    return true;
+                },
+                cancellationToken);
 
-                    await transaction.CommitAsync(cancellationToken);
+            if (!resultado.Exitoso)
+            {
+                return FuncionarioAccesoResultado.Falla(resultado.Errores.ToArray());
+            }
 
-                    // Permisos por defecto (solo lectura) al habilitar el acceso por primera vez.
-                    await _permissionService.CrearDefaultsAsync(funcionario.IdFuncionario, cancellationToken);
+            // Permisos por defecto (solo lectura) al habilitar el acceso por primera vez.
+            await _permissionService.CrearDefaultsAsync(funcionario.IdFuncionario, cancellationToken);
 
-                    string? tokenCodificado = null;
-                    if (modo == FuncionarioAccesoCredencialModo.Invitacion)
-                    {
-                        tokenCodificado = await GenerarTokenCodificadoAsync(usuario);
-                    }
+            _logger.LogInformation(
+                "Acceso de funcionario habilitado. TenantId {TenantId}. FuncionarioId {FuncionarioId}. UserId {UserId}. Modo {Modo}.",
+                funcionario.TenantId,
+                funcionario.IdFuncionario,
+                resultado.UserId,
+                modo);
 
-                    _logger.LogInformation(
-                        "Acceso de funcionario habilitado. TenantId {TenantId}. FuncionarioId {FuncionarioId}. UserId {UserId}. Modo {Modo}.",
-                        funcionario.TenantId,
-                        funcionario.IdFuncionario,
-                        usuario.Id,
-                        modo);
-
-                    resultado = new FuncionarioAccesoResultado
-                    {
-                        Exitoso = true,
-                        UserId = usuario.Id,
-                        Email = email,
-                        NombreParaCorreo = funcionario.Nombre,
-                        EnlaceTokenCodificado = tokenCodificado,
-                        RequiereCorreoInvitacion = modo == FuncionarioAccesoCredencialModo.Invitacion
-                    };
-                }
-                catch
-                {
-                    await transaction.RollbackAsync(cancellationToken);
-                    throw;
-                }
-            });
-
-            return resultado
-                ?? FuncionarioAccesoResultado.Falla("No fue posible habilitar el acceso. Intenta de nuevo.");
+            return new FuncionarioAccesoResultado
+            {
+                Exitoso = true,
+                UserId = resultado.UserId,
+                Email = resultado.Email,
+                NombreParaCorreo = funcionario.Nombre,
+                EnlaceTokenCodificado = resultado.EnlaceTokenCodificado,
+                RequiereCorreoInvitacion = modo == FuncionarioAccesoCredencialModo.Invitacion
+            };
         }
 
         public async Task<FuncionarioAccesoResultado> DesactivarAccesoAsync(
@@ -233,20 +193,16 @@ namespace LuxuryApp.Services.Funcionarios
                 return error;
             }
 
-            usuario!.State = false;
-            var update = await _userManager.UpdateAsync(usuario);
-            if (!update.Succeeded)
+            var resultado = await _accountProvisioning.BloquearAsync(usuario!, cancellationToken);
+            if (!resultado.Exitoso)
             {
-                return FuncionarioAccesoResultado.Falla(update.Errors.Select(e => e.Description).ToArray());
+                return FuncionarioAccesoResultado.Falla(resultado.Errores.ToArray());
             }
-
-            // Invalida cualquier sesión activa de inmediato (SecurityStampValidator).
-            await _userManager.UpdateSecurityStampAsync(usuario);
 
             _logger.LogInformation(
                 "Acceso de funcionario desactivado. FuncionarioId {FuncionarioId}. UserId {UserId}.",
                 funcionario!.IdFuncionario,
-                usuario.Id);
+                usuario!.Id);
 
             return new FuncionarioAccesoResultado { Exitoso = true, UserId = usuario.Id, Email = usuario.Email };
         }
@@ -267,20 +223,16 @@ namespace LuxuryApp.Services.Funcionarios
                     "No puedes reactivar el acceso de un funcionario inactivo. Actívalo primero.");
             }
 
-            usuario!.State = true;
-            await _userManager.SetLockoutEndDateAsync(usuario, null);
-            var update = await _userManager.UpdateAsync(usuario);
-            if (!update.Succeeded)
+            var resultado = await _accountProvisioning.ReactivarAsync(usuario!, cancellationToken);
+            if (!resultado.Exitoso)
             {
-                return FuncionarioAccesoResultado.Falla(update.Errors.Select(e => e.Description).ToArray());
+                return FuncionarioAccesoResultado.Falla(resultado.Errores.ToArray());
             }
-
-            await _userManager.UpdateSecurityStampAsync(usuario);
 
             _logger.LogInformation(
                 "Acceso de funcionario reactivado. FuncionarioId {FuncionarioId}. UserId {UserId}.",
                 funcionario.IdFuncionario,
-                usuario.Id);
+                usuario!.Id);
 
             return new FuncionarioAccesoResultado { Exitoso = true, UserId = usuario.Id, Email = usuario.Email };
         }
@@ -295,7 +247,7 @@ namespace LuxuryApp.Services.Funcionarios
                 return error;
             }
 
-            var tokenCodificado = await GenerarTokenCodificadoAsync(usuario!);
+            var tokenCodificado = await _accountProvisioning.GenerarTokenContrasenaAsync(usuario!);
 
             _logger.LogInformation(
                 "Invitación/enlace de contraseña regenerado para funcionario. FuncionarioId {FuncionarioId}. UserId {UserId}.",
@@ -320,7 +272,7 @@ namespace LuxuryApp.Services.Funcionarios
         {
             nuevoEmail = (nuevoEmail ?? string.Empty).Trim();
 
-            if (!EmailRegex.IsMatch(nuevoEmail))
+            if (!_accountProvisioning.EsEmailValido(nuevoEmail))
             {
                 return FuncionarioAccesoResultado.Falla("Ingresa un correo electrónico válido.");
             }
@@ -331,37 +283,22 @@ namespace LuxuryApp.Services.Funcionarios
                 return error;
             }
 
-            if (string.Equals(usuario!.Email, nuevoEmail, StringComparison.OrdinalIgnoreCase))
+            var resultado = await _accountProvisioning.CambiarCorreoAsync(usuario!, nuevoEmail, cancellationToken);
+            if (!resultado.Exitoso)
             {
-                return new FuncionarioAccesoResultado { Exitoso = true, UserId = usuario.Id, Email = usuario.Email };
+                return FuncionarioAccesoResultado.Falla(resultado.Errores.ToArray());
             }
-
-            var enUso = await _userManager.FindByEmailAsync(nuevoEmail);
-            if (enUso is not null && enUso.Id != usuario.Id)
-            {
-                return FuncionarioAccesoResultado.Falla("Ese correo ya está registrado en LuxuryCloud.");
-            }
-
-            usuario.Email = nuevoEmail;
-            usuario.UserName = nuevoEmail;
-            var update = await _userManager.UpdateAsync(usuario);
-            if (!update.Succeeded)
-            {
-                return FuncionarioAccesoResultado.Falla(update.Errors.Select(TraducirError).ToArray());
-            }
-
-            await _userManager.UpdateSecurityStampAsync(usuario);
 
             _logger.LogInformation(
                 "Correo de acceso de funcionario actualizado. FuncionarioId {FuncionarioId}. UserId {UserId}.",
                 funcionario!.IdFuncionario,
-                usuario.Id);
+                usuario!.Id);
 
             return new FuncionarioAccesoResultado
             {
                 Exitoso = true,
                 UserId = usuario.Id,
-                Email = nuevoEmail,
+                Email = resultado.Email,
                 NombreParaCorreo = funcionario.Nombre
             };
         }
@@ -404,45 +341,5 @@ namespace LuxuryApp.Services.Funcionarios
 
             return (funcionario, usuario, null);
         }
-
-        private async Task<string> GenerarTokenCodificadoAsync(AppUsuario usuario)
-        {
-            var token = await _userManager.GeneratePasswordResetTokenAsync(usuario);
-            return WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(token));
-        }
-
-        private static string GenerarPasswordSegura()
-        {
-            // Cumple la política (8+ chars, mayúscula). Aleatoria; nunca se muestra.
-            const string mayus = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-            const string minus = "abcdefghijkmnpqrstuvwxyz";
-            const string nums = "23456789";
-            const string simbolos = "!@#$%*";
-            const string todos = mayus + minus + nums + simbolos;
-
-            var sb = new StringBuilder();
-            sb.Append(mayus[RandomNumberGenerator.GetInt32(mayus.Length)]);
-            sb.Append(minus[RandomNumberGenerator.GetInt32(minus.Length)]);
-            sb.Append(nums[RandomNumberGenerator.GetInt32(nums.Length)]);
-            sb.Append(simbolos[RandomNumberGenerator.GetInt32(simbolos.Length)]);
-
-            for (var i = 0; i < 12; i++)
-            {
-                sb.Append(todos[RandomNumberGenerator.GetInt32(todos.Length)]);
-            }
-
-            return sb.ToString();
-        }
-
-        private static string TraducirError(IdentityError error) => error.Code switch
-        {
-            "DuplicateUserName" or "DuplicateEmail" =>
-                "Ese correo ya está registrado en LuxuryCloud.",
-            "PasswordTooShort" =>
-                "La contraseña es demasiado corta.",
-            "PasswordRequiresUpper" =>
-                "La contraseña debe incluir al menos una letra mayúscula.",
-            _ => error.Description
-        };
     }
 }

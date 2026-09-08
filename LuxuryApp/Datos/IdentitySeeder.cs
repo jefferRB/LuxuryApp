@@ -19,7 +19,8 @@ namespace LuxuryApp.Datos
             {
                 Services.Identity.AppRoles.Administrador,
                 Services.Identity.AppRoles.Registrado,
-                Services.Identity.AppRoles.Funcionario
+                Services.Identity.AppRoles.Funcionario,
+                Services.Identity.AppRoles.Asociado
             };
 
             foreach (var role in roles)

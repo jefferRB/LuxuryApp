@@ -20,6 +20,7 @@ namespace LuxuryApp.Services.Calendar
         private static readonly string[] SupportedTipos = ["CITA", "DESCANSO"];
         private readonly ApplicationDbContext _context;
         private readonly ICalendarWhatsAppNotificationService _notificationService;
+        private readonly IAppointmentCancellationWhatsAppService _cancellationNotificationService;
         private readonly VisitasAutomaticasService _visitasAutomaticasService;
         private readonly IFuncionarioAvailabilityService _availabilityService;
         private readonly ILogger<CalendarCommandService> _logger;
@@ -27,12 +28,14 @@ namespace LuxuryApp.Services.Calendar
         public CalendarCommandService(
             ApplicationDbContext context,
             ICalendarWhatsAppNotificationService notificationService,
+            IAppointmentCancellationWhatsAppService cancellationNotificationService,
             VisitasAutomaticasService visitasAutomaticasService,
             IFuncionarioAvailabilityService availabilityService,
             ILogger<CalendarCommandService> logger)
         {
             _context = context;
             _notificationService = notificationService;
+            _cancellationNotificationService = cancellationNotificationService;
             _visitasAutomaticasService = visitasAutomaticasService;
             _availabilityService = availabilityService;
             _logger = logger;
@@ -422,17 +425,22 @@ namespace LuxuryApp.Services.Calendar
             }
         }
 
-        public async Task DeleteAsync(int id, CancellationToken cancellationToken = default)
+        public async Task DeleteAsync(
+            int id,
+            string? motivoCancelacion = null,
+            CancellationToken cancellationToken = default)
         {
-            var cita = await _context.Citas
-                .FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
+            var existe = await _context.Citas
+                .AsNoTracking()
+                .AnyAsync(c => c.Id == id, cancellationToken);
 
-            if (cita is null)
+            if (!existe)
             {
                 throw new InvalidOperationException("La cita indicada no existe o no pertenece al tenant actual.");
             }
 
             // Cancelar mensajes pendientes antes de eliminar para evitar envíos post-eliminación.
+            // Va ANTES de preparar el aviso de cancelación: si no, este barrería el aviso recién creado.
             try
             {
                 await _notificationService.CancelPendingNotificationsAsync(id, cancellationToken);
@@ -445,17 +453,50 @@ namespace LuxuryApp.Services.Calendar
                     id);
             }
 
-            _context.Citas.Remove(cita);
+            // El aviso al cliente se decide y se reserva DENTRO de la transacción del borrado: al
+            // eliminar la cita se pierde el vínculo BookingRequest.ConvertedCitaId (SetNull), y si
+            // la cancelación se revierte, la reserva del aviso se revierte con ella.
+            PreparedAppointmentCancellation? avisoCancelacion = null;
+            var executionStrategy = _context.Database.CreateExecutionStrategy();
 
             try
             {
-                await _context.SaveChangesAsync(cancellationToken);
+                await executionStrategy.ExecuteAsync(async () =>
+                {
+                    avisoCancelacion = null;
+
+                    await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+
+                    var cita = await _context.Citas
+                        .FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
+
+                    if (cita is null)
+                    {
+                        throw new InvalidOperationException("La cita indicada no existe o no pertenece al tenant actual.");
+                    }
+
+                    avisoCancelacion = await _cancellationNotificationService.PrepareAsync(
+                        id,
+                        motivoCancelacion,
+                        cancellationToken);
+
+                    _context.Citas.Remove(cita);
+                    await _context.SaveChangesAsync(cancellationToken);
+                    await transaction.CommitAsync(cancellationToken);
+                });
+
                 _logger.LogInformation("Se elimino la cita {CitaId}.", id);
             }
             catch (DbUpdateException ex)
             {
                 _logger.LogError(ex, "Error al eliminar la cita {CitaId}.", id);
                 throw new InvalidOperationException("No fue posible eliminar la cita.");
+            }
+
+            // La cancelación ya está confirmada: WhatsApp nunca la revierte. SendAsync no lanza.
+            if (avisoCancelacion is not null)
+            {
+                await _cancellationNotificationService.SendAsync(avisoCancelacion, cancellationToken);
             }
         }
 

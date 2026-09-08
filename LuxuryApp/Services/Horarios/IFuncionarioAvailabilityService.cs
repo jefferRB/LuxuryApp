@@ -1,4 +1,4 @@
-using LuxuryApp.Models.Horarios;
+﻿using LuxuryApp.Models.Horarios;
 
 namespace LuxuryApp.Services.Horarios
 {
@@ -8,6 +8,12 @@ namespace LuxuryApp.Services.Horarios
         public const string Cita = "CITA";
         public const string Descanso = "DESCANSO";
         public const string BloqueoRecurrente = "BLOQUEO_RECURRENTE";
+
+        /// <summary>
+        /// Solicitud de reserva online en estado Pending. Ocupa agenda exactamente igual que una
+        /// cita: mientras el negocio no la confirme o rechace, nadie más puede tomar ese intervalo.
+        /// </summary>
+        public const string SolicitudPendiente = "SOLICITUD_PENDIENTE";
     }
 
     /// <summary>
@@ -24,6 +30,8 @@ namespace LuxuryApp.Services.Horarios
         public bool Solapa(DateTime inicio, DateTime fin) => inicio < Fin && fin > Inicio;
 
         public bool EsBloqueoRecurrente => Origen == BusyIntervalSources.BloqueoRecurrente;
+
+        public bool EsSolicitudPendiente => Origen == BusyIntervalSources.SolicitudPendiente;
     }
 
     /// <summary>Resultado de comprobar un horario concreto.</summary>
@@ -36,9 +44,10 @@ namespace LuxuryApp.Services.Horarios
     }
 
     /// <summary>
-    /// Fuente ÚNICA de disponibilidad de colaboradores. Combina citas/descansos con los bloqueos
-    /// recurrentes, para que reservas públicas, creación manual, reprogramación, búsqueda de
-    /// espacios y calendario respondan exactamente lo mismo.
+    /// Fuente ÚNICA de disponibilidad de colaboradores. Combina citas/descansos, bloqueos
+    /// recurrentes y solicitudes de reserva online pendientes, para que reservas públicas,
+    /// creación manual, reprogramación, búsqueda de espacios y calendario respondan exactamente
+    /// lo mismo.
     ///
     /// <para>
     /// Antes de este servicio la validación de solapamiento vivía duplicada en

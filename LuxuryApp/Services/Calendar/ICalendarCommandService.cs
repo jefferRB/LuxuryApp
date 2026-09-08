@@ -12,7 +12,14 @@ namespace LuxuryApp.Services.Calendar
 
         Task ResizeDurationAsync(int id, int duracionMinutos, CancellationToken cancellationToken = default);
 
-        Task DeleteAsync(int id, CancellationToken cancellationToken = default);
+        /// <summary>
+        /// Cancela (elimina) una entrada de agenda.
+        /// </summary>
+        /// <param name="motivoCancelacion">
+        /// Motivo que escribió quien cancela. Solo se usa para el aviso de WhatsApp de las citas
+        /// que provienen de una reserva online; si viene vacío se usa un texto neutro por defecto.
+        /// </param>
+        Task DeleteAsync(int id, string? motivoCancelacion = null, CancellationToken cancellationToken = default);
 
         Task ProcessVisitsAsync(CancellationToken cancellationToken = default);
     }

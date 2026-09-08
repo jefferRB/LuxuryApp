@@ -1,4 +1,4 @@
-using LuxuryApp.Models.Calendar;
+﻿using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
@@ -45,17 +45,28 @@ namespace LuxuryApp.Tests.TenantIsolation
             await SeedEgresoAsync(context, categoriaOperativa.Id, new DateTime(2026, 4, 20, 8, 0, 0), 40m, "EFECTIVO", "Pago de caja");
             await SeedEgresoAsync(context, categoriaOperativa.Id, new DateTime(2026, 5, 1, 0, 0, 0), 100m, "EFECTIVO", "Pago mayo");
 
-            var service = ControllerTestSupport.CreateDashboardFinancieroQueryService(context);
+            var service = ControllerTestSupport.CreateDashboardFinancieroQueryService(context, tenantProvider);
             var model = await service.BuildViewModelAsync(4, 2026);
 
             Assert.Equal(150m, model.TotalServicios);
             Assert.Equal(200m, model.TotalProductos);
             Assert.Equal(350m, model.TotalGenerado);
             // IVA incluido: base = 350 / 1.13 = 309.73; IVA = 40.27.
-            Assert.Equal(40.27m, model.TotalImpuestos);
-            Assert.Equal(309.73m, model.TotalSinImpuestos);
+            // IVA por LÍNEA de cobro y luego suma (convención del motor fiscal), no dividiendo el
+            // total del mes: 100→88,50 + 200→176,99 + 50→44,25 = 309,74 de base y 40,26 de IVA.
+            // El cálculo plano daba 309,73 / 40,27; ahora el Dashboard usa el mismo motor que las
+            // liquidaciones y los estados de cuenta del inversionista.
+            Assert.Equal(40.26m, model.TotalImpuestos);
+            Assert.Equal(309.74m, model.TotalSinImpuestos);
+
+            // CAJA: el único egreso de abril.
             Assert.Equal(40m, model.TotalEgresos);
-            Assert.Equal(40m, model.TotalEgresosAnaliticos);
+
+            // ANALÍTICO: gastos operativos + liquidaciones DEVENGADAS del equipo. La comisión se
+            // calcula sobre la BASE SIN IVA (default del colaborador): 50 % de 132,75 en servicios
+            // (66,38) + 10 % de 176,99 en productos (17,70) = 84,08.
+            Assert.Equal(84.08m, model.TotalPagadoFuncionariosAnalitico);
+            Assert.Equal(124.08m, model.TotalEgresosAnaliticos);
             Assert.Equal(100m, model.IngresosEfectivo);
             Assert.Equal(50m, model.IngresosSinpe);
             Assert.Equal(200m, model.IngresosTarjeta);
@@ -63,9 +74,11 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(2, model.CantidadCitasMes);
             Assert.Equal(40m, model.ValorInventarioProductos);
             Assert.Equal(2, model.TotalProductosInventario);
-            Assert.Equal(269.73m, model.ResultadoAnalitico);
+            // 309,74 − 124,08 = 185,66. La barra del gráfico sale del MISMO cálculo que el titular:
+            // ya no hay dos aritméticas que puedan contradecirse.
+            Assert.Equal(185.66m, model.ResultadoAnalitico);
             Assert.Equal(12, model.ResultadoAnaliticoPorMes.Count);
-            Assert.Equal(269.73m, model.ResultadoAnaliticoPorMes[3]);
+            Assert.Equal(185.66m, model.ResultadoAnaliticoPorMes[3]);
         }
 
         [Fact]
@@ -148,23 +161,33 @@ namespace LuxuryApp.Tests.TenantIsolation
             await SeedEgresoAsync(context, categoriaOperativa.Id, new DateTime(2026, 5, 22, 10, 0, 0), 30m, "EFECTIVO", "Alquiler mayo");
             await context.SaveChangesAsync();
 
-            var service = ControllerTestSupport.CreateDashboardFinancieroQueryService(context);
+            var service = ControllerTestSupport.CreateDashboardFinancieroQueryService(context, tenantProvider);
             var model = await service.BuildViewModelAsync(4, 2026);
 
             Assert.Equal(200m, model.TotalServicios);
             Assert.Equal(200m, model.TotalGenerado);
-            // IVA incluido: base = 200 / 1.13 = 176.99; IVA = 23.01.
-            Assert.Equal(23.01m, model.TotalImpuestos);
-            Assert.Equal(176.99m, model.TotalSinImpuestos);
+            // Dos cobros de 100 en abril: base 88,50 + 88,50 = 177,00 e IVA 23,00. Con el cálculo
+            // plano (200 / 1,13) daban 176,99 y 23,01.
+            Assert.Equal(23.00m, model.TotalImpuestos);
+            Assert.Equal(177.00m, model.TotalSinImpuestos);
+
+            // CAJA: lo que efectivamente salió en abril (liquidación pagada + alquiler).
             Assert.Equal(80m, model.TotalPagadoFuncionarios);
-            Assert.Equal(73.50m, model.TotalPagadoFuncionariosAnalitico);
             Assert.Equal(100m, model.TotalEgresos);
-            Assert.Equal(93.50m, model.TotalEgresosAnaliticos);
-            Assert.Equal(83.49m, model.ResultadoAnalitico);
+
+            // ANALÍTICO: devengado del período. Mario cobra 50 % sobre la base sin IVA (177,00).
+            Assert.Equal(88.50m, model.TotalPagadoFuncionariosAnalitico);
+            Assert.Equal(108.50m, model.TotalEgresosAnaliticos);
+            // 177,00 − 108,50 = 68,50.
+            Assert.Equal(68.50m, model.ResultadoAnalitico);
+            Assert.Equal(68.50m, model.ResultadoAnaliticoPorMes[3]);
+
+            // Mayo: base 177,00 − (30 de alquiler + 88,50 devengado) = 58,50.
+            Assert.Equal(58.50m, model.ResultadoAnaliticoPorMes[4]);
+
+            // La serie de CAJA no cambió: sigue siendo "lo que entró menos lo que salió".
             Assert.Equal(76.99m, model.GananciaPorMes[3]);
-            Assert.Equal(83.49m, model.ResultadoAnaliticoPorMes[3]);
             Assert.Equal(146.99m, model.GananciaPorMes[4]);
-            Assert.Equal(53.49m, model.ResultadoAnaliticoPorMes[4]);
             Assert.Equal(12, model.GananciaPorMes.Count);
             Assert.Equal(12, model.ResultadoAnaliticoPorMes.Count);
         }
@@ -199,7 +222,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             tenantProvider.TenantId = tenantA;
             context.ChangeTracker.Clear();
 
-            var service = ControllerTestSupport.CreateDashboardFinancieroQueryService(context);
+            var service = ControllerTestSupport.CreateDashboardFinancieroQueryService(context, tenantProvider);
             var model = await service.BuildViewModelAsync(4, 2026);
 
             Assert.Equal(120m, model.TotalServicios);

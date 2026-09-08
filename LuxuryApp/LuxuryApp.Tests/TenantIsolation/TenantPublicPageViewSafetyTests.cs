@@ -64,6 +64,47 @@ namespace LuxuryApp.Tests.TenantIsolation
         }
 
         [Fact]
+        public void ServiceCards_UseAStableSquareFrameThatCannotStretchTheRow()
+        {
+            var css = File.ReadAllText(ProjectPath("wwwroot", "css", "tenant-public-page.css"));
+
+            var mediaBlock = css[css.IndexOf(".tpp-service-image,", StringComparison.Ordinal)..];
+            mediaBlock = mediaBlock[..mediaBlock.IndexOf(".tpp-service-body", StringComparison.Ordinal)];
+
+            // Marco vertical 3:4 fijo y sin tope de altura que rompa la proporcion.
+            Assert.Contains("aspect-ratio: 3 / 4", mediaBlock);
+            Assert.DoesNotContain("max-height", mediaBlock);
+            Assert.Contains("object-fit: cover", mediaBlock);
+
+            // Sin stretch: un servicio sin foto no crece hasta la altura del que si tiene.
+            var gridBlock = css[css.IndexOf("grid-template-columns: repeat(auto-fit, minmax(270px, 1fr))", StringComparison.Ordinal)..];
+            gridBlock = gridBlock[..gridBlock.IndexOf("}", StringComparison.Ordinal)];
+            Assert.Contains("align-items: start", gridBlock);
+            Assert.DoesNotContain("align-items: stretch", gridBlock);
+        }
+
+        [Fact]
+        public void BrandTokens_HaveNeutralDefaultsAndAreInjectedOnlyWhenTenantChoseAColor()
+        {
+            var css = File.ReadAllText(ProjectPath("wwwroot", "css", "tenant-public-page.css"));
+            var view = File.ReadAllText(ProjectPath("Views", "PublicSite", "Index.cshtml"));
+
+            // Defaults: negro para los CTA neutros y verde para el acento historico.
+            Assert.Contains("--brand-accent: #111111", css);
+            Assert.Contains("--brand-on-accent: #ffffff", css);
+            Assert.Contains("--tpp-accent: #0d7a5f", css);
+            Assert.Contains("--tpp-accent-ink: #075944", css);
+
+            // Los CTA principales leen los tokens, no colores sueltos.
+            Assert.Contains("background: var(--brand-accent)", css);
+            Assert.Contains("color: var(--brand-on-accent)", css);
+
+            // Sin color configurado no se emite ningun estilo: la landing queda igual que antes.
+            Assert.Contains("@if (Model.Theme.IsCustom)", view);
+            Assert.Contains("--brand-accent: @Model.Theme.Accent", view);
+        }
+
+        [Fact]
         public void PublicLandingCsp_AllowsOnlyLocalScriptsAndNoFrames()
         {
             var controller = File.ReadAllText(ProjectPath("Controllers", "PublicSiteController.cs"));

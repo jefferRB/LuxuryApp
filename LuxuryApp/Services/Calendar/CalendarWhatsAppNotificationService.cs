@@ -152,8 +152,11 @@ namespace LuxuryApp.Services.Calendar
             {
                 return new WhatsAppConfirmationSendResult(
                     WhatsAppConfirmationOutcome.Skipped,
-                    "No se envió la confirmación de WhatsApp (no aplicable para esta cita).");
+                    "No se envió la confirmación de WhatsApp (no aplicable para esta cita).",
+                    Reason: WhatsAppNotificationReason.NotApplicable);
             }
+
+            var reason = WhatsAppNotificationReasons.FromErrorCode(errorCode);
 
             return status switch
             {
@@ -162,57 +165,66 @@ namespace LuxuryApp.Services.Calendar
                 WhatsAppMessageStatuses.Read =>
                     new WhatsAppConfirmationSendResult(
                         WhatsAppConfirmationOutcome.Sent,
-                        "Confirmación de WhatsApp enviada."),
+                        "Confirmación de WhatsApp enviada.",
+                        Reason: WhatsAppNotificationReason.Eligible),
 
                 WhatsAppMessageStatuses.Pending or
                 WhatsAppMessageStatuses.Processing =>
                     new WhatsAppConfirmationSendResult(
                         WhatsAppConfirmationOutcome.Pending,
-                        "La confirmación de WhatsApp quedó en cola y se enviará en breve."),
+                        "La confirmación de WhatsApp quedó en cola y se enviará en breve.",
+                        Reason: WhatsAppNotificationReason.Eligible),
 
                 WhatsAppMessageStatuses.Failed =>
                     new WhatsAppConfirmationSendResult(
                         WhatsAppConfirmationOutcome.Failed,
                         "No se pudo enviar la confirmación de WhatsApp. Podés reintentarla.",
-                        errorCode),
+                        errorCode,
+                        WhatsAppNotificationReason.ProviderFailed),
 
                 WhatsAppMessageStatuses.SkippedInvalidPhone =>
                     new WhatsAppConfirmationSendResult(
                         WhatsAppConfirmationOutcome.Skipped,
                         "No se envió la confirmación: el teléfono del cliente no es válido para WhatsApp.",
-                        errorCode),
+                        errorCode,
+                        WhatsAppNotificationReason.CustomerPhoneMissing),
 
                 WhatsAppMessageStatuses.SkippedConsentMissing =>
                     new WhatsAppConfirmationSendResult(
                         WhatsAppConfirmationOutcome.Skipped,
                         "No se envió la confirmación: el cliente no autorizó mensajes de WhatsApp.",
-                        errorCode),
+                        errorCode,
+                        WhatsAppNotificationReason.ConsentMissing),
 
                 WhatsAppMessageStatuses.SkippedTenantDisabled or
                 WhatsAppMessageStatuses.SkippedUserDisabled =>
                     new WhatsAppConfirmationSendResult(
                         WhatsAppConfirmationOutcome.Skipped,
                         "No se envió la confirmación: WhatsApp está desactivado.",
-                        errorCode),
+                        errorCode,
+                        reason),
 
                 WhatsAppMessageStatuses.SkippedSubscriptionRequired =>
                     new WhatsAppConfirmationSendResult(
                         WhatsAppConfirmationOutcome.Skipped,
                         "No se envió la confirmación: se requiere el complemento de WhatsApp activo.",
-                        errorCode),
+                        errorCode,
+                        reason),
 
                 WhatsAppMessageStatuses.SkippedDailyLimitExceeded or
                 WhatsAppMessageStatuses.SkippedMonthlyLimitExceeded =>
                     new WhatsAppConfirmationSendResult(
                         WhatsAppConfirmationOutcome.Skipped,
                         "No se envió la confirmación: se alcanzó el límite de mensajes de WhatsApp.",
-                        errorCode),
+                        errorCode,
+                        WhatsAppNotificationReason.LimitReached),
 
                 _ =>
                     new WhatsAppConfirmationSendResult(
                         WhatsAppConfirmationOutcome.Skipped,
                         "No se envió la confirmación de WhatsApp por la configuración actual.",
-                        errorCode)
+                        errorCode,
+                        reason)
             };
         }
 
@@ -626,10 +638,10 @@ namespace LuxuryApp.Services.Calendar
 
         public async Task ProcessInboundReplyAsync(JsonElement payload, CancellationToken cancellationToken = default)
         {
-            var inboundMessages = ExtractInboundMessages(payload);
+            var inboundMessages = MetaWhatsAppWebhookPayloadParser.ExtractInboundMessages(payload);
             foreach (var inboundMessage in inboundMessages)
             {
-                var action = ResolveReplyAction(inboundMessage);
+                var action = WhatsAppAppointmentReplyResolver.Resolve(inboundMessage);
                 var candidates = await ResolveTargetCandidatesAsync(inboundMessage, cancellationToken);
 
                 if (candidates.Count == 0)
@@ -662,7 +674,7 @@ namespace LuxuryApp.Services.Calendar
 
         public async Task ProcessStatusUpdateAsync(JsonElement payload, CancellationToken cancellationToken = default)
         {
-            var statusUpdates = ExtractStatusUpdates(payload);
+            var statusUpdates = MetaWhatsAppWebhookPayloadParser.ExtractStatusUpdates(payload);
             foreach (var statusUpdate in statusUpdates)
             {
                 var processed = false;
@@ -1033,45 +1045,17 @@ namespace LuxuryApp.Services.Calendar
             Cita cita,
             CancellationToken cancellationToken)
         {
+            bool? clienteAcepta = null;
             if (cita.ClienteId.HasValue)
             {
-                var cliente = await _context.Clientes
+                clienteAcepta = await _context.Clientes
                     .AsNoTracking()
                     .Where(current => current.Id == cita.ClienteId.Value)
-                    .Select(current => new
-                    {
-                        current.AceptaMensajesWhatsApp
-                    })
+                    .Select(current => (bool?)current.AceptaMensajesWhatsApp)
                     .SingleOrDefaultAsync(cancellationToken);
-
-                if (cliente?.AceptaMensajesWhatsApp == true)
-                {
-                    return new WhatsAppConsentDecision(
-                        CanSend: true,
-                        Source: WhatsAppConsentSources.ClienteRegistrado,
-                        HasClienteId: true,
-                        Message: string.Empty);
-                }
-
-                return new WhatsAppConsentDecision(
-                    CanSend: false,
-                    Source: WhatsAppConsentSources.ClienteRegistrado,
-                    HasClienteId: true,
-                    Message: "El cliente no autorizó mensajes de WhatsApp.");
             }
 
-            var source = ResolveConsentSource(cita);
-            return cita.WhatsAppConsentAtCreation
-                ? new WhatsAppConsentDecision(
-                    CanSend: true,
-                    Source: source,
-                    HasClienteId: false,
-                    Message: string.Empty)
-                : new WhatsAppConsentDecision(
-                    CanSend: false,
-                    Source: source,
-                    HasClienteId: false,
-                    Message: "El cliente no autorizó mensajes de WhatsApp.");
+            return WhatsAppConsentPolicy.Evaluate(cita, clienteAcepta);
         }
 
         private async Task<bool> SkipPendingMessageForConsentAsync(
@@ -1926,7 +1910,7 @@ namespace LuxuryApp.Services.Calendar
         }
 
         private static string MapProviderStatus(string status) =>
-            NormalizeToken(status) switch
+            status.Trim().ToLowerInvariant() switch
             {
                 "sent" => WhatsAppMessageStatuses.Sent,
                 "delivered" => WhatsAppMessageStatuses.Delivered,
@@ -1935,247 +1919,13 @@ namespace LuxuryApp.Services.Calendar
                 _ => WhatsAppMessageStatuses.Ignored
             };
 
-        private static WhatsAppReplyAction ResolveReplyAction(InboundWhatsAppMessage inboundMessage)
-        {
-            var values = new[]
-            {
-                inboundMessage.Text,
-                inboundMessage.ButtonText,
-                inboundMessage.ButtonPayload,
-                inboundMessage.InteractiveButtonId,
-                inboundMessage.InteractiveButtonTitle
-            };
-
-            foreach (var value in values.Where(value => !string.IsNullOrWhiteSpace(value)))
-            {
-                var token = NormalizeToken(value!);
-                if (token is "1" or "confirmar" or "confirmo" or "si" or "confirmar_cita" or "confirm")
-                {
-                    return WhatsAppReplyAction.Confirm;
-                }
-
-                if (token is "2" or "cancelar" or "cancelo" or "cancelar_cita" or "cancel")
-                {
-                    return WhatsAppReplyAction.Cancel;
-                }
-            }
-
-            return WhatsAppReplyAction.Unknown;
-        }
-
-        private static IReadOnlyList<InboundWhatsAppMessage> ExtractInboundMessages(JsonElement payload)
-        {
-            var messages = new List<InboundWhatsAppMessage>();
-
-            foreach (var value in EnumerateWebhookValues(payload))
-            {
-                var contactsByWaId = ExtractContactsByWaId(value);
-                if (!TryGetArray(value, "messages", out var messageElements))
-                {
-                    continue;
-                }
-
-                foreach (var message in messageElements.EnumerateArray())
-                {
-                    var messageId = TryGetString(message, "id");
-                    if (string.IsNullOrWhiteSpace(messageId))
-                    {
-                        continue;
-                    }
-
-                    var from = TryGetString(message, "from");
-                    var waId = from is not null && contactsByWaId.TryGetValue(from, out var contactWaId)
-                        ? contactWaId
-                        : from;
-
-                    var contextMessageId = TryGetProperty(message, "context", out var context)
-                        ? TryGetString(context, "id")
-                        : null;
-
-                    var text = TryGetProperty(message, "text", out var textElement)
-                        ? TryGetString(textElement, "body")
-                        : null;
-
-                    string? buttonText = null;
-                    string? buttonPayload = null;
-                    if (TryGetProperty(message, "button", out var buttonElement))
-                    {
-                        buttonText = TryGetString(buttonElement, "text");
-                        buttonPayload = TryGetString(buttonElement, "payload");
-                    }
-
-                    string? interactiveButtonId = null;
-                    string? interactiveButtonTitle = null;
-                    if (TryGetProperty(message, "interactive", out var interactiveElement) &&
-                        TryGetProperty(interactiveElement, "button_reply", out var buttonReplyElement))
-                    {
-                        interactiveButtonId = TryGetString(buttonReplyElement, "id");
-                        interactiveButtonTitle = TryGetString(buttonReplyElement, "title");
-                    }
-
-                    messages.Add(new InboundWhatsAppMessage(
-                        messageId,
-                        from,
-                        waId,
-                        contextMessageId,
-                        text,
-                        buttonText,
-                        buttonPayload,
-                        interactiveButtonId,
-                        interactiveButtonTitle));
-                }
-            }
-
-            return messages;
-        }
-
-        private static IReadOnlyList<MetaWhatsAppStatusUpdate> ExtractStatusUpdates(JsonElement payload)
-        {
-            var statuses = new List<MetaWhatsAppStatusUpdate>();
-
-            foreach (var value in EnumerateWebhookValues(payload))
-            {
-                if (!TryGetArray(value, "statuses", out var statusElements))
-                {
-                    continue;
-                }
-
-                foreach (var status in statusElements.EnumerateArray())
-                {
-                    var messageId = TryGetString(status, "id");
-                    if (string.IsNullOrWhiteSpace(messageId))
-                    {
-                        continue;
-                    }
-
-                    string? errorCode = null;
-                    string? errorMessage = null;
-                    if (TryGetArray(status, "errors", out var errors) && errors.GetArrayLength() > 0)
-                    {
-                        var firstError = errors[0];
-                        errorCode = TryGetString(firstError, "code");
-                        errorMessage = TryGetString(firstError, "message") ?? TryGetString(firstError, "title");
-                    }
-
-                    statuses.Add(new MetaWhatsAppStatusUpdate(
-                        messageId,
-                        TryGetString(status, "status") ?? string.Empty,
-                        TryParseUnixTimestamp(TryGetString(status, "timestamp")),
-                        TryGetString(status, "recipient_id"),
-                        errorCode,
-                        errorMessage));
-                }
-            }
-
-            return statuses;
-        }
-
-        private static IEnumerable<JsonElement> EnumerateWebhookValues(JsonElement payload)
-        {
-            if (!TryGetArray(payload, "entry", out var entries))
-            {
-                yield break;
-            }
-
-            foreach (var entry in entries.EnumerateArray())
-            {
-                if (!TryGetArray(entry, "changes", out var changes))
-                {
-                    continue;
-                }
-
-                foreach (var change in changes.EnumerateArray())
-                {
-                    if (TryGetProperty(change, "value", out var value))
-                    {
-                        yield return value;
-                    }
-                }
-            }
-        }
-
-        private static Dictionary<string, string> ExtractContactsByWaId(JsonElement value)
-        {
-            var contacts = new Dictionary<string, string>(StringComparer.Ordinal);
-            if (!TryGetArray(value, "contacts", out var contactElements))
-            {
-                return contacts;
-            }
-
-            foreach (var contact in contactElements.EnumerateArray())
-            {
-                var waId = TryGetString(contact, "wa_id");
-                if (!string.IsNullOrWhiteSpace(waId))
-                {
-                    contacts[waId] = waId;
-                }
-            }
-
-            return contacts;
-        }
-
-        private static bool TryGetProperty(JsonElement element, string propertyName, out JsonElement property)
-        {
-            if (element.ValueKind == JsonValueKind.Object &&
-                element.TryGetProperty(propertyName, out property))
-            {
-                return true;
-            }
-
-            property = default;
-            return false;
-        }
-
-        private static bool TryGetArray(JsonElement element, string propertyName, out JsonElement property)
-        {
-            if (TryGetProperty(element, propertyName, out property) &&
-                property.ValueKind == JsonValueKind.Array)
-            {
-                return true;
-            }
-
-            property = default;
-            return false;
-        }
-
-        private static string? TryGetString(JsonElement element, string propertyName)
-        {
-            if (!TryGetProperty(element, propertyName, out var property))
-            {
-                return null;
-            }
-
-            return property.ValueKind switch
-            {
-                JsonValueKind.String => property.GetString(),
-                JsonValueKind.Number => property.ToString(),
-                JsonValueKind.True => bool.TrueString,
-                JsonValueKind.False => bool.FalseString,
-                _ => null
-            };
-        }
-
-        private static DateTime? TryParseUnixTimestamp(string? timestamp)
-        {
-            if (!long.TryParse(timestamp, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seconds))
-            {
-                return null;
-            }
-
-            try
-            {
-                return DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime;
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-                return null;
-            }
-        }
-
         private static string ResolveTemplateName(MetaWhatsAppOptions options, string notificationType) =>
-            notificationType == WhatsAppNotificationTypes.Reminder3Hours
-                ? options.ReminderTemplateName
-                : options.ConfirmationTemplateName;
+            notificationType switch
+            {
+                WhatsAppNotificationTypes.Reminder3Hours => options.ReminderTemplateName,
+                WhatsAppNotificationTypes.Cancellation => options.CancellationTemplateName,
+                _ => options.ConfirmationTemplateName
+            };
 
         private static int GetReminderLeadTimeMinutes(MetaWhatsAppOptions options) =>
             options.ReminderLeadTimeMinutes <= 0 ? 180 : options.ReminderLeadTimeMinutes;
@@ -2205,7 +1955,7 @@ namespace LuxuryApp.Services.Calendar
                 notificationType,
                 citaId = cita.Id,
                 citaFechaHora = cita.FechaHoraCita,
-                source = ResolveConsentSource(cita),
+                source = WhatsAppConsentPolicy.ResolveSource(cita),
                 hasClienteId = cita.ClienteId.HasValue
             }, JsonOptions);
 
@@ -2221,7 +1971,7 @@ namespace LuxuryApp.Services.Calendar
                 reason,
                 notificationType,
                 citaId = cita.Id,
-                source = source ?? ResolveConsentSource(cita),
+                source = source ?? WhatsAppConsentPolicy.ResolveSource(cita),
                 hasClienteId = hasClienteId ?? cita.ClienteId.HasValue
             }, JsonOptions);
 
@@ -2275,43 +2025,6 @@ namespace LuxuryApp.Services.Calendar
                 statusUpdate.ErrorMessage
             }, JsonOptions);
 
-        private static string ResolveConsentSource(Cita cita)
-        {
-            if (cita.ClienteId.HasValue)
-            {
-                return WhatsAppConsentSources.ClienteRegistrado;
-            }
-
-            if (!string.IsNullOrWhiteSpace(cita.WhatsAppConsentSource))
-            {
-                return cita.WhatsAppConsentSource!;
-            }
-
-            return cita.WhatsAppConsentAtCreation
-                ? WhatsAppConsentSources.CitaManual
-                : WhatsAppConsentSources.SinConsentimiento;
-        }
-
-        private static string NormalizeToken(string value)
-        {
-            var normalized = value.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);
-            var builder = new StringBuilder(normalized.Length);
-
-            foreach (var character in normalized)
-            {
-                if (CharUnicodeInfo.GetUnicodeCategory(character) != UnicodeCategory.NonSpacingMark)
-                {
-                    builder.Append(character);
-                }
-            }
-
-            return builder
-                .ToString()
-                .Normalize(NormalizationForm.FormC)
-                .Replace(" ", "_", StringComparison.Ordinal)
-                .Replace("-", "_", StringComparison.Ordinal);
-        }
-
         private static string? Trim(string? value, int maxLength)
         {
             if (string.IsNullOrWhiteSpace(value))
@@ -2328,36 +2041,5 @@ namespace LuxuryApp.Services.Calendar
             string? ContextMessageId,
             string? RecipientPhoneE164);
 
-        private sealed record InboundWhatsAppMessage(
-            string MessageId,
-            string? From,
-            string? WaId,
-            string? ContextMessageId,
-            string? Text,
-            string? ButtonText,
-            string? ButtonPayload,
-            string? InteractiveButtonId,
-            string? InteractiveButtonTitle);
-
-        private sealed record MetaWhatsAppStatusUpdate(
-            string MessageId,
-            string Status,
-            DateTime? TimestampUtc,
-            string? RecipientPhone,
-            string? ErrorCode,
-            string? ErrorMessage);
-
-        private sealed record WhatsAppConsentDecision(
-            bool CanSend,
-            string Source,
-            bool HasClienteId,
-            string Message);
-
-        private enum WhatsAppReplyAction
-        {
-            Unknown,
-            Confirm,
-            Cancel
-        }
     }
 }

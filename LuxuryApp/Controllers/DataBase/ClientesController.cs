@@ -1,3 +1,5 @@
+using LuxuryApp.Services.Identity;
+using LuxuryApp.Models.Asociados;
 using System.Linq.Expressions;
 using System.Security.Claims;
 using LuxuryApp.Models.DataBase;
@@ -12,7 +14,8 @@ using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Controllers.DataBase
 {
-    [Authorize(Roles = "Administrador")]
+    [Authorize]
+    [RequirePermission(AppPermissions.ClientsView)]
     public class ClientesController : Controller
     {
         private const int DefaultPageSize = 20;
@@ -100,6 +103,7 @@ namespace LuxuryApp.Controllers.DataBase
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ClientsManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(
             [Bind(
@@ -332,6 +336,7 @@ namespace LuxuryApp.Controllers.DataBase
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ClientsManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Editar(
             [Bind(
@@ -429,6 +434,7 @@ namespace LuxuryApp.Controllers.DataBase
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ClientsManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Eliminar(int id)
         {
@@ -479,6 +485,7 @@ namespace LuxuryApp.Controllers.DataBase
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ClientsManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> AgregarVisitaRapida(int id)
         {
@@ -541,6 +548,7 @@ namespace LuxuryApp.Controllers.DataBase
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ClientsManage)]
         [ValidateAntiForgeryToken]
         [Consumes("application/x-www-form-urlencoded")]
         public async Task<IActionResult> RegistrarServicios(
@@ -599,6 +607,7 @@ namespace LuxuryApp.Controllers.DataBase
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.ClientsManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> EliminarVisita(int id)
         {

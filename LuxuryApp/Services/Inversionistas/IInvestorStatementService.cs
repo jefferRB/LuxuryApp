@@ -83,6 +83,17 @@ namespace LuxuryApp.Services.Inversionistas
             int statementId,
             CancellationToken cancellationToken = default);
 
+        /// <summary>
+        /// Pérdida que arrastra el estado anterior al periodo indicado, según el tratamiento del
+        /// acuerdo vigente. Es la ÚNICA lectura de "pérdida previa" del sistema: la usan tanto el
+        /// snapshot como la estimación del ciclo en curso, para que los dos cuenten lo mismo.
+        /// </summary>
+        Task<decimal> GetCarryForwardLossAsync(
+            int investorId,
+            DateOnly periodoInicio,
+            InvestorAgreement? acuerdo,
+            CancellationToken cancellationToken = default);
+
         /// <summary>Marca el estado como enviado tras un envío real exitoso.</summary>
         Task MarkAsSentAsync(int statementId, CancellationToken cancellationToken = default);
     }

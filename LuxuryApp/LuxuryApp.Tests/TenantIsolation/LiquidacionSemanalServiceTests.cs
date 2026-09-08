@@ -1,4 +1,4 @@
-using LuxuryApp.Controllers.Finanzas;
+﻿using LuxuryApp.Controllers.Finanzas;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Services.Funcionarios;
@@ -213,16 +213,24 @@ namespace LuxuryApp.Tests.TenantIsolation
             });
 
             var controller = new DashboardController(
-                ControllerTestSupport.CreateDashboardFinancieroQueryService(context));
-            var result = await controller.Index(4, 2026);
+                ControllerTestSupport.CreateDashboardFinancieroQueryService(context, tenantProvider),
+                new NoAssociateProfitAllocationService());
+            var result = await controller.Index(4, 2026, CancellationToken.None);
 
             var view = Assert.IsType<ViewResult>(result);
             var model = Assert.IsType<DashboardViewModel>(view.Model);
 
+            // CAJA: en abril no salió plata hacia el funcionario (el pago se hizo el 3 de mayo)
+            // y el único egreso del mes fue el alquiler.
             Assert.Equal(0m, model.TotalPagadoFuncionarios);
-            Assert.Equal(100m, model.TotalPagadoFuncionariosAnalitico);
             Assert.Equal(50m, model.TotalEgresos);
-            Assert.Equal(150m, model.TotalEgresosAnaliticos);
+
+            // ANALÍTICO: es el DEVENGADO del período, no lo pagado. El cobro de 700 con IVA deja
+            // una base de 619,47 y el 50 % de comisión son 309,74. Es exactamente la misma línea
+            // de "liquidaciones del equipo" que resta el estado de cuenta del inversionista: el
+            // Dashboard y el reparto usan un solo motor.
+            Assert.Equal(309.74m, model.TotalPagadoFuncionariosAnalitico);
+            Assert.Equal(359.74m, model.TotalEgresosAnaliticos);
         }
 
         [Fact]
@@ -250,13 +258,17 @@ namespace LuxuryApp.Tests.TenantIsolation
             await context.SaveChangesAsync();
 
             var controller = new DashboardController(
-                ControllerTestSupport.CreateDashboardFinancieroQueryService(context));
-            var result = await controller.Index(4, 2026);
+                ControllerTestSupport.CreateDashboardFinancieroQueryService(context, tenantProvider),
+                new NoAssociateProfitAllocationService());
+            var result = await controller.Index(4, 2026, CancellationToken.None);
 
             var view = Assert.IsType<ViewResult>(result);
             var model = Assert.IsType<DashboardViewModel>(view.Model);
 
-            Assert.Equal(43.50m, model.TotalPagadoFuncionariosAnalitico);
+            // Con el motor único la línea analítica es el DEVENGADO de abril, no el reparto del
+            // pago legacy: el cobro del 1 de abril (100 con IVA → base 88,50) al 50 % da 44,25.
+            // La atribución de pagos legacy sigue viva donde importa (liquidaciones y caja).
+            Assert.Equal(44.25m, model.TotalPagadoFuncionariosAnalitico);
         }
 
         [Fact]

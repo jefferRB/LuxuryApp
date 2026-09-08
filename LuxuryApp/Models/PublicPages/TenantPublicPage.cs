@@ -45,6 +45,14 @@ namespace LuxuryApp.Models.PublicPages
         [MaxLength(400)]
         public string? CoverImageUrl { get; set; }
 
+        /// <summary>
+        /// Color principal de marca de la landing en formato #RRGGBB.
+        /// NULL/vacio = negro por defecto (<see cref="PublicBrandTheme.DefaultAccentHex"/>),
+        /// que es el valor de todos los tenants anteriores a esta funcion.
+        /// </summary>
+        [MaxLength(7)]
+        public string? AccentColorHex { get; set; }
+
         [MaxLength(30)]
         public string? Phone { get; set; }
 

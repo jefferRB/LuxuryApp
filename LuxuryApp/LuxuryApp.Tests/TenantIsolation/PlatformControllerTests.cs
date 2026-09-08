@@ -606,6 +606,12 @@ namespace LuxuryApp.Tests.TenantIsolation
                 CancellationToken cancellationToken = default) =>
                 Task.FromResult(MetaWhatsAppSendResult.Succeeded("reminder-test", System.Net.HttpStatusCode.OK, null));
 
+            public Task<MetaWhatsAppSendResult> SendCancellationTemplateAsync(
+                string recipientPhone,
+                WhatsAppCancellationTemplateParameters parameters,
+                CancellationToken cancellationToken = default) =>
+                Task.FromResult(MetaWhatsAppSendResult.Succeeded("cancellation-test", System.Net.HttpStatusCode.OK, null));
+
             public Task<MetaWhatsAppSendResult> SendTextMessageAsync(
                 string recipientPhone,
                 string message,

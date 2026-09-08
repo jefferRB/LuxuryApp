@@ -425,7 +425,9 @@ namespace LuxuryApp.Controllers.Funcionarios
 
             try
             {
-                await _calendarCommandService.DeleteAsync(citaId, cancellationToken);
+                // El portal del funcionario no pide motivo: el aviso de WhatsApp (solo para citas
+                // que vienen de una reserva online) usa el texto neutro por defecto.
+                await _calendarCommandService.DeleteAsync(citaId, motivoCancelacion: null, cancellationToken);
                 _logger.LogInformation(
                     "Cita cancelada desde portal. FuncionarioId {FuncionarioId}. CitaId {CitaId}. UserId {UserId}.",
                     ctx.FuncionarioId,

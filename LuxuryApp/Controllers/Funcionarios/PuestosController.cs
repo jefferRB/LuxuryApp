@@ -1,3 +1,5 @@
+using LuxuryApp.Services.Identity;
+using LuxuryApp.Models.Asociados;
 using LuxuryApp.Models.Funcionarios;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -6,7 +8,8 @@ using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Controllers.Funcionarios
 {
-    [Authorize(Roles = "Administrador")]
+    [Authorize]
+    [RequirePermission(AppPermissions.EmployeesView)]
     public class PuestosController : Controller
     {
         private readonly ApplicationDbContext _context;
@@ -24,6 +27,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         public Task<IActionResult> Create() => FormPuesto(null);
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public Task<IActionResult> Create(
             [Bind(nameof(Puesto.IdPuesto) + "," + nameof(Puesto.NombrePuesto) + "," + nameof(Puesto.Detalle))]
@@ -31,6 +35,7 @@ namespace LuxuryApp.Controllers.Funcionarios
             Save(puesto);
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Save(
             [Bind(nameof(Puesto.IdPuesto) + "," + nameof(Puesto.NombrePuesto) + "," + nameof(Puesto.Detalle))]
@@ -91,6 +96,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         public Task<IActionResult> Edit(int id) => FormPuesto(id);
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(
             int id,
@@ -146,6 +152,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> ToggleActivo(int id)
         {
@@ -188,6 +195,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         }
 
         [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Delete(int id)
         {

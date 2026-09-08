@@ -29,5 +29,6 @@ namespace LuxuryApp.Models.Platform
         public const string PendingTenantExpiration = "PendingTenantExpirationWorker";
         public const string MonthlyReportScheduler = "MonthlyReportSchedulerService";
         public const string CommercialSnapshot = "CommercialSnapshotWorker";
+        public const string InvestorStatementGeneration = "InvestorStatementGenerationWorker";
     }
 }

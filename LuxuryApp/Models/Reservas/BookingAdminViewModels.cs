@@ -5,19 +5,55 @@ namespace LuxuryApp.Models.Reservas
     /// <summary>Página del panel privado de solicitudes de reserva.</summary>
     public sealed class BookingRequestsPageViewModel
     {
-        public string EstadoFiltro { get; set; } = BookingRequestStates.Pending;
-        public string RangoFiltro { get; set; } = "mes";
+        public BookingRequestStatusFilter EstadoFiltro { get; init; } = BookingRequestFilters.DefaultStatus;
+        public BookingRequestDateRange RangoFiltro { get; init; } = BookingRequestFilters.DefaultRange;
 
-        public int PendientesCount { get; set; }
-        public int ConfirmadasCount { get; set; }
-        public int RechazadasCount { get; set; }
+        /// <summary>Tokens del query string, para que la vista no traduzca enums a mano.</summary>
+        public string EstadoFiltroValor => EstadoFiltro.ToToken();
+        public string RangoFiltroValor => RangoFiltro.ToToken();
 
-        public bool ReservasActivas { get; set; }
-        public string? Slug { get; set; }
-        public string? LinkPublico { get; set; }
+        /// <summary>
+        /// El período no limita las pendientes (son backlog), así que con esa pestaña activa el
+        /// selector no cambiaría nada y la vista lo deshabilita.
+        /// </summary>
+        public bool RangoAplicaAlListado => EstadoFiltro != BookingRequestStatusFilter.Pending;
 
-        public IReadOnlyList<BookingRequestListItemViewModel> Solicitudes { get; set; } =
+        /// <summary>
+        /// Conteos por estado. Las pendientes son TODO el backlog del tenant; los estados ya
+        /// resueltos corresponden al rango seleccionado.
+        /// </summary>
+        public int PendientesCount { get; init; }
+        public int ConfirmadasCount { get; init; }
+        public int RechazadasCount { get; init; }
+
+        /// <summary>Total de solicitudes recibidas en el rango, sin importar el estado.</summary>
+        public int TotalCount { get; init; }
+
+        public bool ReservasActivas { get; init; }
+
+        /// <summary>
+        /// Si el negocio tiene el complemento de WhatsApp. Cuando es false, la pantalla no habla de
+        /// WhatsApp en cada solicitud: solo ofrece activarlo una vez, arriba.
+        /// </summary>
+        public bool WhatsAppActivo { get; init; }
+        public string? Slug { get; init; }
+        public string? LinkPublico { get; init; }
+
+        public IReadOnlyList<BookingRequestListItemViewModel> Solicitudes { get; init; } =
             Array.Empty<BookingRequestListItemViewModel>();
+
+        public bool EsEstadoActivo(BookingRequestStatusFilter estado) => EstadoFiltro == estado;
+
+        public bool EsRangoActivo(BookingRequestDateRange rango) => RangoFiltro == rango;
+
+        /// <summary>Contador que acompaña a cada pestaña.</summary>
+        public int ConteoDe(BookingRequestStatusFilter estado) => estado switch
+        {
+            BookingRequestStatusFilter.Pending => PendientesCount,
+            BookingRequestStatusFilter.Confirmed => ConfirmadasCount,
+            BookingRequestStatusFilter.Rejected => RechazadasCount,
+            _ => TotalCount
+        };
     }
 
     public sealed class BookingRequestListItemViewModel
@@ -27,13 +63,27 @@ namespace LuxuryApp.Models.Reservas
         public string TelefonoCliente { get; set; } = string.Empty;
         public string? CorreoCliente { get; set; }
         public string ServicioNombre { get; set; } = string.Empty;
-        public string FuncionarioNombre { get; set; } = "Cualquier funcionario";
+        /// <summary>Lo que pidió el CLIENTE: un profesional concreto o "Cualquier profesional".</summary>
+        public string FuncionarioNombre { get; set; } = "Cualquier profesional";
+
+        /// <summary>
+        /// Profesional que el SISTEMA reservó para sostener el espacio mientras la solicitud está
+        /// pendiente. Null en solicitudes anteriores a esta función (no reservaban agenda).
+        /// </summary>
+        public string? FuncionarioAsignadoNombre { get; set; }
+
         public bool SolicitoCualquierFuncionario { get; set; }
         public DateTime FechaHoraInicioSolicitada { get; set; }
         public int DuracionMinutos { get; set; }
         public string? NotasCliente { get; set; }
         public string Estado { get; set; } = BookingRequestStates.Pending;
         public DateTime CreatedAtUtc { get; set; }
+
+        /// <summary>
+        /// <see cref="CreatedAtUtc"/> convertido a la hora local del negocio. Lo calcula el
+        /// servicio con el offset del reloj de negocio: la vista solo lo formatea.
+        /// </summary>
+        public DateTime RecibidaLocal { get; set; }
         public string? RejectedReason { get; set; }
         public int? ConvertedCitaId { get; set; }
         public bool AceptaWhatsApp { get; set; }

@@ -11,6 +11,14 @@ namespace LuxuryApp.Models.WhatsApp
     {
         public const string Confirmation = "Confirmation";
         public const string Reminder3Hours = "Reminder3Hours";
+
+        /// <summary>
+        /// Aviso de cancelacion de una cita que provino de una reserva online
+        /// (<c>luxurycloud_cancelacion_cita</c>). Es un envio puntual y sincronico: la cita se
+        /// elimina, asi que NO lo procesa la cola de pendientes (que solo atiende
+        /// <see cref="Confirmation"/> y <see cref="Reminder3Hours"/>).
+        /// </summary>
+        public const string Cancellation = "Cancellation";
         public const string Reply = "Reply";
         public const string Status = "Status";
     }
@@ -66,6 +74,13 @@ namespace LuxuryApp.Models.WhatsApp
         public const string UserDisabled = "UserDisabled";
         public const string AppointmentExpired = "AppointmentExpired";
         public const string CitaCancellada = "CitaCancellada";
+
+        /// <summary>
+        /// La cita no nacio de una reserva online (<c>BookingRequest.ConvertedCitaId</c>), asi que
+        /// no corresponde avisar la cancelacion por WhatsApp.
+        /// </summary>
+        public const string NotOnlineBooking = "NotOnlineBooking";
+
     }
 
     public static class WhatsAppConfirmationStates
