@@ -26,6 +26,7 @@ namespace LuxuryApp.Services.Reservas
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly ITenantWhatsAppFeatureService _whatsAppFeatureService;
+        private readonly IBookingRejectionWhatsAppService _rejectionNotificationService;
         private readonly ILogger<BookingRequestService> _logger;
 
         public BookingRequestService(
@@ -37,6 +38,7 @@ namespace LuxuryApp.Services.Reservas
             IBusinessDateTimeProvider businessDateTimeProvider,
             IHttpContextAccessor httpContextAccessor,
             ITenantWhatsAppFeatureService whatsAppFeatureService,
+            IBookingRejectionWhatsAppService rejectionNotificationService,
             ILogger<BookingRequestService> logger)
         {
             _context = context;
@@ -47,6 +49,7 @@ namespace LuxuryApp.Services.Reservas
             _businessDateTimeProvider = businessDateTimeProvider;
             _httpContextAccessor = httpContextAccessor;
             _whatsAppFeatureService = whatsAppFeatureService;
+            _rejectionNotificationService = rejectionNotificationService;
             _logger = logger;
         }
 
@@ -329,27 +332,40 @@ namespace LuxuryApp.Services.Reservas
             string? userId,
             CancellationToken cancellationToken = default)
         {
-            var solicitud = await _context.BookingRequests
-                .FirstOrDefaultAsync(r => r.Id == requestId, cancellationToken);
+            var existe = await _context.BookingRequests
+                .AsNoTracking()
+                .AnyAsync(r => r.Id == requestId, cancellationToken);
 
-            if (solicitud is null)
+            if (!existe)
             {
                 return BookingActionResult.Fail("La solicitud no existe o no pertenece a tu negocio.");
             }
 
-            if (solicitud.Estado != BookingRequestStates.Pending)
+            // El motivo viaja al cliente en el aviso de WhatsApp: nunca puede quedar vacío, y la
+            // garantía es del backend (no del required del formulario).
+            var motivo = BookingRejectionDefaults.NormalizarMotivo(reason);
+
+            // Claim atómico Pending → Rejected, igual que ConfirmAsync. Es la fuente de verdad de
+            // "estoy rechazando por primera vez": solo el request que gana avisa al cliente, así un
+            // doble click o un reintento no mandan dos WhatsApp.
+            var rejectedAtUtc = DateTime.UtcNow;
+            var claimed = await _context.BookingRequests
+                .Where(r => r.Id == requestId && r.Estado == BookingRequestStates.Pending)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(r => r.Estado, BookingRequestStates.Rejected)
+                    .SetProperty(r => r.RejectedAtUtc, (DateTime?)rejectedAtUtc)
+                    .SetProperty(r => r.RejectedByUserId, userId)
+                    .SetProperty(r => r.RejectedReason, motivo),
+                    cancellationToken);
+
+            if (claimed == 0)
             {
                 return BookingActionResult.Fail("Esta solicitud ya fue procesada.");
             }
 
-            solicitud.Estado = BookingRequestStates.Rejected;
-            solicitud.RejectedAtUtc = DateTime.UtcNow;
-            solicitud.RejectedByUserId = userId;
-            solicitud.RejectedReason = string.IsNullOrWhiteSpace(reason)
-                ? null
-                : reason.Trim().Length > 300 ? reason.Trim()[..300] : reason.Trim();
-
-            await _context.SaveChangesAsync(cancellationToken);
+            // El rechazo ya está confirmado en base de datos. El aviso al cliente es un efecto
+            // secundario: no lanza y nunca revierte el rechazo.
+            await _rejectionNotificationService.NotifyRejectionAsync(requestId, cancellationToken);
 
             return BookingActionResult.Ok("Solicitud rechazada.");
         }

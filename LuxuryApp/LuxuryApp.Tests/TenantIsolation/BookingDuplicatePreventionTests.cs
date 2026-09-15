@@ -100,6 +100,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new FixedBusinessDateTimeProvider(),
                 new HttpContextAccessor(),
                 new FakeTenantWhatsAppFeatureService { IsEnabled = true },
+                new RecordingBookingRejectionWhatsAppService(),
                 NullLogger<BookingRequestService>.Instance);
 
             var r1 = await service.ConfirmAsync(solicitud.Id, null, "admin");

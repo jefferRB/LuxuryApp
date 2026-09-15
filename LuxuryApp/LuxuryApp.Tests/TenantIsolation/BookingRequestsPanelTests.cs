@@ -673,6 +673,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                     reloj,
                     new HttpContextAccessor(),
                     new FakeTenantWhatsAppFeatureService { IsEnabled = true },
+                    new RecordingBookingRejectionWhatsAppService(),
                     NullLogger<BookingRequestService>.Instance);
             }
 

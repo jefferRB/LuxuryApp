@@ -404,6 +404,26 @@ namespace LuxuryApp.Tests.Support
     }
 
     /// <summary>
+    /// Rechazar una solicitud no manda WhatsApp en los tests que no van de eso. Registra las
+    /// llamadas para poder afirmar que NO se avisó.
+    /// </summary>
+    internal sealed class RecordingBookingRejectionWhatsAppService : LuxuryApp.Services.Reservas.IBookingRejectionWhatsAppService
+    {
+        public List<int> NotifiedBookingRequestIds { get; } = [];
+
+        public LuxuryApp.Services.WhatsApp.WhatsAppNotificationReason NextReason { get; set; } =
+            LuxuryApp.Services.WhatsApp.WhatsAppNotificationReason.AddonInactive;
+
+        public Task<LuxuryApp.Services.WhatsApp.WhatsAppNotificationReason> NotifyRejectionAsync(
+            int bookingRequestId,
+            CancellationToken cancellationToken = default)
+        {
+            NotifiedBookingRequestIds.Add(bookingRequestId);
+            return Task.FromResult(NextReason);
+        }
+    }
+
+    /// <summary>
     /// Cancelar una cita no manda WhatsApp en los tests que no van de eso.
     /// </summary>
     internal sealed class NoOpAppointmentCancellationWhatsAppService : IAppointmentCancellationWhatsAppService

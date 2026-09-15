@@ -86,6 +86,28 @@ namespace LuxuryApp.Services.WhatsApp
             };
 
         /// <summary>
+        /// Estado con el que se registra un envío omitido en <c>WhatsAppMessageLogs</c>. Vive junto
+        /// al mapeo de motivos para que exista una sola lectura del <c>ErrorCode</c>.
+        /// </summary>
+        public static string ToSkippedStatus(string? errorCode) =>
+            errorCode switch
+            {
+                WhatsAppErrorCodes.ConsentMissing => WhatsAppMessageStatuses.SkippedConsentMissing,
+                WhatsAppErrorCodes.TenantDisabled => WhatsAppMessageStatuses.SkippedTenantDisabled,
+                WhatsAppErrorCodes.DailyLimitExceeded => WhatsAppMessageStatuses.SkippedDailyLimitExceeded,
+                WhatsAppErrorCodes.NoActiveWhatsAppAddon => WhatsAppMessageStatuses.SkippedSubscriptionRequired,
+                WhatsAppErrorCodes.NoActiveBaseSubscription => WhatsAppMessageStatuses.SkippedSubscriptionRequired,
+                WhatsAppErrorCodes.NotConfigured => WhatsAppMessageStatuses.SkippedConfiguration,
+                WhatsAppErrorCodes.SubscriptionRequired => WhatsAppMessageStatuses.SkippedSubscriptionRequired,
+                WhatsAppErrorCodes.MonthlyLimitExceeded => WhatsAppMessageStatuses.SkippedMonthlyLimitExceeded,
+                WhatsAppErrorCodes.InsufficientBalance => WhatsAppMessageStatuses.SkippedMonthlyLimitExceeded,
+                WhatsAppErrorCodes.UserDisabled => WhatsAppMessageStatuses.SkippedUserDisabled,
+                WhatsAppErrorCodes.NotificationTypeDisabled => WhatsAppMessageStatuses.SkippedUserDisabled,
+                WhatsAppErrorCodes.InvalidPhone => WhatsAppMessageStatuses.SkippedInvalidPhone,
+                _ => WhatsAppMessageStatuses.SkippedConfiguration
+            };
+
+        /// <summary>
         /// Si el motivo debe pasar desapercibido para el negocio. Sin complemento contratado, todo
         /// lo de WhatsApp es ruido: nunca eligió esa funcionalidad.
         /// </summary>

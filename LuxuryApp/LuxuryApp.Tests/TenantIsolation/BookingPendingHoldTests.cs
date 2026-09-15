@@ -656,6 +656,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new FixedBusinessDateTimeProvider(),
                 new HttpContextAccessor(),
                 new FakeTenantWhatsAppFeatureService { IsEnabled = true },
+                new RecordingBookingRejectionWhatsAppService(),
                 NullLogger<BookingRequestService>.Instance);
 
         private static PublicBookingTenantContext BuildContext(Guid tenantId) => new()

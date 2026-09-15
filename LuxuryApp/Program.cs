@@ -339,7 +339,10 @@ builder.Services.AddHttpClient<IMetaWhatsAppClient, MetaWhatsAppClient>((service
 });
 builder.Services.AddHostedService<MetaWhatsAppOptionsLoggingService>();
 builder.Services.AddScoped<ICalendarWhatsAppNotificationService, CalendarWhatsAppNotificationService>();
+builder.Services.AddScoped<IWhatsAppCancellationNotifier, WhatsAppCancellationNotifier>();
 builder.Services.AddScoped<IAppointmentCancellationWhatsAppService, AppointmentCancellationWhatsAppService>();
+builder.Services.AddScoped<LuxuryApp.Services.Reservas.IBookingRejectionWhatsAppService,
+    LuxuryApp.Services.Reservas.BookingRejectionWhatsAppService>();
 builder.Services.AddScoped<IWhatsAppInboundAutoReplyService, WhatsAppInboundAutoReplyService>();
 builder.Services.AddScoped<ITenantWhatsAppSettingsService, TenantWhatsAppSettingsService>();
 builder.Services.AddScoped<ITenantWhatsAppFeatureService, TenantWhatsAppFeatureService>();

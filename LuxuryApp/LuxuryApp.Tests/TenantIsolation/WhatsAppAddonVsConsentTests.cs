@@ -301,6 +301,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                     reloj,
                     new HttpContextAccessor(),
                     featureService,
+                    new RecordingBookingRejectionWhatsAppService(),
                     NullLogger<BookingRequestService>.Instance);
 
                 return new Fixture(

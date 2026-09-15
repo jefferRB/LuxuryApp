@@ -268,6 +268,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new FixedBusinessDateTimeProvider(),
                 new HttpContextAccessor(),
                 new FakeTenantWhatsAppFeatureService { IsEnabled = true },
+                new RecordingBookingRejectionWhatsAppService(),
                 NullLogger<BookingRequestService>.Instance);
 
         private static async Task<Servicio> SeedServicioAsync(ApplicationDbContext context, int duracionMinutos)

@@ -373,13 +373,20 @@ namespace LuxuryApp.Tests.TenantIsolation
                     new HttpContextAccessor());
                 var metaClient = new CapturingMetaWhatsAppClient();
 
+                var cancellationNotifier = new WhatsAppCancellationNotifier(
+                    context,
+                    metaClient,
+                    businessDateTimeProvider,
+                    tenantDisplayNameService,
+                    NullLogger<WhatsAppCancellationNotifier>.Instance);
+
                 var cancellationService = new AppointmentCancellationWhatsAppService(
                     context,
                     metaClient,
                     options,
                     businessDateTimeProvider,
                     settings,
-                    tenantDisplayNameService,
+                    cancellationNotifier,
                     NullLogger<AppointmentCancellationWhatsAppService>.Instance);
 
                 var commandService = new CalendarCommandService(

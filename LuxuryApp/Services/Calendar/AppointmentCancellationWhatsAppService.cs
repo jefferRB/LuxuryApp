@@ -1,5 +1,3 @@
-using System.Globalization;
-using System.Text;
 using System.Text.Json;
 using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.WhatsApp;
@@ -21,19 +19,6 @@ namespace LuxuryApp.Services.Calendar
         /// el que la agenda precarga el campo, y el usuario puede reemplazarlo antes de cancelar.
         /// </summary>
         public const string DefaultCancellationReason = "Colaborador no disponible";
-
-        /// <summary>
-        /// Texto de {{8}} cuando el negocio todavia no cargo su telefono publico. No se bloquea el
-        /// aviso por esto: el cliente con consentimiento debe enterarse igual de la cancelacion.
-        /// </summary>
-        private const string MissingBusinessPhoneFallback = "mismo número de siempre";
-
-        /// <summary>Tope del motivo. Meta admite mas, pero un parrafo largo no aporta y sí rompe la lectura.</summary>
-        private const int MaxReasonLength = 300;
-
-        private const int MaxParameterLength = 300;
-
-        private static readonly CultureInfo CostaRica = CultureInfo.GetCultureInfo("es-CR");
 
         private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
         {
@@ -58,7 +43,7 @@ namespace LuxuryApp.Services.Calendar
         private readonly IOptionsMonitor<MetaWhatsAppOptions> _options;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ITenantWhatsAppSettingsService _tenantSettingsService;
-        private readonly ITenantDisplayNameService _tenantDisplayNameService;
+        private readonly IWhatsAppCancellationNotifier _cancellationNotifier;
         private readonly ILogger<AppointmentCancellationWhatsAppService> _logger;
 
         public AppointmentCancellationWhatsAppService(
@@ -67,7 +52,7 @@ namespace LuxuryApp.Services.Calendar
             IOptionsMonitor<MetaWhatsAppOptions> options,
             IBusinessDateTimeProvider businessDateTimeProvider,
             ITenantWhatsAppSettingsService tenantSettingsService,
-            ITenantDisplayNameService tenantDisplayNameService,
+            IWhatsAppCancellationNotifier cancellationNotifier,
             ILogger<AppointmentCancellationWhatsAppService> logger)
         {
             _context = context;
@@ -75,7 +60,7 @@ namespace LuxuryApp.Services.Calendar
             _options = options;
             _businessDateTimeProvider = businessDateTimeProvider;
             _tenantSettingsService = tenantSettingsService;
-            _tenantDisplayNameService = tenantDisplayNameService;
+            _cancellationNotifier = cancellationNotifier;
             _logger = logger;
         }
 
@@ -184,7 +169,7 @@ namespace LuxuryApp.Services.Calendar
             {
                 await RegisterSkippedAsync(
                     cita,
-                    ResolveSkippedStatus(decision.ErrorCode),
+                    WhatsAppNotificationReasons.ToSkippedStatus(decision.ErrorCode),
                     decision.ErrorCode ?? WhatsAppErrorCodes.ConfigurationDisabled,
                     decision.ErrorMessage ?? "El mensaje WhatsApp fue omitido por configuracion.",
                     bookingRequestId,
@@ -192,23 +177,17 @@ namespace LuxuryApp.Services.Calendar
                 return null;
             }
 
-            // {{8}} es el telefono publico del negocio. Si no esta cargado NO se bloquea el aviso:
-            // se usa un texto de relleno y queda el warning para que el dueño complete su pagina.
-            var businessPhone = await ResolveBusinessPublicPhoneAsync(cancellationToken);
-            if (businessPhone is null)
-            {
-                _logger.LogWarning(
-                    "El negocio no tiene telefono publico configurado; el aviso de cancelacion sale con texto de relleno en {{8}}. TenantId {TenantId}. CitaId {CitaId}.",
+            // Nombre del negocio, teléfono público y saneamiento salen del notifier compartido:
+            // el aviso de una cita y el de una solicitud rechazada usan el mismo template.
+            var parameters = await _cancellationNotifier.BuildParametersAsync(
+                new WhatsAppCancellationSubject(
                     cita.TenantId,
-                    cita.Id);
-                businessPhone = MissingBusinessPhoneFallback;
-            }
-
-            var businessName = await _tenantDisplayNameService.GetTenantDisplayNameAsync(
-                cita.TenantId,
+                    cita.NombreCliente,
+                    cita.Servicio?.Nombre ?? cita.ServicioNombrePersonalizado,
+                    cita.FechaHoraCita,
+                    motivoCancelacion,
+                    DefaultCancellationReason),
                 cancellationToken);
-
-            var parameters = BuildParameters(cita, businessName, businessPhone, motivoCancelacion);
 
             var nowUtc = _businessDateTimeProvider.NowOffset().UtcDateTime;
             var log = new WhatsAppMessageLog
@@ -248,80 +227,24 @@ namespace LuxuryApp.Services.Calendar
                 parameters);
         }
 
-        public async Task SendAsync(
+        public Task SendAsync(
             PreparedAppointmentCancellation prepared,
             CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(prepared);
 
-            var nowUtc = _businessDateTimeProvider.NowOffset().UtcDateTime;
-
-            try
-            {
-                var sendResult = await _metaClient.SendCancellationTemplateAsync(
+            // Enviar y cerrar el log es idéntico para una cita y para una solicitud rechazada:
+            // lo hace el notifier compartido, que además nunca lanza.
+            return _cancellationNotifier.SendAsync(
+                new WhatsAppCancellationDispatch(
+                    prepared.MessageLogId,
+                    prepared.TenantId,
                     prepared.RecipientPhoneE164,
                     prepared.Parameters,
-                    cancellationToken);
-
-                if (sendResult.Success && !string.IsNullOrWhiteSpace(sendResult.MetaMessageId))
-                {
-                    await _context.WhatsAppMessageLogs
-                        .Where(message => message.Id == prepared.MessageLogId)
-                        .ExecuteUpdateAsync(updates => updates
-                            .SetProperty(message => message.Status, WhatsAppMessageStatuses.Sent)
-                            .SetProperty(message => message.MetaMessageId, sendResult.MetaMessageId)
-                            .SetProperty(message => message.SentAtUtc, nowUtc)
-                            .SetProperty(message => message.LastAttemptAtUtc, nowUtc)
-                            .SetProperty(message => message.ProcessedAtUtc, nowUtc)
-                            .SetProperty(message => message.AttemptCount, 1)
-                            .SetProperty(message => message.PayloadJson, BuildSendResultPayloadJson(prepared, sendResult)),
-                            cancellationToken);
-
-                    _logger.LogInformation(
-                        "Cancelacion WhatsApp enviada. TenantId {TenantId}. CitaId {CitaId}. BookingRequestId {BookingRequestId}. MetaMessageId {MetaMessageId}.",
-                        prepared.TenantId,
-                        prepared.CitaId,
-                        prepared.BookingRequestId,
-                        sendResult.MetaMessageId);
-                    return;
-                }
-
-                await MarkFailedAsync(prepared, sendResult, nowUtc, cancellationToken);
-
-                _logger.LogWarning(
-                    "Fallo el envio de la cancelacion WhatsApp. TenantId {TenantId}. CitaId {CitaId}. BookingRequestId {BookingRequestId}. ErrorCode {ErrorCode}.",
-                    prepared.TenantId,
+                    WhatsAppCancellationSource.Cita,
                     prepared.CitaId,
-                    prepared.BookingRequestId,
-                    sendResult.ErrorCode);
-            }
-            catch (Exception ex)
-            {
-                // La cancelacion de la cita ya esta confirmada en base de datos: WhatsApp jamas la
-                // revierte. Solo se deja constancia del fallo.
-                _logger.LogError(
-                    ex,
-                    "Error inesperado enviando la cancelacion WhatsApp. TenantId {TenantId}. CitaId {CitaId}. BookingRequestId {BookingRequestId}.",
-                    prepared.TenantId,
-                    prepared.CitaId,
-                    prepared.BookingRequestId);
-
-                try
-                {
-                    await MarkFailedAsync(
-                        prepared,
-                        MetaWhatsAppSendResult.Failed("UNEXPECTED_ERROR", ex.Message),
-                        nowUtc,
-                        cancellationToken);
-                }
-                catch (Exception logEx)
-                {
-                    _logger.LogWarning(
-                        logEx,
-                        "No fue posible registrar el fallo de la cancelacion WhatsApp. MessageLogId {MessageLogId}.",
-                        prepared.MessageLogId);
-                }
-            }
+                    prepared.BookingRequestId),
+                cancellationToken);
         }
 
         public async Task<AppointmentCancellationNoticePreview> PreviewAsync(
@@ -351,7 +274,7 @@ namespace LuxuryApp.Services.Calendar
                 return AppointmentCancellationNoticePreview.NoAplica;
             }
 
-            var telefonoCliente = Sanitize(cita.TelefonoCliente, 40);
+            var telefonoCliente = WhatsAppTemplateText.Sanitize(cita.TelefonoCliente, 40);
 
             if (!await HasWhatsAppConsentAsync(cita, booking, cancellationToken))
             {
@@ -434,100 +357,13 @@ namespace LuxuryApp.Services.Calendar
         /// </summary>
         private static string BuildManualContactMessage(string? telefonoCliente)
         {
-            var telefono = Sanitize(telefonoCliente, 40);
+            var telefono = WhatsAppTemplateText.Sanitize(telefonoCliente, 40);
             return telefono is null
                 ? "Sin autorización de WhatsApp. Contactar manualmente."
                 : $"Sin autorización de WhatsApp. Contactar manualmente al {telefono}.";
         }
 
         private sealed record OnlineBookingOrigin(int Id, bool AceptaWhatsApp);
-
-        /// <summary>
-        /// Telefono publico/habitual del negocio: el de su pagina publica. Nunca el numero central
-        /// de automatizaciones de LuxuryCloud.
-        /// </summary>
-        private async Task<string?> ResolveBusinessPublicPhoneAsync(CancellationToken cancellationToken)
-        {
-            var page = await _context.TenantPublicPages
-                .AsNoTracking()
-                .Select(current => new { current.WhatsAppPhone, current.Phone })
-                .FirstOrDefaultAsync(cancellationToken);
-
-            if (page is null)
-            {
-                return null;
-            }
-
-            var phone = Sanitize(page.WhatsAppPhone) ?? Sanitize(page.Phone);
-            return string.IsNullOrWhiteSpace(phone) ? null : phone;
-        }
-
-        private static WhatsAppCancellationTemplateParameters BuildParameters(
-            Cita cita,
-            string businessName,
-            string businessPhone,
-            string? motivoCancelacion)
-        {
-            var negocio = Sanitize(businessName) ?? "el negocio";
-            var servicio = Sanitize(cita.Servicio?.Nombre)
-                ?? Sanitize(cita.ServicioNombrePersonalizado)
-                ?? "el servicio reservado";
-
-            var motivo = Sanitize(motivoCancelacion, MaxReasonLength) ?? DefaultCancellationReason;
-
-            return new WhatsAppCancellationTemplateParameters
-            {
-                CustomerName = Sanitize(cita.NombreCliente) ?? "Cliente",
-                BusinessName = negocio,
-                ServiceName = servicio,
-                AppointmentDate = cita.FechaHoraCita.ToString("dd/MM/yyyy", CostaRica),
-                AppointmentTime = cita.FechaHoraCita.ToString("hh:mm tt", CostaRica),
-                CancellationReason = motivo,
-                // Mismo nombre a proposito: Meta no deja repetir {{2}} en dos posiciones.
-                BusinessNameRepeated = negocio,
-                BusinessPhone = businessPhone
-            };
-        }
-
-        /// <summary>
-        /// Deja el valor apto para un parametro de plantilla: Meta rechaza saltos de linea,
-        /// tabuladores y espacios repetidos. Devuelve null cuando no queda nada util.
-        /// </summary>
-        private static string? Sanitize(string? value, int maxLength = MaxParameterLength)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return null;
-            }
-
-            var builder = new StringBuilder(value.Length);
-            var previousWasSpace = false;
-
-            foreach (var character in value)
-            {
-                if (char.IsWhiteSpace(character) || char.IsControl(character))
-                {
-                    if (builder.Length > 0 && !previousWasSpace)
-                    {
-                        builder.Append(' ');
-                        previousWasSpace = true;
-                    }
-
-                    continue;
-                }
-
-                builder.Append(character);
-                previousWasSpace = false;
-            }
-
-            var normalized = builder.ToString().Trim();
-            if (normalized.Length == 0)
-            {
-                return null;
-            }
-
-            return normalized.Length <= maxLength ? normalized : normalized[..maxLength].TrimEnd();
-        }
 
         private async Task RegisterSkippedAsync(
             Cita cita,
@@ -549,7 +385,7 @@ namespace LuxuryApp.Services.Calendar
                 TemplateName = _options.CurrentValue.CancellationTemplateName,
                 Status = status,
                 ErrorCode = errorCode,
-                ErrorMessage = Sanitize(reason, 1000),
+                ErrorMessage = WhatsAppTemplateText.Sanitize(reason, 1000),
                 PayloadJson = JsonSerializer.Serialize(new
                 {
                     phase = "skipped",
@@ -574,70 +410,5 @@ namespace LuxuryApp.Services.Calendar
                 errorCode);
         }
 
-        private Task MarkFailedAsync(
-            PreparedAppointmentCancellation prepared,
-            MetaWhatsAppSendResult sendResult,
-            DateTime nowUtc,
-            CancellationToken cancellationToken) =>
-            _context.WhatsAppMessageLogs
-                .Where(message => message.Id == prepared.MessageLogId)
-                .ExecuteUpdateAsync(updates => updates
-                    .SetProperty(message => message.Status, WhatsAppMessageStatuses.Failed)
-                    .SetProperty(message => message.ErrorCode, Truncate(sendResult.ErrorCode, 80))
-                    .SetProperty(message => message.ErrorMessage, Truncate(sendResult.ErrorMessage, 1000))
-                    .SetProperty(message => message.FailedAtUtc, nowUtc)
-                    .SetProperty(message => message.LastAttemptAtUtc, nowUtc)
-                    .SetProperty(message => message.ProcessedAtUtc, nowUtc)
-                    .SetProperty(message => message.AttemptCount, 1)
-                    .SetProperty(message => message.PayloadJson, BuildSendResultPayloadJson(prepared, sendResult)),
-                    cancellationToken);
-
-        private static string BuildSendResultPayloadJson(
-            PreparedAppointmentCancellation prepared,
-            MetaWhatsAppSendResult sendResult) =>
-            JsonSerializer.Serialize(new
-            {
-                phase = sendResult.Success ? "sent" : "send_failed",
-                notificationType = WhatsAppNotificationTypes.Cancellation,
-                citaId = prepared.CitaId,
-                bookingRequestId = prepared.BookingRequestId,
-                sendResult.MetaMessageId,
-                statusCode = sendResult.StatusCode.HasValue ? (int?)sendResult.StatusCode.Value : null,
-                sendResult.ErrorCode,
-                sendResult.ErrorType,
-                sendResult.ErrorSubcode,
-                sendResult.ErrorMessage,
-                sendResult.FbTraceId,
-                sendResult.ShouldRetry,
-                sendResult.Endpoint
-            }, JsonOptions);
-
-        private static string? Truncate(string? value, int maxLength)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return null;
-            }
-
-            return value.Length <= maxLength ? value : value[..maxLength];
-        }
-
-        private static string ResolveSkippedStatus(string? errorCode) =>
-            errorCode switch
-            {
-                WhatsAppErrorCodes.ConsentMissing => WhatsAppMessageStatuses.SkippedConsentMissing,
-                WhatsAppErrorCodes.TenantDisabled => WhatsAppMessageStatuses.SkippedTenantDisabled,
-                WhatsAppErrorCodes.DailyLimitExceeded => WhatsAppMessageStatuses.SkippedDailyLimitExceeded,
-                WhatsAppErrorCodes.NoActiveWhatsAppAddon => WhatsAppMessageStatuses.SkippedSubscriptionRequired,
-                WhatsAppErrorCodes.NoActiveBaseSubscription => WhatsAppMessageStatuses.SkippedSubscriptionRequired,
-                WhatsAppErrorCodes.NotConfigured => WhatsAppMessageStatuses.SkippedConfiguration,
-                WhatsAppErrorCodes.SubscriptionRequired => WhatsAppMessageStatuses.SkippedSubscriptionRequired,
-                WhatsAppErrorCodes.MonthlyLimitExceeded => WhatsAppMessageStatuses.SkippedMonthlyLimitExceeded,
-                WhatsAppErrorCodes.InsufficientBalance => WhatsAppMessageStatuses.SkippedMonthlyLimitExceeded,
-                WhatsAppErrorCodes.UserDisabled => WhatsAppMessageStatuses.SkippedUserDisabled,
-                WhatsAppErrorCodes.NotificationTypeDisabled => WhatsAppMessageStatuses.SkippedUserDisabled,
-                WhatsAppErrorCodes.InvalidPhone => WhatsAppMessageStatuses.SkippedInvalidPhone,
-                _ => WhatsAppMessageStatuses.SkippedConfiguration
-            };
     }
 }

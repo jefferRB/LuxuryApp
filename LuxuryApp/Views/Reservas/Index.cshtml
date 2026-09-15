@@ -68,8 +68,17 @@
 <div class="rsv-modal-backdrop" id="rejectModal" hidden>
     <div class="rsv-modal">
         <h3>Rechazar solicitud</h3>
-        <p class="rsv-dim">Podés indicar un motivo (opcional). Queda registrado para tu control: la solicitud todavía no es una cita, así que no se envía aviso de cancelación al cliente.</p>
-        <textarea id="rejectMotivo" maxlength="300" rows="3" placeholder="Motivo (opcional)"></textarea>
+        @* El copy no promete WhatsApp si el negocio no contrató el complemento. *@
+        @if (Model.WhatsAppActivo)
+        {
+            <p class="rsv-dim">Indicá el motivo del rechazo. El cliente recibirá el aviso por WhatsApp si autorizó las notificaciones.</p>
+        }
+        else
+        {
+            <p class="rsv-dim">Indicá el motivo del rechazo. Quedará registrado para tu control.</p>
+        }
+        <textarea id="rejectMotivo" maxlength="300" rows="3" required
+                  aria-label="Motivo del rechazo">@BookingRejectionDefaults.MotivoPorDefecto</textarea>
         <div class="rsv-modal-actions">
             <button type="button" class="btn-rsv btn-rsv-soft" id="rejectCancel">Cancelar</button>
             <button type="button" class="btn-rsv btn-rsv-reject" id="rejectConfirm">Rechazar</button>
@@ -88,6 +97,7 @@
             let estado = '@Model.EstadoFiltroValor';
             let rango = '@Model.RangoFiltroValor';
             let rejectId = null;
+            const MOTIVO_RECHAZO_POR_DEFECTO = @Html.Raw(Json.Serialize(BookingRejectionDefaults.MotivoPorDefecto));
 
             // El servidor es la única fuente de verdad del estado activo: tras cada recarga se
             // re-sincroniza (si el valor enviado era inválido, el backend ya aplicó su fallback).
@@ -151,7 +161,8 @@
                 const rechazar = e.target.closest('[data-reject]');
                 if (rechazar) {
                     rejectId = rechazar.dataset.reject;
-                    document.getElementById('rejectMotivo').value = '';
+                    // Se repone el valor por defecto en cada apertura; el usuario puede editarlo.
+                    document.getElementById('rejectMotivo').value = MOTIVO_RECHAZO_POR_DEFECTO;
                     document.getElementById('rejectModal').hidden = false;
                 }
             });

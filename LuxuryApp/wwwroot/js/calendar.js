@@ -2442,8 +2442,9 @@ function abrirModalSolicitudPendiente(solicitud) {
     const idInput = document.getElementById("pendingBookingId");
     if (idInput) idInput.value = String(solicitud.id ?? "");
 
+    // Mismo motivo por defecto que /Reservas: ambos caminos terminan en RejectAsync.
     const motivo = document.getElementById("pendingBookingMotivo");
-    if (motivo) motivo.value = "";
+    if (motivo) motivo.value = MOTIVO_RECHAZO_SOLICITUD_POR_DEFECTO;
 
     const detalle = document.getElementById("pendingBookingDetail");
     if (detalle) {
@@ -3373,6 +3374,7 @@ async function abrirModalCancelarCita(citaId) {
 }
 
 const MOTIVO_CANCELACION_POR_DEFECTO = "Colaborador no disponible";
+const MOTIVO_RECHAZO_SOLICITUD_POR_DEFECTO = "El colaborador no está disponible.";
 
 // Pinta el aviso del modal con lo que devolvió el servidor. Sin lógica de negocio acá: la regla
 // de "¿se le avisa al cliente?" vive en el backend y esta función solo la muestra.
