@@ -31,7 +31,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var controller = new CobrosController(
                 ControllerTestSupport.CreateCobroService(context),
-                ControllerTestSupport.CreateCobroQueryService(context),
+                ControllerTestSupport.CreateCobroQueryService(context, tenantProvider),
                 new NoOpComprobanteCobroService(),
                 ControllerTestSupport.BusinessDateTimeProvider,
                 ControllerTestSupport.CreateTenantDisplayNameService(context, tenantProvider));
@@ -70,7 +70,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 ControllerTestSupport.CreateTenantDisplayNameService(context, tenantProvider),
                 ControllerTestSupport.CreateFuncionarioPhotoStorageService(),
                 tenantProvider,
-                NullLogger<FuncionariosController>.Instance);
+                NullLogger<FuncionariosController>.Instance,
+                new LuxuryApp.Services.Finanzas.LegacyFinancialImpactService(context));
 
             ControllerTestSupport.AttachHttpContext(
                 controller,

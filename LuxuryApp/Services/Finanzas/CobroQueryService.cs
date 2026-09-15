@@ -1,24 +1,42 @@
-using LuxuryApp.Models.Finanzas;
+﻿using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Fiscal;
-using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Services.BusinessTime;
+using LuxuryApp.Services.Fiscal;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
 namespace LuxuryApp.Services.Finanzas
 {
+    /// <summary>
+    /// Pantalla Ingresos (Cobros) y su exportación a Excel.
+    ///
+    /// <para>
+    /// El desglose Base/IVA y la base de comisión salen del MISMO motor fiscal que usan el
+    /// Dashboard y las liquidaciones (<see cref="ITaxCalculationService"/> +
+    /// <see cref="ITenantFiscalConfigService"/>), aplicado POR LÍNEA de cobro y luego sumado.
+    /// Antes este servicio dividía el total entre 1,13 de forma plana e ignoraba
+    /// <c>AplicaIva</c>/<c>TarifaIva</c>/<c>PrecioIncluyeIva</c>, así que una venta exenta daba
+    /// un IVA distinto acá y en el Dashboard para el mismo mes.
+    /// </para>
+    /// </summary>
     public sealed class CobroQueryService : ICobroQueryService
     {
         private readonly ApplicationDbContext _context;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
+        private readonly ITenantFiscalConfigService _fiscalConfig;
+        private readonly ITaxCalculationService _taxService;
 
         public CobroQueryService(
             ApplicationDbContext context,
-            IBusinessDateTimeProvider businessDateTimeProvider)
+            IBusinessDateTimeProvider businessDateTimeProvider,
+            ITenantFiscalConfigService fiscalConfig,
+            ITaxCalculationService taxService)
         {
             _context = context;
             _businessDateTimeProvider = businessDateTimeProvider;
+            _fiscalConfig = fiscalConfig;
+            _taxService = taxService;
         }
 
         public async Task<CobroIndexViewModel> BuildIndexViewModelAsync(
@@ -29,13 +47,16 @@ namespace LuxuryApp.Services.Finanzas
             filtros ??= new CobroFiltroViewModel();
 
             var filteredQuery = BuildFilteredCobrosQuery(filtros);
+            var tenantFiscal = await _fiscalConfig.ObtenerAsync(cancellationToken);
 
-            // 1) Agregados sobre TODO el filtro (no dependen de la página).
-            var aggregate = await BuildAggregateAsync(filteredQuery, cancellationToken)
-                ?? new CobroAggregateProjection();
+            // 1) Agregados sobre TODO el filtro (no dependen de la página). El IVA se calcula POR
+            //    LÍNEA (una venta exenta no se "des-IVA-iza"), así que no puede agregarse en SQL:
+            //    se materializa una proyección ligera del periodo filtrado y se suma en memoria.
+            var fiscalRows = await ProyectarFilasFiscales(filteredQuery).ToListAsync(cancellationToken);
+            var aggregate = Agregar(fiscalRows, tenantFiscal);
 
-            // 2) Paginación: total filtrado + normalización de tamaño/página.
-            var totalRegistros = await filteredQuery.CountAsync(cancellationToken);
+            // 2) Paginación: el total filtrado ya lo conocemos (evita un COUNT extra).
+            var totalRegistros = aggregate.Cantidad;
             var pageSize = NormalizePageSize(filtros.PageSize);
             var totalPaginas = totalRegistros == 0
                 ? 1
@@ -56,11 +77,14 @@ namespace LuxuryApp.Services.Finanzas
                     FechaCobro = c.FechaCobro,
                     NombreCliente = c.NombreCliente,
                     FuncionarioNombre = c.Funcionario != null ? c.Funcionario.Nombre : string.Empty,
-                    Detalle = c.ServicioId != null
-                        ? (c.Servicio != null ? c.Servicio.Nombre : "Sin detalle")
-                        : (c.ServicioNombrePersonalizado != null
-                            ? c.ServicioNombrePersonalizado
-                            : (c.Producto != null ? c.Producto.NombreProducto : "Sin detalle")),
+                    // Nombre histórico del cobro; el catálogo actual solo entra si es legacy.
+                    Detalle = c.DetalleSnapshot != null
+                        ? c.DetalleSnapshot
+                        : (c.ServicioId != null
+                            ? (c.Servicio != null ? c.Servicio.Nombre : "Sin detalle")
+                            : (c.ServicioNombrePersonalizado != null
+                                ? c.ServicioNombrePersonalizado
+                                : (c.Producto != null ? c.Producto.NombreProducto : "Sin detalle"))),
                     Monto = c.Monto,
                     MetodoPago = c.MetodoPago,
                     EsServicio = c.ServicioId != null || c.ServicioNombrePersonalizado != null,
@@ -281,41 +305,128 @@ namespace LuxuryApp.Services.Finanzas
             return query;
         }
 
-        private Task<CobroAggregateProjection?> BuildAggregateAsync(
-            IQueryable<Cobro> filteredQuery,
-            CancellationToken cancellationToken) =>
-            filteredQuery
-                .Select(c => new
+        /// <summary>
+        /// Proyección ligera con lo mínimo para el motor fiscal. La resolución de la configuración
+        /// de cada línea (aplica IVA / tarifa / precio incluye IVA) es LA MISMA que usa
+        /// <c>LiquidacionSemanalService</c>: si no hay servicio/producto de catálogo (servicio
+        /// personalizado), la línea es gravada y hereda la configuración del tenant.
+        /// </summary>
+        private static IQueryable<CobroFiscalRow> ProyectarFilasFiscales(IQueryable<Cobro> filteredQuery) =>
+            filteredQuery.Select(c => new CobroFiscalRow
+            {
+                Monto = c.Monto,
+                EsServicio = c.ServicioId != null || c.ServicioNombrePersonalizado != null,
+                EsProducto = c.ProductoId != null,
+                MetodoPago = c.MetodoPago,
+                // Las dos fuentes viajan juntas y CobroFiscalidadEfectiva decide: manda el
+                // snapshot del cobro; el catálogo solo entra cuando el cobro es legacy.
+                AplicaIvaSnapshot = c.AplicaIvaSnapshot,
+                TarifaIvaSnapshot = c.TarifaIvaSnapshot,
+                PrecioIncluyeIvaSnapshot = c.PrecioIncluyeIvaSnapshot,
+                AplicaIvaCatalogo = c.ProductoId != null
+                    ? (c.Producto == null || c.Producto.AplicaIva)
+                    : (c.Servicio == null || c.Servicio.AplicaIva),
+                TarifaIvaCatalogo = c.ProductoId != null
+                    ? (c.Producto != null ? c.Producto.TarifaIva : null)
+                    : (c.Servicio != null ? c.Servicio.TarifaIva : null),
+                PrecioIncluyeIvaCatalogo = c.ProductoId != null
+                    ? (c.Producto != null ? c.Producto.PrecioIncluyeIva : null)
+                    : (c.Servicio != null ? c.Servicio.PrecioIncluyeIva : null),
+                EsProductoParaComision = c.ProductoId != null,
+                // Las dos fuentes de remuneración, igual que con la fiscalidad: manda el snapshot
+                // del cobro y la configuración actual del colaborador solo cubre a los legacy.
+                PorcentajeServicioSnapshot = c.PorcentajeServicioSnapshot,
+                PorcentajeProductoSnapshot = c.PorcentajeProductoSnapshot,
+                ComisionCalculadaSobreSnapshot = c.ComisionCalculadaSobreSnapshot,
+                TipoRelacionColaboradorSnapshot = c.TipoRelacionColaboradorSnapshot,
+                ModalidadIvaColaboradorSnapshot = c.ModalidadIvaColaboradorSnapshot,
+                TarifaIvaColaboradorSnapshot = c.TarifaIvaColaboradorSnapshot,
+                RemuneracionActual = new CobroRemuneracionEfectiva(
+                    c.Funcionario != null ? c.Funcionario.PorcentajeGanancia : 0m,
+                    c.Funcionario != null ? c.Funcionario.PorcentajeProducto : 0m,
+                    c.Funcionario != null ? c.Funcionario.ComisionCalculadaSobre : ComisionCalculadaSobre.TotalCobrado,
+                    c.Funcionario != null ? c.Funcionario.TipoRelacionColaborador : TipoRelacionColaborador.Empleado,
+                    c.Funcionario != null ? c.Funcionario.ModalidadIvaColaborador : ModalidadIvaColaborador.NoFactura,
+                    c.Funcionario != null ? c.Funcionario.TarifaIvaFacturaColaborador : 0m,
+                    false)
+            });
+
+        /// <summary>
+        /// Desglose fiscal de UNA línea con el motor canónico, más la comisión informativa del
+        /// colaborador sobre la base que indique su configuración.
+        ///
+        /// <para>
+        /// Ojo: <see cref="CobroLineaResultado.MontoColaborador"/> es un dato INFORMATIVO por línea.
+        /// La planilla real (con IVA del colaborador y modalidades A/B/C) la calcula
+        /// <c>ILiquidacionFuncionarioService</c> sobre el periodo completo; acá no se replica.
+        /// </para>
+        /// </summary>
+        private CobroLineaResultado CalcularLinea(CobroFiscalRow fila, TenantFiscalConfig tenantFiscal)
+        {
+            var fiscal = fila.Fiscalidad();
+            var linea = _fiscalConfig.ResolverLinea(
+                fila.Monto, fiscal.AplicaIva, fiscal.TarifaIva, fiscal.PrecioIncluyeIva, tenantFiscal);
+
+            var desglose = _taxService.Calcular(
+                linea.TotalOrBase, linea.TaxRatePercent, linea.PriceIncludesTax, linea.Taxable);
+
+            var baseComision = fila.ComisionSobre == ComisionCalculadaSobre.BaseSinIva
+                ? desglose.NetBase
+                : desglose.GrossTotal;
+
+            return new CobroLineaResultado(
+                desglose,
+                FiscalMath.Redondear(baseComision * (fila.Porcentaje / 100m)));
+        }
+
+        /// <summary>
+        /// Suma las líneas ya desglosadas. Política de agregación canónica: redondear POR LÍNEA y
+        /// luego sumar, igual que <c>ITaxCalculationService.Sumar</c>. Así
+        /// <c>TotalSinImpuestos + TotalImpuestos == TotalGenerado</c> se cumple por construcción y
+        /// el resumen del Excel coincide exactamente con la suma de sus propias filas.
+        /// </summary>
+        private CobroAggregateProjection Agregar(
+            IReadOnlyCollection<CobroFiscalRow> filas,
+            TenantFiscalConfig tenantFiscal)
+        {
+            var aggregate = new CobroAggregateProjection { Cantidad = filas.Count };
+
+            foreach (var fila in filas)
+            {
+                var (desglose, montoColaborador) = CalcularLinea(fila, tenantFiscal);
+
+                aggregate.TotalGenerado += desglose.GrossTotal;
+                aggregate.TotalSinImpuestos += desglose.NetBase;
+                aggregate.TotalImpuestos += desglose.TaxAmount;
+                aggregate.PagoColaboradores += montoColaborador;
+
+                if (fila.EsServicio)
                 {
-                    c.Monto,
-                    c.ServicioId,
-                    c.ServicioNombrePersonalizado,
-                    c.ProductoId,
-                    c.MetodoPago,
-                    EsServicio = c.ServicioId != null || c.ServicioNombrePersonalizado != null,
-                    // Comisión con IVA incluido: la base es Total / 1.13 cuando se calcula sobre base sin IVA
-                    // (fuente de verdad: ComisionCalculadaSobre), no el viejo "Total − Total*13%".
-                    PagoColaborador = (c.Funcionario!.ComisionCalculadaSobre == ComisionCalculadaSobre.BaseSinIva
-                            ? c.Monto / (1m + PagoFuncionarioDevengadoCalculator.TasaImpuesto)
-                            : c.Monto)
-                        * ((c.ProductoId != null
-                            ? c.Funcionario!.PorcentajeProducto
-                            : c.Funcionario!.PorcentajeGanancia) / 100m)
-                })
-                .GroupBy(_ => 1)
-                .Select(group => new CobroAggregateProjection
+                    aggregate.CantidadServicios++;
+                    aggregate.TotalServicios += desglose.GrossTotal;
+                }
+
+                if (fila.EsProducto)
                 {
-                    Cantidad = group.Count(),
-                    CantidadServicios = group.Sum(x => x.EsServicio ? 1 : 0),
-                    TotalServicios = group.Sum(x => x.EsServicio ? x.Monto : 0m),
-                    TotalProductos = group.Sum(x => x.ProductoId != null ? x.Monto : 0m),
-                    TotalGenerado = group.Sum(x => x.Monto),
-                    PagoColaboradores = group.Sum(x => x.PagoColaborador),
-                    GananciaEfectivo = group.Sum(x => x.MetodoPago == "EFECTIVO" ? x.Monto : 0m),
-                    GananciaTarjeta = group.Sum(x => x.MetodoPago == "TARJETA" ? x.Monto : 0m),
-                    GananciaSinpe = group.Sum(x => x.MetodoPago == "SINPE" ? x.Monto : 0m)
-                })
-                .SingleOrDefaultAsync(cancellationToken);
+                    aggregate.TotalProductos += desglose.GrossTotal;
+                }
+
+                switch (fila.MetodoPago)
+                {
+                    case "EFECTIVO":
+                        aggregate.GananciaEfectivo += desglose.GrossTotal;
+                        break;
+                    case "TARJETA":
+                        aggregate.GananciaTarjeta += desglose.GrossTotal;
+                        break;
+                    case "SINPE":
+                        aggregate.GananciaSinpe += desglose.GrossTotal;
+                        break;
+                }
+            }
+
+            return aggregate;
+        }
 
         public async Task<CobroExportViewModel> BuildExportAsync(
             CobroFiltroViewModel filtros,
@@ -324,45 +435,24 @@ namespace LuxuryApp.Services.Finanzas
             filtros ??= new CobroFiltroViewModel();
 
             var filteredQuery = BuildFilteredCobrosQuery(filtros);
+            var tenantFiscal = await _fiscalConfig.ObtenerAsync(cancellationToken);
 
-            var aggregate = await BuildAggregateAsync(filteredQuery, cancellationToken)
-                ?? new CobroAggregateProjection();
-
-            var resumen = BuildViewModelFromAggregate(aggregate, filtros);
-            resumen.TotalRegistros = aggregate.Cantidad;
-
-            // TODAS las filas filtradas (sin paginar); proyección ligera (sin subconsultas de comprobante).
-            var raw = await filteredQuery
+            // TODAS las filas filtradas (sin paginar); proyección ligera (sin subconsultas de
+            // comprobante). Una sola consulta: el resumen se arma con estas mismas filas, así el
+            // total del Excel es exactamente la suma de las filas que el Excel imprime.
+            var raw = await ProyectarFilasExportacion(filteredQuery)
                 .OrderByDescending(c => c.FechaCobro)
                 .ThenByDescending(c => c.IdCobro)
-                .Select(c => new ExportProjection
-                {
-                    FechaCobro = c.FechaCobro,
-                    NombreCliente = c.NombreCliente,
-                    FuncionarioNombre = c.Funcionario != null ? c.Funcionario.Nombre : string.Empty,
-                    EsServicio = c.ServicioId != null || c.ServicioNombrePersonalizado != null,
-                    Detalle = c.ServicioId != null
-                        ? (c.Servicio != null ? c.Servicio.Nombre : "Sin detalle")
-                        : (c.ServicioNombrePersonalizado != null
-                            ? c.ServicioNombrePersonalizado
-                            : (c.Producto != null ? c.Producto.NombreProducto : "Sin detalle")),
-                    MetodoPago = c.MetodoPago,
-                    Monto = c.Monto,
-                    ComisionSobre = c.Funcionario != null
-                        ? c.Funcionario.ComisionCalculadaSobre
-                        : ComisionCalculadaSobre.TotalCobrado,
-                    Porcentaje = c.ProductoId != null
-                        ? (c.Funcionario != null ? c.Funcionario.PorcentajeProducto : 0m)
-                        : (c.Funcionario != null ? c.Funcionario.PorcentajeGanancia : 0m)
-                })
                 .ToListAsync(cancellationToken);
+
+            var aggregate = Agregar(raw, tenantFiscal);
+            var resumen = BuildViewModelFromAggregate(aggregate, filtros);
+            resumen.TotalRegistros = aggregate.Cantidad;
 
             var filas = raw
                 .Select(r =>
                 {
-                    var baseSinIva = PagoFuncionarioDevengadoCalculator.CalcularBaseSinIvaIncluido(r.Monto);
-                    var baseComision = PagoFuncionarioDevengadoCalculator.CalcularBaseComision(r.Monto, r.ComisionSobre);
-                    var montoColaborador = Math.Round(baseComision * (r.Porcentaje / 100m), 2, MidpointRounding.ToEven);
+                    var (desglose, montoColaborador) = CalcularLinea(r, tenantFiscal);
 
                     return new CobroExportRow
                     {
@@ -372,11 +462,11 @@ namespace LuxuryApp.Services.Finanzas
                         EsServicio = r.EsServicio,
                         Detalle = r.Detalle,
                         MetodoPago = r.MetodoPago,
-                        Monto = r.Monto,
-                        BaseSinIva = baseSinIva,
-                        IvaIncluido = r.Monto - baseSinIva,
+                        Monto = desglose.GrossTotal,
+                        BaseSinIva = desglose.NetBase,
+                        IvaIncluido = desglose.TaxAmount,
                         MontoColaborador = montoColaborador,
-                        MontoNegocio = baseSinIva - montoColaborador
+                        MontoNegocio = desglose.NetBase - montoColaborador
                     };
                 })
                 .ToList();
@@ -384,13 +474,64 @@ namespace LuxuryApp.Services.Finanzas
             return new CobroExportViewModel { Resumen = resumen, Filas = filas };
         }
 
+        private static IQueryable<ExportProjection> ProyectarFilasExportacion(IQueryable<Cobro> filteredQuery) =>
+            filteredQuery.Select(c => new ExportProjection
+            {
+                IdCobro = c.IdCobro,
+                FechaCobro = c.FechaCobro,
+                NombreCliente = c.NombreCliente,
+                FuncionarioNombre = c.Funcionario != null ? c.Funcionario.Nombre : string.Empty,
+                Detalle = c.DetalleSnapshot != null
+                    ? c.DetalleSnapshot
+                    : (c.ServicioId != null
+                        ? (c.Servicio != null ? c.Servicio.Nombre : "Sin detalle")
+                        : (c.ServicioNombrePersonalizado != null
+                            ? c.ServicioNombrePersonalizado
+                            : (c.Producto != null ? c.Producto.NombreProducto : "Sin detalle"))),
+                Monto = c.Monto,
+                EsServicio = c.ServicioId != null || c.ServicioNombrePersonalizado != null,
+                EsProducto = c.ProductoId != null,
+                MetodoPago = c.MetodoPago,
+                // Las dos fuentes viajan juntas y CobroFiscalidadEfectiva decide: manda el
+                // snapshot del cobro; el catálogo solo entra cuando el cobro es legacy.
+                AplicaIvaSnapshot = c.AplicaIvaSnapshot,
+                TarifaIvaSnapshot = c.TarifaIvaSnapshot,
+                PrecioIncluyeIvaSnapshot = c.PrecioIncluyeIvaSnapshot,
+                AplicaIvaCatalogo = c.ProductoId != null
+                    ? (c.Producto == null || c.Producto.AplicaIva)
+                    : (c.Servicio == null || c.Servicio.AplicaIva),
+                TarifaIvaCatalogo = c.ProductoId != null
+                    ? (c.Producto != null ? c.Producto.TarifaIva : null)
+                    : (c.Servicio != null ? c.Servicio.TarifaIva : null),
+                PrecioIncluyeIvaCatalogo = c.ProductoId != null
+                    ? (c.Producto != null ? c.Producto.PrecioIncluyeIva : null)
+                    : (c.Servicio != null ? c.Servicio.PrecioIncluyeIva : null),
+                EsProductoParaComision = c.ProductoId != null,
+                // Las dos fuentes de remuneración, igual que con la fiscalidad: manda el snapshot
+                // del cobro y la configuración actual del colaborador solo cubre a los legacy.
+                PorcentajeServicioSnapshot = c.PorcentajeServicioSnapshot,
+                PorcentajeProductoSnapshot = c.PorcentajeProductoSnapshot,
+                ComisionCalculadaSobreSnapshot = c.ComisionCalculadaSobreSnapshot,
+                TipoRelacionColaboradorSnapshot = c.TipoRelacionColaboradorSnapshot,
+                ModalidadIvaColaboradorSnapshot = c.ModalidadIvaColaboradorSnapshot,
+                TarifaIvaColaboradorSnapshot = c.TarifaIvaColaboradorSnapshot,
+                RemuneracionActual = new CobroRemuneracionEfectiva(
+                    c.Funcionario != null ? c.Funcionario.PorcentajeGanancia : 0m,
+                    c.Funcionario != null ? c.Funcionario.PorcentajeProducto : 0m,
+                    c.Funcionario != null ? c.Funcionario.ComisionCalculadaSobre : ComisionCalculadaSobre.TotalCobrado,
+                    c.Funcionario != null ? c.Funcionario.TipoRelacionColaborador : TipoRelacionColaborador.Empleado,
+                    c.Funcionario != null ? c.Funcionario.ModalidadIvaColaborador : ModalidadIvaColaborador.NoFactura,
+                    c.Funcionario != null ? c.Funcionario.TarifaIvaFacturaColaborador : 0m,
+                    false)
+            });
+
         private static CobroIndexViewModel BuildViewModelFromAggregate(
             CobroAggregateProjection aggregate,
             CobroFiltroViewModel filtros)
         {
-            // IVA incluido (CR): base = Total / 1.13; IVA = Total − base. Mismo helper que Dashboard/Liquidaciones.
-            var totalSinImpuestos = PagoFuncionarioDevengadoCalculator.CalcularBaseSinIvaIncluido(aggregate.TotalGenerado);
-            var totalImpuestos = aggregate.TotalGenerado - totalSinImpuestos;
+            // Base e IVA ya vienen del motor fiscal canónico, línea por línea.
+            var totalSinImpuestos = aggregate.TotalSinImpuestos;
+            var totalImpuestos = aggregate.TotalImpuestos;
 
             return new CobroIndexViewModel
             {
@@ -475,30 +616,75 @@ namespace LuxuryApp.Services.Finanzas
                 value.Minute,
                 0);
 
-        private sealed class ExportProjection
+        /// <summary>Datos mínimos de un cobro para resolver su fiscalidad y su comisión informativa.</summary>
+        private class CobroFiscalRow : ICobroFiscalSnapshotOrigen, ICobroRemuneracionSnapshot
         {
+            public decimal Monto { get; init; }
+            public bool EsServicio { get; init; }
+            public bool EsProducto { get; init; }
+            public string MetodoPago { get; init; } = string.Empty;
+
+            public bool? AplicaIvaSnapshot { get; init; }
+            public decimal? TarifaIvaSnapshot { get; init; }
+            public bool? PrecioIncluyeIvaSnapshot { get; init; }
+            public bool AplicaIvaCatalogo { get; init; }
+            public decimal? TarifaIvaCatalogo { get; init; }
+            public bool? PrecioIncluyeIvaCatalogo { get; init; }
+
+            public bool EsProductoParaComision { get; init; }
+
+            public decimal? PorcentajeServicioSnapshot { get; init; }
+            public decimal? PorcentajeProductoSnapshot { get; init; }
+            public ComisionCalculadaSobre? ComisionCalculadaSobreSnapshot { get; init; }
+            public TipoRelacionColaborador? TipoRelacionColaboradorSnapshot { get; init; }
+            public ModalidadIvaColaborador? ModalidadIvaColaboradorSnapshot { get; init; }
+            public decimal? TarifaIvaColaboradorSnapshot { get; init; }
+
+            /// <summary>Configuración vigente del colaborador: el fallback de los cobros legacy.</summary>
+            public CobroRemuneracionEfectiva RemuneracionActual { get; init; }
+
+            public CobroRemuneracionEfectiva Remuneracion() =>
+                CobroRemuneracionEfectiva.Resolver(this, RemuneracionActual);
+
+            public ComisionCalculadaSobre ComisionSobre => Remuneracion().ComisionCalculadaSobre;
+
+            public decimal Porcentaje
+            {
+                get
+                {
+                    var remuneracion = Remuneracion();
+                    return EsProductoParaComision
+                        ? remuneracion.PorcentajeProductos
+                        : remuneracion.PorcentajeServicios;
+                }
+            }
+        }
+
+        /// <summary>Fila fiscal + las columnas que el Excel imprime.</summary>
+        private sealed class ExportProjection : CobroFiscalRow
+        {
+            public int IdCobro { get; init; }
             public DateTime FechaCobro { get; init; }
             public string NombreCliente { get; init; } = string.Empty;
             public string FuncionarioNombre { get; init; } = string.Empty;
-            public bool EsServicio { get; init; }
             public string Detalle { get; init; } = string.Empty;
-            public string MetodoPago { get; init; } = string.Empty;
-            public decimal Monto { get; init; }
-            public ComisionCalculadaSobre ComisionSobre { get; init; }
-            public decimal Porcentaje { get; init; }
         }
+
+        private readonly record struct CobroLineaResultado(TaxBreakdown Desglose, decimal MontoColaborador);
 
         private sealed class CobroAggregateProjection
         {
             public int Cantidad { get; init; }
-            public int CantidadServicios { get; init; }
-            public decimal TotalServicios { get; init; }
-            public decimal TotalProductos { get; init; }
-            public decimal TotalGenerado { get; init; }
-            public decimal PagoColaboradores { get; init; }
-            public decimal GananciaEfectivo { get; init; }
-            public decimal GananciaTarjeta { get; init; }
-            public decimal GananciaSinpe { get; init; }
+            public int CantidadServicios { get; set; }
+            public decimal TotalServicios { get; set; }
+            public decimal TotalProductos { get; set; }
+            public decimal TotalGenerado { get; set; }
+            public decimal TotalSinImpuestos { get; set; }
+            public decimal TotalImpuestos { get; set; }
+            public decimal PagoColaboradores { get; set; }
+            public decimal GananciaEfectivo { get; set; }
+            public decimal GananciaTarjeta { get; set; }
+            public decimal GananciaSinpe { get; set; }
         }
     }
 }

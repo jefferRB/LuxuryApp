@@ -1,4 +1,4 @@
-@using LuxuryApp.Models.Funcionarios
+﻿@using LuxuryApp.Models.Funcionarios
 @using LuxuryApp.Models.Fiscal
 @model LuxuryApp.Models.Funcionarios.PagosSemanaPageViewModel
 
@@ -448,11 +448,83 @@
 </div>
 
 <!-- ── MODAL: REGISTRAR PAGO DE LIQUIDACIÓN (PERIODO COMPLETO) ── -->
+@* ── MODAL: REVERTIR PAGO ──
+   Un pago de liquidación no se edita. Si está mal, se revierte (se deshace la operación
+   completa: liquidación, detalles, distribución y egreso) y se vuelve a registrar. *@
+<div class="modal fade func-modal" id="modalRevertirPago" tabindex="-1" aria-labelledby="lblModalRevertirPago">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post" asp-action="RevertirPago" id="formRevertirPago">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="liquidacionId" id="revertirLiquidacionId" value="" />
+                <input type="hidden" name="fecha" value="@inicio.ToString("yyyy-MM-dd")" />
+                <input type="hidden" name="periodo" value="@periodo" />
+                @if (esPersonalizado)
+                {
+                    <input type="hidden" name="desde" value="@inicio.ToString("yyyy-MM-dd")" />
+                    <input type="hidden" name="hasta" value="@fin.ToString("yyyy-MM-dd")" />
+                }
+
+                <div class="modal-header">
+                    <div style="display:flex;align-items:center;gap:0.65rem;">
+                        <div class="func-brand-icon" style="width:2.2rem;height:2.2rem;font-size:1rem;flex-shrink:0;background:linear-gradient(135deg,rgba(217,119,6,0.18),rgba(180,83,9,0.18));">
+                            <i class="bi bi-arrow-counterclockwise" style="color:#d97706;"></i>
+                        </div>
+                        <div>
+                            <h5 class="func-modal-title" id="lblModalRevertirPago" style="margin:0;">Revertir pago</h5>
+                            <span class="lq-modal-subtitle">El monto volverá a quedar pendiente</span>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+
+                <div class="modal-body">
+                    <div class="lq-revert-summary">
+                        <div class="lq-revert-row"><span>Colaborador</span><b id="revertirFuncionario">—</b></div>
+                        <div class="lq-revert-row"><span>Monto</span><b id="revertirMonto" class="func-amount--green">—</b></div>
+                        <div class="lq-revert-row"><span>Fecha</span><b id="revertirFecha">—</b></div>
+                        <div class="lq-revert-row"><span>Periodo</span><b id="revertirPeriodo">—</b></div>
+                        <div class="lq-revert-row"><span>Método</span><b id="revertirMetodo">—</b></div>
+                    </div>
+
+                    <p class="lq-revert-help">
+                        Esta acción eliminará la aplicación del pago y el monto volverá a quedar
+                        pendiente. <strong>La producción y la comisión generada no cambian.</strong>
+                    </p>
+
+                    <div class="lq-modal-fields">
+                        <label class="func-label" for="revertirMotivo">
+                            Motivo de la reversión <span style="color:#dc2626;">*</span>
+                        </label>
+                        <input type="text"
+                               class="func-input"
+                               id="revertirMotivo"
+                               name="motivo"
+                               maxlength="500"
+                               required
+                               placeholder="Ej.: se registró en la semana equivocada" />
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="func-btn func-btn--ghost" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="func-btn func-btn--amber">
+                        <i class="bi bi-arrow-counterclockwise"></i> Revertir pago
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <div class="modal fade func-modal" id="modalPagoPeriodo" tabindex="-1" aria-labelledby="lblModalPagoPeriodo">
     <div class="modal-dialog modal-dialog-centered modal-lg">
         <div class="modal-content">
             <form method="post" asp-action="PagarTodaLaSemana" id="formPagarPeriodo">
                 @Html.AntiForgeryToken()
+                @* Identifica esta INTENCIÓN de pago: un doble click o un reenvío del formulario
+                   llegan con la misma clave y el servidor registra una sola operación. *@
+                <input type="hidden" name="idempotencyKey" value="@Guid.NewGuid()" />
                 <input type="hidden" name="inicioSemana" value="@inicio.ToString("yyyy-MM-dd")" />
                 <input type="hidden" name="finSemana" value="@fin.ToString("yyyy-MM-dd")" />
                 <input type="hidden" name="periodo" value="@periodo" />
@@ -588,6 +660,7 @@
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <form method="post" asp-action="RegistrarPago" id="formRegistrarPago">
+                <input type="hidden" name="idempotencyKey" value="@Guid.NewGuid()" />
                 @Html.AntiForgeryToken()
                 <div class="modal-header">
                     <div style="display:flex;align-items:center;gap:0.65rem;">
@@ -802,5 +875,38 @@
                 alert("La fecha inicial no puede ser mayor que la fecha final.");
             }
         });
+    }
+
+    // ── Revertir pago: el modal se llena desde el botón que lo abrió ──
+    var modalRevertir = document.getElementById("modalRevertirPago");
+    if (modalRevertir) {
+        modalRevertir.addEventListener("show.bs.modal", function (event) {
+            var boton = event.relatedTarget;
+            if (!boton) { return; }
+
+            var set = function (id, valor) {
+                var el = document.getElementById(id);
+                if (el) { el.textContent = valor || "—"; }
+            };
+
+            document.getElementById("revertirLiquidacionId").value = boton.getAttribute("data-liquidacion") || "";
+            set("revertirFuncionario", boton.getAttribute("data-funcionario"));
+            set("revertirMonto", boton.getAttribute("data-monto"));
+            set("revertirFecha", boton.getAttribute("data-fecha"));
+            set("revertirPeriodo", boton.getAttribute("data-periodo"));
+            set("revertirMetodo", boton.getAttribute("data-metodo"));
+
+            var motivo = document.getElementById("revertirMotivo");
+            if (motivo) { motivo.value = ""; }
+        });
+
+        // Evita el doble envío accidental (defensa de UX; la de verdad es la del servidor).
+        var formRevertir = document.getElementById("formRevertirPago");
+        if (formRevertir) {
+            formRevertir.addEventListener("submit", function () {
+                var btn = formRevertir.querySelector("button[type=submit]");
+                if (btn) { btn.disabled = true; }
+            });
+        }
     }
 </script>

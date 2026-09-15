@@ -119,9 +119,19 @@ namespace LuxuryApp.Services.Finanzas
             return new EgresoViewModel
             {
                 Egreso = currentEgreso,
+                // Las categorías técnicas del sistema (pago de liquidaciones, distribución a
+                // inversionistas) NO se ofrecen: las asigna el flujo que genera esos egresos.
+                // Se dejan visibles solo si YA son la categoría del egreso que se está editando,
+                // para poder abrir la pantalla y moverlo a la categoría correcta.
                 Categorias = await _context.Categorias
                     .AsNoTracking()
                     .Where(c => c.Activo || (selectedCategoriaId.HasValue && c.Id == selectedCategoriaId.Value))
+                    .Where(c => (selectedCategoriaId.HasValue && c.Id == selectedCategoriaId.Value) ||
+                                !(c.SystemCode != null
+                                    ? c.SystemCode == SystemCategoryCodes.EmployeeSettlement ||
+                                      c.SystemCode == SystemCategoryCodes.InvestorDistribution
+                                    : c.Nombre == SystemCategoryCodes.NombreLegacyEmployeeSettlement ||
+                                      c.Nombre == SystemCategoryCodes.NombreLegacyInvestorDistribution))
                     .OrderBy(c => c.Nombre)
                     .Select(c => new SelectListItem
                     {

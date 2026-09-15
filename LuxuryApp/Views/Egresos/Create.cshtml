@@ -1,4 +1,4 @@
-@model LuxuryApp.Models.Finanzas.EgresoViewModel
+﻿@model LuxuryApp.Models.Finanzas.EgresoViewModel
 
 @{
     ViewData["Title"] = "Registrar Egreso";
@@ -73,6 +73,12 @@
                         </select>
                     </div>
                     <span asp-validation-for="Egreso.CategoriaId" class="finance-field-error"></span>
+                    <p class="finance-field-hint">
+                        <strong>Pago Funcionarios:</strong> solo para pagar liquidaciones o comisiones
+                        que ya aparecen en «Liquidaciones del equipo» (no vuelve a restar la ganancia).<br />
+                        <strong>Costo laboral extraordinario:</strong> vacaciones, bonos o pagos
+                        adicionales que no forman parte de una liquidación ordinaria (sí resta la ganancia).
+                    </p>
                 </div>
 
                 @* Detalle *@

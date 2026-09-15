@@ -1,8 +1,10 @@
-using System.Data;
+﻿using System.Data;
 using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Productos;
+using LuxuryApp.Models.Fiscal;
 using LuxuryApp.Services.BusinessTime;
+using LuxuryApp.Services.Fiscal;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
@@ -19,15 +21,18 @@ namespace LuxuryApp.Services.Finanzas
 
         private readonly ApplicationDbContext _context;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
+        private readonly ITenantFiscalConfigService _fiscalConfig;
         private readonly ILogger<CobroService> _logger;
 
         public CobroService(
             ApplicationDbContext context,
             IBusinessDateTimeProvider businessDateTimeProvider,
+            ITenantFiscalConfigService fiscalConfig,
             ILogger<CobroService> logger)
         {
             _context = context;
             _businessDateTimeProvider = businessDateTimeProvider;
+            _fiscalConfig = fiscalConfig;
             _logger = logger;
         }
 
@@ -35,6 +40,10 @@ namespace LuxuryApp.Services.Finanzas
         {
             var normalizedRequest = NormalizeRequest(request);
             ValidateRequest(normalizedRequest);
+
+            // Configuración fiscal del negocio: se lee UNA vez y se usa para congelar la
+            // fiscalidad efectiva del cobro dentro de la misma transacción que lo inserta.
+            var tenantFiscal = await _fiscalConfig.ObtenerAsync(cancellationToken);
 
             var executionStrategy = _context.Database.CreateExecutionStrategy();
             var cobroId = 0;
@@ -50,7 +59,7 @@ namespace LuxuryApp.Services.Finanzas
                     await using var transaction = await _context.Database
                         .BeginTransactionAsync(isolationLevel, cancellationToken);
 
-                    await EnsureFuncionarioActivoAsync(
+                    var remuneracion = await EnsureFuncionarioActivoAsync(
                         normalizedRequest.FuncionarioId,
                         currentFuncionarioId: null,
                         cancellationToken);
@@ -69,9 +78,10 @@ namespace LuxuryApp.Services.Finanzas
                         // catálogo, solo nombre). ValidateRequest ya garantizó que uno de los dos
                         // está presente.
                         int? servicioId = null;
+                        ServicioSnapshot? servicio = null;
                         if (normalizedRequest.ServicioId.HasValue)
                         {
-                            var servicio = await LoadServicioAsync(
+                            servicio = await LoadServicioAsync(
                                 normalizedRequest.ServicioId.Value,
                                 currentServicioId: null,
                                 cancellationToken);
@@ -79,6 +89,22 @@ namespace LuxuryApp.Services.Finanzas
                         }
 
                         var cobroServicio = BuildCobro(normalizedRequest, normalizedRequest.Monto, servicioId, productoId: null);
+
+                        // Servicio PERSONALIZADO (cita fuera de catálogo): no tiene overrides
+                        // propios, así que hereda la configuración efectiva del tenant. Igual
+                        // recibe snapshot: no puede quedar legacy solo por no tener ServicioId.
+                        AplicarSnapshotFiscal(
+                            cobroServicio,
+                            servicio?.AplicaIva ?? true,
+                            servicio?.TarifaIva,
+                            servicio?.PrecioIncluyeIva,
+                            tenantFiscal);
+
+                        AplicarSnapshotRemuneracion(cobroServicio, remuneracion);
+
+                        // Nombre histórico: el del catálogo al vender, o el personalizado de la cita.
+                        cobroServicio.DetalleSnapshot = servicio?.Nombre
+                            ?? normalizedRequest.ServicioNombrePersonalizado;
 
                         _context.Cobros.Add(cobroServicio);
                         await _context.SaveChangesAsync(cancellationToken);
@@ -99,6 +125,16 @@ namespace LuxuryApp.Services.Finanzas
                     {
                         var producto = await ReserveProductoAsync(normalizedRequest.ProductoId!.Value, cancellationToken);
                         var cobroProducto = BuildCobro(normalizedRequest, normalizedRequest.Monto, servicioId: null, producto.IdProducto);
+
+                        AplicarSnapshotFiscal(
+                            cobroProducto,
+                            producto.AplicaIva,
+                            producto.TarifaIva,
+                            producto.PrecioIncluyeIva,
+                            tenantFiscal);
+
+                        AplicarSnapshotRemuneracion(cobroProducto, remuneracion);
+                        cobroProducto.DetalleSnapshot = producto.NombreProducto;
 
                         _context.Cobros.Add(cobroProducto);
                         await _context.SaveChangesAsync(cancellationToken);
@@ -166,7 +202,10 @@ namespace LuxuryApp.Services.Finanzas
                     return false;
                 }
 
-                await EnsureFuncionarioActivoAsync(
+                // El resultado se descarta a propósito: editar un cobro NO re-congela su
+                // remuneración. El snapshot describe lo que se acordó cuando se hizo el trabajo,
+                // y corregir el nombre del cliente no cambia ese acuerdo.
+                _ = await EnsureFuncionarioActivoAsync(
                     normalizedRequest.FuncionarioId,
                     currentFuncionarioId: cobro.FuncionarioId,
                     cancellationToken);
@@ -196,6 +235,8 @@ namespace LuxuryApp.Services.Finanzas
                         throw new CobroValidationException("Debe seleccionar un servicio.", "Cobro.ServicioId");
                     }
 
+                    var servicioAnterior = cobro.ServicioId;
+
                     var servicio = await LoadServicioAsync(
                         normalizedRequest.ServicioId.Value,
                         cobro.ServicioId,
@@ -203,6 +244,26 @@ namespace LuxuryApp.Services.Finanzas
 
                     cobro.ServicioId = servicio.Id;
                     cobro.ProductoId = null;
+
+                    // Si el cobro CAMBIÓ de servicio, su snapshot describía otro servicio y hay que
+                    // rehacerlo. En cualquier otro caso NO se toca: re-resolverlo traería la
+                    // configuración de HOY y destruiría justamente la historia que congelamos.
+                    //
+                    // Y solo se rehace cuando el cobro YA tenía snapshot. Un cobro legacy sigue
+                    // legacy: rellenarlo con el catálogo actual sería inventarle una historia que
+                    // no podemos demostrar.
+                    if (cobro.AplicaIvaSnapshot.HasValue && servicioAnterior != servicio.Id)
+                    {
+                        var tenantFiscal = await _fiscalConfig.ObtenerAsync(cancellationToken);
+                        AplicarSnapshotFiscal(
+                            cobro,
+                            servicio.AplicaIva,
+                            servicio.TarifaIva,
+                            servicio.PrecioIncluyeIva,
+                            tenantFiscal);
+
+                        cobro.DetalleSnapshot = servicio.Nombre;
+                    }
                 }
 
                 await _context.SaveChangesAsync(cancellationToken);
@@ -315,24 +376,59 @@ namespace LuxuryApp.Services.Finanzas
             }
         }
 
-        private async Task EnsureFuncionarioActivoAsync(
+        /// <summary>
+        /// Valida el colaborador y devuelve su configuración de remuneración EN LA MISMA LECTURA.
+        ///
+        /// <para>
+        /// Los seis valores salen de una única fila leída de una sola vez, dentro de la transacción
+        /// del cobro. Eso es lo que garantiza que el snapshot sea coherente: es imposible congelar
+        /// el porcentaje viejo junto con la modalidad de IVA nueva porque nunca se leen por separado.
+        /// </para>
+        /// </summary>
+        private async Task<CobroRemuneracionEfectiva> EnsureFuncionarioActivoAsync(
             int funcionarioId,
             int? currentFuncionarioId,
             CancellationToken cancellationToken)
         {
-            var exists = await _context.Funcionarios
+            // Se proyecta a un tipo ANÓNIMO (de referencia) y no directamente a
+            // CobroRemuneracionEfectiva: ese es un record struct, y "no encontrado" devolvería su
+            // default, que es indistinguible de un colaborador REAL con toda su configuración en
+            // cero (0 % servicio, 0 % producto, comisión sobre el total, empleado, no factura IVA,
+            // tarifa 0). Esa combinación es válida —una recepcionista que cobra pero no gana
+            // comisión— y quedaba rechazada como inexistente.
+            //
+            // "No cobra comisión" y "no existe" son cosas distintas: la presencia se decide por
+            // presencia, nunca por el valor. Sigue siendo UNA sola lectura coherente de la fila.
+            var fila = await _context.Funcionarios
                 .AsNoTracking()
-                .AnyAsync(
-                    f => f.IdFuncionario == funcionarioId &&
-                         (f.Activo || (currentFuncionarioId.HasValue && f.IdFuncionario == currentFuncionarioId.Value)),
-                    cancellationToken);
+                .Where(f => f.IdFuncionario == funcionarioId &&
+                            (f.Activo || (currentFuncionarioId.HasValue && f.IdFuncionario == currentFuncionarioId.Value)))
+                .Select(f => new
+                {
+                    f.PorcentajeGanancia,
+                    f.PorcentajeProducto,
+                    f.ComisionCalculadaSobre,
+                    f.TipoRelacionColaborador,
+                    f.ModalidadIvaColaborador,
+                    f.TarifaIvaFacturaColaborador
+                })
+                .FirstOrDefaultAsync(cancellationToken);
 
-            if (!exists)
+            if (fila is null)
             {
                 throw new CobroValidationException(
                     "El funcionario seleccionado no existe o no pertenece al tenant actual.",
                     "Cobro.FuncionarioId");
             }
+
+            return new CobroRemuneracionEfectiva(
+                fila.PorcentajeGanancia,
+                fila.PorcentajeProducto,
+                fila.ComisionCalculadaSobre,
+                fila.TipoRelacionColaborador,
+                fila.ModalidadIvaColaborador,
+                fila.TarifaIvaFacturaColaborador,
+                DesdeSnapshot: false);
         }
 
         private async Task<ServicioSnapshot> LoadServicioAsync(
@@ -347,7 +443,11 @@ namespace LuxuryApp.Services.Finanzas
                 .Select(s => new ServicioSnapshot
                 {
                     Id = s.Id,
-                    Precio = s.Precio
+                    Nombre = s.Nombre,
+                    Precio = s.Precio,
+                    AplicaIva = s.AplicaIva,
+                    TarifaIva = s.TarifaIva,
+                    PrecioIncluyeIva = s.PrecioIncluyeIva
                 })
                 .SingleOrDefaultAsync(cancellationToken);
 
@@ -407,7 +507,10 @@ namespace LuxuryApp.Services.Finanzas
                     IdProducto = p.IdProducto,
                     NombreProducto = p.NombreProducto,
                     PrecioProducto = p.PrecioProducto,
-                    StockNuevo = p.CantidadProducto
+                    StockNuevo = p.CantidadProducto,
+                    AplicaIva = p.AplicaIva,
+                    TarifaIva = p.TarifaIva,
+                    PrecioIncluyeIva = p.PrecioIncluyeIva
                 })
                 .SingleOrDefaultAsync(cancellationToken);
 
@@ -485,6 +588,41 @@ namespace LuxuryApp.Services.Finanzas
                 MetodoPago = request.MetodoPago,
                 Observaciones = request.Observaciones
             };
+
+        /// <summary>
+        /// Congela en el cobro la fiscalidad EFECTIVA de la línea: los overrides del
+        /// servicio/producto ya combinados con la configuración del tenant, resueltos por el mismo
+        /// <see cref="ITenantFiscalConfigService"/> que usa el motor de impuestos. Siempre escribe
+        /// los tres campos — no existe el snapshot parcial (CK_Cobros_SnapshotFiscal).
+        /// </summary>
+        private void AplicarSnapshotFiscal(
+            Cobro cobro,
+            bool aplicaIva,
+            decimal? tarifaOverride,
+            bool? precioIncluyeIvaOverride,
+            TenantFiscalConfig tenantFiscal)
+        {
+            var linea = _fiscalConfig.ResolverLinea(
+                cobro.Monto, aplicaIva, tarifaOverride, precioIncluyeIvaOverride, tenantFiscal);
+
+            cobro.AplicaIvaSnapshot = linea.Taxable;
+            cobro.TarifaIvaSnapshot = linea.TaxRatePercent;
+            cobro.PrecioIncluyeIvaSnapshot = linea.PriceIncludesTax;
+        }
+
+        /// <summary>
+        /// Congela en el cobro la configuración de remuneración del colaborador. Siempre escribe
+        /// los seis campos: no existe el snapshot parcial (CK_Cobros_SnapshotRemuneracion).
+        /// </summary>
+        private static void AplicarSnapshotRemuneracion(Cobro cobro, CobroRemuneracionEfectiva remuneracion)
+        {
+            cobro.PorcentajeServicioSnapshot = remuneracion.PorcentajeServicios;
+            cobro.PorcentajeProductoSnapshot = remuneracion.PorcentajeProductos;
+            cobro.ComisionCalculadaSobreSnapshot = remuneracion.ComisionCalculadaSobre;
+            cobro.TipoRelacionColaboradorSnapshot = remuneracion.TipoRelacion;
+            cobro.ModalidadIvaColaboradorSnapshot = remuneracion.ModalidadIva;
+            cobro.TarifaIvaColaboradorSnapshot = remuneracion.TarifaIvaColaborador;
+        }
 
         private async Task TryActualizarNotasServicioAsync(
             int clienteId,
@@ -649,7 +787,11 @@ namespace LuxuryApp.Services.Finanzas
         private sealed class ServicioSnapshot
         {
             public int Id { get; init; }
+            public string Nombre { get; init; } = string.Empty;
             public decimal Precio { get; init; }
+            public bool AplicaIva { get; init; }
+            public decimal? TarifaIva { get; init; }
+            public bool? PrecioIncluyeIva { get; init; }
         }
 
         private sealed class ProductoVentaSnapshot
@@ -659,6 +801,9 @@ namespace LuxuryApp.Services.Finanzas
             public decimal PrecioProducto { get; init; }
             public int StockAnterior { get; set; }
             public int StockNuevo { get; init; }
+            public bool AplicaIva { get; init; }
+            public decimal? TarifaIva { get; init; }
+            public bool? PrecioIncluyeIva { get; init; }
         }
     }
 }

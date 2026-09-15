@@ -52,11 +52,24 @@ namespace LuxuryApp.Tests.TenantIsolation
             // Finanzas: mismos números del Dashboard Financiero, que ahora usa el motor único.
             // El IVA se calcula por línea de cobro y luego se suma, no dividiendo el total del mes.
             Assert.Equal(400m, report.Ingresos);
-            Assert.Equal(50m, report.Egresos);
             Assert.Equal(353.99m, report.TotalSinImpuestos);
             Assert.Equal(46.01m, report.Impuestos);
-            Assert.Equal(303.99m, report.GananciaReal);
-            Assert.Equal(76.00m, report.MargenGanancia);
+
+            // El correo pasó a reportar la MISMA "Ganancia del mes" que el Dashboard (devengado).
+            // Antes reportaba el resultado de CAJA (353,99 − 50 = 303,99), que no es la ganancia.
+            //
+            //   Liquidaciones devengadas = 50 % sobre base de servicios (88,50 + 88,50 = 177,00) → 88,50
+            //                            + 10 % sobre base de producto  (176,99)                  → 17,70
+            //                            = 106,20
+            //   Costos y gastos del mes  = 50 (gasto operativo) + 106,20 = 156,20
+            //   Ganancia del mes         = 353,99 − 156,20 = 197,79
+            //   Margen                   = 197,79 / 400 × 100 = 49,4475 → 49,45 (half-even)
+            Assert.Equal(156.20m, report.Egresos);
+            Assert.Equal(197.79m, report.GananciaReal);
+            Assert.Equal(49.45m, report.MargenGanancia);
+
+            // La CAJA se informa aparte y sigue siendo el único egreso de abril.
+            Assert.Equal(50m, report.SalidasCaja);
             Assert.Equal(200m, report.ServiciosGeneradosMonto);
             Assert.Equal(200m, report.ProductosGeneradosMonto);
             Assert.Equal(100m, report.IngresosEfectivo);

@@ -8,6 +8,14 @@ namespace LuxuryApp.Services.Funcionarios
         public string MetodoPago { get; set; } = string.Empty;
         public string? Observacion { get; set; }
         public string? CreadoPor { get; set; }
+
+        /// <summary>
+        /// Identifica la INTENCIÓN de pago (se genera al abrir el formulario, no en el servidor al
+        /// recibir el POST). Dos envíos con la misma clave producen una sola operación financiera.
+        /// Null = comportamiento anterior, sin protección de idempotencia.
+        /// </summary>
+        public Guid? IdempotencyKey { get; set; }
+
         public List<RegistrarLiquidacionSemanalDetalleCommand> Detalles { get; set; } = new();
     }
 

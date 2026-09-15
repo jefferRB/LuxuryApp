@@ -223,7 +223,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             // CAJA: en abril no salió plata hacia el funcionario (el pago se hizo el 3 de mayo)
             // y el único egreso del mes fue el alquiler.
             Assert.Equal(0m, model.TotalPagadoFuncionarios);
-            Assert.Equal(50m, model.TotalEgresos);
+            Assert.Equal(50m, model.SalidasCajaMes);
 
             // ANALÍTICO: es el DEVENGADO del período, no lo pagado. El cobro de 700 con IVA deja
             // una base de 619,47 y el 50 % de comisión son 309,74. Es exactamente la misma línea
@@ -288,7 +288,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var controller = new CobrosController(
                 ControllerTestSupport.CreateCobroService(context),
-                ControllerTestSupport.CreateCobroQueryService(context),
+                ControllerTestSupport.CreateCobroQueryService(context, tenantProvider),
                 ControllerTestSupport.CreateComprobanteCobroService(),
                 ControllerTestSupport.BusinessDateTimeProvider,
                 ControllerTestSupport.CreateTenantDisplayNameService());
@@ -720,6 +720,9 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new LuxuryApp.Services.Fiscal.TaxCalculationService(),
                 new LuxuryApp.Services.Fiscal.LiquidacionFuncionarioService(),
                 new LuxuryApp.Services.Fiscal.TenantFiscalConfigService(context, tenantProvider),
+                ControllerTestSupport.CreateSystemCategoryService(context),
+                new FakePlatformAuditService(),
+                tenantProvider,
                 NullLogger<LiquidacionSemanalService>.Instance);
 
         private static async Task<Funcionario> SeedFuncionarioAsync(

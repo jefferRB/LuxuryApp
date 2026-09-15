@@ -1,4 +1,4 @@
-using LuxuryApp.Models.Finanzas;
+﻿using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Services.Funcionarios;
 using LuxuryApp.Tests.Support;
@@ -136,6 +136,9 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new LuxuryApp.Services.Fiscal.TaxCalculationService(),
                 new LuxuryApp.Services.Fiscal.LiquidacionFuncionarioService(),
                 new LuxuryApp.Services.Fiscal.TenantFiscalConfigService(context, tenantProvider),
+                ControllerTestSupport.CreateSystemCategoryService(context),
+                new FakePlatformAuditService(),
+                tenantProvider,
                 NullLogger<LiquidacionSemanalService>.Instance);
 
             return new FuncionarioPortalQueryService(

@@ -1,5 +1,6 @@
 ﻿using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
+using LuxuryApp.Models.Inversionistas;
 using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Funcionarios;
 using Microsoft.EntityFrameworkCore;
@@ -28,18 +29,15 @@ namespace LuxuryApp.Services.Finanzas
         private readonly ApplicationDbContext _context;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly IPeriodProfitCalculationService _profitCalculationService;
-        private readonly LuxuryApp.Services.Inversionistas.IInvestorService _investorService;
 
         public DashboardFinancieroQueryService(
             ApplicationDbContext context,
             IBusinessDateTimeProvider businessDateTimeProvider,
-            IPeriodProfitCalculationService profitCalculationService,
-            LuxuryApp.Services.Inversionistas.IInvestorService investorService)
+            IPeriodProfitCalculationService profitCalculationService)
         {
             _context = context;
             _businessDateTimeProvider = businessDateTimeProvider;
             _profitCalculationService = profitCalculationService;
-            _investorService = investorService;
         }
 
         public async Task<DashboardViewModel> BuildViewModelAsync(
@@ -87,7 +85,10 @@ namespace LuxuryApp.Services.Finanzas
             // ── Ganancia del negocio: motor único, mismo que usan los inversionistas ──
             // Una sola llamada devuelve los doce meses, así el número grande del mes seleccionado y
             // las barras del gráfico salen exactamente del mismo cálculo.
-            var policy = await _investorService.GetPolicyAsync(cancellationToken);
+            // La interpretación es la ECONÓMICA, no la contractual del inversionista: ver
+            // InvestorProfitPolicy.CreateForBusinessResult. El Dashboard responde "¿cuánto ganó el
+            // negocio?", y eso no depende de cómo se pactó el reparto ni de si ya se pagó.
+            var policy = InvestorProfitPolicy.CreateForBusinessResult();
             var desglosePorMes = await _profitCalculationService.CalculateMonthlyAsync(
                 selection.Year,
                 policy,
@@ -137,7 +138,7 @@ namespace LuxuryApp.Services.Finanzas
                 TotalImpuestos = totalImpuestos,
                 TotalPagadoFuncionarios = totalPagadoFuncionariosCaja,
                 TotalPagadoFuncionariosAnalitico = totalPagadoFuncionariosAnalitico,
-                TotalEgresos = egresosMesSeleccionado.TotalEgresos,
+                SalidasCajaMes = egresosMesSeleccionado.TotalEgresos,
                 TotalEgresosAnaliticos = totalEgresosAnaliticos,
                 IngresosEfectivo = cobroMetrics.IngresosEfectivo,
                 IngresosSinpe = cobroMetrics.IngresosSinpe,
@@ -164,7 +165,11 @@ namespace LuxuryApp.Services.Finanzas
                 .GroupBy(_ => 1)
                 .Select(group => new CobroMetricsProjection
                 {
-                    TotalServicios = group.Sum(x => x.ServicioId != null ? x.Monto : 0m),
+                    // Criterio canónico de "servicio" (mismo que CobroQueryService y
+                    // LiquidacionSemanalService): un cobro de cita fuera de catálogo no tiene
+                    // ServicioId, solo el nombre personalizado, y financieramente ES un servicio.
+                    TotalServicios = group.Sum(x =>
+                        x.ServicioId != null || x.ServicioNombrePersonalizado != null ? x.Monto : 0m),
                     TotalProductos = group.Sum(x => x.ProductoId != null ? x.Monto : 0m),
                     TotalGenerado = group.Sum(x => x.Monto),
                     IngresosEfectivo = group.Sum(x => x.MetodoPago == "EFECTIVO" ? x.Monto : 0m),
@@ -237,11 +242,7 @@ namespace LuxuryApp.Services.Finanzas
                 .Select(group => new EgresoMonthAggregateProjection
                 {
                     Month = group.Key,
-                    TotalEgresos = group.Sum(x => x.Monto),
-                    OtrosEgresos = group.Sum(x =>
-                        x.Categoria != null && x.Categoria.Nombre == LiquidacionSemanalDefaults.CategoriaPagoFuncionarios
-                            ? 0m
-                            : x.Monto)
+                    TotalEgresos = group.Sum(x => x.Monto)
                 })
                 .ToListAsync(cancellationToken);
 
@@ -256,7 +257,11 @@ namespace LuxuryApp.Services.Finanzas
             var rows = await _context.Egresos
                 .AsNoTracking()
                 .Where(e => e.FechaEgreso >= yearStart && e.FechaEgreso < yearEnd)
-                .Where(e => e.Categoria != null && e.Categoria.Nombre == LiquidacionSemanalDefaults.CategoriaPagoFuncionarios)
+                // Identidad estructural, no nombre: ver SystemCategoryCodes.
+                .Where(e => e.Categoria != null &&
+                            (e.Categoria.SystemCode != null
+                                ? e.Categoria.SystemCode == SystemCategoryCodes.EmployeeSettlement
+                                : e.Categoria.Nombre == SystemCategoryCodes.NombreLegacyEmployeeSettlement))
                 .Where(e => !_context.LiquidacionesSemanales.Any(l => l.EgresoId == e.IdEgreso))
                 .GroupBy(e => e.FechaEgreso.Month)
                 .Select(group => new MonthAmountProjection
@@ -345,7 +350,6 @@ namespace LuxuryApp.Services.Finanzas
 
             public int Month { get; init; }
             public decimal TotalEgresos { get; init; }
-            public decimal OtrosEgresos { get; init; }
         }
 
     }

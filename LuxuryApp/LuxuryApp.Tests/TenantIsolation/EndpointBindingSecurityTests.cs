@@ -1,4 +1,4 @@
-using ClosedXML.Excel;
+﻿using ClosedXML.Excel;
 using LuxuryApp.Controllers;
 using LuxuryApp.Controllers.DataBase;
 using LuxuryApp.Controllers.Finanzas;
@@ -83,7 +83,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             tenantProvider.TenantId = tenantA;
             context.ChangeTracker.Clear();
 
-            var controller = new ServiciosController(context, NullLogger<ServiciosController>.Instance);
+            var controller = new ServiciosController(context, NullLogger<ServiciosController>.Instance, new LuxuryApp.Services.Finanzas.LegacyFinancialImpactService(context));
             var result = await controller.ObtenerPrecio(foreignServiceId);
 
             Assert.IsType<JsonResult>(result);
@@ -264,7 +264,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 ControllerTestSupport.CreateTenantDisplayNameService(),
                 ControllerTestSupport.CreateFuncionarioPhotoStorageService(),
                 tenantProvider,
-                NullLogger<FuncionariosController>.Instance);
+                NullLogger<FuncionariosController>.Instance,
+                new LuxuryApp.Services.Finanzas.LegacyFinancialImpactService(context));
             var result = await controller.GetActivos();
 
             var json = Assert.IsType<JsonResult>(result);
@@ -354,7 +355,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var controller = new CobrosController(
                 ControllerTestSupport.CreateCobroService(context),
-                ControllerTestSupport.CreateCobroQueryService(context),
+                ControllerTestSupport.CreateCobroQueryService(context, tenantProvider),
                 ControllerTestSupport.CreateComprobanteCobroService(),
                 ControllerTestSupport.BusinessDateTimeProvider,
                 ControllerTestSupport.CreateTenantDisplayNameService());

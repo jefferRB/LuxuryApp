@@ -1,4 +1,4 @@
-using System.Linq.Expressions;
+﻿using System.Linq.Expressions;
 using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.Common;
 using LuxuryApp.Models.Asociados;
@@ -448,6 +448,30 @@ namespace ProyectoIdentity.Datos
                     .WithMany()
                     .HasForeignKey(c => c.CitaId)
                     .OnDelete(DeleteBehavior.SetNull);
+
+                entity.Property(c => c.TarifaIvaSnapshot).HasColumnType("decimal(5,2)");
+                entity.Property(c => c.PorcentajeServicioSnapshot).HasColumnType("decimal(5,2)");
+                entity.Property(c => c.PorcentajeProductoSnapshot).HasColumnType("decimal(5,2)");
+                entity.Property(c => c.TarifaIvaColaboradorSnapshot).HasColumnType("decimal(5,2)");
+
+                // El snapshot de remuneración también es todo o nada. Liquidar con el porcentaje
+                // viejo y la modalidad de IVA nueva produciría una cifra que no existió jamás.
+                entity.ToTable(table => table.HasCheckConstraint(
+                    "CK_Cobros_SnapshotRemuneracion",
+                    "([PorcentajeServicioSnapshot] IS NULL AND [PorcentajeProductoSnapshot] IS NULL" +
+                    " AND [ComisionCalculadaSobreSnapshot] IS NULL AND [TipoRelacionColaboradorSnapshot] IS NULL" +
+                    " AND [ModalidadIvaColaboradorSnapshot] IS NULL AND [TarifaIvaColaboradorSnapshot] IS NULL)" +
+                    " OR ([PorcentajeServicioSnapshot] IS NOT NULL AND [PorcentajeProductoSnapshot] IS NOT NULL" +
+                    " AND [ComisionCalculadaSobreSnapshot] IS NOT NULL AND [TipoRelacionColaboradorSnapshot] IS NOT NULL" +
+                    " AND [ModalidadIvaColaboradorSnapshot] IS NOT NULL AND [TarifaIvaColaboradorSnapshot] IS NOT NULL)"));
+
+                // El snapshot fiscal es todo o nada. Un cobro a medio congelar sería peor que no
+                // tener snapshot: el motor creería que tiene historia propia y leería tarifas
+                // nulas. O es LEGACY (los tres NULL) o es historia completa.
+                entity.ToTable(table => table.HasCheckConstraint(
+                    "CK_Cobros_SnapshotFiscal",
+                    "([AplicaIvaSnapshot] IS NULL AND [TarifaIvaSnapshot] IS NULL AND [PrecioIncluyeIvaSnapshot] IS NULL)" +
+                    " OR ([AplicaIvaSnapshot] IS NOT NULL AND [TarifaIvaSnapshot] IS NOT NULL AND [PrecioIncluyeIvaSnapshot] IS NOT NULL)"));
             });
 
             modelBuilder.Entity<ComprobanteCobro>(entity =>
@@ -616,9 +640,20 @@ namespace ProyectoIdentity.Datos
                 entity.Property(c => c.Detalle)
                     .HasMaxLength(500);
 
+                entity.Property(c => c.SystemCode)
+                    .HasMaxLength(LuxuryApp.Models.Finanzas.SystemCategoryCodes.MaxLength);
+
                 entity.HasIndex(c => new { c.TenantId, c.Nombre })
                     .IsUnique()
                     .HasDatabaseName("IX_Categorias_TenantId_Nombre");
+
+                // Identidad estructural: un tenant no puede tener dos categorías con el mismo
+                // SystemCode. El filtro deja fuera las categorías del usuario (SystemCode NULL),
+                // que pueden ser tantas como quiera.
+                entity.HasIndex(c => new { c.TenantId, c.SystemCode })
+                    .IsUnique()
+                    .HasFilter("[SystemCode] IS NOT NULL")
+                    .HasDatabaseName("UX_Categorias_TenantId_SystemCode");
             });
 
             modelBuilder.Entity<Producto>(entity =>
@@ -681,6 +716,13 @@ namespace ProyectoIdentity.Datos
 
                 entity.HasIndex(l => l.EgresoId)
                     .IsUnique();
+
+                // Idempotencia del pago: dos POST con la misma intención = una sola operación.
+                // El filtro deja fuera los pagos históricos (clave NULL).
+                entity.HasIndex(l => new { l.TenantId, l.IdempotencyKey })
+                    .IsUnique()
+                    .HasFilter("[IdempotencyKey] IS NOT NULL")
+                    .HasDatabaseName("UX_LiquidacionesSemanales_TenantId_IdempotencyKey");
 
                 entity.HasOne(l => l.Egreso)
                     .WithMany()

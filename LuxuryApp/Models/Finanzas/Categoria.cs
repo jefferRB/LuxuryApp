@@ -20,5 +20,18 @@ namespace LuxuryApp.Models.Finanzas
         public string? Detalle { get; set; }
 
         public bool Activo { get; set; } = true;
+
+        /// <summary>
+        /// Identidad ESTRUCTURAL de la categoría (ver <see cref="SystemCategoryCodes"/>).
+        /// <c>null</c> = categoría del usuario, se comporta como gasto operativo normal.
+        ///
+        /// <para>
+        /// La lógica financiera consulta este campo, nunca <see cref="Nombre"/>: renombrar la
+        /// etiqueta visible no puede cambiar una fórmula. Único por tenant (índice filtrado).
+        /// </para>
+        /// </summary>
+        [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever]
+        [StringLength(SystemCategoryCodes.MaxLength)]
+        public string? SystemCode { get; set; }
     }
 }

@@ -1,4 +1,4 @@
-using LuxuryApp.Controllers.Productos;
+﻿using LuxuryApp.Controllers.Productos;
 using LuxuryApp.Models.Productos;
 using LuxuryApp.Tests.Support;
 using Microsoft.AspNetCore.Mvc;
@@ -32,7 +32,8 @@ namespace LuxuryApp.Tests.TenantIsolation
             var controller = new ProductosController(
                 ControllerTestSupport.CreateProductoService(context),
                 ControllerTestSupport.CreateProductoQueryService(context),
-                NullLogger<ProductosController>.Instance);
+                NullLogger<ProductosController>.Instance,
+                new LuxuryApp.Services.Finanzas.LegacyFinancialImpactService(context));
 
             ControllerTestSupport.AttachHttpContext(
                 controller,

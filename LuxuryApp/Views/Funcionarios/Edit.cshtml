@@ -1,4 +1,4 @@
-@model LuxuryApp.Models.Funcionarios.Funcionario
+﻿@model LuxuryApp.Models.Funcionarios.Funcionario
 @using LuxuryApp.Models.Funcionarios
 @{
     var acceso = ViewData["Acceso"] as FuncionarioAccesoViewModel
@@ -264,6 +264,12 @@
                 </div>
 
             </div>
+
+            @{ var avisoHistorico = ViewData[LuxuryApp.Models.Fiscal.AvisoImpactoHistorico.CampoConfirmacion] as string; }
+            @if (!string.IsNullOrEmpty(avisoHistorico))
+            {
+                @await Html.PartialAsync("_AvisoImpactoHistorico", avisoHistorico)
+            }
 
             <div class="func-actions">
                 <button type="submit" class="func-btn func-btn--primary">

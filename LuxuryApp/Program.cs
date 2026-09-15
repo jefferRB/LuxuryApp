@@ -1,4 +1,4 @@
-using LuxuryApp.Datos;
+﻿using LuxuryApp.Datos;
 using LuxuryApp.Emails;
 using LuxuryApp.Models.Identity;
 using LuxuryApp.Models.SaaS;
@@ -351,6 +351,11 @@ builder.Services.AddScoped<ICalendarCommandService, CalendarCommandService>();
 builder.Services.AddScoped<ICalendarQueryService, CalendarQueryService>();
 builder.Services.AddScoped<IControlCobrosQueryService, ControlCobrosQueryService>();
 builder.Services.AddScoped<ICobroService, CobroService>();
+// Cuenta las transacciones históricas que una edición de configuración podría reinterpretar
+// (cobros sin snapshot). Alimenta el aviso de confirmación de Servicios, Productos,
+// Colaboradores y Configuración fiscal.
+builder.Services.AddScoped<LuxuryApp.Services.Finanzas.ILegacyFinancialImpactService,
+    LuxuryApp.Services.Finanzas.LegacyFinancialImpactService>();
 builder.Services.AddScoped<ICobroQueryService, CobroQueryService>();
 // Comprobante digital interno (no fiscal)
 builder.Services.AddScoped<IComprobantePdfService, ComprobantePdfService>();
@@ -369,6 +374,8 @@ builder.Services.AddScoped<LuxuryApp.Services.Reports.IMonthlyReportScheduler, L
 builder.Services.AddScoped<LuxuryApp.Services.Platform.IPlatformMonthlyReportService, LuxuryApp.Services.Platform.PlatformMonthlyReportService>();
 builder.Services.AddScoped<IEgresoService, EgresoService>();
 builder.Services.AddScoped<IEgresoQueryService, EgresoQueryService>();
+// Identidad estructural de las categorías financieras: ninguna fórmula depende del nombre visible.
+builder.Services.AddScoped<ISystemCategoryService, SystemCategoryService>();
 builder.Services.AddScoped<IInformacionNegocioQueryService, InformacionNegocioQueryService>();
 builder.Services.AddSingleton<LuxuryApp.Services.Fiscal.ITaxCalculationService, LuxuryApp.Services.Fiscal.TaxCalculationService>();
 builder.Services.AddSingleton<LuxuryApp.Services.Fiscal.ILiquidacionFuncionarioService, LuxuryApp.Services.Fiscal.LiquidacionFuncionarioService>();

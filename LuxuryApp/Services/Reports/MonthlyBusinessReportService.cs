@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Net.Mail;
 using System.Security.Cryptography;
 using System.Text;
@@ -77,7 +77,7 @@ namespace LuxuryApp.Services.Reports
 
             var tieneActividad =
                 dashboard.TotalGenerado > 0m ||
-                dashboard.TotalEgresos > 0m ||
+                dashboard.SalidasCajaMes > 0m ||
                 informacion.CantidadServiciosMes > 0 ||
                 informacion.CantidadProductosMes > 0 ||
                 informacion.ReservasOnlineMes > 0;
@@ -94,11 +94,17 @@ namespace LuxuryApp.Services.Reports
 
                 // Dashboard Financiero
                 Ingresos = dashboard.TotalGenerado,
-                Egresos = dashboard.TotalEgresos,
-                GananciaReal = dashboard.GananciaNegocio,
+
+                // DEVENGADO: misma "Ganancia del mes" que el Dashboard, del motor único. El correo
+                // y la pantalla no pueden reportar dos ganancias distintas del mismo mes.
+                Egresos = dashboard.TotalEgresosAnaliticos,
+                GananciaReal = dashboard.ResultadoAnalitico,
                 MargenGanancia = dashboard.TotalGenerado > 0m
-                    ? Math.Round(dashboard.GananciaNegocio / dashboard.TotalGenerado * 100m, 2, MidpointRounding.ToEven)
+                    ? Math.Round(dashboard.ResultadoAnalitico / dashboard.TotalGenerado * 100m, 2, MidpointRounding.ToEven)
                     : 0m,
+
+                // CAJA: se informa aparte, nunca como ganancia.
+                SalidasCaja = dashboard.SalidasCajaMes,
                 Impuestos = dashboard.TotalImpuestos,
                 PagoFuncionarios = dashboard.TotalPagadoFuncionarios,
                 TotalSinImpuestos = dashboard.TotalSinImpuestos,
@@ -167,15 +173,15 @@ namespace LuxuryApp.Services.Reports
             var prevInformacion = await _informacionService.BuildViewModelAsync(previous.Month, previous.Year, top: 5, cancellationToken);
 
             report.IngresosMesAnterior = prevDashboard.TotalGenerado;
-            report.EgresosMesAnterior = prevDashboard.TotalEgresos;
-            report.GananciaRealMesAnterior = prevDashboard.GananciaNegocio;
+            report.EgresosMesAnterior = prevDashboard.TotalEgresosAnaliticos;
+            report.GananciaRealMesAnterior = prevDashboard.ResultadoAnalitico;
             report.ServiciosRealizadosMesAnterior = prevInformacion.CantidadServiciosMes;
             report.ProductosVendidosMesAnterior = prevInformacion.CantidadProductosMes;
             report.CitasOnlineMesAnterior = prevInformacion.ReservasOnlineMes;
 
             report.TieneComparativa =
                 prevDashboard.TotalGenerado > 0m ||
-                prevDashboard.TotalEgresos > 0m ||
+                prevDashboard.SalidasCajaMes > 0m ||
                 prevInformacion.CantidadServiciosMes > 0 ||
                 prevInformacion.CantidadProductosMes > 0 ||
                 prevInformacion.ReservasOnlineMes > 0;

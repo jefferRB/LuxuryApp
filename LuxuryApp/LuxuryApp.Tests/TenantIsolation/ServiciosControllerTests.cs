@@ -1,4 +1,4 @@
-using LuxuryApp.Controllers.Finanzas;
+﻿using LuxuryApp.Controllers.Finanzas;
 using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
@@ -216,7 +216,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
         private static ServiciosController CreateController(ProyectoIdentity.Datos.ApplicationDbContext context, Guid tenantId)
         {
-            var controller = new ServiciosController(context, NullLogger<ServiciosController>.Instance);
+            var controller = new ServiciosController(context, NullLogger<ServiciosController>.Instance, new LuxuryApp.Services.Finanzas.LegacyFinancialImpactService(context));
             ControllerTestSupport.AttachHttpContext(
                 controller,
                 ControllerTestSupport.BuildTenantPrincipal("user-servicios", tenantId));

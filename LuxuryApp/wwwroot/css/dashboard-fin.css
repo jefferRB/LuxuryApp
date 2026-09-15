@@ -176,6 +176,55 @@
     background: rgba(220, 38, 38, 0.12);
 }
 
+/* ── B1. MOVIMIENTO DE CAJA ─────────────────────────────
+   Secundario a propósito: no participa de la ecuación de ganancia, que es por devengado. */
+.dfin-caja-strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem 1.25rem;
+    padding: 0.85rem 1.15rem;
+    margin-bottom: 1.5rem;
+    border-radius: 0.9rem;
+    border: 1px dashed var(--private-surface-border, rgba(15, 23, 42, 0.16));
+    background: var(--private-surface-soft, rgba(15, 23, 42, 0.02));
+}
+
+.dfin-caja-main {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+}
+
+.dfin-caja-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--private-muted-text, #64748b);
+}
+
+.dfin-caja-value {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--private-surface-text, #111827);
+}
+
+.dfin-caja-help {
+    flex: 1 1 22rem;
+    margin: 0;
+    font-size: 0.74rem;
+    line-height: 1.35;
+    color: var(--private-muted-text, #64748b);
+}
+
+@media (max-width: 575.98px) {
+    .dfin-caja-strip { flex-direction: column; align-items: flex-start; }
+    .dfin-caja-help  { flex: 1 1 auto; }
+}
+
 .dfin-color-income   { color: var(--private-chart-accent,   var(--private-accent)); }
 .dfin-color-expenses { color: var(--private-surface-text,  #111827); }
 .dfin-color-profit   { color: var(--private-chart-success, #16a34a); }
@@ -496,4 +545,18 @@
     color: var(--private-chart-accent, var(--private-accent));
     margin-top: 0.1rem;
     flex-shrink: 0;
+}
+
+/* Desglose de "Costos y gastos del mes": liquidaciones devengadas + gastos operativos.
+   Apilado siempre — en una sola línea no cabe en móvil y partir el número es peor que bajarlo. */
+.dfin-sum-breakdown {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    line-height: 1.35;
+}
+
+.dfin-sum-breakdown b {
+    font-weight: 700;
+    white-space: nowrap;
 }

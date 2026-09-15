@@ -745,6 +745,10 @@ namespace LuxuryApp.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("nvarchar(150)");
 
+                    b.Property<string>("SystemCode")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");
 
@@ -755,6 +759,11 @@ namespace LuxuryApp.Migrations
                     b.HasIndex("TenantId", "Nombre")
                         .IsUnique()
                         .HasDatabaseName("IX_Categorias_TenantId_Nombre");
+
+                    b.HasIndex("TenantId", "SystemCode")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Categorias_TenantId_SystemCode")
+                        .HasFilter("[SystemCode] IS NOT NULL");
 
                     b.ToTable("Categorias");
                 });
@@ -767,11 +776,21 @@ namespace LuxuryApp.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("IdCobro"));
 
+                    b.Property<bool?>("AplicaIvaSnapshot")
+                        .HasColumnType("bit");
+
                     b.Property<int?>("CitaId")
                         .HasColumnType("int");
 
                     b.Property<int?>("ClienteId")
                         .HasColumnType("int");
+
+                    b.Property<int?>("ComisionCalculadaSobreSnapshot")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DetalleSnapshot")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<DateTime>("FechaCobro")
                         .HasColumnType("datetime2");
@@ -783,6 +802,9 @@ namespace LuxuryApp.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int?>("ModalidadIvaColaboradorSnapshot")
+                        .HasColumnType("int");
+
                     b.Property<decimal>("Monto")
                         .HasColumnType("decimal(18,2)");
 
@@ -793,6 +815,15 @@ namespace LuxuryApp.Migrations
                     b.Property<string>("Observaciones")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<decimal?>("PorcentajeProductoSnapshot")
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<decimal?>("PorcentajeServicioSnapshot")
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<bool?>("PrecioIncluyeIvaSnapshot")
+                        .HasColumnType("bit");
+
                     b.Property<int?>("ProductoId")
                         .HasColumnType("int");
 
@@ -802,8 +833,17 @@ namespace LuxuryApp.Migrations
                     b.Property<string>("ServicioNombrePersonalizado")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<decimal?>("TarifaIvaColaboradorSnapshot")
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<decimal?>("TarifaIvaSnapshot")
+                        .HasColumnType("decimal(5,2)");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("TipoRelacionColaboradorSnapshot")
+                        .HasColumnType("int");
 
                     b.HasKey("IdCobro");
 
@@ -834,7 +874,12 @@ namespace LuxuryApp.Migrations
                     b.HasIndex("TenantId", "FuncionarioId", "FechaCobro")
                         .HasDatabaseName("IX_Cobros_TenantId_FuncionarioId_FechaCobro");
 
-                    b.ToTable("Cobros");
+                    b.ToTable("Cobros", t =>
+                        {
+                            t.HasCheckConstraint("CK_Cobros_SnapshotFiscal", "([AplicaIvaSnapshot] IS NULL AND [TarifaIvaSnapshot] IS NULL AND [PrecioIncluyeIvaSnapshot] IS NULL) OR ([AplicaIvaSnapshot] IS NOT NULL AND [TarifaIvaSnapshot] IS NOT NULL AND [PrecioIncluyeIvaSnapshot] IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_Cobros_SnapshotRemuneracion", "([PorcentajeServicioSnapshot] IS NULL AND [PorcentajeProductoSnapshot] IS NULL AND [ComisionCalculadaSobreSnapshot] IS NULL AND [TipoRelacionColaboradorSnapshot] IS NULL AND [ModalidadIvaColaboradorSnapshot] IS NULL AND [TarifaIvaColaboradorSnapshot] IS NULL) OR ([PorcentajeServicioSnapshot] IS NOT NULL AND [PorcentajeProductoSnapshot] IS NOT NULL AND [ComisionCalculadaSobreSnapshot] IS NOT NULL AND [TipoRelacionColaboradorSnapshot] IS NOT NULL AND [ModalidadIvaColaboradorSnapshot] IS NOT NULL AND [TarifaIvaColaboradorSnapshot] IS NOT NULL)");
+                        });
                 });
 
             modelBuilder.Entity("LuxuryApp.Models.Finanzas.DetalleCobroProducto", b =>
@@ -1148,6 +1193,9 @@ namespace LuxuryApp.Migrations
                     b.Property<DateTime>("FechaPago")
                         .HasColumnType("datetime2");
 
+                    b.Property<Guid?>("IdempotencyKey")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<decimal>("MontoTotal")
                         .HasColumnType("decimal(18,2)");
 
@@ -1171,6 +1219,11 @@ namespace LuxuryApp.Migrations
                         .HasFilter("[EgresoId] IS NOT NULL");
 
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("UX_LiquidacionesSemanales_TenantId_IdempotencyKey")
+                        .HasFilter("[IdempotencyKey] IS NOT NULL");
 
                     b.HasIndex("TenantId", "SemanaInicio", "SemanaFin", "FechaPago")
                         .HasDatabaseName("IX_LiquidacionesSemanales_TenantId_Semana");

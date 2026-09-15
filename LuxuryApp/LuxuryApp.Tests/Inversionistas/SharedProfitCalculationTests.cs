@@ -179,7 +179,7 @@ namespace LuxuryApp.Tests.Inversionistas
             Assert.Equal(antes.TotalEgresosAnaliticos, despues.TotalEgresosAnaliticos);
 
             // Y sí aparece en la vista de CAJA, que es donde corresponde.
-            Assert.True(despues.TotalEgresos > antes.TotalEgresos);
+            Assert.True(despues.SalidasCajaMes > antes.SalidasCajaMes);
         }
 
         // ─────────────── Semillas ───────────────

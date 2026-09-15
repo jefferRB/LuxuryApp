@@ -15,18 +15,15 @@ namespace LuxuryApp.Services.Asociados
     public sealed class AssociateProfitAllocationService : IAssociateProfitAllocationService
     {
         private readonly ApplicationDbContext _context;
-        private readonly IInvestorService _investorService;
         private readonly IPeriodProfitCalculationService _calculationService;
         private readonly LuxuryApp.Services.BusinessTime.IBusinessDateTimeProvider _businessDateTimeProvider;
 
         public AssociateProfitAllocationService(
             ApplicationDbContext context,
-            IInvestorService investorService,
             IPeriodProfitCalculationService calculationService,
             LuxuryApp.Services.BusinessTime.IBusinessDateTimeProvider businessDateTimeProvider)
         {
             _context = context;
-            _investorService = investorService;
             _calculationService = calculationService;
             _businessDateTimeProvider = businessDateTimeProvider;
         }
@@ -59,7 +56,9 @@ namespace LuxuryApp.Services.Asociados
                 return null;
             }
 
-            var policy = await _investorService.GetPolicyAsync(cancellationToken);
+            // MISMA ganancia que el titular del Dashboard: este KPI se muestra en la misma pantalla,
+            // así que no puede repartir sobre un número distinto del que el dueño está viendo.
+            var policy = InvestorProfitPolicy.CreateForBusinessResult();
             var desglose = await _calculationService.CalculateAsync(inicio, fin, policy, cancellationToken);
 
             // Ganancia del negocio en el mes calendario, tal cual la devuelve el motor único.

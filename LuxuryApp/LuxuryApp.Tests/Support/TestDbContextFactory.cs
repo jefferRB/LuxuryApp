@@ -27,5 +27,28 @@ namespace LuxuryApp.Tests.Support
 
             return (context, connection);
         }
+
+        /// <summary>
+        /// Segundo contexto sobre la MISMA base (misma conexión en memoria). Sirve para simular
+        /// otra petición/otro tenant hablando con la misma base de datos: es lo que permite probar
+        /// idempotencia, carreras y aislamiento sin dobles en memoria.
+        /// </summary>
+        public static ApplicationDbContext CreateSqliteContext(
+            TestTenantProvider tenantProvider,
+            SqliteConnection connection)
+        {
+            var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+                .UseSqlite(connection)
+                .Options;
+
+            var context = new ApplicationDbContext(
+                options,
+                tenantProvider,
+                NullLogger<ApplicationDbContext>.Instance);
+
+            context.Database.EnsureCreated();
+
+            return context;
+        }
     }
 }

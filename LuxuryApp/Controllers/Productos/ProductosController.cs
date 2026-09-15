@@ -13,16 +13,19 @@ namespace LuxuryApp.Controllers.Productos
     {
         private readonly IProductoService _productoService;
         private readonly IProductoQueryService _productoQueryService;
+        private readonly LuxuryApp.Services.Finanzas.ILegacyFinancialImpactService _impactoHistorico;
         private readonly ILogger<ProductosController> _logger;
 
         public ProductosController(
             IProductoService productoService,
             IProductoQueryService productoQueryService,
-            ILogger<ProductosController> logger)
+            ILogger<ProductosController> logger,
+            LuxuryApp.Services.Finanzas.ILegacyFinancialImpactService impactoHistorico)
         {
             _productoService = productoService;
             _productoQueryService = productoQueryService;
             _logger = logger;
+            _impactoHistorico = impactoHistorico;
         }
 
         // =========================
@@ -119,7 +122,8 @@ namespace LuxuryApp.Controllers.Productos
                 nameof(Producto.PrecioIncluyeIva),
                 Prefix = "Producto")]
             Producto producto,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool confirmarImpactoHistorico = false)
         {
             if (id != producto.IdProducto)
             {
@@ -127,6 +131,11 @@ namespace LuxuryApp.Controllers.Productos
             }
 
             if (!ModelState.IsValid)
+            {
+                return View(_productoQueryService.BuildFormViewModel(producto));
+            }
+
+            if (await RequiereConfirmacionHistoricaAsync(producto, confirmarImpactoHistorico, cancellationToken))
             {
                 return View(_productoQueryService.BuildFormViewModel(producto));
             }
@@ -187,6 +196,55 @@ namespace LuxuryApp.Controllers.Productos
                 TarifaIva = producto.TarifaIva,
                 PrecioIncluyeIva = producto.PrecioIncluyeIva
             };
+        }
+
+        /// <summary>
+        /// Igual que en Servicios: si la fiscalidad del producto cambia y existen cobros suyos SIN
+        /// snapshot, el guardado se devuelve una vez con el aviso hasta que el usuario confirme.
+        /// Se compara contra la fila real en el servidor; la casilla sola no basta.
+        /// </summary>
+        private async Task<bool> RequiereConfirmacionHistoricaAsync(
+            Producto producto,
+            bool confirmado,
+            CancellationToken cancellationToken)
+        {
+            if (confirmado)
+            {
+                return false;
+            }
+
+            var actual = await _productoQueryService.ObtenerFiscalidadAsync(producto.IdProducto, cancellationToken);
+            if (actual is null)
+            {
+                return false;
+            }
+
+            var cambioFiscal =
+                actual.AplicaIva != producto.AplicaIva ||
+                actual.TarifaIva != producto.TarifaIva ||
+                actual.PrecioIncluyeIva != producto.PrecioIncluyeIva;
+
+            if (!cambioFiscal)
+            {
+                return false;
+            }
+
+            var legacy = await _impactoHistorico.ContarCobrosLegacyDeProductoAsync(
+                producto.IdProducto, cancellationToken);
+
+            if (legacy == 0)
+            {
+                return false;
+            }
+
+            ViewData[LuxuryApp.Models.Fiscal.AvisoImpactoHistorico.CampoConfirmacion] =
+                LuxuryApp.Models.Fiscal.AvisoImpactoHistorico.Producto(legacy);
+
+            ModelState.AddModelError(
+                string.Empty,
+                LuxuryApp.Models.Fiscal.AvisoImpactoHistorico.Confirmacion);
+
+            return true;
         }
     }
 }

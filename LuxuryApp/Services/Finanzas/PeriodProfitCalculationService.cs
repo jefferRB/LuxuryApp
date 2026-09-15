@@ -1,3 +1,4 @@
+using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Fiscal;
 using LuxuryApp.Models.Funcionarios;
 using LuxuryApp.Models.Inversionistas;
@@ -140,12 +141,14 @@ namespace LuxuryApp.Services.Finanzas
                 .GroupBy(egreso => new
                 {
                     egreso.CategoriaId,
-                    Nombre = egreso.Categoria != null ? egreso.Categoria.Nombre : null
+                    Nombre = egreso.Categoria != null ? egreso.Categoria.Nombre : null,
+                    SystemCode = egreso.Categoria != null ? egreso.Categoria.SystemCode : null
                 })
                 .Select(group => new
                 {
                     group.Key.CategoriaId,
                     group.Key.Nombre,
+                    group.Key.SystemCode,
                     Monto = group.Sum(egreso => egreso.Monto)
                 })
                 .ToListAsync(cancellationToken);
@@ -160,7 +163,7 @@ namespace LuxuryApp.Services.Finanzas
             foreach (var fila in filas.OrderBy(row => row.Nombre ?? string.Empty, StringComparer.CurrentCultureIgnoreCase))
             {
                 var nombre = string.IsNullOrWhiteSpace(fila.Nombre) ? "Sin categoría" : fila.Nombre!;
-                var motivo = ResolverMotivoExclusion(fila.CategoriaId, nombre, policy, seleccionadas);
+                var motivo = ResolverMotivoExclusion(fila.CategoriaId, nombre, fila.SystemCode, policy, seleccionadas);
                 var incluido = motivo is null;
                 var monto = FiscalMath.Redondear(fila.Monto);
 
@@ -187,19 +190,24 @@ namespace LuxuryApp.Services.Finanzas
         private static string? ResolverMotivoExclusion(
             int categoriaId,
             string nombre,
+            string? systemCode,
             InvestorProfitPolicy policy,
             IReadOnlySet<int> seleccionadas)
         {
+            // Las dos exclusiones estructurales se deciden por IDENTIDAD (SystemCode), no por el
+            // nombre visible: renombrar la etiqueta no puede cambiar la ganancia. El nombre solo
+            // decide en categorías que todavía no tienen código (ver SystemCategoryCodes).
+
             // 1) Pago a colaboradores: ya se resta como "Liquidaciones". Contarlo también como gasto
             //    lo restaría dos veces.
-            if (string.Equals(nombre, LiquidacionSemanalDefaults.CategoriaPagoFuncionarios, StringComparison.OrdinalIgnoreCase))
+            if (SystemCategoryCodes.EsLiquidacionDeColaboradores(systemCode, nombre))
             {
                 return "Los pagos a colaboradores ya se restan en la línea de liquidaciones.";
             }
 
             // 2) Distribución a inversionistas: si contara como gasto, pagarle al inversionista
             //    reduciría la ganancia distribuible y con ella su propia participación (recursividad).
-            if (string.Equals(nombre, InvestorDefaults.CategoriaDistribucionInversionistas, StringComparison.OrdinalIgnoreCase))
+            if (SystemCategoryCodes.EsDistribucionAInversionistas(systemCode, nombre))
             {
                 return "Los pagos a inversionistas no reducen la ganancia distribuible.";
             }

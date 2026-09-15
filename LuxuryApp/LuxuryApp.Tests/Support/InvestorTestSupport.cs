@@ -28,6 +28,9 @@ namespace LuxuryApp.Tests.Support
                 new LuxuryApp.Services.Fiscal.TaxCalculationService(),
                 new LuxuryApp.Services.Fiscal.LiquidacionFuncionarioService(),
                 new LuxuryApp.Services.Fiscal.TenantFiscalConfigService(context, tenantProvider),
+                ControllerTestSupport.CreateSystemCategoryService(context),
+                new FakePlatformAuditService(),
+                tenantProvider,
                 NullLogger<LiquidacionSemanalService>.Instance);
 
         public static LuxuryApp.Services.Finanzas.PeriodProfitCalculationService CreateCalculationService(

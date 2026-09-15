@@ -81,6 +81,44 @@ namespace LuxuryApp.Models.Inversionistas
             TenantId = tenantId
         };
 
+        /// <summary>
+        /// Interpretación ECONÓMICA del negocio: la que usan el Dashboard, el Resumen Ejecutivo
+        /// Mensual y el KPI de participación. <b>No es configurable.</b>
+        ///
+        /// <para>
+        /// Esta clase tiene dos lectores con preguntas distintas. El estado de cuenta pregunta
+        /// "¿cuánto le toca al inversionista según el CONTRATO?", y ahí los interruptores de arriba
+        /// son legítimos: un contrato puede pactar que se reparta solo sobre lo efectivamente
+        /// pagado. El Dashboard pregunta otra cosa: "¿cuánto ganó el NEGOCIO este mes?", y eso es
+        /// contabilidad, no un acuerdo entre partes.
+        /// </para>
+        ///
+        /// <para>
+        /// Mientras el Dashboard leyó la política contractual, un tenant con
+        /// <see cref="InvestorSettlementBasis.Pagado"/> veía "Liquidaciones del equipo ₡0" cuando la
+        /// semana todavía no se había pagado: el negocio se anotaba como ganancia una plata que ya
+        /// le debía al colaborador. El costo lo crea la PRODUCCIÓN, no el pago; pagar solo mueve
+        /// caja. Por eso acá el devengado se fija y no se negocia.
+        /// </para>
+        ///
+        /// <para>Los otros tres valores se fijan por la misma razón:</para>
+        /// <list type="bullet">
+        ///   <item><see cref="ExcluirIva"/>: el IVA es del fisco. Si no se excluyera, el Dashboard
+        ///   reportaría IVA ₡0 mientras Ingresos y el Excel muestran el IVA real.</item>
+        ///   <item><see cref="IncluirLiquidaciones"/>: el trabajo del equipo es un costo del
+        ///   negocio, siempre.</item>
+        ///   <item><see cref="ModoCategoriasGasto"/>: "Costos y gastos del mes" son TODOS los
+        ///   gastos reales. Excluir categorías es una decisión de reparto, no de rentabilidad.</item>
+        /// </list>
+        /// </summary>
+        public static InvestorProfitPolicy CreateForBusinessResult() => new()
+        {
+            ExcluirIva = true,
+            IncluirLiquidaciones = true,
+            BaseLiquidaciones = InvestorSettlementBasis.Devengado,
+            ModoCategoriasGasto = InvestorExpenseCategoryMode.Todas
+        };
+
         /// <summary>Descripción corta de la fórmula, congelada en cada snapshot.</summary>
         public string BuildVersionDescription()
         {

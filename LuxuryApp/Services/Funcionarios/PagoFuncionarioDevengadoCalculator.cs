@@ -1,4 +1,4 @@
-using LuxuryApp.Models.Finanzas;
+﻿using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Fiscal;
 using LuxuryApp.Models.Funcionarios;
 
@@ -22,69 +22,36 @@ namespace LuxuryApp.Services.Funcionarios
         public static decimal CalcularIvaIncluido(decimal totalConIva) => totalConIva - BaseSinIva(totalConIva);
 
         /// <summary>
-        /// Calcula la base sobre la que se aplica el porcentaje de comisión del funcionario.
-        /// Si <paramref name="rebajarImpuestos"/> es true, se usa la base SIN IVA (precio con IVA
-        /// incluido → Total / 1.13); si es false, se usa el total cobrado.
+        /// Reparte un pago entre los meses de la producción que lo generó, proporcionalmente al
+        /// devengado de cada mes.
+        ///
+        /// <para>
+        /// Recibe el devengado YA CALCULADO. Antes lo resolvía acá dentro con la configuración
+        /// actual del colaborador y una división plana entre 1,13, lo que lo convertía en una
+        /// segunda implementación del devengado que podía contradecir a la liquidación. Ahora el
+        /// único dueño de ese cálculo es <c>LiquidacionSemanalService.Devengado</c>, que respeta
+        /// el snapshot del cobro y el motor fiscal canónico.
+        /// </para>
+        ///
+        /// <para>
+        /// El reparto en sí NO cambió: mismo prorrateo, mismo redondeo AwayFromZero y el último mes
+        /// se lleva el residuo para que la suma cierre exacta contra el monto pagado.
+        /// </para>
         /// </summary>
-        public static decimal CalcularBaseComision(decimal monto, bool rebajarImpuestos) =>
-            rebajarImpuestos ? BaseSinIva(monto) : monto;
-
-        /// <summary>
-        /// Base de comisión según la configuración explícita del colaborador
-        /// (<see cref="ComisionCalculadaSobre"/>), fuente de verdad frente al flag histórico.
-        /// </summary>
-        public static decimal CalcularBaseComision(decimal monto, ComisionCalculadaSobre comisionSobre) =>
-            comisionSobre == ComisionCalculadaSobre.BaseSinIva ? BaseSinIva(monto) : monto;
-
-        public static decimal CalcularMontoDevengado(Cobro cobro, Funcionario funcionario)
-        {
-            var porcentaje = cobro.ProductoId != null
-                ? funcionario.PorcentajeProducto
-                : funcionario.PorcentajeGanancia;
-
-            var baseComision = CalcularBaseComision(cobro.Monto, funcionario.ComisionCalculadaSobre);
-            return baseComision * (porcentaje / 100m);
-        }
-
-        public static decimal CalcularPagoColaboradores(IEnumerable<Cobro> cobros)
-        {
-            decimal total = 0;
-
-            foreach (var cobro in cobros)
-            {
-                if (cobro.Funcionario == null)
-                {
-                    continue;
-                }
-
-                total += CalcularMontoDevengado(cobro, cobro.Funcionario);
-            }
-
-            return total;
-        }
-
         public static IReadOnlyList<PagoFuncionarioDistribucionMensual> DistribuirMontoPagadoPorMes(
-            IEnumerable<Cobro> cobros,
-            Funcionario funcionario,
+            IEnumerable<(DateTime Fecha, decimal Devengado)> produccion,
             decimal montoPagado)
         {
-            var baseMensual = cobros
-                .Select(cobro => new
-                {
-                    Cobro = cobro,
-                    MontoDevengado = CalcularMontoDevengado(cobro, funcionario)
-                })
-                .Where(x => x.MontoDevengado > 0)
-                .GroupBy(
-                    x => new { x.Cobro.FechaCobro.Year, x.Cobro.FechaCobro.Month },
-                    x => x)
+            var baseMensual = produccion
+                .Where(x => x.Devengado > 0)
+                .GroupBy(x => new { x.Fecha.Year, x.Fecha.Month })
                 .Select(group => new PagoFuncionarioDistribucionMensual
                 {
                     Anio = group.Key.Year,
                     Mes = group.Key.Month,
-                    MontoAsignado = group.Sum(x => x.MontoDevengado),
+                    MontoAsignado = group.Sum(x => x.Devengado),
                     DiasAplicados = group
-                        .Select(x => x.Cobro.FechaCobro.Date)
+                        .Select(x => x.Fecha.Date)
                         .Distinct()
                         .Count()
                 })

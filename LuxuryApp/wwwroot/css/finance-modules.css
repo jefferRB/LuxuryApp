@@ -802,6 +802,15 @@ html[data-luxury-surface-theme="glass"] .finance-mobile-card {
 
 .finance-field-error { font-size: 0.78rem; color: #ef4444; }
 
+/* Ayuda contextual bajo un campo (p. ej. cuándo usar cada categoría de egreso). */
+.finance-field-hint {
+    margin: 0.4rem 0 0;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--private-muted-text, #64748b);
+}
+.finance-field-hint strong { font-weight: 700; }
+
 /* ── HISTORIAL SERVICIO (Create) ─────────────────────────── */
 .finance-historial-section {
     padding: 1rem 1.1rem;
@@ -1543,4 +1552,54 @@ html[data-luxury-surface-theme="glass"] .finance-cat-modal .btn-close {
 
 @media (max-width: 480px) {
     .finance-pagination { padding-inline: 1rem; }
+}
+
+/* ── Aviso de impacto sobre periodos históricos ──────────────────────────────
+   Aparece solo cuando el servidor rechazó el guardado porque el cambio puede
+   reinterpretar cobros legacy (sin snapshot). Ámbar: es una advertencia que
+   exige decisión, no un error ni un dato informativo. */
+.finance-legacy-warning {
+    margin: 0.85rem 0;
+    padding: 0.85rem 0.95rem;
+    border: 1px solid rgba(217, 119, 6, 0.35);
+    border-left: 3px solid #d97706;
+    border-radius: 0.6rem;
+    background: rgba(251, 191, 36, 0.08);
+}
+
+.finance-legacy-warning__head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 700;
+    font-size: 0.875rem;
+    color: #b45309;
+}
+
+.finance-legacy-warning__text {
+    margin: 0.5rem 0 0.7rem;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: #78350f;
+}
+
+.finance-legacy-warning__confirm {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #78350f;
+    cursor: pointer;
+}
+
+.finance-legacy-warning__confirm input {
+    margin-top: 0.15rem;
+    flex: 0 0 auto;
+}
+
+@media (prefers-color-scheme: dark) {
+    .finance-legacy-warning__head { color: #fbbf24; }
+    .finance-legacy-warning__text,
+    .finance-legacy-warning__confirm { color: #fde68a; }
 }

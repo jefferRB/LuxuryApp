@@ -1,4 +1,4 @@
-@using LuxuryApp.Models.Fiscal
+﻿@using LuxuryApp.Models.Fiscal
 @using LuxuryApp.Models.Funcionarios
 @model LuxuryApp.Models.Funcionarios.PagoFuncionarioVM
 
@@ -181,6 +181,7 @@
                         <th>Monto</th>
                         <th>Método</th>
                         <th>Observación</th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -194,6 +195,26 @@
                             </td>
                             <td style="color:var(--private-muted-text,#64748b);">
                                 @(string.IsNullOrEmpty(p.Observacion) ? "—" : p.Observacion)
+                            </td>
+                            <td style="text-align:right;white-space:nowrap;">
+                                @* Un pago de liquidación no se edita: se revierte y se vuelve a
+                                   registrar. Los pagos legacy (sin liquidación) no son reversibles. *@
+                                @if (string.Equals(p.OrigenRegistro, "LIQUIDACION", StringComparison.Ordinal))
+                                {
+                                    <button type="button"
+                                            class="lq-revert-btn"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#modalRevertirPago"
+                                            data-liquidacion="@p.ReferenciaId"
+                                            data-funcionario="@Model.Nombre"
+                                            data-monto="₡ @p.MontoPagado.ToString("N0")"
+                                            data-fecha="@p.FechaPago.ToString("dd MMM yyyy HH:mm")"
+                                            data-periodo="@p.InicioSemana.ToString("dd/MM/yyyy") al @p.FinSemana.ToString("dd/MM/yyyy")"
+                                            data-metodo="@(string.IsNullOrWhiteSpace(p.MetodoPago) ? "—" : p.MetodoPago)"
+                                            title="Revertir este pago">
+                                        <i class="bi bi-arrow-counterclockwise"></i> Revertir
+                                    </button>
+                                }
                             </td>
                         </tr>
                     }

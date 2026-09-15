@@ -1,4 +1,4 @@
-using LuxuryApp.Models.Asociados;
+﻿using LuxuryApp.Models.Asociados;
 using System.Security.Claims;
 using ClosedXML.Excel;
 using LuxuryApp.Models.Funcionarios;
@@ -28,6 +28,7 @@ namespace LuxuryApp.Controllers.Funcionarios
         private readonly ITenantDisplayNameService _tenantDisplayNameService;
         private readonly IFuncionarioPhotoStorageService _photoStorageService;
         private readonly ITenantProvider _tenantProvider;
+        private readonly LuxuryApp.Services.Finanzas.ILegacyFinancialImpactService _impactoHistorico;
         private readonly ILogger<FuncionariosController> _logger;
 
         public FuncionariosController(
@@ -40,7 +41,8 @@ namespace LuxuryApp.Controllers.Funcionarios
             ITenantDisplayNameService tenantDisplayNameService,
             IFuncionarioPhotoStorageService photoStorageService,
             ITenantProvider tenantProvider,
-            ILogger<FuncionariosController> logger)
+            ILogger<FuncionariosController> logger,
+            LuxuryApp.Services.Finanzas.ILegacyFinancialImpactService impactoHistorico)
         {
             _context = context;
             _liquidacionSemanalService = liquidacionSemanalService;
@@ -52,6 +54,7 @@ namespace LuxuryApp.Controllers.Funcionarios
             _photoStorageService = photoStorageService;
             _tenantProvider = tenantProvider;
             _logger = logger;
+            _impactoHistorico = impactoHistorico;
         }
 
         public async Task<IActionResult> Index()
@@ -373,7 +376,8 @@ namespace LuxuryApp.Controllers.Funcionarios
                 nameof(Funcionario.TarifaIvaFacturaColaborador) + "," +
                 nameof(Funcionario.RequiereFacturaAntesDePagar) + "," +
                 nameof(Funcionario.FechaIngreso))]
-            Funcionario funcionario)
+            Funcionario funcionario,
+            bool confirmarImpactoHistorico = false)
         {
             NormalizeFuncionario(funcionario);
             SincronizarConfigFiscal(funcionario);
@@ -401,6 +405,17 @@ namespace LuxuryApp.Controllers.Funcionarios
             }
 
             await ValidatePuestoAsync(funcionario.IdPuesto, funcionarioDb.IdPuesto);
+
+            // La configuración de remuneración TODAVÍA no se congela por transacción (el snapshot
+            // de comisión quedó pendiente de aprobación porque obliga a tocar la atribución de
+            // pagos). Mientras tanto, cambiar el porcentaje o la modalidad recalcula la liquidación
+            // de cualquier periodo, incluidos los ya pagados: hay que avisarlo con claridad.
+            if (await RequiereConfirmacionHistoricaAsync(funcionario, funcionarioDb, confirmarImpactoHistorico))
+            {
+                await CargarPuestosAsync(funcionario.IdPuesto);
+                ViewData["Acceso"] = await _portalAccessService.ObtenerEstadoAsync(funcionario.IdFuncionario, HttpContext.RequestAborted);
+                return View(funcionario);
+            }
 
             if (!ModelState.IsValid)
             {
@@ -776,6 +791,7 @@ namespace LuxuryApp.Controllers.Funcionarios
             string? observacion,
             string? metodoPago,
             DateTime? fechaPago,
+            Guid? idempotencyKey = null,
             string? periodo = null,
             DateTime? desde = null,
             DateTime? hasta = null)
@@ -817,6 +833,7 @@ namespace LuxuryApp.Controllers.Funcionarios
                         MetodoPago = metodoPago ?? string.Empty,
                         Observacion = observacion,
                         CreadoPor = User.FindFirstValue(CustomClaimTypes.UserId) ?? User.FindFirstValue(ClaimTypes.NameIdentifier),
+                        IdempotencyKey = idempotencyKey,
                         Detalles =
                         {
                             new RegistrarLiquidacionSemanalDetalleCommand
@@ -853,6 +870,7 @@ namespace LuxuryApp.Controllers.Funcionarios
             string? metodoPago,
             DateTime? fechaPago,
             string? observacion,
+            Guid? idempotencyKey = null,
             string? periodo = null,
             DateTime? desde = null,
             DateTime? hasta = null)
@@ -892,6 +910,7 @@ namespace LuxuryApp.Controllers.Funcionarios
                             ? "Pago semanal automatico"
                             : observacion,
                         CreadoPor = User.FindFirstValue(CustomClaimTypes.UserId) ?? User.FindFirstValue(ClaimTypes.NameIdentifier),
+                        IdempotencyKey = idempotencyKey,
                         Detalles = detalles
                     },
                     HttpContext.RequestAborted);
@@ -907,6 +926,73 @@ namespace LuxuryApp.Controllers.Funcionarios
             {
                 _logger.LogError(ex, "Error al liquidar pagos del periodo {InicioSemana:yyyy-MM-dd} - {FinSemana:yyyy-MM-dd}.", inicioSemana, finSemana);
                 TempData["Error"] = "No fue posible registrar la liquidacion del periodo.";
+            }
+
+            return RedirectToAction(nameof(PagosSemana), rutaVolver);
+        }
+
+        /// <summary>
+        /// Revierte por completo un pago de liquidación registrado por error. NO edita nada: la
+        /// operación (liquidación + detalles + distribución + egreso) se deshace de forma atómica
+        /// y queda constancia en la bitácora. El pendiente del colaborador vuelve a su valor previo
+        /// SIN tocar su producción ni su comisión devengada.
+        /// </summary>
+        [HttpPost]
+        [RequirePermission(AppPermissions.EmployeesManage)]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> RevertirPago(
+            int liquidacionId,
+            string? motivo,
+            DateTime? fecha = null,
+            string? periodo = null,
+            DateTime? desde = null,
+            DateTime? hasta = null)
+        {
+            var rutaVolver = RutaPagosSemana(
+                fecha ?? _businessDateTimeProvider.Today(), periodo, desde, hasta);
+
+            if (string.IsNullOrWhiteSpace(motivo))
+            {
+                TempData["Error"] = "Debes indicar el motivo de la reversión.";
+                return RedirectToAction(nameof(PagosSemana), rutaVolver);
+            }
+
+            try
+            {
+                var resultado = await _liquidacionSemanalService.RevertirPagoAsync(
+                    liquidacionId,
+                    motivo,
+                    User.FindFirstValue(CustomClaimTypes.UserId) ?? User.FindFirstValue(ClaimTypes.NameIdentifier),
+                    HttpContext.RequestAborted);
+
+                switch (resultado.Estado)
+                {
+                    case ReversionPagoEstado.Revertida:
+                        var quienes = resultado.Funcionarios.Count > 0
+                            ? string.Join(", ", resultado.Funcionarios)
+                            : "el equipo";
+                        TempData["Mensaje"] =
+                            $"Pago revertido: ₡{resultado.MontoRevertido:N0} de {quienes} volvió a quedar pendiente.";
+                        break;
+
+                    case ReversionPagoEstado.YaRevertida:
+                        TempData["Mensaje"] = "El pago ya había sido revertido.";
+                        break;
+
+                    default:
+                        TempData["Error"] = "No se encontró ese pago en este negocio.";
+                        break;
+                }
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogWarning(ex, "Validacion de negocio al revertir la liquidacion {LiquidacionId}.", liquidacionId);
+                TempData["Error"] = ex.Message;
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Error al revertir la liquidacion {LiquidacionId}.", liquidacionId);
+                TempData["Error"] = "No fue posible revertir el pago por un error de persistencia.";
             }
 
             return RedirectToAction(nameof(PagosSemana), rutaVolver);
@@ -1343,5 +1429,51 @@ namespace LuxuryApp.Controllers.Funcionarios
 
         private static List<string> ObtenerMetodosPago() =>
             LiquidacionSemanalDefaults.MetodosPagoPermitidos.ToList();
+
+        /// <summary>
+        /// ¿Este guardado cambia la remuneración de un colaborador que ya tiene producción?
+        /// Se compara contra la fila real —no contra lo que diga el formulario— y solo se avisa si
+        /// algo de la liquidación cambió de verdad: corregirle el teléfono no recalcula nada.
+        /// </summary>
+        private async Task<bool> RequiereConfirmacionHistoricaAsync(
+            Funcionario entrante,
+            Funcionario actual,
+            bool confirmado)
+        {
+            if (confirmado)
+            {
+                return false;
+            }
+
+            var cambioRemuneracion =
+                actual.PorcentajeGanancia != entrante.PorcentajeGanancia ||
+                actual.PorcentajeProducto != entrante.PorcentajeProducto ||
+                actual.ComisionCalculadaSobre != entrante.ComisionCalculadaSobre ||
+                actual.TipoRelacionColaborador != entrante.TipoRelacionColaborador ||
+                actual.ModalidadIvaColaborador != entrante.ModalidadIvaColaborador ||
+                actual.TarifaIvaFacturaColaborador != entrante.TarifaIvaFacturaColaborador;
+
+            if (!cambioRemuneracion)
+            {
+                return false;
+            }
+
+            var produccion = await _impactoHistorico.ContarProduccionHistoricaDeColaboradorAsync(
+                entrante.IdFuncionario, HttpContext.RequestAborted);
+
+            if (produccion == 0)
+            {
+                return false;
+            }
+
+            ViewData[LuxuryApp.Models.Fiscal.AvisoImpactoHistorico.CampoConfirmacion] =
+                LuxuryApp.Models.Fiscal.AvisoImpactoHistorico.Colaborador(produccion);
+
+            ModelState.AddModelError(
+                string.Empty,
+                LuxuryApp.Models.Fiscal.AvisoImpactoHistorico.Confirmacion);
+
+            return true;
+        }
     }
 }

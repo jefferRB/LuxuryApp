@@ -1,4 +1,4 @@
-using LuxuryApp.Models.Fiscal;
+﻿using LuxuryApp.Models.Fiscal;
 using LuxuryApp.Services.Tenant;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -12,16 +12,19 @@ namespace LuxuryApp.Controllers.Configuracion
     {
         private readonly ApplicationDbContext _context;
         private readonly ITenantProvider _tenantProvider;
+        private readonly LuxuryApp.Services.Finanzas.ILegacyFinancialImpactService _impactoHistorico;
         private readonly ILogger<ConfiguracionFiscalController> _logger;
 
         public ConfiguracionFiscalController(
             ApplicationDbContext context,
             ITenantProvider tenantProvider,
-            ILogger<ConfiguracionFiscalController> logger)
+            ILogger<ConfiguracionFiscalController> logger,
+            LuxuryApp.Services.Finanzas.ILegacyFinancialImpactService impactoHistorico)
         {
             _context = context;
             _tenantProvider = tenantProvider;
             _logger = logger;
+            _impactoHistorico = impactoHistorico;
         }
 
         [HttpGet]
@@ -47,7 +50,8 @@ namespace LuxuryApp.Controllers.Configuracion
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Index(
             ConfiguracionFiscalViewModel model,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool confirmarImpactoHistorico = false)
         {
             if (!ModelState.IsValid)
             {
@@ -61,6 +65,28 @@ namespace LuxuryApp.Controllers.Configuracion
             if (tenant is null)
             {
                 return NotFound();
+            }
+
+            // Esta pantalla es la que HEREDAN todos los servicios y productos sin override propio,
+            // así que su alcance sobre los cobros legacy es el más amplio del sistema.
+            var cambioFiscal =
+                tenant.PreciosIncluyenIva != model.PreciosIncluyenIva ||
+                tenant.TarifaIvaPorDefecto != Math.Round(model.TarifaIvaPorDefecto, 2, MidpointRounding.AwayFromZero);
+
+            if (cambioFiscal && !confirmarImpactoHistorico)
+            {
+                var legacy = await _impactoHistorico.ContarCobrosLegacyDelNegocioAsync(cancellationToken);
+                if (legacy > 0)
+                {
+                    ViewData[LuxuryApp.Models.Fiscal.AvisoImpactoHistorico.CampoConfirmacion] =
+                        LuxuryApp.Models.Fiscal.AvisoImpactoHistorico.Negocio(legacy);
+
+                    ModelState.AddModelError(
+                        string.Empty,
+                        LuxuryApp.Models.Fiscal.AvisoImpactoHistorico.Confirmacion);
+
+                    return View(model);
+                }
             }
 
             tenant.PreciosIncluyenIva = model.PreciosIncluyenIva;

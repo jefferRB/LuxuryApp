@@ -30,10 +30,28 @@ namespace LuxuryApp.Models.Reports
 
         public decimal Ingresos { get; set; }
 
+        /// <summary>
+        /// COSTOS Y GASTOS DEVENGADOS del mes: liquidaciones generadas por la producción del
+        /// período + gastos operativos elegibles. Es la línea que resta la ganancia.
+        /// </summary>
         public decimal Egresos { get; set; }
 
-        /// <summary>Ganancia de caja del mes: total sin impuestos menos egresos.</summary>
+        /// <summary>
+        /// GANANCIA DEL MES. Es exactamente la misma métrica que muestra el Dashboard
+        /// (<c>DashboardViewModel.ResultadoAnalitico</c>), servida por el motor único de ganancia.
+        ///
+        /// <para>
+        /// Antes acá viajaba el resultado de CAJA (ingresos netos − salidas de caja), que no es la
+        /// ganancia: mezcla base devengada con pagos que pueden corresponder a otro período.
+        /// </para>
+        /// </summary>
         public decimal GananciaReal { get; set; }
+
+        /// <summary>
+        /// CAJA: egresos registrados con fecha dentro del mes. Se informa aparte, nunca como
+        /// ganancia. Puede diferir de <see cref="Egresos"/> y eso es correcto.
+        /// </summary>
+        public decimal SalidasCaja { get; set; }
 
         /// <summary>Margen sobre ingresos, en porcentaje (0 cuando no hay ingresos).</summary>
         public decimal MargenGanancia { get; set; }

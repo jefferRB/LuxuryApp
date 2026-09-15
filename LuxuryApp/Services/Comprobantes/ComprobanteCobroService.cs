@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using System.Globalization;
 using System.Security.Cryptography;
 using LuxuryApp.Models.Comprobantes;
@@ -343,36 +343,51 @@ namespace LuxuryApp.Services.Comprobantes
             ex.InnerException is SqlException sqlEx && (sqlEx.Number == 2601 || sqlEx.Number == 2627);
 
         /// <summary>
-        /// Resuelve la configuración fiscal efectiva del cobro (servicio/producto con overrides
-        /// o herencia del tenant) y calcula su desglose Base/IVA.
+        /// Resuelve la fiscalidad efectiva del cobro y calcula su desglose Base/IVA.
+        ///
+        /// <para>
+        /// Usa la MISMA regla que Dashboard, Ingresos, Excel y liquidaciones
+        /// (<see cref="CobroFiscalidadEfectiva"/>): manda el snapshot congelado del cobro y el
+        /// catálogo actual solo entra para cobros legacy. Así el comprobante que recibe el cliente
+        /// no puede decir un IVA distinto del que reporta el negocio por el mismo cobro.
+        /// </para>
         /// </summary>
         private TaxBreakdown CalcularDesgloseFiscal(Cobro cobro, TenantFiscalConfig tenant)
         {
-            bool aplicaIva;
-            decimal? tarifa;
-            bool? incluye;
+            bool aplicaIvaCatalogo;
+            decimal? tarifaCatalogo;
+            bool? incluyeCatalogo;
 
             if (cobro.Servicio is not null)
             {
-                aplicaIva = cobro.Servicio.AplicaIva;
-                tarifa = cobro.Servicio.TarifaIva;
-                incluye = cobro.Servicio.PrecioIncluyeIva;
+                aplicaIvaCatalogo = cobro.Servicio.AplicaIva;
+                tarifaCatalogo = cobro.Servicio.TarifaIva;
+                incluyeCatalogo = cobro.Servicio.PrecioIncluyeIva;
             }
             else if (cobro.Producto is not null)
             {
-                aplicaIva = cobro.Producto.AplicaIva;
-                tarifa = cobro.Producto.TarifaIva;
-                incluye = cobro.Producto.PrecioIncluyeIva;
+                aplicaIvaCatalogo = cobro.Producto.AplicaIva;
+                tarifaCatalogo = cobro.Producto.TarifaIva;
+                incluyeCatalogo = cobro.Producto.PrecioIncluyeIva;
             }
             else
             {
                 // Servicio personalizado / pago sin catálogo: config del tenant.
-                aplicaIva = true;
-                tarifa = null;
-                incluye = null;
+                aplicaIvaCatalogo = true;
+                tarifaCatalogo = null;
+                incluyeCatalogo = null;
             }
 
-            var linea = _fiscalConfig.ResolverLinea(cobro.Monto, aplicaIva, tarifa, incluye, tenant);
+            var fiscal = CobroFiscalidadEfectiva.Resolver(
+                cobro.AplicaIvaSnapshot,
+                cobro.TarifaIvaSnapshot,
+                cobro.PrecioIncluyeIvaSnapshot,
+                aplicaIvaCatalogo,
+                tarifaCatalogo,
+                incluyeCatalogo);
+
+            var linea = _fiscalConfig.ResolverLinea(
+                cobro.Monto, fiscal.AplicaIva, fiscal.TarifaIva, fiscal.PrecioIncluyeIva, tenant);
             return _taxService.Calcular(linea.TotalOrBase, linea.TaxRatePercent, linea.PriceIncludesTax, linea.Taxable);
         }
 
@@ -383,15 +398,17 @@ namespace LuxuryApp.Services.Comprobantes
             int? servicioId = null;
             int? productoId = null;
 
+            // El nombre histórico manda: el comprobante describe lo que se vendió ese día, no
+            // cómo se llama hoy el servicio en el catálogo.
             if (cobro.ServicioId.HasValue)
             {
-                descripcion = cobro.Servicio?.Nombre ?? "Servicio";
+                descripcion = cobro.DetalleSnapshot ?? cobro.Servicio?.Nombre ?? "Servicio";
                 tipo = ComprobanteTipoLinea.Servicio;
                 servicioId = cobro.ServicioId;
             }
             else if (cobro.ProductoId.HasValue)
             {
-                descripcion = cobro.Producto?.NombreProducto ?? "Producto";
+                descripcion = cobro.DetalleSnapshot ?? cobro.Producto?.NombreProducto ?? "Producto";
                 tipo = ComprobanteTipoLinea.Producto;
                 productoId = cobro.ProductoId;
             }

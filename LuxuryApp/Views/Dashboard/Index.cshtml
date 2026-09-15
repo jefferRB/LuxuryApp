@@ -1,4 +1,4 @@
-@model LuxuryApp.Models.Finanzas.DashboardViewModel
+﻿@model LuxuryApp.Models.Finanzas.DashboardViewModel
 @using System.Globalization
 
 @{
@@ -79,17 +79,24 @@
     <div class="dfin-summary">
 
         <div class="dfin-summary-col">
-            <span class="dfin-sum-label">INGRESOS</span>
+            <span class="dfin-sum-label">INGRESOS NETOS</span>
             <span class="dfin-sum-value dfin-color-income">&#8353; @Model.TotalSinImpuestos.ToString("N2")</span>
             <span class="dfin-sum-sub">Servicios + productos - impuestos</span>
         </div>
 
         <div class="dfin-summary-sep"><span>&minus;</span></div>
 
+        @* Costo ECONÓMICO del mes (devengado), no lo que salió de caja: por eso no se llama
+           "Egresos" como la pantalla /Egresos, que suma por fecha de pago. *@
         <div class="dfin-summary-col">
-            <span class="dfin-sum-label">EGRESOS</span>
+            <span class="dfin-sum-label">COSTOS Y GASTOS DEL MES</span>
             <span class="dfin-sum-value dfin-color-expenses">&#8353; @Model.TotalEgresosAnaliticos.ToString("N2")</span>
-            <span class="dfin-sum-sub">Funcionarios + gastos</span>
+            @* Las dos partes a la vista: así el dueño puede explicarse el número sin abrir otra
+               pantalla, y se ve que la planilla cuenta aunque todavía no se haya pagado. *@
+            <span class="dfin-sum-sub dfin-sum-breakdown">
+                <span>Liquidaciones devengadas <b>&#8353; @Model.TotalPagadoFuncionariosAnalitico.ToString("N2")</b></span>
+                <span>Gastos operativos <b>&#8353; @((Model.Desglose?.GastosOperativos ?? 0m).ToString("N2"))</b></span>
+            </span>
         </div>
 
         <div class="dfin-summary-sep"><span>&equals;</span></div>
@@ -107,6 +114,23 @@
             </span>
         </div>
 
+    </div>
+
+    @* ── B1. MOVIMIENTO DE CAJA ──
+       Deliberadamente FUERA de la ecuación de arriba: la ganancia es por devengado. Esto responde
+       otra pregunta ("¿cuánto dinero registré como salido este mes?") y es lo mismo que muestra la
+       pantalla /Egresos con el mismo rango. *@
+    <div class="dfin-caja-strip">
+        <div class="dfin-caja-main">
+            <span class="dfin-caja-label">
+                <i class="bi bi-cash-stack"></i> Salidas de caja
+            </span>
+            <span class="dfin-caja-value">&#8353; @Model.SalidasCajaMes.ToString("N2")</span>
+        </div>
+        <p class="dfin-caja-help">
+            Pagos y egresos registrados durante el período. Puede diferir de los costos del mes
+            porque algunos pagos corresponden a producción de otros períodos.
+        </p>
     </div>
 
     @* ── B2. REPARTO DE LA GANANCIA ──

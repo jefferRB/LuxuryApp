@@ -1,4 +1,4 @@
-namespace LuxuryApp.Models.Platform
+﻿namespace LuxuryApp.Models.Platform
 {
     /// <summary>
     /// Registro append-only de acciones internas del SuperAdmin sobre la plataforma.
@@ -50,6 +50,9 @@ namespace LuxuryApp.Models.Platform
     /// <summary>Acciones auditables de la consola de plataforma.</summary>
     public static class PlatformAuditActions
     {
+        /// <summary>Reversión de un pago de liquidación de colaboradores (movimiento de dinero).</summary>
+        public const string EmployeeSettlementPaymentReverted = "EmployeeSettlementPaymentReverted";
+
         public const string UserDeactivated = "UserDeactivated";
         public const string UserReactivated = "UserReactivated";
         public const string DangerousActionPasswordFailed = "DangerousActionPasswordFailed";
@@ -533,5 +536,8 @@ namespace LuxuryApp.Models.Platform
         public const string InvestorPolicy = "InvestorPolicy";
         public const string InvestorStatement = "InvestorStatement";
         public const string RecurringScheduleRule = "RecurringScheduleRule";
+
+        /// <summary>Operación de pago a colaboradores (LiquidacionSemanal + su Egreso).</summary>
+        public const string EmployeeSettlementPayment = "EmployeeSettlementPayment";
     }
 }

@@ -77,6 +77,14 @@ namespace LuxuryApp.Services.Finanzas
                     return false;
                 }
 
+                // Un egreso generado por una liquidación es parte de esa operación financiera:
+                // editarlo acá dejaría Liquidacion.MontoTotal != Egreso.Monto. Se corrige
+                // revirtiendo el pago, no editando el egreso.
+                await EnsureEgresoNoEsDeLiquidacionAsync(
+                    egreso.IdEgreso,
+                    "Este egreso fue generado por una liquidación de colaboradores. Para corregirlo, revertí el pago desde Liquidaciones.",
+                    cancellationToken);
+
                 await EnsureCategoriaActivaAsync(
                     normalizedRequest.CategoriaId,
                     egreso.CategoriaId,
@@ -119,16 +127,10 @@ namespace LuxuryApp.Services.Finanzas
                     return false;
                 }
 
-                var tieneLiquidacion = await _context.LiquidacionesSemanales
-                    .AsNoTracking()
-                    .AnyAsync(l => l.EgresoId == idEgreso, cancellationToken);
-
-                if (tieneLiquidacion)
-                {
-                    throw new EgresoValidationException(
-                        "No se puede eliminar un egreso asociado a una liquidacion semanal.",
-                        string.Empty);
-                }
+                await EnsureEgresoNoEsDeLiquidacionAsync(
+                    idEgreso,
+                    "Este egreso fue generado por una liquidación de colaboradores. Para eliminarlo, revertí el pago desde Liquidaciones.",
+                    cancellationToken);
 
                 _context.Egresos.Remove(egreso);
                 await _context.SaveChangesAsync(cancellationToken);
@@ -150,22 +152,58 @@ namespace LuxuryApp.Services.Finanzas
             }
         }
 
+        /// <summary>
+        /// Un egreso creado por una liquidación pertenece a esa operación financiera y no se toca
+        /// desde Egresos: la única corrección válida es revertir el pago, que deshace el conjunto
+        /// completo de forma atómica.
+        /// </summary>
+        private async Task EnsureEgresoNoEsDeLiquidacionAsync(
+            int idEgreso,
+            string mensaje,
+            CancellationToken cancellationToken)
+        {
+            var esDeLiquidacion = await _context.LiquidacionesSemanales
+                .AsNoTracking()
+                .AnyAsync(l => l.EgresoId == idEgreso, cancellationToken);
+
+            if (esDeLiquidacion)
+            {
+                throw new EgresoValidationException(mensaje, string.Empty);
+            }
+        }
+
         private async Task EnsureCategoriaActivaAsync(
             int categoriaId,
             int? currentCategoriaId,
             CancellationToken cancellationToken)
         {
-            var exists = await _context.Categorias
+            var categoria = await _context.Categorias
                 .AsNoTracking()
-                .AnyAsync(
-                    c => c.Id == categoriaId &&
-                         (c.Activo || (currentCategoriaId.HasValue && c.Id == currentCategoriaId.Value)),
-                    cancellationToken);
+                .Where(c => c.Id == categoriaId)
+                .Select(c => new { c.Id, c.Activo, c.Nombre, c.SystemCode })
+                .SingleOrDefaultAsync(cancellationToken);
 
-            if (!exists)
+            var esLaActual = currentCategoriaId.HasValue && currentCategoriaId.Value == categoriaId;
+
+            if (categoria is null || !(categoria.Activo || esLaActual))
             {
                 throw new EgresoValidationException(
                     "La categoria seleccionada no existe, no esta activa o no pertenece al tenant actual.",
+                    "Egreso.CategoriaId");
+            }
+
+            // Las categorías técnicas las asigna el sistema (liquidaciones, distribuciones). Se
+            // permite CONSERVAR la que un egreso ya tenía —para poder reclasificarlo— pero nunca
+            // asignarla a mano: así es como vacaciones y bonos terminaban fuera de la ganancia.
+            var esTecnica =
+                SystemCategoryCodes.EsLiquidacionDeColaboradores(categoria.SystemCode, categoria.Nombre) ||
+                SystemCategoryCodes.EsDistribucionAInversionistas(categoria.SystemCode, categoria.Nombre);
+
+            if (esTecnica && !esLaActual)
+            {
+                throw new EgresoValidationException(
+                    "Esa categoria la administra el sistema. Para vacaciones, bonos o pagos adicionales usa \"" +
+                    SystemCategoryCodes.NombreSugeridoExtraordinaryLaborCost + "\".",
                     "Egreso.CategoriaId");
             }
         }

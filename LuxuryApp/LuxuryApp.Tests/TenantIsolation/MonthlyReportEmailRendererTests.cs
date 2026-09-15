@@ -174,7 +174,13 @@ namespace LuxuryApp.Tests.TenantIsolation
             var text = Renderer.RenderText(BuildFullReport(), "https://app.luxurycloud.test/Dashboard");
 
             Assert.Contains("Resumen Ejecutivo Mensual - Barbería Luxury", text);
-            Assert.Contains("FINANZAS DEL MES", text);
+            // La sección financiera pasó a separar explícitamente el RESULTADO (devengado) de la
+            // CAJA, para que "Ganancia del mes" signifique lo mismo que en el Dashboard.
+            Assert.Contains("RESULTADO DEL MES", text);
+            Assert.Contains("Ganancia del mes", text);
+            Assert.Contains("Costos y gastos del mes", text);
+            Assert.Contains("CAJA", text);
+            Assert.Contains("Salidas de caja registradas", text);
             Assert.Contains("OPERACIÓN DEL MES", text);
             Assert.Contains("₡", text);
             Assert.Contains("https://app.luxurycloud.test/Dashboard", text);

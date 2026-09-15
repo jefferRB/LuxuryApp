@@ -172,7 +172,10 @@ namespace LuxuryApp.Tests.TenantIsolation
             var service = ControllerTestSupport.CreateEgresoService(context);
             var exception = await Assert.ThrowsAsync<EgresoValidationException>(() => service.EliminarAsync(egresoId));
 
-            Assert.Contains("liquidacion semanal", exception.Message, StringComparison.OrdinalIgnoreCase);
+            // El COMPORTAMIENTO no cambió (sigue rechazando y el egreso sigue ahí); cambió la
+            // redacción para indicar la corrección válida: revertir el pago desde Liquidaciones.
+            Assert.Contains("liquidación de colaboradores", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("revertí el pago", exception.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Single(await context.Egresos.ToListAsync());
         }
 

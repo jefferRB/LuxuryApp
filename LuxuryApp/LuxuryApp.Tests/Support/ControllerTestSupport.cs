@@ -59,23 +59,69 @@ namespace LuxuryApp.Tests.Support
 
         public static ILiquidacionSemanalService CreateLiquidacionSemanalService(
             ProyectoIdentity.Datos.ApplicationDbContext context,
-            ITenantProvider tenantProvider) =>
+            ITenantProvider tenantProvider,
+            LuxuryApp.Services.Platform.IPlatformAuditService? auditService = null) =>
             new LiquidacionSemanalService(
                 context,
                 BusinessDateTimeProvider,
                 new LuxuryApp.Services.Fiscal.TaxCalculationService(),
                 new LuxuryApp.Services.Fiscal.LiquidacionFuncionarioService(),
                 new LuxuryApp.Services.Fiscal.TenantFiscalConfigService(context, tenantProvider),
+                CreateSystemCategoryService(context),
+                auditService ?? new FakePlatformAuditService(),
+                tenantProvider,
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<LiquidacionSemanalService>.Instance);
 
-        public static ICobroService CreateCobroService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
+        /// <summary>
+        /// Bitácora REAL (escribe en la base). La reversión de pagos la necesita así: su
+        /// idempotencia se apoya en que la entrada de auditoría quedó realmente persistida.
+        /// </summary>
+        public static LuxuryApp.Services.Platform.IPlatformAuditService CreatePlatformAuditService(
+            ProyectoIdentity.Datos.ApplicationDbContext context)
+        {
+            var accessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext() };
+            return new LuxuryApp.Services.Platform.PlatformAuditService(
+                context,
+                accessor,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<LuxuryApp.Services.Platform.PlatformAuditService>.Instance);
+        }
+
+        public static ISystemCategoryService CreateSystemCategoryService(
+            ProyectoIdentity.Datos.ApplicationDbContext context) =>
+            new SystemCategoryService(
+                context,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<SystemCategoryService>.Instance);
+
+        /// <summary>
+        /// Registro de cobros con el motor fiscal REAL: es el que congela el snapshot fiscal de
+        /// cada venta nueva. Sin tenantProvider resuelve la configuración por defecto de CR.
+        /// </summary>
+        public static ICobroService CreateCobroService(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            ITenantProvider? tenantProvider = null) =>
             new CobroService(
                 context,
                 BusinessDateTimeProvider,
+                new LuxuryApp.Services.Fiscal.TenantFiscalConfigService(
+                    context,
+                    // Sin tenant explícito se usa uno cualquiera: no hay fila de Tenant que
+                    // encontrar, así que la configuración fiscal cae en los valores por defecto de
+                    // CR (13 %, precios con IVA incluido), que es lo que esperan esos tests.
+                    tenantProvider ?? new TestTenantProvider { TenantId = Guid.NewGuid() }),
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<CobroService>.Instance);
 
-        public static ICobroQueryService CreateCobroQueryService(ProyectoIdentity.Datos.ApplicationDbContext context) =>
-            new CobroQueryService(context, BusinessDateTimeProvider);
+        /// <summary>
+        /// Ingresos con el MOTOR FISCAL REAL (el mismo que Dashboard y liquidaciones): si alguien
+        /// vuelve a meter una división plana entre 1,13, estos tests lo detectan.
+        /// </summary>
+        public static ICobroQueryService CreateCobroQueryService(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            ITenantProvider tenantProvider) =>
+            new CobroQueryService(
+                context,
+                BusinessDateTimeProvider,
+                new LuxuryApp.Services.Fiscal.TenantFiscalConfigService(context, tenantProvider),
+                new LuxuryApp.Services.Fiscal.TaxCalculationService());
 
         public static LuxuryApp.Services.Fiscal.ICobroFiscalPreviewService CreateCobroFiscalPreviewService(
             ProyectoIdentity.Datos.ApplicationDbContext context,
@@ -95,8 +141,7 @@ namespace LuxuryApp.Tests.Support
             new DashboardFinancieroQueryService(
                 context,
                 BusinessDateTimeProvider,
-                CreatePeriodProfitCalculationService(context, tenantProvider),
-                CreateInvestorService(context));
+                CreatePeriodProfitCalculationService(context, tenantProvider));
 
         public static LuxuryApp.Services.Finanzas.IPeriodProfitCalculationService CreatePeriodProfitCalculationService(
             ProyectoIdentity.Datos.ApplicationDbContext context,
@@ -104,6 +149,18 @@ namespace LuxuryApp.Tests.Support
             new LuxuryApp.Services.Finanzas.PeriodProfitCalculationService(
                 context,
                 CreateLiquidacionSemanalService(context, tenantProvider));
+
+        /// <summary>
+        /// KPI de participación de asociados con el motor real de ganancia: es la misma cifra que
+        /// muestra el Dashboard, así que un cambio en la fórmula rompe los dos a la vez.
+        /// </summary>
+        public static LuxuryApp.Services.Asociados.IAssociateProfitAllocationService CreateAssociateProfitAllocationService(
+            ProyectoIdentity.Datos.ApplicationDbContext context,
+            ITenantProvider tenantProvider) =>
+            new LuxuryApp.Services.Asociados.AssociateProfitAllocationService(
+                context,
+                CreatePeriodProfitCalculationService(context, tenantProvider),
+                BusinessDateTimeProvider);
 
         public static LuxuryApp.Services.Inversionistas.IInvestorService CreateInvestorService(
             ProyectoIdentity.Datos.ApplicationDbContext context) =>

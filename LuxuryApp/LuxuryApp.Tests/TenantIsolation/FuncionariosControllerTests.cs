@@ -1,4 +1,4 @@
-using ClosedXML.Excel;
+﻿using ClosedXML.Excel;
 using LuxuryApp.Controllers.Funcionarios;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Funcionarios;
@@ -638,7 +638,8 @@ namespace LuxuryApp.Tests.TenantIsolation
                 tenantDisplayNameService,
                 ControllerTestSupport.CreateFuncionarioPhotoStorageService(),
                 new TestTenantProvider { TenantId = tenantId },
-                NullLogger<FuncionariosController>.Instance);
+                NullLogger<FuncionariosController>.Instance,
+                new LuxuryApp.Services.Finanzas.LegacyFinancialImpactService(context));
 
             ControllerTestSupport.AttachHttpContext(
                 controller,

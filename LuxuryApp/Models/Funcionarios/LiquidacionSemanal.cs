@@ -40,6 +40,20 @@ namespace LuxuryApp.Models.Funcionarios
         public int? EgresoId { get; set; }
         public Egreso? Egreso { get; set; }
 
+        /// <summary>
+        /// Clave de la INTENCIÓN de pago que originó esta liquidación. Se genera una vez al abrir
+        /// el formulario y viaja en el POST.
+        ///
+        /// <para>
+        /// Es la única defensa real contra el doble pago: un doble click, un reenvío del formulario
+        /// o un reintento de EF tras perder el ACK del COMMIT llegan con la MISMA clave, y el índice
+        /// único <c>UX_LiquidacionesSemanales_TenantId_IdempotencyKey</c> garantiza que solo exista
+        /// una operación. Deshabilitar el botón o validar el pendiente son defensas de UX, no de
+        /// integridad. Null en los pagos anteriores a esta función.
+        /// </para>
+        /// </summary>
+        public Guid? IdempotencyKey { get; set; }
+
         public ICollection<LiquidacionSemanalDetalle> Detalles { get; set; } = new List<LiquidacionSemanalDetalle>();
         public ICollection<LiquidacionSemanalDistribucionMensual> DistribucionesMensuales { get; set; } = new List<LiquidacionSemanalDistribucionMensual>();
     }

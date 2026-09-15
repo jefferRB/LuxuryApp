@@ -1,4 +1,4 @@
-using LuxuryApp.Services.Identity;
+﻿using LuxuryApp.Services.Identity;
 using LuxuryApp.Models.Asociados;
 using LuxuryApp.Models.Finanzas;
 using Microsoft.AspNetCore.Authorization;
@@ -13,14 +13,17 @@ namespace LuxuryApp.Controllers.Finanzas
     public class ServiciosController : Controller
     {
         private readonly ApplicationDbContext _context;
+        private readonly LuxuryApp.Services.Finanzas.ILegacyFinancialImpactService _impactoHistorico;
         private readonly ILogger<ServiciosController> _logger;
 
         public ServiciosController(
             ApplicationDbContext context,
-            ILogger<ServiciosController> logger)
+            ILogger<ServiciosController> logger,
+            LuxuryApp.Services.Finanzas.ILegacyFinancialImpactService impactoHistorico)
         {
             _context = context;
             _logger = logger;
+            _impactoHistorico = impactoHistorico;
         }
 
         public Task<IActionResult> Index() => ModalServicios();
@@ -35,17 +38,77 @@ namespace LuxuryApp.Controllers.Finanzas
             Servicio servicio) =>
             Save(servicio);
 
+        /// <summary>
+        /// ¿Este guardado cambia la fiscalidad de un servicio que YA tiene cobros sin snapshot?
+        /// Si es así, y el usuario todavía no confirmó, se devuelve el formulario con el aviso.
+        ///
+        /// <para>
+        /// La comprobación es de SERVIDOR y compara contra la fila real: no alcanza con que el
+        /// formulario haya mandado la casilla. Solo se dispara si la fiscalidad cambió de verdad —
+        /// renombrar el servicio o corregirle el precio no reinterpreta nada.
+        /// </para>
+        /// </summary>
+        private async Task<bool> RequiereConfirmacionHistoricaAsync(Servicio servicio, bool confirmado)
+        {
+            if (servicio.Id == 0 || confirmado)
+            {
+                return false;
+            }
+
+            var actual = await _context.Servicios
+                .AsNoTracking()
+                .Where(s => s.Id == servicio.Id)
+                .Select(s => new { s.AplicaIva, s.TarifaIva, s.PrecioIncluyeIva })
+                .FirstOrDefaultAsync();
+
+            if (actual is null)
+            {
+                return false;
+            }
+
+            var cambioFiscal =
+                actual.AplicaIva != servicio.AplicaIva ||
+                actual.TarifaIva != servicio.TarifaIva ||
+                actual.PrecioIncluyeIva != servicio.PrecioIncluyeIva;
+
+            if (!cambioFiscal)
+            {
+                return false;
+            }
+
+            var legacy = await _impactoHistorico.ContarCobrosLegacyDeServicioAsync(servicio.Id);
+            if (legacy == 0)
+            {
+                return false;
+            }
+
+            ViewData[LuxuryApp.Models.Fiscal.AvisoImpactoHistorico.CampoConfirmacion] =
+                LuxuryApp.Models.Fiscal.AvisoImpactoHistorico.Servicio(legacy);
+
+            ModelState.AddModelError(
+                string.Empty,
+                LuxuryApp.Models.Fiscal.AvisoImpactoHistorico.Confirmacion);
+
+            return true;
+        }
+
         [HttpPost]
         [RequirePermission(AppPermissions.ServicesManage)]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Save(
             [Bind(nameof(Servicio.Id) + "," + nameof(Servicio.Nombre) + "," + nameof(Servicio.Precio) + "," + nameof(Servicio.DuracionMinutos) + "," + nameof(Servicio.AplicaIva) + "," + nameof(Servicio.TarifaIva) + "," + nameof(Servicio.PrecioIncluyeIva))]
-            Servicio servicio)
+            Servicio servicio,
+            bool confirmarImpactoHistorico = false)
         {
             NormalizeServicio(servicio);
             await ValidateServicioAsync(servicio);
 
             if (!ModelState.IsValid)
+            {
+                return PartialView("_FormServicio", servicio);
+            }
+
+            if (await RequiereConfirmacionHistoricaAsync(servicio, confirmarImpactoHistorico))
             {
                 return PartialView("_FormServicio", servicio);
             }
@@ -105,14 +168,15 @@ namespace LuxuryApp.Controllers.Finanzas
         public Task<IActionResult> Edit(
             int id,
             [Bind(nameof(Servicio.Id) + "," + nameof(Servicio.Nombre) + "," + nameof(Servicio.Precio) + "," + nameof(Servicio.DuracionMinutos) + "," + nameof(Servicio.AplicaIva) + "," + nameof(Servicio.TarifaIva) + "," + nameof(Servicio.PrecioIncluyeIva))]
-            Servicio servicio)
+            Servicio servicio,
+            bool confirmarImpactoHistorico = false)
         {
             if (id != servicio.Id)
             {
                 return Task.FromResult<IActionResult>(NotFound());
             }
 
-            return Save(servicio);
+            return Save(servicio, confirmarImpactoHistorico);
         }
 
         [HttpPost]

@@ -1,4 +1,4 @@
-using LuxuryApp.Models.Productos;
+﻿using LuxuryApp.Models.Productos;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
 
@@ -12,6 +12,15 @@ namespace LuxuryApp.Services.Productos
         {
             _context = context;
         }
+
+        public Task<ProductoFiscalidad?> ObtenerFiscalidadAsync(
+            int idProducto,
+            CancellationToken cancellationToken = default) =>
+            _context.Productos
+                .AsNoTracking()
+                .Where(p => p.IdProducto == idProducto)
+                .Select(p => new ProductoFiscalidad(p.AplicaIva, p.TarifaIva, p.PrecioIncluyeIva))
+                .FirstOrDefaultAsync(cancellationToken);
 
         public async Task<ProductoIndexViewModel> BuildIndexViewModelAsync(CancellationToken cancellationToken = default)
         {

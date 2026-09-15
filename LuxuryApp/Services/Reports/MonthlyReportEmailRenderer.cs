@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 using System.Text.Encodings.Web;
 using LuxuryApp.Models.Reports;
@@ -101,14 +101,19 @@ namespace LuxuryApp.Services.Reports
 
             if (r.IncluirDatosFinancieros)
             {
-                sb.AppendLine("FINANZAS DEL MES");
+                sb.AppendLine("RESULTADO DEL MES");
                 sb.AppendLine($"Ingresos: {ComprobanteTextos.Colones(r.Ingresos)}");
-                sb.AppendLine($"Egresos: {ComprobanteTextos.Colones(r.Egresos)}");
-                sb.AppendLine($"Ganancia real: {ComprobanteTextos.Colones(r.GananciaReal)}");
+                sb.AppendLine($"Ingresos netos: {ComprobanteTextos.Colones(r.TotalSinImpuestos)}");
+                sb.AppendLine($"Costos y gastos del mes: {ComprobanteTextos.Colones(r.Egresos)}");
+                sb.AppendLine($"Ganancia del mes: {ComprobanteTextos.Colones(r.GananciaReal)}");
                 sb.AppendLine($"Margen: {Porcentaje(r.MargenGanancia)}");
-                sb.AppendLine($"Total sin impuestos: {ComprobanteTextos.Colones(r.TotalSinImpuestos)}");
                 sb.AppendLine($"Impuestos: {ComprobanteTextos.Colones(r.Impuestos)}");
-                sb.AppendLine($"Pago a funcionarios: {ComprobanteTextos.Colones(r.PagoFuncionarios)}");
+                sb.AppendLine();
+                sb.AppendLine("CAJA");
+                sb.AppendLine($"Salidas de caja registradas: {ComprobanteTextos.Colones(r.SalidasCaja)}");
+                sb.AppendLine($"Pago a funcionarios (caja): {ComprobanteTextos.Colones(r.PagoFuncionarios)}");
+                sb.AppendLine("Las salidas de caja pueden diferir de los costos del mes porque algunos");
+                sb.AppendLine("pagos corresponden a produccion de otros periodos.");
                 sb.AppendLine($"Efectivo: {ComprobanteTextos.Colones(r.IngresosEfectivo)} | " +
                               $"Tarjeta: {ComprobanteTextos.Colones(r.IngresosTarjeta)} | " +
                               $"SINPE: {ComprobanteTextos.Colones(r.IngresosSinpe)}");
@@ -189,7 +194,7 @@ namespace LuxuryApp.Services.Reports
                     <td width="50%" style="padding:4px 0 4px 4px;">
                       <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eee;border-radius:8px;">
                         <tr><td style="padding:14px 16px;">
-                          <span style="font-size:12px;color:#888;">Egresos</span><br />
+                          <span style="font-size:12px;color:#888;">Costos y gastos del mes</span><br />
                           <span style="font-size:18px;font-weight:700;color:#111;">{Colones(r.Egresos)}</span>
                         </td></tr>
                       </table>
@@ -199,7 +204,7 @@ namespace LuxuryApp.Services.Reports
                     <td width="50%" style="padding:4px 4px 4px 0;">
                       <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eee;border-radius:8px;">
                         <tr><td style="padding:14px 16px;">
-                          <span style="font-size:12px;color:#888;">Ganancia real</span><br />
+                          <span style="font-size:12px;color:#888;">Ganancia del mes</span><br />
                           <span style="font-size:18px;font-weight:700;color:{gananciaColor};">{Colones(r.GananciaReal)}</span>
                         </td></tr>
                       </table>
@@ -218,7 +223,6 @@ namespace LuxuryApp.Services.Reports
                 <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eee;border-radius:8px;padding:8px 16px;margin:0 0 24px;">
                   <tr><td style="padding:4px 0;color:#888;font-size:13px;">Total sin impuestos</td><td style="padding:4px 0;text-align:right;color:#333;font-size:13px;">{Colones(r.TotalSinImpuestos)}</td></tr>
                   <tr><td style="padding:4px 0;color:#888;font-size:13px;">Impuestos</td><td style="padding:4px 0;text-align:right;color:#333;font-size:13px;">{Colones(r.Impuestos)}</td></tr>
-                  <tr><td style="padding:4px 0;color:#888;font-size:13px;">Pago a funcionarios</td><td style="padding:4px 0;text-align:right;color:#333;font-size:13px;">{Colones(r.PagoFuncionarios)}</td></tr>
                   <tr><td style="padding:4px 0;color:#888;font-size:13px;">Servicios (monto)</td><td style="padding:4px 0;text-align:right;color:#333;font-size:13px;">{Colones(r.ServiciosGeneradosMonto)}</td></tr>
                   <tr><td style="padding:4px 0;color:#888;font-size:13px;">Productos (monto)</td><td style="padding:4px 0;text-align:right;color:#333;font-size:13px;">{Colones(r.ProductosGeneradosMonto)}</td></tr>
                   <tr><td colspan="2" style="border-top:1px solid #eee;padding-top:8px;"></td></tr>
@@ -226,6 +230,16 @@ namespace LuxuryApp.Services.Reports
                   <tr><td style="padding:4px 0;color:#888;font-size:13px;">Tarjeta</td><td style="padding:4px 0;text-align:right;color:#333;font-size:13px;">{Colones(r.IngresosTarjeta)}</td></tr>
                   <tr><td style="padding:4px 0;color:#888;font-size:13px;">SINPE</td><td style="padding:4px 0;text-align:right;color:#333;font-size:13px;">{Colones(r.IngresosSinpe)}</td></tr>
                 </table>
+
+                <p style="margin:0 0 10px;font-size:13px;color:#888;letter-spacing:1px;text-transform:uppercase;">Caja</p>
+                <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eee;border-radius:8px;padding:8px 16px;margin:0 0 8px;">
+                  <tr><td style="padding:4px 0;color:#888;font-size:13px;">Salidas de caja registradas</td><td style="padding:4px 0;text-align:right;color:#333;font-size:13px;">{Colones(r.SalidasCaja)}</td></tr>
+                  <tr><td style="padding:4px 0;color:#888;font-size:13px;">Pago a funcionarios (caja)</td><td style="padding:4px 0;text-align:right;color:#333;font-size:13px;">{Colones(r.PagoFuncionarios)}</td></tr>
+                </table>
+                <p style="margin:0 0 24px;font-size:11px;color:#aaa;line-height:1.5;">
+                  Las salidas de caja pueden diferir de los costos del mes porque algunos pagos
+                  corresponden a producci&#243;n de otros per&#237;odos.
+                </p>
                 """;
         }
 
@@ -243,7 +257,7 @@ namespace LuxuryApp.Services.Reports
                     <td style="padding:6px 0;text-align:right;color:#aaa;font-size:11px;text-transform:uppercase;">Variación</td>
                   </tr>
                   {ComparativaRow("Ingresos", Colones(r.IngresosMesAnterior), Colones(r.Ingresos), r.VariacionIngresosPorcentaje, r.Ingresos)}
-                  {ComparativaRow("Ganancia real", Colones(r.GananciaRealMesAnterior), Colones(r.GananciaReal), r.VariacionGananciaPorcentaje, r.GananciaReal)}
+                  {ComparativaRow("Ganancia del mes", Colones(r.GananciaRealMesAnterior), Colones(r.GananciaReal), r.VariacionGananciaPorcentaje, r.GananciaReal)}
                   {ComparativaRow("Servicios", r.ServiciosRealizadosMesAnterior.ToString(Culture), r.ServiciosRealizados.ToString(Culture), r.VariacionServiciosPorcentaje, r.ServiciosRealizados)}
                   {ComparativaRow("Productos", r.ProductosVendidosMesAnterior.ToString(Culture), r.ProductosVendidos.ToString(Culture), r.VariacionProductosPorcentaje, r.ProductosVendidos)}
                   {ComparativaRow("Citas en línea", r.CitasOnlineMesAnterior.ToString(Culture), r.CitasOnlineReservadas.ToString(Culture), r.VariacionCitasOnlinePorcentaje, r.CitasOnlineReservadas)}

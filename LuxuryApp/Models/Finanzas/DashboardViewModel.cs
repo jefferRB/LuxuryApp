@@ -27,13 +27,43 @@
 
         public decimal TotalImpuestos { get; set; }
 
+        /// <summary>CAJA: dinero efectivamente pagado a colaboradores durante el mes.</summary>
         public decimal TotalPagadoFuncionarios { get; set; }
+
+        /// <summary>
+        /// DEVENGADO: liquidaciones que generó la producción del mes, se hayan pagado o no.
+        /// Es la línea que resta la ganancia (y la que ve el inversionista).
+        /// </summary>
         public decimal TotalPagadoFuncionariosAnalitico { get; set; }
 
-        public decimal TotalEgresos { get; set; }
+        /// <summary>
+        /// CAJA: suma de TODOS los egresos con <c>FechaEgreso</c> dentro del mes, exactamente lo
+        /// mismo que muestra la pantalla /Egresos con ese rango.
+        ///
+        /// <para>
+        /// Puede diferir de <see cref="TotalEgresosAnaliticos"/> y eso es correcto: un pago hecho
+        /// en agosto puede corresponder a producción de julio. <b>No entra en la ganancia.</b>
+        /// </para>
+        /// </summary>
+        public decimal SalidasCajaMes { get; set; }
+
+        /// <summary>
+        /// DEVENGADO: costos y gastos económicos del mes = liquidaciones del equipo generadas por
+        /// la producción del mes + gastos operativos elegibles. Es lo que resta la ganancia.
+        /// </summary>
         public decimal TotalEgresosAnaliticos { get; set; }
 
-        public decimal GananciaNegocio => TotalSinImpuestos - TotalEgresos;
+        /// <summary>
+        /// Resultado de CAJA del mes (ingresos netos − salidas de caja). No es la ganancia del
+        /// negocio: mezcla una base devengada con salidas de efectivo. Se conserva porque el
+        /// Resumen Ejecutivo Mensual lo viene reportando así.
+        /// </summary>
+        public decimal ResultadoCajaMes => TotalSinImpuestos - SalidasCajaMes;
+
+        /// <summary>
+        /// GANANCIA DEL MES (devengado). Única fórmula de ganancia del sistema, servida por
+        /// <c>IPeriodProfitCalculationService</c>: ingresos netos − costos y gastos del mes.
+        /// </summary>
         public decimal ResultadoAnalitico => TotalSinImpuestos - TotalEgresosAnaliticos;
         public decimal IngresosEfectivo { get; set; }
         public decimal IngresosSinpe { get; set; }

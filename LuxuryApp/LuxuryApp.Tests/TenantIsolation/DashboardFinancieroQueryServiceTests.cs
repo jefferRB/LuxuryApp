@@ -60,7 +60,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             Assert.Equal(309.74m, model.TotalSinImpuestos);
 
             // CAJA: el único egreso de abril.
-            Assert.Equal(40m, model.TotalEgresos);
+            Assert.Equal(40m, model.SalidasCajaMes);
 
             // ANALÍTICO: gastos operativos + liquidaciones DEVENGADAS del equipo. La comisión se
             // calcula sobre la BASE SIN IVA (default del colaborador): 50 % de 132,75 en servicios
@@ -173,7 +173,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             // CAJA: lo que efectivamente salió en abril (liquidación pagada + alquiler).
             Assert.Equal(80m, model.TotalPagadoFuncionarios);
-            Assert.Equal(100m, model.TotalEgresos);
+            Assert.Equal(100m, model.SalidasCajaMes);
 
             // ANALÍTICO: devengado del período. Mario cobra 50 % sobre la base sin IVA (177,00).
             Assert.Equal(88.50m, model.TotalPagadoFuncionariosAnalitico);
@@ -227,7 +227,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             Assert.Equal(120m, model.TotalServicios);
             Assert.Equal(120m, model.TotalGenerado);
-            Assert.Equal(20m, model.TotalEgresos);
+            Assert.Equal(20m, model.SalidasCajaMes);
             Assert.Equal(1, model.CantidadClientes);
             Assert.Equal(120m, model.IngresosSinpe);
             Assert.Equal(0m, model.IngresosEfectivo);

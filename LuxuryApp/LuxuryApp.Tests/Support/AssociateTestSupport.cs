@@ -40,7 +40,6 @@ namespace LuxuryApp.Tests.Support
             FakePlatformAuditService audit) =>
             new(
                 context,
-                InvestorTestSupport.CreateInvestorService(context, audit),
                 InvestorTestSupport.CreateCalculationService(context, tenantProvider),
                 ControllerTestSupport.BusinessDateTimeProvider);
 

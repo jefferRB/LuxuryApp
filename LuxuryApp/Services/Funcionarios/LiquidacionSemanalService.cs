@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.Fiscal;
 using LuxuryApp.Models.Funcionarios;
@@ -17,6 +17,9 @@ namespace LuxuryApp.Services.Funcionarios
         private readonly ITaxCalculationService _taxService;
         private readonly ILiquidacionFuncionarioService _liquidacionFuncionario;
         private readonly ITenantFiscalConfigService _fiscalConfig;
+        private readonly LuxuryApp.Services.Finanzas.ISystemCategoryService _systemCategoryService;
+        private readonly LuxuryApp.Services.Platform.IPlatformAuditService _auditService;
+        private readonly LuxuryApp.Services.Tenant.ITenantProvider _tenantProvider;
         private readonly ILogger<LiquidacionSemanalService> _logger;
 
         public LiquidacionSemanalService(
@@ -25,6 +28,9 @@ namespace LuxuryApp.Services.Funcionarios
             ITaxCalculationService taxService,
             ILiquidacionFuncionarioService liquidacionFuncionario,
             ITenantFiscalConfigService fiscalConfig,
+            LuxuryApp.Services.Finanzas.ISystemCategoryService systemCategoryService,
+            LuxuryApp.Services.Platform.IPlatformAuditService auditService,
+            LuxuryApp.Services.Tenant.ITenantProvider tenantProvider,
             ILogger<LiquidacionSemanalService> logger)
         {
             _context = context;
@@ -32,6 +38,9 @@ namespace LuxuryApp.Services.Funcionarios
             _taxService = taxService;
             _liquidacionFuncionario = liquidacionFuncionario;
             _fiscalConfig = fiscalConfig;
+            _systemCategoryService = systemCategoryService;
+            _auditService = auditService;
+            _tenantProvider = tenantProvider;
             _logger = logger;
         }
 
@@ -113,22 +122,12 @@ namespace LuxuryApp.Services.Funcionarios
                 var ventaServicios = CalcularVenta(serviciosFunc, tenantFiscal);
                 var ventaProductos = CalcularVenta(productosFunc, tenantFiscal);
 
-                // Liquidación del colaborador: base de comisión, IVA de su factura y total a pagar.
-                var liquidacion = _liquidacionFuncionario.Liquidar(new LiquidacionColaboradorInput
-                {
-                    TotalVentaServicios = ventaServicios.GrossTotal,
-                    BaseVentaServicios = ventaServicios.NetBase,
-                    IvaVentaServicios = ventaServicios.TaxAmount,
-                    TotalVentaProductos = ventaProductos.GrossTotal,
-                    BaseVentaProductos = ventaProductos.NetBase,
-                    IvaVentaProductos = ventaProductos.TaxAmount,
-                    PorcentajeServicios = funcionario.PorcentajeGanancia,
-                    PorcentajeProductos = funcionario.PorcentajeProducto,
-                    ComisionCalculadaSobre = funcionario.ComisionCalculadaSobre,
-                    TipoRelacion = funcionario.TipoRelacionColaborador,
-                    ModalidadIva = funcionario.ModalidadIvaColaborador,
-                    TarifaIvaFacturaColaborador = funcionario.TarifaIvaFacturaColaborador
-                });
+                // Liquidación del colaborador AGRUPANDO POR CONFIGURACIÓN EFECTIVA: dentro de un
+                // mismo periodo pueden convivir cobros al 50 % y al 55 % si el porcentaje cambió a
+                // mitad de quincena. Con una sola configuración el resultado es idéntico al del
+                // algoritmo anterior (ver LiquidarPorConfiguracion).
+                var liquidacion = LiquidarPorConfiguracion(
+                    serviciosFunc, productosFunc, funcionario.RemuneracionActual, tenantFiscal);
 
                 var totalServicios = ventaServicios.GrossTotal;
                 var totalProductos = ventaProductos.GrossTotal;
@@ -279,6 +278,24 @@ namespace LuxuryApp.Services.Funcionarios
                     IsolationLevel.Serializable,
                     cancellationToken);
 
+                // IDEMPOTENCIA. Cubre los tres casos que sí duplican dinero:
+                //   · doble click / reenvío del formulario,
+                //   · reintento de la ExecutionStrategy cuando el COMMIT ocurrió pero se perdió el ACK,
+                //   · reintento del navegador tras un timeout.
+                // Validar el pendiente NO alcanza: un pago PARCIAL repetido cabe dos veces dentro
+                // del pendiente y se cobraría dos veces.
+                var yaRegistrada = await BuscarPorIdempotencyKeyAsync(command.IdempotencyKey, cancellationToken);
+                if (yaRegistrada is not null)
+                {
+                    _logger.LogInformation(
+                        "Pago idempotente: la clave {IdempotencyKey} ya corresponde a la liquidacion {LiquidacionId}. No se registra de nuevo.",
+                        command.IdempotencyKey,
+                        yaRegistrada.Id);
+
+                    await transaction.CommitAsync(cancellationToken);
+                    return yaRegistrada.Id;
+                }
+
                 var resumen = await ObtenerResumenSemanaAsync(
                     command.SemanaInicio,
                     command.SemanaFin,
@@ -304,7 +321,11 @@ namespace LuxuryApp.Services.Funcionarios
                     detallesValidados.Add((resumenFuncionario, detalle.MontoPagado));
                 }
 
-                var categoria = await EnsureCategoriaPagoFuncionariosAsync(cancellationToken);
+                // Identidad estructural de la categoría (ver ISystemCategoryService): la asigna el
+                // sistema, nunca el usuario, y no depende del nombre visible.
+                var categoria = await _systemCategoryService.EnsureAsync(
+                    SystemCategoryCodes.EmployeeSettlement,
+                    cancellationToken);
                 var now = _businessDateTimeProvider.Now();
                 var fechaPago = NormalizeFechaPago(command.FechaPago, now);
                 var montoTotal = detallesValidados.Sum(item => item.MontoPagado);
@@ -334,11 +355,42 @@ namespace LuxuryApp.Services.Funcionarios
                     Observacion = command.Observacion,
                     CreadoPor = command.CreadoPor,
                     FechaCreacion = now,
-                    EgresoId = egreso.IdEgreso
+                    EgresoId = egreso.IdEgreso,
+                    IdempotencyKey = command.IdempotencyKey
                 };
 
                 _context.LiquidacionesSemanales.Add(liquidacion);
-                await _context.SaveChangesAsync(cancellationToken);
+
+                try
+                {
+                    await _context.SaveChangesAsync(cancellationToken);
+                }
+                catch (DbUpdateException ex) when (command.IdempotencyKey.HasValue && IsUniqueConstraintViolation(ex))
+                {
+                    // Otra petición con la misma intención ganó la carrera entre la lectura de arriba
+                    // y este INSERT. El índice único es la garantía real; acá solo se convierte la
+                    // carrera en el resultado correcto: una sola operación.
+                    _context.Entry(liquidacion).State = EntityState.Detached;
+                    _context.Entry(egreso).State = EntityState.Detached;
+
+                    // Se deshace lo propio ANTES de leer al ganador: su fila vive en otra
+                    // transacción ya confirmada.
+                    await transaction.RollbackAsync(cancellationToken);
+
+                    var ganadora = await BuscarPorIdempotencyKeyAsync(command.IdempotencyKey, cancellationToken);
+                    if (ganadora is null)
+                    {
+                        throw;
+                    }
+
+                    _logger.LogWarning(
+                        ex,
+                        "Carrera de idempotencia resuelta: la clave {IdempotencyKey} ya corresponde a la liquidacion {LiquidacionId}.",
+                        command.IdempotencyKey,
+                        ganadora.Id);
+
+                    return ganadora.Id;
+                }
 
                 foreach (var detalle in detallesValidados)
                 {
@@ -379,58 +431,170 @@ namespace LuxuryApp.Services.Funcionarios
             });
         }
 
-        private async Task<Categoria> EnsureCategoriaPagoFuncionariosAsync(CancellationToken cancellationToken)
+        private Task<LiquidacionSemanal?> BuscarPorIdempotencyKeyAsync(
+            Guid? idempotencyKey,
+            CancellationToken cancellationToken)
         {
-            var categoria = await _context.Categorias
-                .FirstOrDefaultAsync(c => c.Nombre == LiquidacionSemanalDefaults.CategoriaPagoFuncionarios, cancellationToken);
-
-            if (categoria != null)
+            if (!idempotencyKey.HasValue)
             {
-                if (!categoria.Activo)
+                return Task.FromResult<LiquidacionSemanal?>(null);
+            }
+
+            // El filtro global de tenant aplica: la clave de otro negocio nunca se ve, y por eso
+            // el mismo GUID en dos tenants NO colisiona.
+            return _context.LiquidacionesSemanales
+                .AsNoTracking()
+                .FirstOrDefaultAsync(l => l.IdempotencyKey == idempotencyKey.Value, cancellationToken);
+        }
+
+        /// <summary>
+        /// Deshace por completo una operación de pago. Ver <see cref="ILiquidacionSemanalService"/>
+        /// para la semántica; acá vive la garantía de atomicidad.
+        /// </summary>
+        public async Task<ReversionPagoResultado> RevertirPagoAsync(
+            int liquidacionId,
+            string motivo,
+            string? revertidoPorUserId,
+            CancellationToken cancellationToken = default)
+        {
+            var motivoNormalizado = NormalizeOptionalText(motivo, 500);
+            if (string.IsNullOrWhiteSpace(motivoNormalizado))
+            {
+                throw new InvalidOperationException("Debe indicar el motivo de la reversión.");
+            }
+
+            var executionStrategy = _context.Database.CreateExecutionStrategy();
+
+            return await executionStrategy.ExecuteAsync(async () =>
+            {
+                await using var transaction = await _context.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
+
+                // El filtro global de tenant hace el aislamiento: el id de otro negocio no existe
+                // acá aunque quien llama conozca el número.
+                var liquidacion = await _context.LiquidacionesSemanales
+                    .Include(l => l.Detalles)
+                    .Include(l => l.DistribucionesMensuales)
+                    .Include(l => l.Egreso)
+                    .FirstOrDefaultAsync(l => l.Id == liquidacionId, cancellationToken);
+
+                if (liquidacion is null)
                 {
-                    categoria.Activo = true;
+                    // Idempotencia: un segundo click no puede fallar ni inventar estados. Si la
+                    // bitácora ya tiene la reversión, la respuesta es "ya estaba revertida".
+                    await transaction.RollbackAsync(cancellationToken);
+                    return await ResolverReversionPreviaAsync(liquidacionId, cancellationToken);
+                }
+
+                var funcionarioIds = liquidacion.Detalles.Select(d => d.FuncionarioId).Distinct().ToList();
+                var nombres = await _context.Funcionarios
+                    .AsNoTracking()
+                    .Where(f => funcionarioIds.Contains(f.IdFuncionario))
+                    .Select(f => f.Nombre)
+                    .ToListAsync(cancellationToken);
+
+                var snapshot = new ReversionPagoSnapshot(
+                    liquidacion.Id,
+                    liquidacion.EgresoId,
+                    liquidacion.MontoTotal,
+                    liquidacion.FechaPago,
+                    liquidacion.SemanaInicio,
+                    liquidacion.SemanaFin,
+                    liquidacion.Egreso?.MetodoPago,
+                    liquidacion.Egreso?.Monto,
+                    liquidacion.CreadoPor,
+                    liquidacion.IdempotencyKey,
+                    nombres,
+                    liquidacion.Detalles
+                        .Select(d => new ReversionPagoDetalleSnapshot(d.FuncionarioId, d.MontoPagado))
+                        .ToList());
+
+                // La bitácora se escribe ANTES de borrar y DENTRO de la transacción: si la auditoría
+                // falla, no hay reversión. Nunca un borrado silencioso de dinero.
+                await _auditService.LogAsync(
+                    new LuxuryApp.Services.Platform.PlatformAuditEntry
+                    {
+                        Action = LuxuryApp.Models.Platform.PlatformAuditActions.EmployeeSettlementPaymentReverted,
+                        EntityType = LuxuryApp.Models.Platform.PlatformAuditEntityTypes.EmployeeSettlementPayment,
+                        EntityId = liquidacion.Id.ToString(),
+                        TenantId = liquidacion.TenantId,
+                        TargetUserId = revertidoPorUserId,
+                        Reason = motivoNormalizado,
+                        BeforeJson = System.Text.Json.JsonSerializer.Serialize(snapshot)
+                    },
+                    cancellationToken);
+
+                // Se revierte la OPERACIÓN COMPLETA (todos los colaboradores del lote): el Egreso es
+                // uno solo por el total, así que revertir una parte dejaría Egreso != liquidación.
+                _context.LiquidacionesSemanalesDistribucionMensual.RemoveRange(liquidacion.DistribucionesMensuales);
+                _context.LiquidacionesSemanalesDetalle.RemoveRange(liquidacion.Detalles);
+                _context.LiquidacionesSemanales.Remove(liquidacion);
+                await _context.SaveChangesAsync(cancellationToken);
+
+                // El Egreso va después: la liquidación lo referencia (FK Restrict).
+                if (liquidacion.Egreso is not null)
+                {
+                    _context.Egresos.Remove(liquidacion.Egreso);
                     await _context.SaveChangesAsync(cancellationToken);
                 }
 
-                return categoria;
-            }
+                await transaction.CommitAsync(cancellationToken);
 
-            categoria = new Categoria
-            {
-                Nombre = LiquidacionSemanalDefaults.CategoriaPagoFuncionarios,
-                Detalle = "Categoria generada automaticamente para registrar pagos reales a funcionarios.",
-                Activo = true
-            };
+                _logger.LogInformation(
+                    "Liquidacion {LiquidacionId} revertida. Monto {MontoTotal}. Egreso {EgresoId}. Motivo: {Motivo}.",
+                    snapshot.LiquidacionId,
+                    snapshot.MontoTotal,
+                    snapshot.EgresoId,
+                    motivoNormalizado);
 
-            _context.Categorias.Add(categoria);
-
-            try
-            {
-                await _context.SaveChangesAsync(cancellationToken);
-                return categoria;
-            }
-            catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
-            {
-                _logger.LogWarning(ex, "La categoria de Pago Funcionarios fue creada concurrentemente por otra solicitud.");
-                _context.Entry(categoria).State = EntityState.Detached;
-
-                var existente = await _context.Categorias
-                    .FirstOrDefaultAsync(c => c.Nombre == LiquidacionSemanalDefaults.CategoriaPagoFuncionarios, cancellationToken);
-
-                if (existente != null)
-                {
-                    if (!existente.Activo)
-                    {
-                        existente.Activo = true;
-                        await _context.SaveChangesAsync(cancellationToken);
-                    }
-
-                    return existente;
-                }
-
-                throw;
-            }
+                return new ReversionPagoResultado(
+                    ReversionPagoEstado.Revertida,
+                    snapshot.MontoTotal,
+                    snapshot.Funcionarios);
+            });
         }
+
+        /// <summary>
+        /// Distingue "ya la revertí" de "ese id nunca existió acá". Sin esto, el segundo click de
+        /// un usuario impaciente parecería un error.
+        /// </summary>
+        private async Task<ReversionPagoResultado> ResolverReversionPreviaAsync(
+            int liquidacionId,
+            CancellationToken cancellationToken)
+        {
+            var entityId = liquidacionId.ToString();
+            var tenantId = _tenantProvider.HasTenant() ? _tenantProvider.GetTenantId() : Guid.Empty;
+
+            var reversionPrevia = await _context.PlatformAuditLogs
+                .AsNoTracking()
+                .AnyAsync(
+                    log => log.Action == LuxuryApp.Models.Platform.PlatformAuditActions.EmployeeSettlementPaymentReverted &&
+                           log.EntityType == LuxuryApp.Models.Platform.PlatformAuditEntityTypes.EmployeeSettlementPayment &&
+                           log.EntityId == entityId &&
+                           log.TenantId == tenantId,
+                    cancellationToken);
+
+            return reversionPrevia
+                ? new ReversionPagoResultado(ReversionPagoEstado.YaRevertida, 0m, Array.Empty<string>())
+                : new ReversionPagoResultado(ReversionPagoEstado.NoEncontrada, 0m, Array.Empty<string>());
+        }
+
+        private sealed record ReversionPagoSnapshot(
+            int LiquidacionId,
+            int? EgresoId,
+            decimal MontoTotal,
+            DateTime FechaPago,
+            DateTime PeriodoInicio,
+            DateTime PeriodoFin,
+            string? MetodoPago,
+            decimal? EgresoMonto,
+            string? RegistradoPor,
+            Guid? IdempotencyKey,
+            IReadOnlyList<string> Funcionarios,
+            IReadOnlyList<ReversionPagoDetalleSnapshot> Detalles);
+
+        private sealed record ReversionPagoDetalleSnapshot(int FuncionarioId, decimal MontoPagado);
 
         private async Task<List<LiquidacionSemanalDistribucionMensual>> BuildDistribucionMensualDesdeCobrosAsync(
             int liquidacionId,
@@ -449,43 +613,27 @@ namespace LuxuryApp.Services.Funcionarios
                 return new List<LiquidacionSemanalDistribucionMensual>();
             }
 
-            var funcionarios = await _context.Funcionarios
-                .AsNoTracking()
-                .Where(f => funcionarioIds.Contains(f.IdFuncionario))
-                .Select(f => new Funcionario
-                {
-                    IdFuncionario = f.IdFuncionario,
-                    Nombre = f.Nombre,
-                    PorcentajeGanancia = f.PorcentajeGanancia,
-                    PorcentajeProducto = f.PorcentajeProducto,
-                    ComisionCalculadaSobre = f.ComisionCalculadaSobre
-                })
-                .ToDictionaryAsync(f => f.IdFuncionario, cancellationToken);
+            var tenantFiscal = await _fiscalConfig.ObtenerAsync(cancellationToken);
 
-            var cobrosSemana = await _context.Cobros
-                .AsNoTracking()
-                .Where(c => funcionarioIds.Contains(c.FuncionarioId) &&
-                            c.FechaCobro >= semanaInicio.Date &&
-                            c.FechaCobro < semanaFin.Date.AddDays(1))
-                .Select(c => new Cobro
-                {
-                    FuncionarioId = c.FuncionarioId,
-                    FechaCobro = c.FechaCobro,
-                    Monto = c.Monto,
-                    ProductoId = c.ProductoId
-                })
-                .ToListAsync(cancellationToken);
+            var funcionarios = (await LoadFuncionariosSemanaAsync(funcionarioIds, cancellationToken))
+                .ToDictionary(f => f.IdFuncionario);
+
+            var cobrosSemana = await LoadDevengadoCobrosAsync(
+                funcionarioIds,
+                semanaInicio.Date,
+                semanaFin.Date.AddDays(1),
+                cancellationToken);
 
             var cobrosPorFuncionario = cobrosSemana
                 .GroupBy(c => c.FuncionarioId)
                 .ToDictionary(group => group.Key, group => group.ToList());
 
             var diasPorMes = cobrosSemana
-                .GroupBy(c => (c.FechaCobro.Year, c.FechaCobro.Month))
+                .GroupBy(c => (c.Fecha.Year, c.Fecha.Month))
                 .ToDictionary(
                     group => group.Key,
                     group => group
-                        .Select(c => c.FechaCobro.Date)
+                        .Select(c => c.Fecha.Date)
                         .Distinct()
                         .Count());
 
@@ -500,11 +648,12 @@ namespace LuxuryApp.Services.Funcionarios
 
                 var cobrosFuncionario = cobrosPorFuncionario.TryGetValue(detalle.Resumen.FuncionarioId, out var listaCobros)
                     ? listaCobros
-                    : new List<Cobro>();
+                    : new List<DevengadoCobroRow>();
 
+                // El devengado sale de la MISMA primitiva que usa la atribución de pagos: snapshot
+                // del cobro cuando lo tiene y motor fiscal canónico siempre.
                 var distribucionFuncionario = PagoFuncionarioDevengadoCalculator.DistribuirMontoPagadoPorMes(
-                    cobrosFuncionario,
-                    funcionario,
+                    cobrosFuncionario.Select(c => (c.Fecha, Devengado(c, funcionario, tenantFiscal))),
                     detalle.MontoPagado);
 
                 if (distribucionFuncionario.Count == 0 && detalle.MontoPagado > 0)
@@ -543,10 +692,141 @@ namespace LuxuryApp.Services.Funcionarios
         }
 
         /// <summary>Desglose fiscal (Base/IVA) de un conjunto de cobros con su config efectiva.</summary>
+
+        // ─────────────── Liquidación por CONFIGURACIÓN EFECTIVA ───────────────
+
+        /// <summary>
+        /// Liquida al colaborador respetando la configuración con la que nació CADA cobro.
+        ///
+        /// <para>Algoritmo, explícito a propósito:</para>
+        /// <list type="number">
+        ///   <item>cada cobro resuelve su remuneración efectiva (snapshot si lo tiene, o la
+        ///   configuración actual del colaborador si es legacy);</item>
+        ///   <item>los cobros se agrupan por esa configuración;</item>
+        ///   <item>dentro de cada grupo se suman las ventas con el motor fiscal por línea;</item>
+        ///   <item>se ejecuta UNA vez la fórmula canónica del motor para ese grupo;</item>
+        ///   <item>se suman los resultados de los grupos.</item>
+        /// </list>
+        ///
+        /// <para>
+        /// <b>Identidad con el algoritmo anterior.</b> Si todos los cobros comparten configuración
+        /// hay exactamente UN grupo, el acumulador arranca en ese resultado y no se le suma nada
+        /// más: la salida es la misma que la de la llamada única que había antes. No es una
+        /// coincidencia numérica, es estructural — por eso no hace falta tolerancia de redondeo.
+        /// </para>
+        ///
+        /// <para>
+        /// La fiscalidad NO entra en la clave de agrupación: CalcularVenta ya resuelve el IVA línea
+        /// por línea, así que un grupo puede mezclar gravados y exentos sin problema.
+        /// </para>
+        ///
+        /// <para>
+        /// El orden de los cobros no altera el resultado: todo lo que se acumula son sumas de
+        /// decimales, y la suma es asociativa y conmutativa.
+        /// </para>
+        /// </summary>
+        private LiquidacionColaboradorResult LiquidarPorConfiguracion(
+            IReadOnlyCollection<ServicioCobroRow> servicios,
+            IReadOnlyCollection<ProductoCobroRow> productos,
+            CobroRemuneracionEfectiva remuneracionActual,
+            TenantFiscalConfig tenantFiscal)
+        {
+            // Sin producción: una pasada en cero con la configuración vigente, para que el
+            // colaborador igual aparezca en la planilla. Es lo que hacía el algoritmo anterior.
+            if (servicios.Count == 0 && productos.Count == 0)
+            {
+                return LiquidarGrupo(
+                    Array.Empty<ICobroFiscalRow>(),
+                    Array.Empty<ICobroFiscalRow>(),
+                    remuneracionActual,
+                    tenantFiscal);
+            }
+
+            var lineas = servicios
+                .Select(row => (Row: (ICobroFiscalRow)row, EsProducto: false,
+                    Remuneracion: CobroRemuneracionEfectiva.Resolver(row, remuneracionActual)))
+                .Concat(productos.Select(row => (Row: (ICobroFiscalRow)row, EsProducto: true,
+                    Remuneracion: CobroRemuneracionEfectiva.Resolver(row, remuneracionActual))));
+
+            LiquidacionColaboradorResult? acumulado = null;
+
+            foreach (var grupo in lineas.GroupBy(linea => linea.Remuneracion.ClaveDeAgrupacion()))
+            {
+                var parcial = LiquidarGrupo(
+                    grupo.Where(linea => !linea.EsProducto).Select(linea => linea.Row).ToList(),
+                    grupo.Where(linea => linea.EsProducto).Select(linea => linea.Row).ToList(),
+                    grupo.Key,
+                    tenantFiscal);
+
+                acumulado = acumulado is null ? parcial : Sumar(acumulado, parcial);
+            }
+
+            return acumulado!;
+        }
+
+        /// <summary>Una llamada al motor canónico para cobros con la MISMA configuración.</summary>
+        private LiquidacionColaboradorResult LiquidarGrupo(
+            IReadOnlyCollection<ICobroFiscalRow> servicios,
+            IReadOnlyCollection<ICobroFiscalRow> productos,
+            CobroRemuneracionEfectiva remuneracion,
+            TenantFiscalConfig tenantFiscal)
+        {
+            var ventaServicios = CalcularVenta(servicios, tenantFiscal);
+            var ventaProductos = CalcularVenta(productos, tenantFiscal);
+
+            return _liquidacionFuncionario.Liquidar(new LiquidacionColaboradorInput
+            {
+                TotalVentaServicios = ventaServicios.GrossTotal,
+                BaseVentaServicios = ventaServicios.NetBase,
+                IvaVentaServicios = ventaServicios.TaxAmount,
+                TotalVentaProductos = ventaProductos.GrossTotal,
+                BaseVentaProductos = ventaProductos.NetBase,
+                IvaVentaProductos = ventaProductos.TaxAmount,
+                PorcentajeServicios = remuneracion.PorcentajeServicios,
+                PorcentajeProductos = remuneracion.PorcentajeProductos,
+                ComisionCalculadaSobre = remuneracion.ComisionCalculadaSobre,
+                TipoRelacion = remuneracion.TipoRelacion,
+                ModalidadIva = remuneracion.ModalidadIva,
+                TarifaIvaFacturaColaborador = remuneracion.TarifaIvaColaborador
+            });
+        }
+
+        /// <summary>
+        /// Suma dos resultados de liquidación. Todos los importes son aditivos por definición: cada
+        /// grupo ya resolvió su propio IVA de colaborador con su propia tarifa, así que sumarlos es
+        /// exactamente lo que hay que pagarle.
+        ///
+        /// <para>
+        /// ModalidadAplicada conserva la del primer grupo por compatibilidad: con configuraciones
+        /// mixtas deja de tener un valor único, y ningún consumidor la lee.
+        /// </para>
+        /// </summary>
+        private static LiquidacionColaboradorResult Sumar(
+            LiquidacionColaboradorResult a,
+            LiquidacionColaboradorResult b) =>
+            new()
+            {
+                TotalCobrado = a.TotalCobrado + b.TotalCobrado,
+                BaseVentaSinIva = a.BaseVentaSinIva + b.BaseVentaSinIva,
+                IvaVentaIncluido = a.IvaVentaIncluido + b.IvaVentaIncluido,
+                BaseComisionServicios = a.BaseComisionServicios + b.BaseComisionServicios,
+                BaseComisionProductos = a.BaseComisionProductos + b.BaseComisionProductos,
+                MontoColaborador = a.MontoColaborador + b.MontoColaborador,
+                BaseColaborador = a.BaseColaborador + b.BaseColaborador,
+                IvaColaborador = a.IvaColaborador + b.IvaColaborador,
+                TotalAPagarColaborador = a.TotalAPagarColaborador + b.TotalAPagarColaborador,
+                IvaNetoNegocio = a.IvaNetoNegocio + b.IvaNetoNegocio,
+                ModalidadAplicada = a.ModalidadAplicada
+            };
+
         private TaxBreakdown CalcularVenta(IEnumerable<ICobroFiscalRow> cobros, TenantFiscalConfig tenantFiscal)
         {
-            var lineas = cobros.Select(c => _fiscalConfig.ResolverLinea(
-                c.Monto, c.AplicaIva, c.TarifaIva, c.PrecioIncluyeIva, tenantFiscal));
+            var lineas = cobros.Select(c =>
+            {
+                var fiscal = c.Fiscalidad();
+                return _fiscalConfig.ResolverLinea(
+                    c.Monto, fiscal.AplicaIva, fiscal.TarifaIva, fiscal.PrecioIncluyeIva, tenantFiscal);
+            });
             return _taxService.Sumar(lineas);
         }
 
@@ -555,16 +835,21 @@ namespace LuxuryApp.Services.Funcionarios
             FuncionarioResumenData funcionario,
             TenantFiscalConfig tenantFiscal)
         {
+            var fiscal = producto.Fiscalidad();
             var linea = _fiscalConfig.ResolverLinea(
-                producto.Monto, producto.AplicaIva, producto.TarifaIva, producto.PrecioIncluyeIva, tenantFiscal);
+                producto.Monto, fiscal.AplicaIva, fiscal.TarifaIva, fiscal.PrecioIncluyeIva, tenantFiscal);
             var breakdown = _taxService.Calcular(
                 linea.TotalOrBase, linea.TaxRatePercent, linea.PriceIncludesTax, linea.Taxable);
 
-            var baseComision = funcionario.ComisionCalculadaSobre == ComisionCalculadaSobre.BaseSinIva
+            // También por snapshot: el detalle de productos vendidos muestra lo que se ganó con
+            // ESA venta, no lo que ganaría hoy con la configuración vigente.
+            var remuneracion = CobroRemuneracionEfectiva.Resolver(producto, funcionario.RemuneracionActual);
+
+            var baseComision = remuneracion.ComisionCalculadaSobre == ComisionCalculadaSobre.BaseSinIva
                 ? breakdown.NetBase
                 : breakdown.GrossTotal;
 
-            return FiscalMath.Redondear(baseComision * (funcionario.PorcentajeProducto / 100m));
+            return FiscalMath.Redondear(baseComision * (remuneracion.PorcentajeProductos / 100m));
         }
 
         private static List<DetalleDiaVM> BuildDetalleDias(
@@ -612,10 +897,21 @@ namespace LuxuryApp.Services.Funcionarios
                     FuncionarioId = c.FuncionarioId,
                     Fecha = c.FechaCobro,
                     Monto = c.Monto,
+                    // Las dos fuentes viajan juntas: manda el snapshot congelado del cobro y el
+                    // catálogo solo entra para cobros legacy (ver CobroFiscalidadEfectiva).
+                    AplicaIvaSnapshot = c.AplicaIvaSnapshot,
+                    TarifaIvaSnapshot = c.TarifaIvaSnapshot,
+                    PrecioIncluyeIvaSnapshot = c.PrecioIncluyeIvaSnapshot,
+                    PorcentajeServicioSnapshot = c.PorcentajeServicioSnapshot,
+                    PorcentajeProductoSnapshot = c.PorcentajeProductoSnapshot,
+                    ComisionCalculadaSobreSnapshot = c.ComisionCalculadaSobreSnapshot,
+                    TipoRelacionColaboradorSnapshot = c.TipoRelacionColaboradorSnapshot,
+                    ModalidadIvaColaboradorSnapshot = c.ModalidadIvaColaboradorSnapshot,
+                    TarifaIvaColaboradorSnapshot = c.TarifaIvaColaboradorSnapshot,
                     // Servicio personalizado (sin catálogo) → sujeto a IVA con config del tenant.
-                    AplicaIva = c.Servicio == null || c.Servicio.AplicaIva,
-                    TarifaIva = c.Servicio != null ? c.Servicio.TarifaIva : null,
-                    PrecioIncluyeIva = c.Servicio != null ? c.Servicio.PrecioIncluyeIva : null
+                    AplicaIvaCatalogo = c.Servicio == null || c.Servicio.AplicaIva,
+                    TarifaIvaCatalogo = c.Servicio != null ? c.Servicio.TarifaIva : null,
+                    PrecioIncluyeIvaCatalogo = c.Servicio != null ? c.Servicio.PrecioIncluyeIva : null
                 })
                 .ToListAsync(cancellationToken);
         }
@@ -634,11 +930,22 @@ namespace LuxuryApp.Services.Funcionarios
                 {
                     FuncionarioId = c.FuncionarioId,
                     Fecha = c.FechaCobro,
-                    NombreProducto = c.Producto != null ? c.Producto.NombreProducto : "Producto",
+                    NombreProducto = c.DetalleSnapshot != null
+                        ? c.DetalleSnapshot
+                        : (c.Producto != null ? c.Producto.NombreProducto : "Producto"),
                     Monto = c.Monto,
-                    AplicaIva = c.Producto == null || c.Producto.AplicaIva,
-                    TarifaIva = c.Producto != null ? c.Producto.TarifaIva : null,
-                    PrecioIncluyeIva = c.Producto != null ? c.Producto.PrecioIncluyeIva : null
+                    AplicaIvaSnapshot = c.AplicaIvaSnapshot,
+                    TarifaIvaSnapshot = c.TarifaIvaSnapshot,
+                    PrecioIncluyeIvaSnapshot = c.PrecioIncluyeIvaSnapshot,
+                    PorcentajeServicioSnapshot = c.PorcentajeServicioSnapshot,
+                    PorcentajeProductoSnapshot = c.PorcentajeProductoSnapshot,
+                    ComisionCalculadaSobreSnapshot = c.ComisionCalculadaSobreSnapshot,
+                    TipoRelacionColaboradorSnapshot = c.TipoRelacionColaboradorSnapshot,
+                    ModalidadIvaColaboradorSnapshot = c.ModalidadIvaColaboradorSnapshot,
+                    TarifaIvaColaboradorSnapshot = c.TarifaIvaColaboradorSnapshot,
+                    AplicaIvaCatalogo = c.Producto == null || c.Producto.AplicaIva,
+                    TarifaIvaCatalogo = c.Producto != null ? c.Producto.TarifaIva : null,
+                    PrecioIncluyeIvaCatalogo = c.Producto != null ? c.Producto.PrecioIncluyeIva : null
                 })
                 .ToListAsync(cancellationToken);
         }
@@ -661,6 +968,50 @@ namespace LuxuryApp.Services.Funcionarios
             return atribucion.Diagnostico;
         }
 
+        /// <summary>
+        /// Cobros del periodo listos para calcular devengado: traen su fiscalidad y su remuneración
+        /// efectivas. Lo usan tanto la atribución de pagos como la distribución mensual, para que
+        /// las dos pesen la producción exactamente igual.
+        /// </summary>
+        private async Task<List<DevengadoCobroRow>> LoadDevengadoCobrosAsync(
+            IReadOnlyCollection<int> funcionarioIds,
+            DateTime desde,
+            DateTime hastaExclusive,
+            CancellationToken cancellationToken)
+        {
+            return await _context.Cobros
+                .AsNoTracking()
+                .Where(c => funcionarioIds.Contains(c.FuncionarioId) &&
+                            c.FechaCobro >= desde &&
+                            c.FechaCobro < hastaExclusive)
+                .Select(c => new DevengadoCobroRow
+                {
+                    FuncionarioId = c.FuncionarioId,
+                    Fecha = c.FechaCobro,
+                    Monto = c.Monto,
+                    EsProducto = c.ProductoId != null,
+                    AplicaIvaSnapshot = c.AplicaIvaSnapshot,
+                    TarifaIvaSnapshot = c.TarifaIvaSnapshot,
+                    PrecioIncluyeIvaSnapshot = c.PrecioIncluyeIvaSnapshot,
+                    AplicaIvaCatalogo = c.ProductoId != null
+                        ? (c.Producto == null || c.Producto.AplicaIva)
+                        : (c.Servicio == null || c.Servicio.AplicaIva),
+                    TarifaIvaCatalogo = c.ProductoId != null
+                        ? (c.Producto != null ? c.Producto.TarifaIva : null)
+                        : (c.Servicio != null ? c.Servicio.TarifaIva : null),
+                    PrecioIncluyeIvaCatalogo = c.ProductoId != null
+                        ? (c.Producto != null ? c.Producto.PrecioIncluyeIva : null)
+                        : (c.Servicio != null ? c.Servicio.PrecioIncluyeIva : null),
+                    PorcentajeServicioSnapshot = c.PorcentajeServicioSnapshot,
+                    PorcentajeProductoSnapshot = c.PorcentajeProductoSnapshot,
+                    ComisionCalculadaSobreSnapshot = c.ComisionCalculadaSobreSnapshot,
+                    TipoRelacionColaboradorSnapshot = c.TipoRelacionColaboradorSnapshot,
+                    ModalidadIvaColaboradorSnapshot = c.ModalidadIvaColaboradorSnapshot,
+                    TarifaIvaColaboradorSnapshot = c.TarifaIvaColaboradorSnapshot
+                })
+                .ToListAsync(cancellationToken);
+        }
+
         private async Task<PaymentAttributionResult> AtribuirPagosPorProduccionAsync(
             DateTime inicio,
             DateTime finInclusive,
@@ -669,6 +1020,10 @@ namespace LuxuryApp.Services.Funcionarios
             inicio = inicio.Date;
             finInclusive = finInclusive.Date;
             var finExclusive = finInclusive.AddDays(1);
+
+            // Misma configuración fiscal del negocio que usa la liquidación: el devengado que pesa
+            // la atribución tiene que salir del mismo motor que el total a pagar.
+            var tenantFiscal = await _fiscalConfig.ObtenerAsync(cancellationToken);
 
             var candidatos = await LoadCandidatePaymentsAsync(inicio, finInclusive, cancellationToken);
 
@@ -685,19 +1040,8 @@ namespace LuxuryApp.Services.Funcionarios
             var ventanaFinExclusive = candidatos.Max(c => c.PeriodoFin).Date.AddDays(1);
             if (finExclusive > ventanaFinExclusive) ventanaFinExclusive = finExclusive;
 
-            var cobros = await _context.Cobros
-                .AsNoTracking()
-                .Where(c => funcionarioIds.Contains(c.FuncionarioId) &&
-                            c.FechaCobro >= ventanaInicio &&
-                            c.FechaCobro < ventanaFinExclusive)
-                .Select(c => new DevengadoCobroRow
-                {
-                    FuncionarioId = c.FuncionarioId,
-                    Fecha = c.FechaCobro,
-                    Monto = c.Monto,
-                    EsProducto = c.ProductoId != null
-                })
-                .ToListAsync(cancellationToken);
+            var cobros = await LoadDevengadoCobrosAsync(
+                funcionarioIds, ventanaInicio, ventanaFinExclusive, cancellationToken);
 
             var funcionarios = (await LoadFuncionariosSemanaAsync(funcionarioIds, cancellationToken))
                 .ToDictionary(f => f.IdFuncionario);
@@ -721,7 +1065,7 @@ namespace LuxuryApp.Services.Funcionarios
                 var alloc = funcionario == null
                     ? new List<CobroAllocacion>()
                     : cobrosFunc
-                        .Select(c => new CobroAllocacion { Fecha = c.Fecha.Date, Devengado = Devengado(c, funcionario) })
+                        .Select(c => new CobroAllocacion { Fecha = c.Fecha.Date, Devengado = Devengado(c, funcionario, tenantFiscal) })
                         .Where(a => a.Devengado > 0m)
                         .OrderBy(a => a.Fecha)
                         .ToList();
@@ -849,11 +1193,43 @@ namespace LuxuryApp.Services.Funcionarios
             public decimal Pagado { get; set; }
         }
 
-        private static decimal Devengado(DevengadoCobroRow cobro, FuncionarioResumenData funcionario)
+        /// <summary>
+        /// Devengado de UN cobro: lo que el colaborador se ganó con ese trabajo.
+        ///
+        /// <para>
+        /// Su responsabilidad no cambió —sigue siendo el peso con el que la atribución greedy
+        /// reparte los pagos— pero ahora lee las mismas dos fuentes que todo el resto del módulo:
+        /// </para>
+        /// <list type="bullet">
+        ///   <item><b>Remuneración efectiva:</b> el snapshot del cobro si lo tiene, la configuración
+        ///   actual del colaborador si es legacy. Un cobro vendido al 50 % se devenga al 50 % aunque
+        ///   hoy el colaborador esté al 55 %.</item>
+        ///   <item><b>Fiscalidad canónica:</b> el motor fiscal por línea, NO la división plana entre
+        ///   1,13 que usaba antes. Esa división daba una base equivocada en servicios exentos y con
+        ///   tarifas distintas del 13 %, y hacía que el pendiente mostrado no cuadrara con el total a
+        ///   pagar que calcula la liquidación.</item>
+        /// </list>
+        /// </summary>
+        private decimal Devengado(
+            DevengadoCobroRow cobro,
+            FuncionarioResumenData funcionario,
+            TenantFiscalConfig tenantFiscal)
         {
-            var porcentaje = cobro.EsProducto ? funcionario.PorcentajeProducto : funcionario.PorcentajeGanancia;
-            var baseComision = PagoFuncionarioDevengadoCalculator.CalcularBaseComision(
-                cobro.Monto, funcionario.ComisionCalculadaSobre);
+            var remuneracion = CobroRemuneracionEfectiva.Resolver(cobro, funcionario.RemuneracionActual);
+            var porcentaje = cobro.EsProducto
+                ? remuneracion.PorcentajeProductos
+                : remuneracion.PorcentajeServicios;
+
+            var fiscal = cobro.Fiscalidad();
+            var linea = _fiscalConfig.ResolverLinea(
+                cobro.Monto, fiscal.AplicaIva, fiscal.TarifaIva, fiscal.PrecioIncluyeIva, tenantFiscal);
+            var desglose = _taxService.Calcular(
+                linea.TotalOrBase, linea.TaxRatePercent, linea.PriceIncludesTax, linea.Taxable);
+
+            var baseComision = remuneracion.ComisionCalculadaSobre == ComisionCalculadaSobre.BaseSinIva
+                ? desglose.NetBase
+                : desglose.GrossTotal;
+
             return baseComision * (porcentaje / 100m);
         }
 
@@ -931,12 +1307,30 @@ namespace LuxuryApp.Services.Funcionarios
             string? MetodoPago,
             string? RegistradoPor);
 
-        private sealed class DevengadoCobroRow
+        /// <summary>
+        /// Cobro visto por la atribución de pagos. Trae las dos fuentes de verdad —fiscalidad y
+        /// remuneración— para que el devengado se calcule con el MISMO criterio que la liquidación.
+        /// </summary>
+        private sealed class DevengadoCobroRow : ICobroFiscalRow
         {
             public int FuncionarioId { get; init; }
             public DateTime Fecha { get; init; }
             public decimal Monto { get; init; }
             public bool EsProducto { get; init; }
+
+            public bool? AplicaIvaSnapshot { get; init; }
+            public decimal? TarifaIvaSnapshot { get; init; }
+            public bool? PrecioIncluyeIvaSnapshot { get; init; }
+            public bool AplicaIvaCatalogo { get; init; }
+            public decimal? TarifaIvaCatalogo { get; init; }
+            public bool? PrecioIncluyeIvaCatalogo { get; init; }
+
+            public decimal? PorcentajeServicioSnapshot { get; init; }
+            public decimal? PorcentajeProductoSnapshot { get; init; }
+            public ComisionCalculadaSobre? ComisionCalculadaSobreSnapshot { get; init; }
+            public TipoRelacionColaborador? TipoRelacionColaboradorSnapshot { get; init; }
+            public ModalidadIvaColaborador? ModalidadIvaColaboradorSnapshot { get; init; }
+            public decimal? TarifaIvaColaboradorSnapshot { get; init; }
         }
 
         private sealed class PaymentAttributionResult
@@ -1066,16 +1460,23 @@ namespace LuxuryApp.Services.Funcionarios
             public bool ColaboradorFacturaIva { get; init; }
             public ModalidadIvaColaborador ModalidadIvaColaborador { get; init; }
             public decimal TarifaIvaFacturaColaborador { get; init; }
+
+            /// <summary>Configuración VIGENTE del colaborador: el fallback de los cobros legacy.</summary>
+            public CobroRemuneracionEfectiva RemuneracionActual => new(
+                PorcentajeGanancia,
+                PorcentajeProducto,
+                ComisionCalculadaSobre,
+                TipoRelacionColaborador,
+                ModalidadIvaColaborador,
+                TarifaIvaFacturaColaborador,
+                DesdeSnapshot: false);
             public bool RequiereFacturaAntesDePagar { get; init; }
         }
 
         /// <summary>Datos fiscales mínimos de un cobro para el motor de IVA.</summary>
-        private interface ICobroFiscalRow
+        private interface ICobroFiscalRow : ICobroFiscalSnapshotOrigen, ICobroRemuneracionSnapshot
         {
             decimal Monto { get; }
-            bool AplicaIva { get; }
-            decimal? TarifaIva { get; }
-            bool? PrecioIncluyeIva { get; }
         }
 
         private sealed class ServicioCobroRow : ICobroFiscalRow
@@ -1083,9 +1484,19 @@ namespace LuxuryApp.Services.Funcionarios
             public int FuncionarioId { get; init; }
             public DateTime Fecha { get; init; }
             public decimal Monto { get; init; }
-            public bool AplicaIva { get; init; }
-            public decimal? TarifaIva { get; init; }
-            public bool? PrecioIncluyeIva { get; init; }
+            public bool? AplicaIvaSnapshot { get; init; }
+            public decimal? TarifaIvaSnapshot { get; init; }
+            public bool? PrecioIncluyeIvaSnapshot { get; init; }
+            public bool AplicaIvaCatalogo { get; init; }
+            public decimal? TarifaIvaCatalogo { get; init; }
+            public bool? PrecioIncluyeIvaCatalogo { get; init; }
+
+            public decimal? PorcentajeServicioSnapshot { get; init; }
+            public decimal? PorcentajeProductoSnapshot { get; init; }
+            public ComisionCalculadaSobre? ComisionCalculadaSobreSnapshot { get; init; }
+            public TipoRelacionColaborador? TipoRelacionColaboradorSnapshot { get; init; }
+            public ModalidadIvaColaborador? ModalidadIvaColaboradorSnapshot { get; init; }
+            public decimal? TarifaIvaColaboradorSnapshot { get; init; }
         }
 
         private sealed class ProductoCobroRow : ICobroFiscalRow
@@ -1094,9 +1505,19 @@ namespace LuxuryApp.Services.Funcionarios
             public DateTime Fecha { get; init; }
             public string NombreProducto { get; init; } = string.Empty;
             public decimal Monto { get; init; }
-            public bool AplicaIva { get; init; }
-            public decimal? TarifaIva { get; init; }
-            public bool? PrecioIncluyeIva { get; init; }
+            public bool? AplicaIvaSnapshot { get; init; }
+            public decimal? TarifaIvaSnapshot { get; init; }
+            public bool? PrecioIncluyeIvaSnapshot { get; init; }
+            public bool AplicaIvaCatalogo { get; init; }
+            public decimal? TarifaIvaCatalogo { get; init; }
+            public bool? PrecioIncluyeIvaCatalogo { get; init; }
+
+            public decimal? PorcentajeServicioSnapshot { get; init; }
+            public decimal? PorcentajeProductoSnapshot { get; init; }
+            public ComisionCalculadaSobre? ComisionCalculadaSobreSnapshot { get; init; }
+            public TipoRelacionColaborador? TipoRelacionColaboradorSnapshot { get; init; }
+            public ModalidadIvaColaborador? ModalidadIvaColaboradorSnapshot { get; init; }
+            public decimal? TarifaIvaColaboradorSnapshot { get; init; }
         }
     }
 }

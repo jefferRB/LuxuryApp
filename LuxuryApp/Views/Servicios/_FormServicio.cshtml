@@ -1,4 +1,4 @@
-@model LuxuryApp.Models.Finanzas.Servicio
+﻿@model LuxuryApp.Models.Finanzas.Servicio
 
 <form id="formServicio">
 
@@ -75,6 +75,12 @@
             </select>
         </div>
     </div>
+
+    @{ var avisoHistorico = ViewData[LuxuryApp.Models.Fiscal.AvisoImpactoHistorico.CampoConfirmacion] as string; }
+    @if (!string.IsNullOrEmpty(avisoHistorico))
+    {
+        @await Html.PartialAsync("_AvisoImpactoHistorico", avisoHistorico)
+    }
 
     <div style="display:flex;gap:0.65rem;justify-content:flex-end;margin-top:0.75rem;">
         <button type="button"

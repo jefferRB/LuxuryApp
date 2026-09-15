@@ -1,4 +1,4 @@
-@model LuxuryApp.Models.Fiscal.ConfiguracionFiscalViewModel
+﻿@model LuxuryApp.Models.Fiscal.ConfiguracionFiscalViewModel
 @{
     ViewData["Title"] = "Configuración fiscal";
 }
@@ -46,6 +46,12 @@
                     </div>
                     <span asp-validation-for="TarifaIvaPorDefecto" class="text-danger small"></span>
                 </div>
+
+                @{ var avisoHistorico = ViewData[LuxuryApp.Models.Fiscal.AvisoImpactoHistorico.CampoConfirmacion] as string; }
+                @if (!string.IsNullOrEmpty(avisoHistorico))
+                {
+                    @await Html.PartialAsync("_AvisoImpactoHistorico", avisoHistorico)
+                }
 
                 <div class="d-flex gap-2">
                     <button type="submit" class="btn btn-primary">
