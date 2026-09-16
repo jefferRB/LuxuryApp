@@ -6,6 +6,7 @@ using System.Text;
 using LuxuryApp.Models.Reservas;
 using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Calendar;
+using LuxuryApp.Services.Clientes;
 using LuxuryApp.Services.Notifications;
 using LuxuryApp.Services.WhatsApp;
 using Microsoft.EntityFrameworkCore;
@@ -29,6 +30,7 @@ namespace LuxuryApp.Services.Reservas
         private readonly ITenantWhatsAppFeatureService _whatsAppFeatureService;
         private readonly INotificationService _notificationService;
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly IClienteIdentityService _clienteIdentityService;
         private readonly ILogger<PublicBookingService> _logger;
 
         public PublicBookingService(
@@ -40,6 +42,7 @@ namespace LuxuryApp.Services.Reservas
             ITenantWhatsAppFeatureService whatsAppFeatureService,
             INotificationService notificationService,
             IHttpContextAccessor httpContextAccessor,
+            IClienteIdentityService clienteIdentityService,
             ILogger<PublicBookingService> logger)
         {
             _context = context;
@@ -50,6 +53,7 @@ namespace LuxuryApp.Services.Reservas
             _whatsAppFeatureService = whatsAppFeatureService;
             _notificationService = notificationService;
             _httpContextAccessor = httpContextAccessor;
+            _clienteIdentityService = clienteIdentityService;
             _logger = logger;
         }
 
@@ -616,18 +620,25 @@ namespace LuxuryApp.Services.Reservas
             return funcionarioId.HasValue && funcionarioId.Value > 0 ? funcionarioId : null;
         }
 
+        /// <summary>
+        /// Pista de a qué cliente podría corresponder la solicitud, calculada en el SERVIDOR al
+        /// guardarla. No se expone nunca al formulario público (el visitante no puede averiguar si
+        /// un teléfono está registrado) y no crea ningún cliente: una solicitud pendiente puede
+        /// terminar rechazada y no debe ensuciar la base de Clientes.
+        ///
+        /// <para>
+        /// Usa el resolver de identidad compartido, así que con duplicados históricos no elige a
+        /// nadie: la ambigüedad la resuelve el administrador al confirmar.
+        /// </para>
+        /// </summary>
         private async Task<int?> TryMatchClienteAsync(string telefono, CancellationToken cancellationToken)
         {
-            if (string.IsNullOrWhiteSpace(telefono))
-            {
-                return null;
-            }
+            var resolucion = await _clienteIdentityService.ResolveAsync(
+                nombre: null,
+                telefono,
+                cancellationToken);
 
-            return await _context.Clientes
-                .AsNoTracking()
-                .Where(c => c.NumeroTelefono == telefono)
-                .Select(c => (int?)c.Id)
-                .FirstOrDefaultAsync(cancellationToken);
+            return resolucion.SingleMatch?.ClienteId;
         }
 
         private string? HashIp()

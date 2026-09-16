@@ -347,6 +347,11 @@ builder.Services.AddScoped<IWhatsAppInboundAutoReplyService, WhatsAppInboundAuto
 builder.Services.AddScoped<ITenantWhatsAppSettingsService, TenantWhatsAppSettingsService>();
 builder.Services.AddScoped<ITenantWhatsAppFeatureService, TenantWhatsAppFeatureService>();
 builder.Services.AddScoped<IWhatsAppInboxService, WhatsAppInboxService>();
+// Identidad de clientes: regla ÚNICA para decidir si un nombre+teléfono corresponde a un cliente
+// ya registrado. La usan el calendario (crear/editar cita), las reservas online (confirmar) y el
+// formulario de "Nueva cita". No existe una segunda búsqueda por teléfono en ningún módulo.
+builder.Services.AddScoped<LuxuryApp.Services.Clientes.IClienteIdentityService,
+    LuxuryApp.Services.Clientes.ClienteIdentityService>();
 builder.Services.AddScoped<ICalendarCommandService, CalendarCommandService>();
 builder.Services.AddScoped<ICalendarQueryService, CalendarQueryService>();
 builder.Services.AddScoped<IControlCobrosQueryService, ControlCobrosQueryService>();

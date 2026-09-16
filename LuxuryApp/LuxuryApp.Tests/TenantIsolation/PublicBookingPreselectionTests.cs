@@ -121,6 +121,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new FakeTenantWhatsAppFeatureService { IsEnabled = whatsAppActivo },
                 new NoOpNotificationService(),
                 new HttpContextAccessor(),
+                ControllerTestSupport.CreateClienteIdentityService(context),
                 NullLogger<PublicBookingService>.Instance);
         }
 

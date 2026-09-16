@@ -1,7 +1,8 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using LuxuryApp.Services.Common;
 using Microsoft.Extensions.Options;
 
 namespace LuxuryApp.Services.WhatsApp
@@ -30,42 +31,13 @@ namespace LuxuryApp.Services.WhatsApp
         public bool IsValidPhoneNumber(string? phoneNumber) =>
             NormalizePhoneNumber(phoneNumber) is not null;
 
-        public string? NormalizePhoneNumber(string? phoneNumber)
-        {
-            if (string.IsNullOrWhiteSpace(phoneNumber))
-            {
-                return null;
-            }
-
-            var trimmed = phoneNumber.Trim();
-            var digits = new string(trimmed.Where(char.IsDigit).ToArray());
-            if (digits.StartsWith("00", StringComparison.Ordinal))
-            {
-                digits = digits[2..];
-            }
-
-            if (digits.Length == 0)
-            {
-                return null;
-            }
-
-            var defaultCountryCode = _options.CurrentValue.DefaultCountryCode;
-            var normalizedCountryCode = new string((defaultCountryCode ?? "506").Where(char.IsDigit).ToArray());
-            normalizedCountryCode = string.IsNullOrWhiteSpace(normalizedCountryCode) ? "506" : normalizedCountryCode;
-
-            if (!trimmed.StartsWith("+", StringComparison.Ordinal) &&
-                !digits.StartsWith(normalizedCountryCode, StringComparison.Ordinal))
-            {
-                digits = normalizedCountryCode + digits;
-            }
-
-            if (digits.Length < 8 || digits.Length > 15)
-            {
-                return null;
-            }
-
-            return "+" + digits;
-        }
+        /// <summary>
+        /// Delega en <see cref="PhoneNumberNormalizer"/>: el algoritmo es el mismo de siempre, pero
+        /// vive en un solo lugar para que la identificación de clientes por teléfono use idéntica
+        /// normalización que el envío de mensajes.
+        /// </summary>
+        public string? NormalizePhoneNumber(string? phoneNumber) =>
+            PhoneNumberNormalizer.ToE164(phoneNumber, _options.CurrentValue.DefaultCountryCode);
 
         public Task<MetaWhatsAppSendResult> SendConfirmationTemplateAsync(
             string recipientPhone,

@@ -20,6 +20,11 @@ namespace LuxuryApp.Tests.Support
         public string? LastReason { get; private set; }
         public string? LastUserId { get; private set; }
         public DateOnly? LastPendingCalendarDate { get; private set; }
+        public BookingClienteChoice? LastClienteChoice { get; private set; }
+        public int PreviewCount { get; private set; }
+        public int? LastPreviewId { get; private set; }
+
+        public BookingClientePreview? PreviewResult { get; set; }
 
         public BookingActionResult ConfirmResult { get; set; } =
             BookingActionResult.Ok("Reserva aprobada y cita creada.", citaId: 55, whatsAppStatus: "sent");
@@ -36,16 +41,27 @@ namespace LuxuryApp.Tests.Support
             CancellationToken cancellationToken = default) =>
             Task.FromResult(new BookingRequestsPageViewModel());
 
+        public Task<BookingClientePreview?> PreviewClienteAsync(
+            int requestId,
+            CancellationToken cancellationToken = default)
+        {
+            PreviewCount++;
+            LastPreviewId = requestId;
+            return Task.FromResult(PreviewResult);
+        }
+
         public Task<BookingActionResult> ConfirmAsync(
             int requestId,
             int? funcionarioIdOverride,
             string? userId,
+            BookingClienteChoice? clienteChoice = null,
             CancellationToken cancellationToken = default)
         {
             ConfirmCount++;
             LastConfirmedId = requestId;
             LastFuncionarioOverride = funcionarioIdOverride;
             LastUserId = userId;
+            LastClienteChoice = clienteChoice;
             return Task.FromResult(ConfirmResult);
         }
 

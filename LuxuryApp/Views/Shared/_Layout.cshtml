@@ -16,9 +16,12 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
     <link rel="stylesheet" href="https://code.jquery.com/ui/1.14.1/themes/base/jquery-ui.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" />
-    <link rel="stylesheet" href="~/css/calendar.css" />
-    <link rel="stylesheet" href="~/css/mensajes.css" />
-    <link rel="stylesheet" href="~/css/Dashboard.css" />
+    @* asp-append-version es OBLIGATORIO acá: UseStaticFiles no manda Cache-Control, así que sin
+       el hash de contenido en la URL el navegador sigue sirviendo la copia cacheada y los cambios
+       de estilo no se ven (el dropdown de clientes se quedó navy por esto). *@
+    <link rel="stylesheet" href="~/css/calendar.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/mensajes.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/Dashboard.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/private-layout.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/notification-center.css" asp-append-version="true" />

@@ -104,7 +104,7 @@ namespace LuxuryApp.Tests.TenantIsolation
             var spy = new SpyBookingRequestService();
             var controller = CreateController(context, tenantId, spy);
 
-            var result = await controller.ConfirmarSolicitud(42, CancellationToken.None);
+            var result = await controller.ConfirmarSolicitud(42, clienteAccion: null, clienteId: null, CancellationToken.None);
 
             var ok = Assert.IsType<OkObjectResult>(result);
             Assert.Equal(1, spy.ConfirmCount);
@@ -151,7 +151,7 @@ namespace LuxuryApp.Tests.TenantIsolation
 
             var controller = CreateController(context, tenantId, spy);
 
-            var result = await controller.ConfirmarSolicitud(42, CancellationToken.None);
+            var result = await controller.ConfirmarSolicitud(42, clienteAccion: null, clienteId: null, CancellationToken.None);
 
             // 409 para que el calendario refresque y muestre el estado real.
             var conflict = Assert.IsType<ConflictObjectResult>(result);
@@ -238,6 +238,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new Microsoft.AspNetCore.Http.HttpContextAccessor(),
                 new FakeTenantWhatsAppFeatureService { IsEnabled = true },
                 new RecordingBookingRejectionWhatsAppService(),
+                ControllerTestSupport.CreateClienteIdentityService(context),
                 NullLogger<BookingRequestService>.Instance);
 
         private static async Task SeedPendingAsync(

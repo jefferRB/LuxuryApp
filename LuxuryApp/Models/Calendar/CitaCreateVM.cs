@@ -13,6 +13,11 @@ namespace LuxuryApp.Models.Calendar
 
         public int? ClienteId { get; set; }
 
+        // Intención del formulario: "registrá también al cliente". Es solo una intención — el
+        // backend vuelve a resolver la identidad por teléfono antes de crear nada, así que marcar
+        // esta casilla nunca puede producir un duplicado de un cliente que ya existe.
+        public bool RegistrarCliente { get; set; }
+
         public int? ServicioId { get; set; }
 
         // Servicio personalizado (no pertenece al catálogo). Cuando es true se usa

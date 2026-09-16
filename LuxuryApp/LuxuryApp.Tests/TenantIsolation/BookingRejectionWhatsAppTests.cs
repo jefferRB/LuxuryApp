@@ -538,6 +538,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                     new HttpContextAccessor(),
                     new FakeTenantWhatsAppFeatureService { IsEnabled = conComplemento, HasAddon = conComplemento },
                     rejectionService,
+                    ControllerTestSupport.CreateClienteIdentityService(context),
                     NullLogger<BookingRequestService>.Instance);
 
                 return new Fixture(

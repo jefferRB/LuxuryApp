@@ -44,17 +44,64 @@ namespace LuxuryApp.Controllers.Reservas
             return PartialView("_SolicitudesList", model);
         }
 
-        [HttpPost]
+        /// <summary>
+        /// Estado del cliente de una solicitud pendiente. Consulta administrativa: exige el mismo
+        /// permiso que confirmar, porque devuelve datos de la base de Clientes.
+        /// </summary>
+        [HttpGet]
         [RequirePermission(AppPermissions.ReservationsManage)]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Confirmar(int id, int? funcionarioId, CancellationToken cancellationToken)
+        public async Task<IActionResult> ClientePrevio(int id, CancellationToken cancellationToken)
         {
             if (id <= 0)
             {
                 return BadRequest(new { success = false, message = "Solicitud inválida." });
             }
 
-            var result = await _bookingRequestService.ConfirmAsync(id, funcionarioId, CurrentUserId(), cancellationToken);
+            var preview = await _bookingRequestService.PreviewClienteAsync(id, cancellationToken);
+
+            if (preview is null)
+            {
+                return NotFound(new { success = false, message = "La solicitud no existe o ya fue procesada." });
+            }
+
+            return Ok(new
+            {
+                success = true,
+                estado = preview.Status.ToString(),
+                puedeConfirmarDirecto = preview.PuedeConfirmarDirecto,
+                nombreReserva = preview.NombreCliente,
+                telefonoReserva = preview.TelefonoCliente,
+                coincidencias = preview.Matches.Select(m => new
+                {
+                    id = m.ClienteId,
+                    nombre = m.Nombre,
+                    telefono = m.NumeroTelefono
+                })
+            });
+        }
+
+        [HttpPost]
+        [RequirePermission(AppPermissions.ReservationsManage)]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Confirmar(
+            int id,
+            int? funcionarioId,
+            string? clienteAccion,
+            int? clienteId,
+            CancellationToken cancellationToken)
+        {
+            if (id <= 0)
+            {
+                return BadRequest(new { success = false, message = "Solicitud inválida." });
+            }
+
+            var result = await _bookingRequestService.ConfirmAsync(
+                id,
+                funcionarioId,
+                CurrentUserId(),
+                BookingClienteChoice.Parse(clienteAccion, clienteId),
+                cancellationToken);
+
             return result.Success
                 ? Ok(new { success = true, message = result.Message, citaId = result.CitaId, whatsAppStatus = result.WhatsAppStatus })
                 : BadRequest(new { success = false, message = result.Message });

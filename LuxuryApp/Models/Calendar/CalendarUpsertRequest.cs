@@ -1,3 +1,5 @@
+using LuxuryApp.Services.Clientes;
+
 namespace LuxuryApp.Models.Calendar
 {
     public class CalendarUpsertRequest
@@ -7,6 +9,13 @@ namespace LuxuryApp.Models.Calendar
         public string? TelefonoCliente { get; init; }
 
         public int? ClienteId { get; init; }
+
+        /// <summary>
+        /// Qué hacer con el Cliente al guardar. El backend SIEMPRE vuelve a resolver la identidad
+        /// por teléfono dentro de la transacción: lo que viene del navegador es una intención, no
+        /// una conclusión. Ver <see cref="ClienteLinkMode"/>.
+        /// </summary>
+        public ClienteLinkMode ClienteLinkMode { get; init; } = ClienteLinkMode.Automatico;
 
         public int? ServicioId { get; init; }
 

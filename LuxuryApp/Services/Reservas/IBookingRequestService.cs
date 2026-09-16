@@ -30,15 +30,31 @@ namespace LuxuryApp.Services.Reservas
             CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Estado del Cliente asociado a una solicitud pendiente, para que la pantalla sepa si
+        /// tiene que preguntar algo antes de confirmar. Es una consulta ADMINISTRATIVA: el
+        /// formulario público jamás puede averiguar si un teléfono está en la base de Clientes.
+        /// </summary>
+        Task<BookingClientePreview?> PreviewClienteAsync(
+            int requestId,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Confirma una solicitud: revalida disponibilidad, crea la cita real reutilizando el
         /// servicio del calendario (que dispara el flujo de WhatsApp existente si aplica) y marca
         /// la solicitud como Confirmed. funcionarioIdOverride permite asignar un funcionario cuando
         /// la solicitud era "cualquiera".
+        ///
+        /// <para>
+        /// <paramref name="clienteChoice"/> es lo que eligió el administrador sobre el Cliente
+        /// (registrar / vincular / ninguno). La resolución final la hace el servidor dentro de la
+        /// transacción que crea la cita, así que una decisión obsoleta no puede crear duplicados.
+        /// </para>
         /// </summary>
         Task<BookingActionResult> ConfirmAsync(
             int requestId,
             int? funcionarioIdOverride,
             string? userId,
+            BookingClienteChoice? clienteChoice = null,
             CancellationToken cancellationToken = default);
 
         Task<BookingActionResult> RejectAsync(

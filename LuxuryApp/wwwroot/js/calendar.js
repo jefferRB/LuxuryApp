@@ -1259,11 +1259,16 @@ function initClienteAutocomplete(config) {
 
     let debounceTimer = null;
 
+    const mode = config.modalId === "editCitaModal" ? "edit" : "create";
+
+    // Cerrar el dropdown tiene que cancelar TAMBIÉN lo que está en vuelo: si solo se ocultaba,
+    // la respuesta del fetch anterior lo volvía a mostrar unos milisegundos después (esa era la
+    // causa real de "hago clic afuera y las sugerencias siguen ahí").
     const closeDropdown = () => {
+        window.clearTimeout(debounceTimer);
+        cancelRequest(config.requestKey);
         hideClienteAutocomplete(dropdown, nombreInput);
     };
-
-    const mode = config.modalId === "editCitaModal" ? "edit" : "create";
 
     const syncConsent = () => {
         if (mode === "edit") {
@@ -1289,19 +1294,36 @@ function initClienteAutocomplete(config) {
         if (!isAutocompleteModalOpen(modalElement) ||
             term.length < CLIENTE_AUTOCOMPLETE_MIN_LENGTH) {
             cancelRequest(config.requestKey);
-            closeDropdown();
+            hideClienteAutocomplete(dropdown, nombreInput);
+            scheduleClienteIdentityResolution(mode);
             return;
         }
 
         debounceTimer = window.setTimeout(
             () => searchClientes(config, nombreInput, telefonoInput, dropdown, clienteIdInput, term),
             CLIENTE_AUTOCOMPLETE_DEBOUNCE_MS);
+
+        // El nombre no identifica a nadie, pero sí cambia el mensaje de estado (p. ej. deja de
+        // ofrecerse "Registrar cliente" si se borra el nombre).
+        scheduleClienteIdentityResolution(mode);
     };
 
     nombreInput.addEventListener("input", scheduleSearch);
     telefonoInput?.addEventListener("input", () => {
         invalidateSelectedClienteIfNeeded(mode);
         syncConsent();
+        // El teléfono ES la señal de identidad: cada cambio vuelve a resolver contra el servidor.
+        scheduleClienteIdentityResolution(mode);
+    });
+
+    // Al salir del teléfono se resuelve de una, sin esperar el debounce: es el momento natural
+    // en el que el usuario espera ver "este cliente ya está registrado".
+    telefonoInput?.addEventListener("change", () => resolveClienteIdentityNow(mode));
+
+    const registrarCheckbox = getClienteEstadoElements(mode).registrarCheckbox;
+    registrarCheckbox?.addEventListener("change", () => {
+        // Se recuerda que el usuario lo desmarcó a propósito para no volver a marcarlo solo.
+        registrarCheckbox.dataset.userChoice = registrarCheckbox.checked ? "on" : "off";
     });
 
     const manualCheckbox = document.getElementById(
@@ -1319,9 +1341,29 @@ function initClienteAutocomplete(config) {
         syncConsent();
     });
 
+    // Navegación con teclado: el dropdown es una lista de opciones, no una trampa del mouse.
     nombreInput.addEventListener("keydown", event => {
         if (event.key === "Escape") {
             closeDropdown();
+            return;
+        }
+
+        if (!isClienteAutocompleteVisible(dropdown)) {
+            return;
+        }
+
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            moveClienteAutocompleteActive(dropdown, event.key === "ArrowDown" ? 1 : -1);
+            return;
+        }
+
+        if (event.key === "Enter") {
+            const active = dropdown.querySelector(".is-active");
+            if (active) {
+                event.preventDefault();
+                active.click();
+            }
         }
     });
 
@@ -1332,19 +1374,48 @@ function initClienteAutocomplete(config) {
         }
     });
 
-    document.addEventListener("mousedown", event => {
+    // pointerdown cubre mouse, dedo y lápiz con un solo evento; mousedown no llega de forma
+    // fiable al tocar fuera en móviles, que era el otro motivo por el que no se cerraba.
+    document.addEventListener("pointerdown", event => {
         if (!wrapper.contains(event.target)) {
             closeDropdown();
         }
     });
 
+    // Red de seguridad para navegación por teclado/lectores de pantalla: si el foco se va del
+    // autocomplete (Tab, un botón del modal), las sugerencias dejan de tener sentido.
+    document.addEventListener("focusin", event => {
+        if (!wrapper.contains(event.target)) {
+            hideClienteAutocomplete(dropdown, nombreInput);
+        }
+    });
+
     modalElement?.addEventListener("hidden.bs.modal", () => {
-        window.clearTimeout(debounceTimer);
-        cancelRequest(config.requestKey);
         closeDropdown();
+        cancelRequest(clienteIdentityRequestKey(mode));
     });
 
     syncConsent();
+}
+
+function isClienteAutocompleteVisible(dropdown) {
+    return Boolean(dropdown) && !dropdown.classList.contains("d-none");
+}
+
+function moveClienteAutocompleteActive(dropdown, direction) {
+    const options = Array.from(dropdown.querySelectorAll(".cliente-autocomplete-item"));
+    if (options.length === 0) {
+        return;
+    }
+
+    const currentIndex = options.findIndex(option => option.classList.contains("is-active"));
+    const nextIndex = currentIndex < 0
+        ? (direction > 0 ? 0 : options.length - 1)
+        : (currentIndex + direction + options.length) % options.length;
+
+    options.forEach(option => option.classList.remove("is-active"));
+    options[nextIndex].classList.add("is-active");
+    options[nextIndex].scrollIntoView({ block: "nearest" });
 }
 
 async function searchClientes(config, nombreInput, telefonoInput, dropdown, clienteIdInput, term) {
@@ -1428,13 +1499,20 @@ function buildClienteAutocompleteItem(cliente, nombreInput, telefonoInput, dropd
     });
 
     item.addEventListener("click", () => {
-        resetManualConsentState(getConsentUIConfig(nombreInput.id === "editNombreCliente" ? "edit" : "create"));
+        const mode = nombreInput.id === "editNombreCliente" ? "edit" : "create";
+        resetManualConsentState(getConsentUIConfig(mode));
         applySelectedClienteState(nombreInput, telefonoInput, clienteIdInput, cliente);
-        if (nombreInput.id === "editNombreCliente") {
+        if (mode === "edit") {
             syncEditConsentUI();
         } else {
             syncCreateConsentUI();
         }
+
+        // Elegir una sugerencia ES identificar al cliente: mismo estado que si lo hubiera
+        // resuelto el teléfono. Se cancela cualquier resolución en vuelo para que no lo pise.
+        window.clearTimeout(clienteIdentityTimers[mode]);
+        cancelRequest(clienteIdentityRequestKey(mode));
+        renderClienteEstado(mode, "registrado");
 
         hideClienteAutocomplete(dropdown, nombreInput);
     });
@@ -1454,9 +1532,10 @@ function buildClienteAutocompleteManualAction(dropdown, nombreInput, clienteIdIn
     });
 
     manual.addEventListener("click", () => {
-        const consentConfig = getConsentUIConfig(nombreInput.id === "editNombreCliente" ? "edit" : "create");
+        const mode = nombreInput.id === "editNombreCliente" ? "edit" : "create";
+        const consentConfig = getConsentUIConfig(mode);
         transitionSelectedClienteToManual(consentConfig);
-        if (nombreInput.id === "editNombreCliente") {
+        if (mode === "edit") {
             syncEditConsentUI();
         } else {
             syncCreateConsentUI();
@@ -1464,6 +1543,9 @@ function buildClienteAutocompleteManualAction(dropdown, nombreInput, clienteIdIn
 
         hideClienteAutocomplete(dropdown, nombreInput);
         nombreInput.focus();
+
+        // Escribir a mano no cancela la identificación por teléfono: se vuelve a evaluar.
+        resolveClienteIdentityNow(mode);
     });
 
     return manual;
@@ -1493,6 +1575,226 @@ function hideClienteAutocomplete(dropdown, input) {
     clearElement(dropdown);
     dropdown?.classList.add("d-none");
     input?.setAttribute("aria-expanded", "false");
+}
+
+/* ───────────────────────────────────────────────────────────
+   IDENTIDAD DEL CLIENTE EN EL FORMULARIO DE CITA
+
+   El teléfono es la señal de identidad; el nombre no identifica a nadie. La regla la aplica el
+   servidor (/Clientes/ResolverIdentidad) y acá SOLO se presenta el resultado: esto es experiencia
+   de usuario, no una decisión. Al guardar, el backend vuelve a resolver dentro de la transacción.
+   ─────────────────────────────────────────────────────────── */
+
+const CLIENTE_IDENTITY_DEBOUNCE_MS = 350;
+const clienteIdentityTimers = { create: null, edit: null };
+
+function clienteIdentityRequestKey(mode) {
+    return mode === "edit" ? "clienteIdentityEdit" : "clienteIdentityCreate";
+}
+
+function getClienteEstadoElements(mode) {
+    const isEdit = mode === "edit";
+
+    return {
+        container: document.getElementById(isEdit ? "editClienteEstado" : "clienteEstado"),
+        registrado: document.getElementById(isEdit ? "editClienteEstadoRegistrado" : "clienteEstadoRegistrado"),
+        sinTelefono: document.getElementById(isEdit ? "editClienteEstadoSinTelefono" : "clienteEstadoSinTelefono"),
+        ambiguo: document.getElementById(isEdit ? "editClienteEstadoAmbiguo" : "clienteEstadoAmbiguo"),
+        registrarContainer: document.getElementById(isEdit ? "editClienteEstadoRegistrarContainer" : "clienteEstadoRegistrarContainer"),
+        registrarCheckbox: document.getElementById(isEdit ? "editRegistrarCliente" : "registrarCliente")
+    };
+}
+
+/// Devuelve true solo si la casilla "Registrar cliente" está realmente ofrecida y marcada.
+function shouldRegisterCliente(mode) {
+    const elements = getClienteEstadoElements(mode);
+
+    return Boolean(elements.registrarContainer) &&
+        !elements.registrarContainer.classList.contains("d-none") &&
+        elements.registrarCheckbox?.checked === true;
+}
+
+function renderClienteEstado(mode, estado) {
+    const elements = getClienteEstadoElements(mode);
+    if (!elements.container) {
+        return;
+    }
+
+    const toggle = (element, visible) => element?.classList.toggle("d-none", !visible);
+
+    toggle(elements.registrado, estado === "registrado");
+    toggle(elements.sinTelefono, estado === "sinTelefono");
+    toggle(elements.ambiguo, estado === "ambiguo");
+    toggle(elements.registrarContainer, estado === "nuevo");
+    elements.container.classList.toggle("is-empty", estado === "none");
+
+    if (estado === "nuevo" && elements.registrarCheckbox) {
+        // Marcada por defecto; si el usuario la desmarcó para este mismo teléfono, se respeta.
+        elements.registrarCheckbox.checked = elements.registrarCheckbox.dataset.userChoice !== "off";
+    }
+}
+
+function resetClienteEstado(mode) {
+    const elements = getClienteEstadoElements(mode);
+
+    if (elements.registrarCheckbox) {
+        elements.registrarCheckbox.checked = true;
+        delete elements.registrarCheckbox.dataset.userChoice;
+        delete elements.registrarCheckbox.dataset.userChoicePhone;
+    }
+
+    window.clearTimeout(clienteIdentityTimers[mode]);
+    cancelRequest(clienteIdentityRequestKey(mode));
+    renderClienteEstado(mode, "none");
+}
+
+function scheduleClienteIdentityResolution(mode) {
+    window.clearTimeout(clienteIdentityTimers[mode]);
+    clienteIdentityTimers[mode] = window.setTimeout(
+        () => resolveClienteIdentityNow(mode),
+        CLIENTE_IDENTITY_DEBOUNCE_MS);
+}
+
+async function resolveClienteIdentityNow(mode) {
+
+    window.clearTimeout(clienteIdentityTimers[mode]);
+
+    const config = getConsentUIConfig(mode);
+    if (!config.nombreInput || !config.telefonoInput) {
+        return;
+    }
+
+    const requestKey = clienteIdentityRequestKey(mode);
+
+    if (isBreakMode(config)) {
+        cancelRequest(requestKey);
+        renderClienteEstado(mode, "none");
+        return;
+    }
+
+    const nombre = safeText(config.nombreInput.value);
+    const telefono = safeText(config.telefonoInput.value);
+
+    forgetRegistrarChoiceIfPhoneChanged(mode, telefono);
+
+    if (telefono === "") {
+        cancelRequest(requestKey);
+        // Sin teléfono no se puede registrar a nadie, pero la cita se crea igual.
+        renderClienteEstado(mode, nombre === "" ? "none" : "sinTelefono");
+        return;
+    }
+
+    const request = beginRequest(requestKey);
+
+    try {
+        const data = await apiFetchJson(
+            `/Clientes/ResolverIdentidad?nombre=${encodeURIComponent(nombre)}&telefono=${encodeURIComponent(telefono)}`,
+            { signal: request.signal });
+
+        if (!isLatestRequest(requestKey, request.requestId) ||
+            safeText(config.nombreInput.value) !== nombre ||
+            safeText(config.telefonoInput.value) !== telefono) {
+            return;
+        }
+
+        applyClienteIdentityResolution(mode, config, data, nombre);
+    } catch (error) {
+        if (error.name === "AbortError") {
+            return;
+        }
+
+        // Sin permiso sobre Clientes o sin red: no se bloquea nada. El servidor sigue resolviendo
+        // la identidad al guardar, así que lo único que se pierde es el aviso en pantalla.
+        renderClienteEstado(mode, "none");
+    }
+}
+
+function applyClienteIdentityResolution(mode, config, data, nombre) {
+
+    const estado = safeText(data?.estado);
+    const syncConsent = () => (mode === "edit" ? syncEditConsentUI() : syncCreateConsentUI());
+
+    if (estado === "AmbiguousPhoneMatch") {
+        // Varios clientes con el mismo teléfono: no se elige ninguno (ni acá ni en el servidor).
+        transitionSelectedClienteToManual(config);
+        syncConsent();
+        renderClienteEstado(mode, "ambiguo");
+        return;
+    }
+
+    if (data?.cliente) {
+        linkResolvedCliente(mode, config, data.cliente);
+        renderClienteEstado(mode, "registrado");
+        return;
+    }
+
+    // No existe: se deja de arrastrar cualquier vínculo anterior (nunca un ClienteId obsoleto).
+    transitionSelectedClienteToManual(config);
+    syncConsent();
+
+    if (nombre === "") {
+        renderClienteEstado(mode, "none");
+        return;
+    }
+
+    // InsufficientData = el teléfono escrito no es un número utilizable: no se ofrece registrar.
+    renderClienteEstado(mode, estado === "InsufficientData" ? "sinTelefono" : "nuevo");
+}
+
+/// Vincula la cita al cliente que resolvió el servidor y trae sus datos canónicos, sin pisar el
+/// campo que el usuario está escribiendo en ese momento.
+function linkResolvedCliente(mode, config, cliente) {
+
+    const { nombreInput, telefonoInput, clienteIdInput } = config;
+    const clienteId = String(cliente.id);
+
+    if (safeText(clienteIdInput?.value) !== clienteId) {
+        resetManualConsentState(config);
+    }
+
+    const nombreCanonico = safeText(cliente.nombre);
+    if (nombreCanonico !== "" &&
+        (safeText(nombreInput.value) === "" || document.activeElement !== nombreInput)) {
+        nombreInput.value = nombreCanonico;
+    }
+
+    const telefonoCanonico = safeText(cliente.telefono);
+    if (telefonoCanonico !== "" && document.activeElement !== telefonoInput) {
+        telefonoInput.value = telefonoCanonico;
+    }
+
+    if (clienteIdInput) {
+        clienteIdInput.value = clienteId;
+    }
+
+    nombreInput.dataset.selectedClienteId = clienteId;
+    // La referencia para detectar "el usuario cambió los datos" son los valores ACTUALES: así
+    // editar el nombre no rompe un vínculo que el teléfono sigue confirmando.
+    nombreInput.dataset.selectedClienteName = safeText(nombreInput.value);
+    nombreInput.dataset.selectedClientePhone = safeText(telefonoInput.value);
+    nombreInput.dataset.selectedClienteWhatsAppOptIn = cliente.aceptaMensajesWhatsApp === true ? "true" : "false";
+
+    if (mode === "edit") {
+        syncEditConsentUI();
+        return;
+    }
+
+    syncCreateConsentUI();
+}
+
+function forgetRegistrarChoiceIfPhoneChanged(mode, telefono) {
+    const checkbox = getClienteEstadoElements(mode).registrarCheckbox;
+    if (!checkbox) {
+        return;
+    }
+
+    if (checkbox.dataset.userChoicePhone !== undefined &&
+        checkbox.dataset.userChoicePhone !== telefono) {
+        // Otro teléfono es otra persona: la decisión anterior ya no aplica.
+        delete checkbox.dataset.userChoice;
+    }
+
+    checkbox.dataset.userChoicePhone = telefono;
 }
 
 /* ESTADO DE LA UI */
@@ -1563,6 +1865,8 @@ function initEvents() {
         }
 
         syncCreateConsentUI();
+        // Un descanso no tiene cliente: el estado se apaga (y se reevalúa al volver a "cita").
+        resolveClienteIdentityNow("create");
 
     });
 
@@ -2507,8 +2811,14 @@ async function ejecutarAccionSolicitudPendiente(url, body, boton) {
 
         await refreshCalendarView();
 
-        if (data && data.message && data.whatsAppStatus && data.whatsAppStatus !== "sent") {
-            showCalendarToast("Reserva aprobada", data.message);
+        // El mensaje ya viene compuesto por el servidor (mismo servicio que usa la pantalla de
+        // Reservas): sin WhatsApp en el negocio es un éxito a secas; con WhatsApp informa el envío.
+        if (data && data.message) {
+            const esAdvertencia = data.whatsAppStatus === "failed" || data.whatsAppStatus === "skipped";
+            showCalendarToast(
+                esAdvertencia ? "Reserva aprobada" : "Listo",
+                data.message,
+                esAdvertencia ? "error" : "success");
         }
     } catch (error) {
         if (modalEl && window.bootstrap) {
@@ -2537,9 +2847,11 @@ function bindPendingBookingActions() {
         confirmar.addEventListener("click", function () {
             const id = parsePositiveInt(document.getElementById("pendingBookingId")?.value);
             if (!id) return;
-            ejecutarAccionSolicitudPendiente("/Calendar/ConfirmarSolicitud", `id=${id}`, this);
+            iniciarConfirmacionSolicitud(id, this);
         });
     }
+
+    bindBookingClienteModalActions();
 
     if (rechazar && rechazar.dataset.bound !== "true") {
         rechazar.dataset.bound = "true";
@@ -2553,6 +2865,183 @@ function bindPendingBookingActions() {
                 this);
         });
     }
+}
+
+/* ───────────────────────────────────────────────────────────
+   CONFIRMAR UNA RESERVA: DECISIÓN SOBRE EL CLIENTE
+
+   Antes de confirmar se le pregunta al servidor si el cliente ya está identificado. Si lo está,
+   la confirmación es de un clic, como siempre. Si no, se muestra la decisión (registrar, vincular
+   o continuar sin vincular). Es exactamente la misma pregunta que hace la pantalla de Reservas
+   porque ambas consultan el mismo servicio de aplicación.
+   ─────────────────────────────────────────────────────────── */
+
+async function iniciarConfirmacionSolicitud(solicitudId, boton) {
+
+    const modalDecision = document.getElementById("bookingClienteModal");
+
+    if (!modalDecision) {
+        // El usuario no puede gestionar reservas: el endpoint responderá 403 de todos modos.
+        ejecutarAccionSolicitudPendiente("/Calendar/ConfirmarSolicitud", `id=${solicitudId}`, boton);
+        return;
+    }
+
+    let preview = null;
+
+    try {
+        preview = await apiFetchJson(`/Calendar/ClientePrevioSolicitud?id=${solicitudId}`);
+    } catch {
+        // Si la consulta previa falla se confirma igual: el backend resuelve la identidad solo.
+        ejecutarAccionSolicitudPendiente("/Calendar/ConfirmarSolicitud", `id=${solicitudId}`, boton);
+        return;
+    }
+
+    if (preview?.puedeConfirmarDirecto) {
+        ejecutarAccionSolicitudPendiente("/Calendar/ConfirmarSolicitud", `id=${solicitudId}`, boton);
+        return;
+    }
+
+    abrirModalDecisionCliente(solicitudId, preview);
+}
+
+function abrirModalDecisionCliente(solicitudId, preview) {
+
+    const modalDecision = document.getElementById("bookingClienteModal");
+    const mensaje = document.getElementById("bookingClienteMensaje");
+    const opciones = document.getElementById("bookingClienteOpciones");
+    const botonPrincipal = document.getElementById("btnConfirmarConCliente");
+
+    document.getElementById("bookingClienteSolicitudId").value = String(solicitudId);
+    clearElement(opciones);
+
+    const estado = safeText(preview?.estado);
+    const coincidencias = Array.isArray(preview?.coincidencias) ? preview.coincidencias : [];
+
+    if (estado === "ExistingPhoneMatchWithDifferentName" && coincidencias.length === 1) {
+        mensaje.textContent =
+            `Encontramos un cliente registrado con este teléfono: ${safeText(coincidencias[0].nombre, "Cliente")}. ` +
+            `La reserva llegó a nombre de: ${safeText(preview?.nombreReserva, "Sin nombre")}. ` +
+            "¿Deseas vincular esta cita al cliente existente para conservar su historial?";
+        botonPrincipal.textContent = "Vincular cliente";
+        botonPrincipal.dataset.accion = "vincular";
+        botonPrincipal.dataset.clienteId = String(coincidencias[0].id);
+        document.getElementById("btnConfirmarSinVincular").textContent = "Confirmar sin vincular";
+    } else if (estado === "AmbiguousPhoneMatch") {
+        mensaje.textContent =
+            "Hay varios clientes registrados con este teléfono. Elegí a cuál corresponde la cita o confirmá sin vincular.";
+        botonPrincipal.textContent = "Vincular cliente";
+        botonPrincipal.dataset.accion = "vincular";
+        botonPrincipal.dataset.clienteId = "";
+        document.getElementById("btnConfirmarSinVincular").textContent = "Confirmar sin vincular";
+        opciones.appendChild(buildBookingClienteOpciones(coincidencias, botonPrincipal));
+    } else {
+        mensaje.textContent =
+            "Este cliente aún no está registrado. ¿Deseas guardarlo en Clientes al confirmar la cita?";
+        botonPrincipal.textContent = "Confirmar y registrar";
+        botonPrincipal.dataset.accion = "registrar";
+        botonPrincipal.dataset.clienteId = "";
+        document.getElementById("btnConfirmarSinVincular").textContent = "Confirmar sin registrar";
+    }
+
+    botonPrincipal.disabled = botonPrincipal.dataset.accion === "vincular" &&
+        !botonPrincipal.dataset.clienteId;
+
+    // Se espera a que el modal anterior termine de cerrarse antes de abrir el siguiente: abrir
+    // dos modales en el mismo tick es lo que deja backdrops huérfanos (la "capa negra").
+    const pendiente = document.getElementById("pendingBookingModal");
+    const mostrarDecision = () => bootstrap.Modal.getOrCreateInstance(modalDecision).show();
+
+    if (pendiente?.classList.contains("show")) {
+        pendiente.addEventListener("hidden.bs.modal", mostrarDecision, { once: true });
+        hideCalendarModal("pendingBookingModal");
+        return;
+    }
+
+    mostrarDecision();
+}
+
+function buildBookingClienteOpciones(coincidencias, botonPrincipal) {
+
+    const lista = document.createElement("div");
+    lista.className = "cal-booking-cliente-lista";
+
+    coincidencias.forEach((cliente, indice) => {
+        const opcionId = `bookingClienteOpcion${cliente.id}`;
+        const fila = document.createElement("div");
+        fila.className = "form-check";
+
+        const radio = document.createElement("input");
+        radio.className = "form-check-input";
+        radio.type = "radio";
+        radio.name = "bookingClienteSeleccion";
+        radio.id = opcionId;
+        radio.value = String(cliente.id);
+        radio.checked = indice === 0;
+
+        radio.addEventListener("change", () => {
+            botonPrincipal.dataset.clienteId = radio.value;
+            botonPrincipal.disabled = false;
+        });
+
+        const label = document.createElement("label");
+        label.className = "form-check-label";
+        label.setAttribute("for", opcionId);
+        label.textContent = `${safeText(cliente.nombre, "Cliente")} · ${safeText(cliente.telefono, "Sin teléfono")}`;
+
+        fila.appendChild(radio);
+        fila.appendChild(label);
+        lista.appendChild(fila);
+
+        if (indice === 0) {
+            botonPrincipal.dataset.clienteId = String(cliente.id);
+        }
+    });
+
+    return lista;
+}
+
+function bindBookingClienteModalActions() {
+
+    const principal = document.getElementById("btnConfirmarConCliente");
+    const sinVincular = document.getElementById("btnConfirmarSinVincular");
+
+    if (principal && principal.dataset.bound !== "true") {
+        principal.dataset.bound = "true";
+        principal.addEventListener("click", function () {
+            const id = parsePositiveInt(document.getElementById("bookingClienteSolicitudId")?.value);
+            if (!id) return;
+
+            const accion = safeText(this.dataset.accion, "registrar");
+            const clienteId = parsePositiveInt(this.dataset.clienteId);
+            const cuerpo = accion === "vincular"
+                ? `id=${id}&clienteAccion=vincular&clienteId=${clienteId}`
+                : `id=${id}&clienteAccion=registrar`;
+
+            confirmarSolicitudConDecision(cuerpo, this);
+        });
+    }
+
+    if (sinVincular && sinVincular.dataset.bound !== "true") {
+        sinVincular.dataset.bound = "true";
+        sinVincular.addEventListener("click", function () {
+            const id = parsePositiveInt(document.getElementById("bookingClienteSolicitudId")?.value);
+            if (!id) return;
+            confirmarSolicitudConDecision(`id=${id}&clienteAccion=sinvincular`, this);
+        });
+    }
+}
+
+async function confirmarSolicitudConDecision(cuerpo, boton) {
+    if (boton) {
+        boton.disabled = true;
+    }
+
+    const modalDecision = document.getElementById("bookingClienteModal");
+    if (modalDecision && window.bootstrap) {
+        bootstrap.Modal.getOrCreateInstance(modalDecision).hide();
+    }
+
+    await ejecutarAccionSolicitudPendiente("/Calendar/ConfirmarSolicitud", cuerpo, boton);
 }
 
 function bindCalendarSlotDelegation(funcionariosContainer, date, intervalo, altoSlot) {
@@ -3063,6 +3552,8 @@ async function guardarCita() {
         nombreCliente: esDescanso ? null : document.getElementById("nombreCliente").value,
         telefonoCliente: esDescanso ? null : document.getElementById("telefonoCliente").value,
         clienteId: clienteId,
+        // Intención, no conclusión: el backend vuelve a resolver el teléfono antes de crear nada.
+        registrarCliente: !esDescanso && !clienteId && shouldRegisterCliente("create"),
         servicioId: servicioId,
         esServicioPersonalizado: esPersonalizado,
         servicioNombrePersonalizado: servicioNombrePersonalizado,
@@ -3232,6 +3723,7 @@ function limpiarModalCita() {
     document.getElementById("duplicarCita").checked = false;
     document.getElementById("duplicarConfig").classList.add("d-none");
     hideClienteAutocomplete(document.getElementById("sugerenciasClientes"), nombreClienteInput);
+    resetClienteEstado("create");
 
     const fechasInput = document.getElementById("fechasDuplicadas");
 
@@ -3242,17 +3734,21 @@ function limpiarModalCita() {
     syncCreateConsentUI();
 }
 
-function showCalendarToast(title, message, durationMs = 5000) {
+// variant: "error" (por defecto, comportamiento histórico) o "success" para confirmar que una
+// operación salió bien sin convertirla en una advertencia.
+function showCalendarToast(title, message, variant = "error", durationMs = 5000) {
     const existing = document.getElementById("calendarConflictToast");
     if (existing) existing.remove();
 
+    const esExito = variant === "success";
+
     const toast = document.createElement("div");
     toast.id = "calendarConflictToast";
-    toast.className = "cal-toast cal-toast--error";
-    toast.setAttribute("role", "alert");
-    toast.setAttribute("aria-live", "assertive");
+    toast.className = `cal-toast ${esExito ? "cal-toast--success" : "cal-toast--error"}`;
+    toast.setAttribute("role", esExito ? "status" : "alert");
+    toast.setAttribute("aria-live", esExito ? "polite" : "assertive");
     toast.innerHTML = `
-        <div class="cal-toast-icon"><i class="bi bi-exclamation-triangle-fill"></i></div>
+        <div class="cal-toast-icon"><i class="bi ${esExito ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill"}"></i></div>
         <div class="cal-toast-body">
             <strong class="cal-toast-title">${escapeHtml(title)}</strong>
             <div class="cal-toast-msg">${escapeHtml(message)}</div>
@@ -3496,6 +3992,15 @@ async function editarCita(id) {
             hideClienteAutocomplete(document.getElementById("editSugerenciasClientes"), editNombreInput);
             syncEditConsentUI();
 
+            // Estado de partida coherente con lo que ya tiene la cita; si no está vinculada, se
+            // resuelve contra el servidor igual que en "Nueva cita".
+            resetClienteEstado("edit");
+            if (cita.clienteId) {
+                renderClienteEstado("edit", "registrado");
+            } else {
+                resolveClienteIdentityNow("edit");
+            }
+
         }
 
         if (cita.tipo === "DESCANSO") {
@@ -3689,6 +4194,7 @@ async function guardarEdicion() {
         data.nombreCliente = null;
         data.telefonoCliente = null;
         data.clienteId = null;
+        data.registrarCliente = false;
         data.whatsAppConsentAtCreation = false;
         data.whatsAppConsentSource = null;
         data.whatsAppConsentCapturedAtUtc = null;
@@ -3740,6 +4246,7 @@ async function guardarEdicion() {
 
         data.clienteId =
             clienteId;
+        data.registrarCliente = !clienteId && shouldRegisterCliente("edit");
         data.servicioId =
             servicioId;
         data.esServicioPersonalizado = esPersonalizado;

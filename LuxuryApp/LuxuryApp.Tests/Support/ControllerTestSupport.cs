@@ -185,14 +185,27 @@ namespace LuxuryApp.Tests.Support
         public static ICalendarCommandService CreateCalendarCommandService(
             ProyectoIdentity.Datos.ApplicationDbContext context,
             ICalendarWhatsAppNotificationService? notificationService = null,
-            IAppointmentCancellationWhatsAppService? cancellationNotificationService = null) =>
+            IAppointmentCancellationWhatsAppService? cancellationNotificationService = null,
+            LuxuryApp.Services.Clientes.IClienteIdentityService? clienteIdentityService = null) =>
             new CalendarCommandService(
                 context,
                 notificationService ?? new NoOpCalendarWhatsAppNotificationService(),
                 cancellationNotificationService ?? new NoOpAppointmentCancellationWhatsAppService(),
                 new VisitasAutomaticasService(context, BusinessDateTimeProvider),
                 CreateAvailabilityService(context),
+                clienteIdentityService ?? CreateClienteIdentityService(context),
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<CalendarCommandService>.Instance);
+
+        /// <summary>
+        /// Regla única de identidad de clientes. Se construye igual que en producción para que los
+        /// tests ejerciten exactamente la misma normalización de teléfonos que el sistema real.
+        /// </summary>
+        public static LuxuryApp.Services.Clientes.IClienteIdentityService CreateClienteIdentityService(
+            ProyectoIdentity.Datos.ApplicationDbContext context) =>
+            new LuxuryApp.Services.Clientes.ClienteIdentityService(
+                context,
+                BusinessDateTimeProvider,
+                new StaticOptionsMonitor<MetaWhatsAppOptions>(new MetaWhatsAppOptions()));
 
         /// <summary>
         /// Fuente única de disponibilidad (citas + bloqueos recurrentes). La usan el calendario y

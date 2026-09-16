@@ -501,7 +501,58 @@
     resize: vertical;
     font-family: inherit;
 }
-.rsv-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.rsv-modal-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+/* Aviso breve tras confirmar/rechazar. Sustituye los alert() nativos del navegador; mismo
+   lenguaje visual que los toasts de Calendario y Cobros, con los tokens del tema activo. */
+.rsv-toast {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    z-index: 1090;
+    display: flex;
+    align-items: flex-start;
+    gap: .6rem;
+    max-width: 360px;
+    padding: .85rem 1rem;
+    border-radius: 12px;
+    background: var(--private-surface-bg-strong, #fff);
+    color: var(--private-surface-text, #1c1c1c);
+    border: 1px solid var(--private-surface-border, rgba(15, 23, 42, .08));
+    box-shadow: var(--private-panel-shadow, 0 16px 40px rgba(15, 23, 42, .18));
+    font-size: .88rem;
+    font-weight: 600;
+    opacity: 0;
+    transform: translateY(.75rem);
+    transition: opacity .25s, transform .25s;
+    pointer-events: none;
+}
+
+.rsv-toast.is-visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.rsv-toast i { flex-shrink: 0; line-height: 1.4; }
+.rsv-toast-ok i { color: var(--private-chart-success, #16a34a); }
+.rsv-toast-ok { border-color: rgba(22, 163, 74, .32); }
+.rsv-toast-warn i { color: var(--private-chart-warning, #d97706); }
+.rsv-toast-warn { border-color: rgba(217, 119, 6, .32); }
+
+@media (max-width: 560px) {
+    .rsv-toast { left: 1rem; right: 1rem; bottom: 1rem; max-width: none; }
+}
+
+/* Elección de cliente cuando un teléfono tiene varios registrados (datos históricos). */
+.rsv-cliente-opcion {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--private-surface-border, rgba(15, 23, 42, .08));
+    border-radius: 10px;
+    background: var(--private-row-bg, rgba(255, 255, 255, .96));
+    font-size: .88rem;
+    cursor: pointer;
+}
+.rsv-cliente-opcion + .rsv-cliente-opcion { margin-top: 6px; }
+#clienteModalOpciones:empty { display: none; }
 
 @media (max-width: 768px) {
     .reservas-toolbar { padding: 1rem 1.15rem; align-items: stretch; }

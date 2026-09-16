@@ -243,6 +243,9 @@
     position: relative;
 }
 
+/* El dropdown usa EXCLUSIVAMENTE los tokens del tema privado (--private-*). Antes tenía colores
+   fijos (azul oscuro + turquesa), asi que se veia igual en todos los temas y quedaba ilegible en
+   los claros. No se crea un sistema de color nuevo: son los mismos tokens del resto de modulos. */
 .cliente-autocomplete-dropdown {
     position: absolute;
     top: calc(100% + 6px);
@@ -251,11 +254,26 @@
     z-index: 1090;
     max-height: 240px;
     overflow-y: auto;
-    background: #0f172a;
-    border: 1px solid rgba(148, 163, 184, 0.35);
-    border-radius: 8px;
-    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
+    background: var(--private-surface-bg-strong, #ffffff);
+    border: 1px solid var(--private-input-border, rgba(15, 23, 42, 0.14));
+    border-radius: 10px;
+    box-shadow: var(--private-panel-shadow, 0 16px 36px rgba(15, 23, 42, 0.18));
     padding: 6px;
+}
+
+/* Futurista premium: sus superficies son translucidas A PROPOSITO (efecto glass), y ningun tema
+   tiene un token opaco de "overlay". El modal puede permitirselo porque difumina la pagina que
+   queda detras; este dropdown, en cambio, se abre SOBRE los campos del propio formulario, asi que
+   con alpha 0.9 se alcanzaban a leer Telefono y Servicio a traves de el.
+
+   Se corrige SOLO la superficie de este componente, redefiniendo el token sobre el propio elemento
+   con el MISMO color del tema a opacidad completa (rgba(11, 18, 42, .9) -> rgb(11, 18, 42)). La
+   declaracion de arriba sigue siendo var(--private-surface-bg-strong), el token global no se toca
+   y ningun otro componente ni tema cambia. Borde, sombra, texto y accent siguen siendo los del
+   tema, por lo que conserva su identidad futurista. */
+html.surface-glass .cliente-autocomplete-dropdown,
+html[data-luxury-surface-theme="glass"] .cliente-autocomplete-dropdown {
+    --private-surface-bg-strong: rgb(11, 18, 42);
 }
 
 .cliente-autocomplete-item,
@@ -263,7 +281,7 @@
     width: 100%;
     border: 0;
     background: transparent;
-    color: #f8fafc;
+    color: var(--private-surface-text, #111827);
     text-align: left;
 }
 
@@ -271,12 +289,18 @@
     display: block;
     padding: 9px 10px;
     border-radius: 6px;
+    cursor: pointer;
 }
 
 .cliente-autocomplete-item:hover,
-.cliente-autocomplete-item:focus {
-    background: rgba(20, 184, 166, 0.16);
+.cliente-autocomplete-item:focus,
+.cliente-autocomplete-item.is-active {
+    background: rgba(var(--private-accent-rgb, 37, 99, 235), 0.14);
     outline: none;
+}
+
+.cliente-autocomplete-item:focus-visible {
+    box-shadow: 0 0 0 2px var(--private-accent-ring, rgba(37, 99, 235, 0.28));
 }
 
 .cliente-autocomplete-name {
@@ -288,28 +312,100 @@
 .cliente-autocomplete-phone {
     display: block;
     margin-top: 2px;
-    color: #cbd5e1;
+    color: var(--private-muted-text, #64748b);
     font-size: 0.88rem;
 }
 
 .cliente-autocomplete-empty {
     padding: 9px 10px;
-    color: #cbd5e1;
+    color: var(--private-muted-text, #64748b);
     font-size: 0.92rem;
 }
 
 .cliente-autocomplete-manual {
     margin-top: 4px;
     padding: 8px 10px;
-    border-top: 1px solid rgba(148, 163, 184, 0.24);
-    color: #99f6e4;
+    border-top: 1px solid var(--private-table-border, rgba(15, 23, 42, 0.08));
+    color: var(--private-chart-accent, var(--private-accent, #2563eb));
     font-weight: 600;
+    cursor: pointer;
 }
 
 .cliente-autocomplete-manual:hover,
-.cliente-autocomplete-manual:focus {
-    color: #ffffff;
-    background: rgba(15, 118, 110, 0.32);
+.cliente-autocomplete-manual:focus,
+.cliente-autocomplete-manual.is-active {
+    background: rgba(var(--private-accent-rgb, 37, 99, 235), 0.18);
     border-radius: 6px;
     outline: none;
+}
+
+/* ===============================
+   ESTADO DEL CLIENTE EN "NUEVA CITA"
+   Zona compacta bajo Teléfono. Alturas estables para que el formulario no salte.
+================================ */
+
+.cal-cliente-estado {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.45rem;
+    min-height: 1.6rem;
+    margin: 0.35rem 0 0.75rem;
+    font-size: 0.82rem;
+    line-height: 1.35;
+}
+
+/* Sin nada que decir el bloque desaparece por completo, para no dejar un hueco vacío. */
+.cal-cliente-estado.is-empty {
+    display: none;
+}
+
+.cal-cliente-estado-registrado {
+    color: var(--private-chart-success, #16a34a);
+    font-weight: 600;
+}
+
+.cal-cliente-estado-hint {
+    color: var(--private-muted-text, #64748b);
+}
+
+.cal-cliente-estado-aviso {
+    color: var(--private-chart-warning, #d97706);
+}
+
+.cal-cliente-estado .form-check {
+    margin: 0;
+    min-height: auto;
+}
+
+.cal-cliente-estado .form-check-label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--private-surface-text, #111827);
+    cursor: pointer;
+}
+
+.cal-cliente-estado-icon {
+    flex-shrink: 0;
+    line-height: 1.35;
+}
+
+/* Decisión sobre el cliente al confirmar una reserva online */
+.cal-booking-cliente-opciones:empty {
+    display: none;
+}
+
+.cal-booking-cliente-lista {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--private-surface-border, rgba(15, 23, 42, 0.08));
+    border-radius: 10px;
+    background: var(--private-row-bg, rgba(255, 255, 255, 0.96));
+}
+
+.cal-booking-cliente-lista .form-check-label {
+    font-size: 0.85rem;
+    color: var(--private-surface-text, #111827);
+    cursor: pointer;
 }

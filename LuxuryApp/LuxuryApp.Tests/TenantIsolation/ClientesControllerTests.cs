@@ -601,6 +601,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 {
                     IsEnabled = tenantWhatsAppEnabled
                 },
+                ControllerTestSupport.CreateClienteIdentityService(context),
                 NullLogger<ClientesController>.Instance);
 
             ControllerTestSupport.AttachHttpContext(

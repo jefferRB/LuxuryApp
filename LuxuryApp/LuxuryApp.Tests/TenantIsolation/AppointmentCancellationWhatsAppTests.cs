@@ -395,6 +395,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                     cancellationService,
                     new VisitasAutomaticasService(context, businessDateTimeProvider),
                     new FuncionarioAvailabilityService(context),
+                    ControllerTestSupport.CreateClienteIdentityService(context),
                     NullLogger<CalendarCommandService>.Instance);
 
                 context.Tenants.Add(new Tenant { Id = tenantId, Nombre = BusinessName });

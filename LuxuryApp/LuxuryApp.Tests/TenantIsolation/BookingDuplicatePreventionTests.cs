@@ -101,6 +101,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new HttpContextAccessor(),
                 new FakeTenantWhatsAppFeatureService { IsEnabled = true },
                 new RecordingBookingRejectionWhatsAppService(),
+                ControllerTestSupport.CreateClienteIdentityService(context),
                 NullLogger<BookingRequestService>.Instance);
 
             var r1 = await service.ConfirmAsync(solicitud.Id, null, "admin");
@@ -131,6 +132,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 new FakeTenantWhatsAppFeatureService { IsEnabled = true },
                 new NoOpNotificationService(),
                 new HttpContextAccessor(),
+                ControllerTestSupport.CreateClienteIdentityService(context),
                 NullLogger<PublicBookingService>.Instance);
         }
 

@@ -216,6 +216,26 @@
                         <input id="telefonoCliente" class="form-control">
                     </div>
 
+                    @* Estado del cliente: solo se ve una de estas líneas a la vez. La decisión la
+                       calcula el servidor (/Clientes/ResolverIdentidad); acá solo se presenta. *@
+                    <div id="clienteEstado" class="cal-cliente-estado is-empty" aria-live="polite">
+                        <span id="clienteEstadoRegistrado" class="cal-cliente-estado-registrado d-none">
+                            <i class="bi bi-check-circle-fill cal-cliente-estado-icon"></i>
+                            Este cliente ya está registrado
+                        </span>
+                        <span id="clienteEstadoSinTelefono" class="cal-cliente-estado-hint d-none">
+                            Si deseas registrar este cliente, agrega también el teléfono.
+                        </span>
+                        <span id="clienteEstadoAmbiguo" class="cal-cliente-estado-aviso d-none">
+                            <i class="bi bi-exclamation-triangle-fill cal-cliente-estado-icon"></i>
+                            Hay varios clientes con este teléfono. Elegí el correcto en las sugerencias del nombre o guardá la cita sin vincular.
+                        </span>
+                        <div id="clienteEstadoRegistrarContainer" class="form-check d-none">
+                            <input class="form-check-input" type="checkbox" id="registrarCliente" checked>
+                            <label class="form-check-label" for="registrarCliente">Registrar cliente</label>
+                        </div>
+                    </div>
+
                     <div id="clienteConsentInfo" class="small border rounded p-2 mb-2 d-none"></div>
 
                     <div id="manualConsentContainer" class="form-check mb-3 d-none">
@@ -330,6 +350,25 @@
                     <div class="mb-2">
                         <label>Teléfono</label>
                         <input class="form-control" id="editTelefonoCliente">
+                    </div>
+
+                    @* Mismo estado del cliente que en "Nueva cita": misma regla, mismos textos. *@
+                    <div id="editClienteEstado" class="cal-cliente-estado is-empty" aria-live="polite">
+                        <span id="editClienteEstadoRegistrado" class="cal-cliente-estado-registrado d-none">
+                            <i class="bi bi-check-circle-fill cal-cliente-estado-icon"></i>
+                            Este cliente ya está registrado
+                        </span>
+                        <span id="editClienteEstadoSinTelefono" class="cal-cliente-estado-hint d-none">
+                            Si deseas registrar este cliente, agrega también el teléfono.
+                        </span>
+                        <span id="editClienteEstadoAmbiguo" class="cal-cliente-estado-aviso d-none">
+                            <i class="bi bi-exclamation-triangle-fill cal-cliente-estado-icon"></i>
+                            Hay varios clientes con este teléfono. Elegí el correcto en las sugerencias del nombre o guardá la cita sin vincular.
+                        </span>
+                        <div id="editClienteEstadoRegistrarContainer" class="form-check d-none">
+                            <input class="form-check-input" type="checkbox" id="editRegistrarCliente" checked>
+                            <label class="form-check-label" for="editRegistrarCliente">Registrar cliente</label>
+                        </div>
                     </div>
 
                     <div id="editClienteConsentInfo" class="small border rounded p-2 mb-2 d-none"></div>
@@ -545,6 +584,45 @@
         </div>
     </div>
 </div>
+
+@* DECISIÓN SOBRE EL CLIENTE AL CONFIRMAR UNA RESERVA *@
+@* Solo aparece cuando el servidor dice que hace falta decidir algo (cliente nuevo, mismo teléfono *@
+@* con otro nombre, o varios clientes con ese teléfono). Si el cliente ya está identificado, la    *@
+@* confirmación sigue siendo de un solo clic.                                                     *@
+@if (Model.PuedeGestionarReservas)
+{
+    <div class="modal fade" id="bookingClienteModal" tabindex="-1" aria-labelledby="bookingClienteModalTitle" aria-modal="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content cal-modal-content">
+                <div class="modal-header cal-modal-header">
+                    <div class="d-flex align-items-center gap-3 flex-grow-1">
+                        <div class="cal-modal-icon">
+                            <i class="bi bi-person-plus"></i>
+                        </div>
+                        <h5 class="modal-title cal-modal-title" id="bookingClienteModalTitle">Cliente de la reserva</h5>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+
+                <div class="modal-body">
+                    <input type="hidden" id="bookingClienteSolicitudId" />
+                    <p id="bookingClienteMensaje" class="mb-2"></p>
+                    <div id="bookingClienteOpciones" class="cal-booking-cliente-opciones"></div>
+                </div>
+
+                <div class="modal-footer cal-modal-footer">
+                    <button type="button" class="cal-btn-secondary" data-bs-dismiss="modal">
+                        <i class="bi bi-arrow-left"></i> Volver
+                    </button>
+                    <div class="d-flex gap-2 flex-wrap justify-content-end">
+                        <button type="button" class="cal-btn-secondary" id="btnConfirmarSinVincular">Confirmar sin registrar</button>
+                        <button type="button" class="cal-btn-primary" id="btnConfirmarConCliente">Confirmar y registrar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
 @* Modal compartido de cobro rápido por cita (mismo que "Control de citas y cobros"). *@
 @await Html.PartialAsync("_RegistrarCobroModal")

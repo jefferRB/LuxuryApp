@@ -132,6 +132,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 {
                     IsEnabled = true
                 },
+                ControllerTestSupport.CreateClienteIdentityService(context),
                 NullLogger<ClientesController>.Instance);
             var result = await controller.Autocompletado("Cliente");
 
@@ -185,6 +186,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                 {
                     IsEnabled = true
                 },
+                ControllerTestSupport.CreateClienteIdentityService(context),
                 NullLogger<ClientesController>.Instance);
             var result = await controller.Autocompletado("5511");
 

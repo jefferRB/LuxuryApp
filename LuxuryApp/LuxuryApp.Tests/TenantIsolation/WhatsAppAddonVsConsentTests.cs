@@ -52,7 +52,7 @@ namespace LuxuryApp.Tests.TenantIsolation
         public async Task SinComplemento_ConfirmarNoMencionaWhatsApp()
         {
             using var fixture = await Fixture.CreateAsync(whatsAppAddonActivo: false);
-            var solicitud = await fixture.SeedSolicitudPendienteAsync();
+            var solicitud = await fixture.SeedSolicitudPendienteAsync(nombreCliente: "Andrey Vargas Mora");
 
             // Lo que devuelve el motor real cuando el tenant no tiene el paquete.
             fixture.NotificationService.NextConfirmationResult = new WhatsAppConfirmationSendResult(
@@ -64,10 +64,80 @@ namespace LuxuryApp.Tests.TenantIsolation
             var result = await fixture.Service.ConfirmAsync(solicitud.Id, null, "user-1");
 
             Assert.True(result.Success);
-            Assert.Equal("Reserva aprobada y cita creada.", result.Message);
+            // Mensaje de éxito a secas, con el nombre de la persona de la reserva.
+            Assert.Equal("Cita de Andrey agendada con éxito.", result.Message);
             Assert.DoesNotContain("WhatsApp", result.Message, StringComparison.OrdinalIgnoreCase);
             // El front solo avisa cuando hay estado de WhatsApp: null = silencio total.
             Assert.Null(result.WhatsAppStatus);
+        }
+
+        /// <summary>
+        /// El motor evalúa el consentimiento ANTES que el complemento, así que un tenant sin
+        /// WhatsApp recibe <c>ConsentMissing</c>, no <c>AddonInactive</c>. Ese era el defecto real:
+        /// se acusaba al cliente de no autorizar algo que nunca se le ofreció.
+        /// </summary>
+        [Fact]
+        public async Task SinComplemento_AunqueElMotorDigaConsentMissing_NoSeAcusaAlCliente()
+        {
+            using var fixture = await Fixture.CreateAsync(whatsAppAddonActivo: false);
+            var solicitud = await fixture.SeedSolicitudPendienteAsync(aceptaWhatsApp: false, nombreCliente: "Andrey Vargas Mora");
+
+            // Exactamente lo que devuelve el motor real en producción para este tenant.
+            fixture.NotificationService.NextConfirmationResult = new WhatsAppConfirmationSendResult(
+                WhatsAppConfirmationOutcome.Skipped,
+                "No se envió la confirmación: el cliente no autorizó mensajes de WhatsApp.",
+                WhatsAppErrorCodes.ConsentMissing,
+                WhatsAppNotificationReason.ConsentMissing);
+
+            var result = await fixture.Service.ConfirmAsync(solicitud.Id, null, "user-1");
+
+            Assert.True(result.Success);
+            Assert.Equal("Cita de Andrey agendada con éxito.", result.Message);
+            Assert.DoesNotContain("WhatsApp", result.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("autoriz", result.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Null(result.WhatsAppStatus);
+        }
+
+        /// <summary>
+        /// Sin complemento tampoco se habla de WhatsApp cuando el envío falla de verdad: para ese
+        /// negocio el envío nunca debió existir.
+        /// </summary>
+        [Fact]
+        public async Task SinComplemento_AunqueElEnvioFalle_NoSeMencionaWhatsApp()
+        {
+            using var fixture = await Fixture.CreateAsync(whatsAppAddonActivo: false);
+            var solicitud = await fixture.SeedSolicitudPendienteAsync();
+
+            fixture.NotificationService.NextConfirmationResult = new WhatsAppConfirmationSendResult(
+                WhatsAppConfirmationOutcome.Failed,
+                "No se pudo enviar la confirmación de WhatsApp.",
+                WhatsAppErrorCodes.NotConfigured,
+                WhatsAppNotificationReason.ProviderFailed);
+
+            var result = await fixture.Service.ConfirmAsync(solicitud.Id, null, "user-1");
+
+            Assert.True(result.Success);
+            Assert.DoesNotContain("WhatsApp", result.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Null(result.WhatsAppStatus);
+        }
+
+        [Fact]
+        public async Task ConComplementoYErrorDeEnvio_NoSeConfundeConFaltaDeAutorizacion()
+        {
+            using var fixture = await Fixture.CreateAsync(whatsAppAddonActivo: true);
+            var solicitud = await fixture.SeedSolicitudPendienteAsync(aceptaWhatsApp: true);
+
+            fixture.NotificationService.NextConfirmationResult = new WhatsAppConfirmationSendResult(
+                WhatsAppConfirmationOutcome.Failed,
+                "Meta rechazó el mensaje.",
+                WhatsAppErrorCodes.NotConfigured,
+                WhatsAppNotificationReason.ProviderFailed);
+
+            var result = await fixture.Service.ConfirmAsync(solicitud.Id, null, "user-1");
+
+            Assert.True(result.Success);
+            Assert.Equal("failed", result.WhatsAppStatus);
+            Assert.DoesNotContain("autoriz", result.Message, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -302,6 +372,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                     new HttpContextAccessor(),
                     featureService,
                     new RecordingBookingRejectionWhatsAppService(),
+                    ControllerTestSupport.CreateClienteIdentityService(context),
                     NullLogger<BookingRequestService>.Instance);
 
                 return new Fixture(
@@ -322,14 +393,16 @@ namespace LuxuryApp.Tests.TenantIsolation
                     cancellationNotificationService: null,
                     whatsAppFeatureService: _featureService);
 
-            public async Task<BookingRequest> SeedSolicitudPendienteAsync(bool aceptaWhatsApp = true)
+            public async Task<BookingRequest> SeedSolicitudPendienteAsync(
+                bool aceptaWhatsApp = true,
+                string nombreCliente = "Cliente Online")
             {
                 var solicitud = new BookingRequest
                 {
                     ServicioId = ServicioId,
                     FuncionarioId = FuncionarioId,
                     FuncionarioAsignadoId = FuncionarioId,
-                    NombreCliente = "Cliente Online",
+                    NombreCliente = nombreCliente,
                     TelefonoCliente = "88889999",
                     FechaHoraInicioSolicitada = new DateTime(2026, 8, 28, 10, 0, 0),
                     FechaHoraFinCalculada = new DateTime(2026, 8, 28, 10, 30, 0),

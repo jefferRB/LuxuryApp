@@ -1513,11 +1513,31 @@ html[data-luxury-surface-theme="glass"] .cal-day-modal-filter { color-scheme: da
     color: var(--private-surface-text, #1e293b);
 }
 
+/* Variante de éxito: misma superficie del tema, acento verde semántico (no es una advertencia). */
+.cal-toast--success {
+    background: var(--private-surface-bg, #fff);
+    border: 1px solid rgba(22, 163, 74, 0.28);
+    color: var(--private-surface-text, #1e293b);
+}
+
 html.surface-glass .cal-toast--error,
 html[data-luxury-surface-theme="glass"] .cal-toast--error {
     background: rgba(11, 18, 42, 0.94);
     border-color: rgba(220, 38, 38, 0.35);
     backdrop-filter: blur(18px);
+}
+
+html.surface-glass .cal-toast--success,
+html[data-luxury-surface-theme="glass"] .cal-toast--success {
+    background: rgba(11, 18, 42, 0.94);
+    border-color: rgba(22, 163, 74, 0.35);
+    backdrop-filter: blur(18px);
+}
+
+.cal-toast--success .cal-toast-icon {
+    background: rgba(22, 163, 74, 0.12);
+    border-color: rgba(22, 163, 74, 0.25);
+    color: var(--private-chart-success, #16a34a);
 }
 
 .cal-toast-icon {

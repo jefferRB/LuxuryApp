@@ -6,6 +6,7 @@ using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Calendar;
+using LuxuryApp.Services.Clientes;
 using LuxuryApp.Services.Comprobantes;
 using LuxuryApp.Services.Finanzas;
 using LuxuryApp.Services.Fiscal;
@@ -393,10 +394,50 @@ namespace LuxuryApp.Controllers.Calendar
         /// disponibilidad, hace la transición Pending → Confirmed, crea la cita, envía el
         /// WhatsApp y deja los mismos rastros.
         /// </summary>
+        /// <summary>
+        /// Estado del cliente de una solicitud pendiente, para que el calendario muestre la misma
+        /// pregunta que la pantalla de Reservas. Delega en el mismo servicio de aplicación.
+        /// </summary>
+        [HttpGet("Calendar/ClientePrevioSolicitud")]
+        [RequirePermission(AppPermissions.ReservationsManage)]
+        public async Task<IActionResult> ClientePrevioSolicitud(int id, CancellationToken cancellationToken)
+        {
+            if (id <= 0)
+            {
+                return BadRequest(new { success = false, message = "Solicitud invalida." });
+            }
+
+            var preview = await _bookingRequestService.PreviewClienteAsync(id, cancellationToken);
+
+            if (preview is null)
+            {
+                return NotFound(new { success = false, message = "La solicitud no existe o ya fue procesada." });
+            }
+
+            return Ok(new
+            {
+                success = true,
+                estado = preview.Status.ToString(),
+                puedeConfirmarDirecto = preview.PuedeConfirmarDirecto,
+                nombreReserva = preview.NombreCliente,
+                telefonoReserva = preview.TelefonoCliente,
+                coincidencias = preview.Matches.Select(m => new
+                {
+                    id = m.ClienteId,
+                    nombre = m.Nombre,
+                    telefono = m.NumeroTelefono
+                })
+            });
+        }
+
         [HttpPost("Calendar/ConfirmarSolicitud")]
         [RequirePermission(AppPermissions.ReservationsManage)]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> ConfirmarSolicitud(int id, CancellationToken cancellationToken)
+        public async Task<IActionResult> ConfirmarSolicitud(
+            int id,
+            string? clienteAccion,
+            int? clienteId,
+            CancellationToken cancellationToken)
         {
             if (id <= 0)
             {
@@ -407,6 +448,7 @@ namespace LuxuryApp.Controllers.Calendar
                 id,
                 funcionarioIdOverride: null,
                 ResolveCurrentUserId(),
+                BookingClienteChoice.Parse(clienteAccion, clienteId),
                 cancellationToken);
 
             if (result.Success)
@@ -683,6 +725,11 @@ namespace LuxuryApp.Controllers.Calendar
                 NombreCliente = vm.NombreCliente,
                 TelefonoCliente = vm.TelefonoCliente,
                 ClienteId = vm.ClienteId,
+                // El formulario solo dice si además quiere registrar al cliente. La resolución de
+                // identidad (y por tanto la decisión de crear o reutilizar) la hace el backend.
+                ClienteLinkMode = vm.RegistrarCliente
+                    ? ClienteLinkMode.Registrar
+                    : ClienteLinkMode.Automatico,
                 ServicioId = vm.ServicioId,
                 EsServicioPersonalizado = vm.EsServicioPersonalizado,
                 ServicioNombrePersonalizado = vm.ServicioNombrePersonalizado,

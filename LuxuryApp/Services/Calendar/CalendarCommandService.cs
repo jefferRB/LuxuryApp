@@ -4,6 +4,7 @@ using LuxuryApp.Models.Calendar;
 using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.Finanzas;
 using LuxuryApp.Models.WhatsApp;
+using LuxuryApp.Services.Clientes;
 using LuxuryApp.Services.Horarios;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
@@ -23,6 +24,7 @@ namespace LuxuryApp.Services.Calendar
         private readonly IAppointmentCancellationWhatsAppService _cancellationNotificationService;
         private readonly VisitasAutomaticasService _visitasAutomaticasService;
         private readonly IFuncionarioAvailabilityService _availabilityService;
+        private readonly IClienteIdentityService _clienteIdentityService;
         private readonly ILogger<CalendarCommandService> _logger;
 
         public CalendarCommandService(
@@ -31,6 +33,7 @@ namespace LuxuryApp.Services.Calendar
             IAppointmentCancellationWhatsAppService cancellationNotificationService,
             VisitasAutomaticasService visitasAutomaticasService,
             IFuncionarioAvailabilityService availabilityService,
+            IClienteIdentityService clienteIdentityService,
             ILogger<CalendarCommandService> logger)
         {
             _context = context;
@@ -38,6 +41,7 @@ namespace LuxuryApp.Services.Calendar
             _cancellationNotificationService = cancellationNotificationService;
             _visitasAutomaticasService = visitasAutomaticasService;
             _availabilityService = availabilityService;
+            _clienteIdentityService = clienteIdentityService;
             _logger = logger;
         }
 
@@ -670,6 +674,18 @@ namespace LuxuryApp.Services.Calendar
                 .SingleOrDefaultAsync(cancellationToken);
         }
 
+        /// <summary>
+        /// Resuelve a qué Cliente pertenece la cita. Es el ÚNICO lugar del sistema donde una cita
+        /// queda vinculada a un cliente (y donde nace un Cliente a partir de una cita): lo usan el
+        /// calendario y la confirmación de reservas online, así que no existen dos reglas distintas.
+        ///
+        /// <para>
+        /// El navegador puede mandar un <c>ClienteId</c> (lo que vio el usuario) y un
+        /// <c>ClienteLinkMode</c> (lo que pidió), pero la decisión final se toma acá, dentro de la
+        /// transacción que guarda la cita: si entre la comprobación del formulario y el guardado
+        /// alguien registró ese teléfono, se reutiliza ese cliente en vez de duplicarlo.
+        /// </para>
+        /// </summary>
         private async Task<ResolvedAppointmentData> ResolveAppointmentDataAsync(
             CalendarUpsertRequest request,
             CancellationToken cancellationToken)
@@ -687,34 +703,125 @@ namespace LuxuryApp.Services.Calendar
 
             if (request.ClienteId.HasValue)
             {
-                // Se carga con seguimiento (sin AsNoTracking) para poder persistir una autorización
-                // recién otorgada dentro de la MISMA transacción que guarda la cita. El filtro global
-                // por tenant garantiza que un ClienteId de otro negocio no se encuentre (→ null).
-                var cliente = await _context.Clientes
-                    .FirstOrDefaultAsync(current => current.Id == request.ClienteId.Value, cancellationToken);
+                // Cliente elegido explícitamente. El filtro global por tenant garantiza que un
+                // ClienteId de otro negocio no se encuentre (→ null): el id del navegador nunca
+                // alcanza para leer o vincular datos ajenos.
+                var clienteSeleccionado = await LoadClienteForWriteAsync(request.ClienteId.Value, cancellationToken);
 
-                if (cliente is null)
+                if (clienteSeleccionado is null)
                 {
                     throw new CalendarValidationException(
                         "El cliente seleccionado no existe o no pertenece al tenant actual.",
                         nameof(CitaCreateVM.ClienteId));
                 }
 
-                var effectiveConsent = ApplyClienteWhatsAppAuthorizationIfRequested(cliente, request);
-
-                return new ResolvedAppointmentData(
-                    NombreCliente: cliente.Nombre,
-                    TelefonoCliente: cliente.NumeroTelefono,
-                    ClienteId: cliente.Id,
-                    // El consentimiento efectivo refleja el valor persistido del cliente (ya sea el
-                    // que tenía o el recién otorgado). La decisión de envío la reevalúa el servicio
-                    // de WhatsApp releyendo el cliente, por lo que la fuente de verdad es el Cliente.
-                    WhatsAppConsentAtCreation: effectiveConsent,
-                    WhatsAppConsentSource: WhatsAppConsentSources.ClienteRegistrado,
-                    WhatsAppConsentCapturedAtUtc: DateTime.UtcNow);
+                return BuildLinkedAppointmentData(clienteSeleccionado, request, soloAutorizacionExplicita: true);
             }
 
+            if (request.ClienteLinkMode == ClienteLinkMode.SinVincular)
+            {
+                return BuildManualAppointmentData(request);
+            }
+
+            // Re-resolución autoritativa por teléfono normalizado (regla única del sistema).
+            var resolucion = await _clienteIdentityService.ResolveAsync(
+                request.NombreCliente,
+                request.TelefonoCliente,
+                cancellationToken);
+
+            if (resolucion.IsAmbiguous)
+            {
+                // Dos o más clientes con el mismo teléfono (datos históricos): NO se elige uno al
+                // azar. La cita se guarda sin vincular y el administrador puede resolverlo luego.
+                _logger.LogInformation(
+                    "Telefono con {Coincidencias} clientes registrados: la cita se guarda sin vincular.",
+                    resolucion.Matches.Count);
+
+                return BuildManualAppointmentData(request);
+            }
+
+            var coincidencia = resolucion.SingleMatch;
+
+            if (coincidencia is null && request.ClienteLinkMode == ClienteLinkMode.Registrar)
+            {
+                if (resolucion.Status == ClienteIdentityStatus.InsufficientData ||
+                    string.IsNullOrWhiteSpace(request.NombreCliente))
+                {
+                    // Sin teléfono utilizable no se registra a nadie: crear un cliente sin la señal
+                    // de identidad sería fabricar duplicados.
+                    return BuildManualAppointmentData(request);
+                }
+
+                coincidencia = await _clienteIdentityService.RegisterAsync(
+                    new ClienteRegistrationRequest(
+                        request.NombreCliente!,
+                        request.TelefonoCliente!,
+                        request.WhatsAppConsentAtCreation,
+                        request.WhatsAppConsentSource,
+                        request.WhatsAppConsentCapturedAtUtc,
+                        request.WhatsAppConsentCapturedByUserId),
+                    cancellationToken);
+            }
+
+            if (coincidencia is null)
+            {
+                return BuildManualAppointmentData(request);
+            }
+
+            var cliente = await LoadClienteForWriteAsync(coincidencia.ClienteId, cancellationToken);
+
+            return cliente is null
+                ? BuildManualAppointmentData(request)
+                : BuildLinkedAppointmentData(cliente, request, soloAutorizacionExplicita: false);
+        }
+
+        /// <summary>
+        /// Carga el cliente CON seguimiento (sin AsNoTracking) para poder persistir una autorización
+        /// recién otorgada dentro de la MISMA transacción que guarda la cita.
+        /// </summary>
+        private Task<ClientesModel?> LoadClienteForWriteAsync(int clienteId, CancellationToken cancellationToken) =>
+            _context.Clientes.FirstOrDefaultAsync(current => current.Id == clienteId, cancellationToken);
+
+        private ResolvedAppointmentData BuildLinkedAppointmentData(
+            ClientesModel cliente,
+            CalendarUpsertRequest request,
+            bool soloAutorizacionExplicita)
+        {
+            // Cuando el cliente lo resolvió el servidor (el formulario creía que no existía) y el
+            // administrador marcó la autorización de WhatsApp en la cita, esa autorización se
+            // conserva aplicándola al Cliente. De lo contrario se perdería en silencio: al haber
+            // ClienteId, la política de consentimiento solo mira el flag del cliente.
+            var otorgarAutorizacion = request.AutorizarWhatsAppAlGuardar ||
+                (!soloAutorizacionExplicita &&
+                 request.WhatsAppConsentAtCreation &&
+                 string.Equals(
+                     request.WhatsAppConsentSource,
+                     WhatsAppConsentSources.CitaManual,
+                     StringComparison.Ordinal));
+
+            var effectiveConsent = ApplyClienteWhatsAppAuthorizationIfRequested(
+                cliente,
+                request,
+                otorgarAutorizacion);
+
+            return new ResolvedAppointmentData(
+                // Datos canónicos del cliente registrado: el nombre abreviado que se escribió en la
+                // cita no reescribe el maestro ni se guarda en su lugar.
+                NombreCliente: cliente.Nombre,
+                TelefonoCliente: cliente.NumeroTelefono,
+                ClienteId: cliente.Id,
+                // El consentimiento efectivo refleja el valor persistido del cliente (ya sea el
+                // que tenía o el recién otorgado). La decisión de envío la reevalúa el servicio
+                // de WhatsApp releyendo el cliente, por lo que la fuente de verdad es el Cliente.
+                WhatsAppConsentAtCreation: effectiveConsent,
+                WhatsAppConsentSource: WhatsAppConsentSources.ClienteRegistrado,
+                WhatsAppConsentCapturedAtUtc: DateTime.UtcNow);
+        }
+
+        private static ResolvedAppointmentData BuildManualAppointmentData(CalendarUpsertRequest request)
+        {
             var consentGranted = request.WhatsAppConsentAtCreation;
+
             return new ResolvedAppointmentData(
                 NombreCliente: request.NombreCliente,
                 TelefonoCliente: request.TelefonoCliente,
@@ -737,9 +844,10 @@ namespace LuxuryApp.Services.Calendar
         //    de modo que si la cita falla, la autorización tampoco se guarda (consistencia atómica).
         private bool ApplyClienteWhatsAppAuthorizationIfRequested(
             ClientesModel cliente,
-            CalendarUpsertRequest request)
+            CalendarUpsertRequest request,
+            bool otorgarAutorizacion)
         {
-            if (!request.AutorizarWhatsAppAlGuardar ||
+            if (!otorgarAutorizacion ||
                 cliente.AceptaMensajesWhatsApp ||
                 string.IsNullOrWhiteSpace(cliente.NumeroTelefono))
             {
@@ -884,6 +992,7 @@ namespace LuxuryApp.Services.Calendar
                 ClienteId = request.ClienteId.HasValue && request.ClienteId.Value > 0
                     ? request.ClienteId.Value
                     : null,
+                ClienteLinkMode = request.ClienteLinkMode,
                 ServicioId = request.ServicioId,
                 EsServicioPersonalizado = request.EsServicioPersonalizado,
                 ServicioNombrePersonalizado = NormalizeOptionalText(request.ServicioNombrePersonalizado),

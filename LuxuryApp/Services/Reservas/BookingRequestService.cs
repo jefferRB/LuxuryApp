@@ -3,6 +3,7 @@ using LuxuryApp.Models.Reservas;
 using LuxuryApp.Models.WhatsApp;
 using LuxuryApp.Services.BusinessTime;
 using LuxuryApp.Services.Calendar;
+using LuxuryApp.Services.Clientes;
 using LuxuryApp.Services.WhatsApp;
 using Microsoft.EntityFrameworkCore;
 using ProyectoIdentity.Datos;
@@ -18,6 +19,21 @@ namespace LuxuryApp.Services.Reservas
         /// <summary>Éxito de la operación principal. WhatsApp, si aplica, se agrega aparte.</summary>
         private const string AprobacionMensajeBase = "Reserva aprobada y cita creada.";
 
+        /// <summary>
+        /// Mensaje de éxito cuando no hay nada que contar sobre WhatsApp. Nombra a la persona
+        /// porque el resultado relevante para el negocio es que esa cita quedó agendada.
+        /// </summary>
+        private static string BuildAprobacionMensaje(string? nombreCliente)
+        {
+            var primerNombre = (nombreCliente ?? string.Empty)
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .FirstOrDefault();
+
+            return string.IsNullOrWhiteSpace(primerNombre)
+                ? "Cita agendada con éxito."
+                : $"Cita de {primerNombre} agendada con éxito.";
+        }
+
         private readonly ApplicationDbContext _context;
         private readonly ICalendarCommandService _calendarCommandService;
         private readonly ICalendarWhatsAppNotificationService _notificationService;
@@ -27,6 +43,7 @@ namespace LuxuryApp.Services.Reservas
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly ITenantWhatsAppFeatureService _whatsAppFeatureService;
         private readonly IBookingRejectionWhatsAppService _rejectionNotificationService;
+        private readonly IClienteIdentityService _clienteIdentityService;
         private readonly ILogger<BookingRequestService> _logger;
 
         public BookingRequestService(
@@ -39,6 +56,7 @@ namespace LuxuryApp.Services.Reservas
             IHttpContextAccessor httpContextAccessor,
             ITenantWhatsAppFeatureService whatsAppFeatureService,
             IBookingRejectionWhatsAppService rejectionNotificationService,
+            IClienteIdentityService clienteIdentityService,
             ILogger<BookingRequestService> logger)
         {
             _context = context;
@@ -50,6 +68,7 @@ namespace LuxuryApp.Services.Reservas
             _httpContextAccessor = httpContextAccessor;
             _whatsAppFeatureService = whatsAppFeatureService;
             _rejectionNotificationService = rejectionNotificationService;
+            _clienteIdentityService = clienteIdentityService;
             _logger = logger;
         }
 
@@ -180,10 +199,44 @@ namespace LuxuryApp.Services.Reservas
                 (r.CreatedAtUtc >= desdeUtc && r.CreatedAtUtc < hastaUtc));
         }
 
+        /// <summary>
+        /// Lo que la pantalla necesita para decidir si pregunta algo antes de confirmar. Usa el
+        /// MISMO resolver de identidad que la creación de citas: no hay una segunda regla de
+        /// "este teléfono ya existe".
+        /// </summary>
+        public async Task<BookingClientePreview?> PreviewClienteAsync(
+            int requestId,
+            CancellationToken cancellationToken = default)
+        {
+            var solicitud = await _context.BookingRequests
+                .AsNoTracking()
+                .Where(r => r.Id == requestId && r.Estado == BookingRequestStates.Pending)
+                .Select(r => new { r.Id, r.NombreCliente, r.TelefonoCliente })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (solicitud is null)
+            {
+                return null;
+            }
+
+            var resolucion = await _clienteIdentityService.ResolveAsync(
+                solicitud.NombreCliente,
+                solicitud.TelefonoCliente,
+                cancellationToken);
+
+            return new BookingClientePreview(
+                solicitud.Id,
+                solicitud.NombreCliente,
+                solicitud.TelefonoCliente,
+                resolucion.Status,
+                resolucion.Matches);
+        }
+
         public async Task<BookingActionResult> ConfirmAsync(
             int requestId,
             int? funcionarioIdOverride,
             string? userId,
+            BookingClienteChoice? clienteChoice = null,
             CancellationToken cancellationToken = default)
         {
             // Lectura sin tracking: datos para validar y armar la cita. Las escrituras se hacen con
@@ -206,6 +259,31 @@ namespace LuxuryApp.Services.Reservas
             if (solicitud.Estado != BookingRequestStates.Pending)
             {
                 return BookingActionResult.Fail("Esta solicitud ya fue procesada.");
+            }
+
+            var choice = clienteChoice ?? BookingClienteChoice.Automatico;
+
+            // "Vincular cliente" se valida ANTES del claim: si el id elegido ya no corresponde a
+            // este teléfono (pantalla vieja, id inventado, cliente de otro negocio), se rechaza sin
+            // dejar la solicitud marcada como confirmada.
+            int? clienteIdExplicito = null;
+            if (choice.Decision == BookingClienteDecision.Vincular)
+            {
+                var resolucionPrevia = await _clienteIdentityService.ResolveAsync(
+                    solicitud.NombreCliente,
+                    solicitud.TelefonoCliente,
+                    cancellationToken);
+
+                var elegido = resolucionPrevia.Matches
+                    .FirstOrDefault(m => m.ClienteId == choice.ClienteId);
+
+                if (elegido is null)
+                {
+                    return BookingActionResult.Fail(
+                        "El cliente seleccionado ya no coincide con el teléfono de la reserva. Actualizá la pantalla e intentá de nuevo.");
+                }
+
+                clienteIdExplicito = elegido.ClienteId;
             }
 
             // Claim atómico Pending → Confirmed: solo un request concurrente gana (anti doble click/carrera).
@@ -252,7 +330,24 @@ namespace LuxuryApp.Services.Reservas
                     "Ese espacio acaba de dejar de estar disponible. Por favor elegí otro horario o rechazá la solicitud.");
             }
 
-            var clienteId = await ResolveClienteIdAsync(solicitud, cancellationToken);
+            // Cliente al que el administrador pidió vincular explícitamente; si no eligió, se deja
+            // que el flujo de creación de citas resuelva la identidad por teléfono. El Cliente se
+            // crea (cuando corresponde) DENTRO de la transacción que guarda la cita: si la cita
+            // falla, no queda ningún cliente huérfano.
+            var clienteIdSolicitado = clienteIdExplicito ?? await ResolveClienteIdPrevioAsync(solicitud, cancellationToken);
+            var linkMode = choice.Decision switch
+            {
+                BookingClienteDecision.Registrar => ClienteLinkMode.Registrar,
+                BookingClienteDecision.SinVincular => ClienteLinkMode.SinVincular,
+                _ => ClienteLinkMode.Automatico
+            };
+
+            if (choice.Decision is BookingClienteDecision.Registrar or BookingClienteDecision.SinVincular)
+            {
+                // El administrador decidió sobre el cliente: no se arrastra el id que la solicitud
+                // traía precargado desde el formulario público.
+                clienteIdSolicitado = null;
+            }
 
             var upsert = new CalendarUpsertRequest
             {
@@ -260,14 +355,15 @@ namespace LuxuryApp.Services.Reservas
                 ServicioId = solicitud.ServicioId,
                 FuncionarioId = resolucion.FuncionarioId.Value,
                 FechaHoraCita = solicitud.FechaHoraInicioSolicitada,
-                ClienteId = clienteId,
-                NombreCliente = clienteId.HasValue ? null : solicitud.NombreCliente,
-                TelefonoCliente = clienteId.HasValue ? null : solicitud.TelefonoCliente,
-                WhatsAppConsentAtCreation = clienteId.HasValue ? false : solicitud.AceptaWhatsApp,
-                WhatsAppConsentSource = clienteId.HasValue ? null : WhatsAppConsentSourceReserva,
-                WhatsAppConsentCapturedAtUtc = (!clienteId.HasValue && solicitud.AceptaWhatsApp)
-                    ? DateTime.UtcNow
-                    : null
+                ClienteId = clienteIdSolicitado,
+                ClienteLinkMode = linkMode,
+                // Los datos de la reserva viajan siempre: son el origen de la cita cuando no se
+                // vincula, y el nombre/teléfono con el que se registra al cliente si así se pidió.
+                NombreCliente = solicitud.NombreCliente,
+                TelefonoCliente = solicitud.TelefonoCliente,
+                WhatsAppConsentAtCreation = solicitud.AceptaWhatsApp,
+                WhatsAppConsentSource = WhatsAppConsentSourceReserva,
+                WhatsAppConsentCapturedAtUtc = solicitud.AceptaWhatsApp ? DateTime.UtcNow : null
             };
 
             CalendarAppointmentResponse citaCreada;
@@ -293,12 +389,16 @@ namespace LuxuryApp.Services.Reservas
             // Enlaza la cita creada (sin tocar Estado: ya está Confirmed por el claim). Se escribe
             // el funcionario ASIGNADO; FuncionarioId conserva lo que pidió el cliente para que la
             // administración siga distinguiendo "pidió cualquiera" de "pidió a esta persona".
+            // El ClienteId que se guarda es el que REALMENTE quedó en la cita (lo decidió el
+            // backend), no el que se había precalculado.
+            var clienteVinculadoId = citaCreada.ClienteId;
+
             await _context.BookingRequests
                 .Where(r => r.Id == requestId)
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(r => r.ConvertedCitaId, citaCreada.Id)
                     .SetProperty(r => r.FuncionarioAsignadoId, resolucion.FuncionarioId.Value)
-                    .SetProperty(r => r.ClienteId, clienteId),
+                    .SetProperty(r => r.ClienteId, clienteVinculadoId),
                     cancellationToken);
 
             // Reserva aprobada = cita confirmada: enviar YA la confirmación por WhatsApp reutilizando
@@ -322,7 +422,16 @@ namespace LuxuryApp.Services.Reservas
                     citaCreada.Id);
             }
 
-            var (mensaje, whatsAppStatus) = ComposeConfirmationMessage(whatsAppResult);
+            // Si el negocio no tiene WhatsApp disponible, el cliente jamás vio una casilla de
+            // autorización: nada de lo que diga el motor de WhatsApp es información para él.
+            var whatsAppDisponible = await _whatsAppFeatureService
+                .IsWhatsAppEnabledForCurrentTenantAsync(cancellationToken);
+
+            var (mensaje, whatsAppStatus) = ComposeConfirmationMessage(
+                whatsAppResult,
+                solicitud.NombreCliente,
+                whatsAppDisponible);
+
             return BookingActionResult.Ok(mensaje, citaCreada.Id, whatsAppStatus);
         }
 
@@ -411,9 +520,27 @@ namespace LuxuryApp.Services.Reservas
                 .ToListAsync(cancellationToken);
         }
 
+        /// <param name="whatsAppDisponible">
+        /// Si el negocio tiene WhatsApp disponible, medido con el MISMO criterio con el que el
+        /// formulario público decide mostrar la casilla de autorización
+        /// (<c>IsWhatsAppEnabledForCurrentTenantAsync</c>).
+        /// </param>
         private static (string Message, string? WhatsAppStatus) ComposeConfirmationMessage(
-            WhatsAppConfirmationSendResult? result)
+            WhatsAppConfirmationSendResult? result,
+            string nombreCliente,
+            bool whatsAppDisponible)
         {
+            var exito = BuildAprobacionMensaje(nombreCliente);
+
+            // Sin WhatsApp disponible, TODA la dimensión de WhatsApp es ruido: al cliente nunca se
+            // le ofreció autorizar, así que "no autorizó" sería falso. El motor puede devolver
+            // cualquier motivo técnico (ConsentMissing porque evalúa el consentimiento antes que el
+            // complemento, NotConfigured, etc.); ninguno es información para este negocio.
+            if (!whatsAppDisponible)
+            {
+                return (exito, null);
+            }
+
             if (result is null)
             {
                 return (
@@ -423,17 +550,17 @@ namespace LuxuryApp.Services.Reservas
 
             if (result.Reason == WhatsAppNotificationReason.ConsentMissing)
             {
-                // El cliente sí pudo autorizar y no lo hizo: es dato útil, no una advertencia.
+                // WhatsApp disponible + el cliente sí pudo autorizar y no lo hizo: es dato útil.
                 return (
                     $"{AprobacionMensajeBase} El cliente no autorizó notificaciones por WhatsApp.",
                     "skipped");
             }
 
-            // WhatsApp es un side effect opcional: si el negocio no contrató el complemento, la
-            // aprobación se informa como cualquier otra y no se menciona WhatsApp.
+            // WhatsApp es un side effect opcional: cuando no hay nada que contar sobre el envío,
+            // la aprobación se informa como cualquier otra y no se menciona WhatsApp.
             if (result.Reason.IsSilent())
             {
-                return (AprobacionMensajeBase, null);
+                return (exito, null);
             }
 
             return result.Outcome switch
@@ -470,27 +597,20 @@ namespace LuxuryApp.Services.Reservas
                     .SetProperty(r => r.ConfirmedByUserId, (string?)null),
                     cancellationToken);
 
-        private async Task<int?> ResolveClienteIdAsync(BookingRequest solicitud, CancellationToken cancellationToken)
+        /// <summary>
+        /// Cliente que la solicitud ya traía asociado desde el formulario público, si sigue
+        /// existiendo en el negocio. No vuelve a buscar por teléfono: de eso se encarga el flujo de
+        /// creación de citas con el resolver de identidad compartido.
+        /// </summary>
+        private async Task<int?> ResolveClienteIdPrevioAsync(BookingRequest solicitud, CancellationToken cancellationToken)
         {
-            // Si ya estaba asociada a un cliente y sigue existiendo, se reutiliza.
-            if (solicitud.ClienteId.HasValue)
+            if (!solicitud.ClienteId.HasValue)
             {
-                var existe = await _context.Clientes
-                    .AsNoTracking()
-                    .AnyAsync(c => c.Id == solicitud.ClienteId.Value, cancellationToken);
-
-                if (existe)
-                {
-                    return solicitud.ClienteId;
-                }
+                return null;
             }
 
-            // Reintenta por teléfono dentro del tenant.
-            return await _context.Clientes
-                .AsNoTracking()
-                .Where(c => c.NumeroTelefono == solicitud.TelefonoCliente)
-                .Select(c => (int?)c.Id)
-                .FirstOrDefaultAsync(cancellationToken);
+            var cliente = await _clienteIdentityService.FindByIdAsync(solicitud.ClienteId.Value, cancellationToken);
+            return cliente?.ClienteId;
         }
 
     }

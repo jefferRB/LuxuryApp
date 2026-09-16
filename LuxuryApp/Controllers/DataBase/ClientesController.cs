@@ -5,6 +5,7 @@ using System.Security.Claims;
 using LuxuryApp.Models.DataBase;
 using LuxuryApp.Models.WhatsApp;
 using LuxuryApp.Services.BusinessTime;
+using LuxuryApp.Services.Clientes;
 using LuxuryApp.Services.Security;
 using LuxuryApp.Services.WhatsApp;
 using Microsoft.AspNetCore.Authorization;
@@ -42,17 +43,20 @@ namespace LuxuryApp.Controllers.DataBase
         private readonly ApplicationDbContext _context;
         private readonly IBusinessDateTimeProvider _businessDateTimeProvider;
         private readonly ITenantWhatsAppFeatureService _tenantWhatsAppFeatureService;
+        private readonly IClienteIdentityService _clienteIdentityService;
         private readonly ILogger<ClientesController> _logger;
 
         public ClientesController(
             ApplicationDbContext context,
             IBusinessDateTimeProvider businessDateTimeProvider,
             ITenantWhatsAppFeatureService tenantWhatsAppFeatureService,
+            IClienteIdentityService clienteIdentityService,
             ILogger<ClientesController> logger)
         {
             _context = context;
             _businessDateTimeProvider = businessDateTimeProvider;
             _tenantWhatsAppFeatureService = tenantWhatsAppFeatureService;
+            _clienteIdentityService = clienteIdentityService;
             _logger = logger;
         }
 
@@ -696,6 +700,51 @@ namespace LuxuryApp.Controllers.DataBase
                 .ToListAsync();
 
             return Ok(clientes);
+        }
+
+        /// <summary>
+        /// Estado de identidad de un cliente a partir de lo escrito en un formulario (hoy, el de
+        /// "Nueva cita"). Es SOLO para la experiencia de usuario: al guardar, el backend vuelve a
+        /// resolver la identidad dentro de la transacción, así que este resultado nunca decide nada.
+        ///
+        /// <para>
+        /// Requiere el mismo permiso que el autocompletado (Clientes.Ver) porque devuelve datos de
+        /// la base de Clientes. No existe ninguna variante pública de esta consulta.
+        /// </para>
+        /// </summary>
+        [HttpGet]
+        public async Task<IActionResult> ResolverIdentidad(
+            string? nombre,
+            string? telefono,
+            CancellationToken cancellationToken)
+        {
+            var resolucion = await _clienteIdentityService.ResolveAsync(nombre, telefono, cancellationToken);
+
+            // El consentimiento solo es información útil si el negocio tiene WhatsApp: mismo
+            // criterio que el autocompletado, para no filtrar estado de un complemento inactivo.
+            var tenantWhatsAppEnabled = await _tenantWhatsAppFeatureService
+                .IsWhatsAppEnabledForCurrentTenantAsync(cancellationToken);
+
+            return Ok(new
+            {
+                estado = resolucion.Status.ToString(),
+                cliente = resolucion.SingleMatch is null
+                    ? null
+                    : new
+                    {
+                        id = resolucion.SingleMatch.ClienteId,
+                        nombre = resolucion.SingleMatch.Nombre,
+                        telefono = resolucion.SingleMatch.NumeroTelefono,
+                        aceptaMensajesWhatsApp = tenantWhatsAppEnabled && resolucion.SingleMatch.AceptaMensajesWhatsApp
+                    },
+                coincidencias = resolucion.Matches.Select(m => new
+                {
+                    id = m.ClienteId,
+                    nombre = m.Nombre,
+                    telefono = m.NumeroTelefono,
+                    aceptaMensajesWhatsApp = tenantWhatsAppEnabled && m.AceptaMensajesWhatsApp
+                })
+            });
         }
 
         [HttpGet]

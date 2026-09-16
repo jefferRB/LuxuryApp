@@ -480,6 +480,7 @@ namespace LuxuryApp.Tests.TenantIsolation
                     new FakeTenantWhatsAppFeatureService { IsEnabled = false },
                     new NoOpNotificationService(),
                     new HttpContextAccessor(),
+                    ControllerTestSupport.CreateClienteIdentityService(db),
                     NullLogger<PublicBookingService>.Instance);
 
                 var env = new Env(
